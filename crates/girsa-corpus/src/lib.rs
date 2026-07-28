@@ -4,9 +4,11 @@
 //! rebuildable cache (spec.md §4.1). Corrupt the cache and you rebuild it; you
 //! never lose text.
 //!
-//! Filled in by W5–W8. This is the W1 scaffold, and it exists in this shape so
-//! that a breaking change to a shared crate fails *here*, in sefer-crates CI,
-//! rather than weeks later.
+//! Filled in by W5–W8.
+
+pub mod fetch;
+pub mod segment;
+pub mod store;
 
 /// Identifies the rules a derived cache was built under.
 ///

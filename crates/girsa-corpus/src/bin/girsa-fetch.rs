@@ -1,0 +1,64 @@
+//! Fetch the Sefaria export.
+//!
+//! ```sh
+//! cargo run --release -p girsa-corpus --bin girsa-fetch -- ./corpus/sefaria
+//! ```
+//!
+//! Interrupt it whenever. Run it again and it picks up where it stopped: the
+//! plan is cached and every file already on disk at its stated size is skipped.
+//! Nothing on disk is ever half-written, so the shelves that have landed are
+//! readable while the rest is still coming.
+
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use girsa_corpus::fetch;
+
+fn main() -> ExitCode {
+    let mut args = std::env::args().skip(1);
+    let Some(root) = args.next() else {
+        eprintln!("usage: girsa-fetch <corpus-root> [threads]");
+        eprintln!();
+        eprintln!("  Fetches ~2.2 GB: Hebrew merged.json, every schema, the link CSVs.");
+        eprintln!("  Resumable — interrupt and re-run.");
+        return ExitCode::from(2);
+    };
+    let root = PathBuf::from(root);
+    let threads: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(12);
+
+    let plan = match fetch::plan(&root) {
+        Ok(plan) => plan,
+        Err(e) => {
+            eprintln!("could not work out what to fetch: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let (already, total) = fetch::landed(&root, &plan);
+    eprintln!(
+        "plan: {total} files, {:.1} GB, across {:?}",
+        plan.total_bytes() as f64 / 1_073_741_824.0,
+        fetch::sections(&plan)
+    );
+    eprintln!("on disk already: {already}");
+
+    match fetch::run(&root, &plan, threads) {
+        Ok(0) => {
+            eprintln!("complete — {total} files under {}", root.display());
+            ExitCode::SUCCESS
+        }
+        Ok(failed) => {
+            // Loudly, and with a failing exit code. A partial corpus reported as
+            // a success is how an import silently ends up missing seforim, and
+            // the whole of BUILDER.md §0.2 is what that looks like later.
+            eprintln!();
+            eprintln!("INCOMPLETE — {failed} of {total} files did not arrive.");
+            eprintln!("Re-run to retry only those; everything else is already on disk.");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("fetch failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}

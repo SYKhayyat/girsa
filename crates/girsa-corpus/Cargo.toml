@@ -15,5 +15,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+# The only network dependency in the project, and it exists for one sanctioned
+# use: pulling the corpus (spec.md §14 — offline is the product). rustls rather
+# than the system TLS stack, so a build needs no OpenSSL on any of the three
+# platforms. MIT OR Apache-2.0.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
 [lints]
 workspace = true
