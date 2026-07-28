@@ -1,0 +1,29 @@
+[package]
+name = "girsa-shell"
+version = "0.1.0"
+description = "Girsa — a Torah library that assumes you are going to write something"
+authors = ["Shaul Khayyat"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/SYKhayyat/girsa"
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+name = "girsa_shell_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The workspace one directory up. Everything this crate does beyond opening a
+# window is in there, where it can be tested without a webview.
+girsa-app = { path = "../../crates/girsa-app" }
+girsa-corpus = { path = "../../crates/girsa-corpus" }
+
+[lints.rust]
+unsafe_code = "forbid"

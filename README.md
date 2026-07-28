@@ -17,6 +17,8 @@ first. They are what shape everything else.
 ```
 Videos/
   Girsa/          this repository — the library app
+    crates/       the model: corpus, links, the workspace
+    app/          the Tauri shell — a window over the crates
   Ksav/           the writing app          github.com/SYKhayyat/ksav
   sefer-crates/   the shared contract      github.com/SYKhayyat/sefer-crates
 ```
@@ -26,10 +28,16 @@ Videos/
 | `girsa-corpus` | Storage, ingest, schemas, permanent segment IDs |
 | `girsa-search` | tantivy indices, the five modes, the relaxation ladder |
 | `girsa-link` | The typed link graph, repair, later mining |
+| `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
 
 plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
+
+`app/` is the Tauri shell: a window and thirteen commands, and **nothing that
+decides anything**. Where a pane lands, what may sit beside what, and what the
+nikud toggle takes off are all answered in `girsa-app`, because those can be
+tested and a webview cannot.
 
 **The sibling checkout has to be present.** Until `sefer-crates` is published,
 cloning Girsa alone will not build.
@@ -43,10 +51,20 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt -- --check
 ```
 
+The shell is its own cargo project — it cannot build until the frontend has
+been built into `app/dist`, and the four commands above have to stay quick:
+
+```sh
+npm --prefix app install
+npm --prefix app run build          # tsc --noEmit && vite build
+cd app/src-tauri && cargo build     # and `npm --prefix app run tauri dev` to run it
+```
+
 ## Status
 
-**Tier 0, Tier 1 and Tier 2 are done — the corpus is on the shelf and the graph
-is on top of it.** All four verify commands green in all three repositories.
+**Tier 0 through Tier 3's first order are done — the corpus is on the shelf,
+the graph is on top of it, and there is a window.** All four verify commands
+green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -58,6 +76,7 @@ is on top of it.** All four verify commands green in all three repositories.
 | **W6** · segment IDs | `girsa:mishnah-berurah/1:1#7`. One typo fix, 501 links: **line numbers moved 501, permanent ids moved 0.** |
 | **W7** · import | Sefaria spine, Otzaria fill. **7,189 works · 5,000,545 segments**, each named once and never again. Mishnah Berurah 18,120/701 and Shulchan Arukh O.C. 697/4,171 — `spec.md` §2's numbers, exactly. |
 | **W8** · links | The graph, on segment ids rather than line numbers. **4,182,344 edges** from 5,108,893 rows — 81.9%, and **92.6%** of the rows whose sefer is on the shelf at all. Every dropped row counted under why, and **nothing left ambiguous**. Mishnah Berakhot 1:1 → the Rambam on it, end to end. |
+| **W9** · the workspace | Tabs, splits, RTL, nikud toggle, per-sefer position memory — and **a commentary column that follows the text**. Berakhot open with Rashi beside it: move the Gemara to 2a:6 and the Rashi column moves to 2a:6:1. **1,718 of Berakhot's 2,749 lines have a Rashi**; on the other 1,031 the column says *אין כאן* and stays where it is. |
 
 The segments file is the load-bearing part and it is worth one line: each record
 **carries its own id**, so the file can be sorted, reordered, appended to or
@@ -130,9 +149,80 @@ Two more silent picks, found by re-running the import rather than by reading it:
   there are no collisions. It is fixed because the next import is not promised
   the same.
 
-Nothing draws a pixel yet. The shell (W9), the shelf (W10) and search (W11–W14)
-are next, and the Ksav loop (W15–W19) is the milestone that makes the project
-itself — `BUILDER.md` says to pull it as early as Tier 2 allows.
+### What keeps two columns together
+
+W9's acceptance is *scrolling the Gemara moves the Rashi column to the matching
+ref*, and the whole of it is one question asked over and over: **given a segment
+of one sefer, which segments of the other one sit against it?** There are three
+answers and the second is the one that matters.
+
+```
+At(ids)     there, and exactly where
+NoPlace     these two are related, and this line has nothing beside it
+Unrelated   nothing joins these two seforim; the column does not move
+```
+
+Rashi does not comment on every line. A column that slid to the *nearest*
+comment would show a reader Rashi on a different line — with the header still
+naming the line they are on, and nothing anywhere saying it had moved. That is
+rule 6 in the one place a reader would never think to check, so `NoPlace` exists
+and the column stays put.
+
+Two seforim follow each other only when something in the corpus says they are
+related, and **neither thing is a resemblance**:
+
+- **the corpus declares it.** Sefaria's schema for *Rashi on Berakhot* carries
+  `base_text_titles: [Berakhot]`, and 5,150 works on this shelf say something
+  like it about themselves. Once it is declared the addresses line up by
+  construction — `Rashi on Berakhot 2a:1:3` is the third comment on
+  `Berakhot 2a:1`, the base text's address with a level added — and reading that
+  off is reading, not guessing;
+- **or W8 imported an edge** between two of their segments.
+
+Anything else and the panes are left alone, even though half the corpus is
+addressed `1:1` and would line up beautifully. Guessing here is cheap to do and
+invisible when it is wrong.
+
+That declaration was not on the shelf before this order: `work.json` recorded a
+title, categories, author and era, and not the sefer a commentary is *on*.
+`girsa-import --metadata-only` re-reads the schemas and rewrites every
+`work.json` without touching the five million segments — because a shelf that
+has to be re-imported for one new field is a shelf nobody will ever add a field
+to again.
+
+### Two things the window found that the tests had not
+
+- **A segment id serialized two ways.** `SegmentId` derived its `Serialize`, so
+  it went to the window as `{"work":…,"path":…,"ordinal":…}` while every id
+  already on the page was the string `girsa:bavli/berakhot/2a:1#1`. Nothing
+  errored; the Rashi column simply never moved, because nothing could match the
+  two shapes. It is now written and read as the text it travels as, everywhere,
+  and the hand-rolled adapter that did this for one struct is gone.
+- **The corpus's text is not plain text.** Berakhot alone carries 43,890 `</i>`
+  and 747 `<b>`, and shown raw the first line of Shas reads
+  `<big><strong>מאימתי</strong></big> קורין את שמע`. Stripping the tags is the
+  other easy answer and it costs the dibur hamatchil, which is how you see where
+  one Rashi ends and the next begins. So a segment is split into **runs** — text
+  and how it is set — and the window builds elements from them. Corpus text is
+  never put into the page as markup.
+
+### What has not been checked
+
+`BUILDER.md` W9 carries a trap: *Tauri uses Edge's engine on Windows and
+Safari's on macOS. Test Hebrew-with-nikud rendering on both — a screenshot from
+one OS is not evidence.* **Only Windows has been looked at.** There is no Mac
+here, and saying the rendering is fine on one would be exactly the claim the
+trap warns about.
+
+Half of it is cheap and is wired up: `cargo run -p girsa-app --example
+dev-fixtures -- corpus app/public/dev` writes the real Gemara to static JSON and
+`npm --prefix app run dev` serves the same page, same CSS, to any browser on
+hand. That catches two engines disagreeing about where a nikud point sits. It
+does not stand in for WebKit.
+
+Nothing here searches yet. The shelf (W10) and search (W11–W14) are next, and
+the Ksav loop (W15–W19) is the milestone that makes the project itself —
+`BUILDER.md` says to pull it as early as Tier 2 allows.
 
 ### Measured against `spec.md` §2
 

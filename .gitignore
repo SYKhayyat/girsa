@@ -15,3 +15,11 @@
 
 node_modules/
 dist/
+.gstack/
+
+# The shell. `src-tauri/target` and `gen/` are build output; `public/dev` is
+# real Gemara written by `girsa-app --example dev-fixtures` so the page can be
+# looked at in a browser, and it is corpus text — see the note above.
+/app/src-tauri/target/
+/app/src-tauri/gen/
+/app/public/dev/

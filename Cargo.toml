@@ -4,7 +4,13 @@ members = [
     "crates/girsa-corpus",
     "crates/girsa-search",
     "crates/girsa-link",
+    "crates/girsa-app",
 ]
+# The Tauri shell is its own cargo project, the way `tauri` expects and the way
+# Ksav has it. It stays out of this workspace on purpose: it cannot build until
+# the frontend has been built into `app/dist`, and `cargo build --all-targets`
+# at the root is the check every work order has to keep green.
+exclude = ["app/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -18,6 +24,7 @@ authors = ["Shaul Khayyat"]
 girsa-corpus = { version = "=0.1.0", path = "crates/girsa-corpus" }
 girsa-search = { version = "=0.1.0", path = "crates/girsa-search" }
 girsa-link = { version = "=0.1.0", path = "crates/girsa-link" }
+girsa-app = { version = "=0.1.0", path = "crates/girsa-app" }
 
 # --- shared with Ksav, from the sefer-crates repository ---------------------
 #

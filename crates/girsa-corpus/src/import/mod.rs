@@ -53,9 +53,6 @@ pub enum SegmentKind {
 /// A segment as it goes to disk: its permanent name, and its words.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Segment {
-    /// Written and read as text, because that is how it travels — into Ksav
-    /// documents, into patch files, into link rows.
-    #[serde(with = "segment_id_as_text")]
     pub id: SegmentId,
     pub kind: SegmentKind,
     pub text: String,
@@ -304,25 +301,6 @@ pub fn read_back(root: &Path, slug: &str) -> Result<ImportedWork, ImportError> {
     Ok(ImportedWork { work, segments })
 }
 
-/// A [`SegmentId`] is stored as the text it travels as, not as a struct.
-///
-/// The derived representation would be three fields, and a ref inside a Ksav
-/// document is one string — writing the struct here would mean the same anchor
-/// had two shapes depending on which file it was in.
-mod segment_id_as_text {
-    use super::SegmentId;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(id: &SegmentId, s: S) -> Result<S::Ok, S::Error> {
-        s.collect_str(id)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SegmentId, D::Error> {
-        let text = String::deserialize(d)?;
-        text.parse().map_err(serde::de::Error::custom)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // A panic in a test is a failure report. The workspace denies these in
@@ -344,6 +322,7 @@ mod tests {
             era: None,
             comp_date: None,
             version: None,
+            commentary_on: Vec::new(),
         }
     }
 

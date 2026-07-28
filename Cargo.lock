@@ -48,6 +48,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "girsa-app"
+version = "0.1.0"
+dependencies = [
+ "girsa-corpus",
+ "girsa-hebrew",
+ "girsa-link",
+ "girsa-ref",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "girsa-corpus"
 version = "0.1.0"
 dependencies = [

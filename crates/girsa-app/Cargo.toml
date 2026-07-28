@@ -1,0 +1,21 @@
+[package]
+name = "girsa-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The reading workspace — shelf, panes, and what keeps two columns together"
+
+[dependencies]
+girsa-corpus.workspace = true
+girsa-ref.workspace = true
+girsa-hebrew.workspace = true
+girsa-link.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

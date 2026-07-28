@@ -419,6 +419,7 @@ mod tests {
             era: None,
             comp_date: None,
             version: None,
+            commentary_on: Vec::new(),
         }
     }
 }

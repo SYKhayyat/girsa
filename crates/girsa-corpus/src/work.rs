@@ -93,6 +93,64 @@ pub struct Work {
     /// distribute publicly later.*
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<Version>,
+    /// The seforim this one is a commentary on, as the corpus declares them.
+    ///
+    /// This is what lets W9 put Rashi in the column beside the Gemara and keep
+    /// the two together as you scroll. It is **read from the schema, not
+    /// inferred from the title**: Sefaria states `dependence: "Commentary"` and
+    /// `base_text_titles` on every one, and guessing it from `X on Y` would
+    /// attach `Rashi on Berakhot` to the Yerushalmi masechta of the same name
+    /// (BUILDER.md rule 6).
+    ///
+    /// A list rather than one, because a work can sit on more than one base and
+    /// choosing between them is not this layer's business — the pane beside you
+    /// already names which sefer it is holding.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commentary_on: Vec<BaseText>,
+}
+
+/// A sefer this work comments on, and how the two line up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BaseText {
+    /// The base work's slug. Only recorded when that work is on the shelf, so
+    /// this always names something openable.
+    pub slug: String,
+    pub mapping: Mapping,
+}
+
+/// How a commentary's addresses relate to the addresses of its base text.
+///
+/// Sefaria's `base_text_mapping`. `Rashi on Berakhot 2a:1:3` is the third
+/// comment on `Berakhot 2a:1` — the base text's address with a level added —
+/// and *many to one* is the corpus saying so.
+///
+/// It is recorded rather than acted on. What puts two panes together is the
+/// declaration itself plus the addresses the two works actually have; this says
+/// how many of one to expect per one of the other, which is a thing to tell a
+/// reader and later a thing for W24 to anchor spans with. 3,091 works say many
+/// to one, 132 say one to one, and about 2,200 more declare a base text and say
+/// nothing about the mapping — which is why nothing depends on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mapping {
+    /// Many comments to one segment of the base text — the usual case.
+    ManyToOne,
+    /// One to one.
+    OneToOne,
+    /// Declared, in terms this does not model — or not declared at all.
+    #[serde(other)]
+    Unstated,
+}
+
+impl Mapping {
+    #[must_use]
+    fn parse(raw: Option<&str>) -> Self {
+        match raw {
+            Some("many_to_one") => Self::ManyToOne,
+            Some("one_to_one") => Self::OneToOne,
+            _ => Self::Unstated,
+        }
+    }
 }
 
 /// Which edition a text is, and where it came from.
@@ -201,10 +259,11 @@ pub fn hebrew_slug_of(title: &str) -> String {
 /// last `/` and are never part of an address — and section labels take the
 /// underscore.
 ///
-/// **The hazard is still latent in `girsa-ref`**: a hyphen reaching an address
-/// level from anywhere else would misparse the same way. Not fixed here,
-/// because it is a shared crate and this is not the work order for it; recorded
-/// so it is not rediscovered the hard way.
+/// `girsa-ref` 0.2.0 fixed the misreading at its own source — a hyphen now
+/// separates two addresses only when what follows it is written entirely in
+/// numbers — so this is defence in depth rather than the fix. It stays because
+/// segment ids are permanent: an id minted today is read back in ten years by
+/// whatever the parser is then.
 #[must_use]
 pub fn section_label_of(title: &str) -> String {
     slug_with(title, '_')
@@ -284,8 +343,37 @@ impl Catalogue {
         sefaria_root: &Path,
         otzaria_root: &Path,
     ) -> Result<(Self, usize), CatalogueError> {
-        let (sefaria, skipped) = read_sefaria(sefaria_root)?;
+        let (mut sefaria, skipped, declared) = read_sefaria(sefaria_root)?;
         let otzaria = read_otzaria(otzaria_root)?;
+
+        // A declared base text is a **title**; a pane needs a slug. This is the
+        // first point at which every title on the shelf is known, so it is the
+        // only place the two can be joined — and a title naming a work that is
+        // not here is dropped, because a dangling name would look exactly like
+        // a slug and open nothing.
+        let slug_of_title: BTreeMap<&str, &str> = sefaria
+            .iter()
+            .map(|w| (w.en_title.as_str(), w.slug.as_str()))
+            .collect();
+        let resolved: Vec<Vec<BaseText>> = declared
+            .iter()
+            .map(|(titles, mapping)| {
+                titles
+                    .iter()
+                    .filter_map(|t| slug_of_title.get(t.as_str()))
+                    .map(|slug| BaseText {
+                        slug: (*slug).to_string(),
+                        mapping: *mapping,
+                    })
+                    .collect()
+            })
+            .collect();
+        for (work, bases) in sefaria.iter_mut().zip(resolved) {
+            // A work is not a commentary on itself. Sefaria has a handful that
+            // list their own title, and a pane that followed one would sit
+            // beside a second copy of what you are already reading.
+            work.commentary_on = bases.into_iter().filter(|b| b.slug != work.slug).collect();
+        }
 
         let sefaria_keys: BTreeMap<String, ()> = sefaria
             .iter()
@@ -375,7 +463,14 @@ fn io(path: &Path) -> impl Fn(std::io::Error) -> CatalogueError + '_ {
 }
 
 /// Every work Sefaria ships a schema for, whose Hebrew text also landed.
-fn read_sefaria(root: &Path) -> Result<(Vec<Work>, usize), CatalogueError> {
+///
+/// The third return is what each work *declared* about its base text, by
+/// English title, aligned with `works`. Titles rather than slugs, because a
+/// title can only be turned into a slug once every work on the shelf is known
+/// and that is one level up.
+type Declared = (Vec<String>, Mapping);
+
+fn read_sefaria(root: &Path) -> Result<(Vec<Work>, usize, Vec<Declared>), CatalogueError> {
     let schemas = root.join("schemas");
     if !schemas.is_dir() {
         return Err(CatalogueError::Missing(schemas.display().to_string()));
@@ -383,6 +478,7 @@ fn read_sefaria(root: &Path) -> Result<(Vec<Work>, usize), CatalogueError> {
     let texts = index_hebrew_texts(&root.join("json"))?;
 
     let mut works = Vec::new();
+    let mut declared: Vec<Declared> = Vec::new();
     let mut skipped = 0usize;
     let mut entries: Vec<_> = fs::read_dir(&schemas)
         .map_err(io(&schemas))?
@@ -457,9 +553,29 @@ fn read_sefaria(root: &Path) -> Result<(Vec<Work>, usize), CatalogueError> {
             // read with the text rather than here, where only the schema is
             // open.
             version: None,
+            // Filled in by `Catalogue::build`, which is the first place that
+            // knows every title on the shelf and so the first place a declared
+            // base text can be turned into a slug.
+            commentary_on: Vec::new(),
         });
+        declared.push((
+            string_list_at(schema.get("base_text_titles"), "en"),
+            Mapping::parse(schema.get("base_text_mapping").and_then(Value::as_str)),
+        ));
     }
-    Ok((works, skipped))
+    Ok((works, skipped, declared))
+}
+
+/// `[{"en": "Berakhot", "he": "ברכות"}, …]` → the values under one key.
+fn string_list_at(v: Option<&Value>, key: &str) -> Vec<String> {
+    v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|item| item.get(key).and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// `title → path of its Hebrew merged.json`.
@@ -557,6 +673,12 @@ fn read_otzaria(root: &Path) -> Result<Vec<Work>, CatalogueError> {
                     provenance: Some("https://github.com/Sivan22/otzaria-library".to_string()),
                     license: Some("Unlicense".to_string()),
                 }),
+                // Otzaria ships no schemas, so nothing here declares a base
+                // text. `קרן אורה על נדרים` is plainly a commentary on Nedarim
+                // and this leaves it unsaid rather than reading it off the
+                // title — the pane beside it is found through the link graph
+                // instead, which is a thing somebody recorded.
+                commentary_on: Vec::new(),
             });
         }
     }
@@ -667,6 +789,110 @@ mod tests {
         // they would all collide on it.
         assert_eq!(slug_of("קרן אורה על נדרים", &[]), "");
         assert_eq!(hebrew_slug_of("קרן אורה על נדרים"), "קרן-אורה-על-נדרים");
+    }
+
+    /// A Sefaria root holding just enough to be read: a schema per work, and a
+    /// Hebrew `merged.json` under the title's directory so the work counts as
+    /// one the export actually has text for.
+    fn sefaria_root(name: &str, schemas: &[(&str, serde_json::Value)]) -> PathBuf {
+        let root = std::env::temp_dir().join(name);
+        let _ = fs::remove_dir_all(&root);
+        for (title, schema) in schemas {
+            let path = root.join("schemas").join(format!("{title}.json"));
+            fs::create_dir_all(root.join("schemas")).expect("schemas dir");
+            fs::write(&path, schema.to_string()).expect("schema");
+
+            let text = root.join("json").join(title).join("Hebrew");
+            fs::create_dir_all(&text).expect("text dir");
+            fs::write(text.join("merged.json"), "{\"text\":[]}").expect("text");
+        }
+        fs::create_dir_all(root.join("otzaria/אוצריא")).expect("otzaria tree");
+        root
+    }
+
+    #[test]
+    fn a_commentary_records_the_sefer_it_sits_beside() {
+        // Two panes track each other because the corpus *says* one work is a
+        // commentary on the other — Sefaria declares `base_text_titles` and
+        // `base_text_mapping` on every commentary's schema. Without that, the
+        // only way to put Rashi beside the Gemara is to notice that one title
+        // contains the other, which is a guess (BUILDER.md rule 6) and wrong
+        // for `Rashi on Berakhot` versus `Berakhot` in the Yerushalmi.
+        let root = sefaria_root(
+            "girsa-work-basetext",
+            &[
+                (
+                    "Berakhot",
+                    serde_json::json!({
+                        "title": "Berakhot",
+                        "heTitle": "ברכות",
+                        "categories": ["Talmud", "Bavli", "Seder Zeraim"],
+                    }),
+                ),
+                (
+                    "Rashi on Berakhot",
+                    serde_json::json!({
+                        "title": "Rashi on Berakhot",
+                        "heTitle": "רש\"י על ברכות",
+                        "categories": ["Talmud", "Bavli", "Rishonim on Talmud"],
+                        "dependence": "Commentary",
+                        "base_text_titles": [{"en": "Berakhot", "he": "ברכות"}],
+                        "base_text_mapping": "many_to_one",
+                    }),
+                ),
+            ],
+        );
+
+        let (catalogue, _) =
+            Catalogue::build(&root, &root.join("otzaria")).expect("the catalogue builds");
+        let rashi = catalogue
+            .works()
+            .iter()
+            .find(|w| w.slug == "bavli/rashi-on-berakhot")
+            .expect("Rashi on Berakhot is in the catalogue");
+
+        assert_eq!(
+            rashi.commentary_on,
+            vec![BaseText {
+                slug: "bavli/berakhot".into(),
+                mapping: Mapping::ManyToOne,
+            }],
+            "the declared base text is not recorded, so nothing can put the two side by side"
+        );
+
+        // And the base text does not claim to be a commentary on itself.
+        let berakhot = catalogue
+            .works()
+            .iter()
+            .find(|w| w.slug == "bavli/berakhot")
+            .expect("Berakhot is in the catalogue");
+        assert!(berakhot.commentary_on.is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_base_text_that_is_not_on_the_shelf_is_dropped_rather_than_kept_as_a_title() {
+        // Sefaria declares base texts it has no Hebrew for. A dangling name in
+        // this field would be indistinguishable from a slug, and the pane
+        // beside you would open nothing with no way to say why.
+        let root = sefaria_root(
+            "girsa-work-basetext-missing",
+            &[(
+                "Rashi on Nowhere",
+                serde_json::json!({
+                    "title": "Rashi on Nowhere",
+                    "heTitle": "רש\"י על שומקום",
+                    "categories": ["Tanakh"],
+                    "dependence": "Commentary",
+                    "base_text_titles": [{"en": "Nowhere", "he": "שומקום"}],
+                    "base_text_mapping": "one_to_one",
+                }),
+            )],
+        );
+        let (catalogue, _) =
+            Catalogue::build(&root, &root.join("otzaria")).expect("the catalogue builds");
+        assert!(catalogue.works()[0].commentary_on.is_empty());
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

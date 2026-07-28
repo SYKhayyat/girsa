@@ -33,9 +33,17 @@ use girsa_corpus::import::{self, Counts, SegmentKind};
 use girsa_corpus::work::{Catalogue, Source, Work};
 
 fn main() -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Rebuild every work's metadata from the catalogue and leave the text
+    // alone. The segments are five million records and take an hour; the
+    // metadata is a schema field per work and takes a minute, and a shelf that
+    // has to be re-imported to learn one new fact about a sefer is a shelf
+    // nobody will ever add a field to again.
+    let metadata_only = args.iter().any(|a| a == "--metadata-only");
+    args.retain(|a| !a.starts_with("--"));
+    let mut args = args.into_iter();
     let (Some(corpus_root), Some(otzaria_root)) = (args.next(), args.next()) else {
-        eprintln!("usage: girsa-import <corpus-root> <otzaria-root>");
+        eprintln!("usage: girsa-import [--metadata-only] <corpus-root> <otzaria-root>");
         return std::process::ExitCode::from(2);
     };
     let corpus_root = PathBuf::from(corpus_root);
@@ -66,13 +74,25 @@ fn main() -> std::process::ExitCode {
         overlap.sefaria_only,
     );
 
+    if metadata_only {
+        let (rewritten, missing) = rewrite_metadata(&corpus_root, &catalogue);
+        eprintln!("\n{rewritten} works re-catalogued, {missing} not on the shelf");
+        let commentaries = catalogue
+            .works()
+            .iter()
+            .filter(|w| !w.commentary_on.is_empty())
+            .count();
+        eprintln!("{commentaries} of them say which sefer they are a commentary on");
+        return std::process::ExitCode::SUCCESS;
+    }
+
     let counts = import_all(&corpus_root, catalogue.works(), threads());
     eprintln!(
         "\n{} works · {} segments · {} headings",
         counts.works, counts.segments, counts.headings
     );
 
-    if let Err(e) = write_index(&corpus_root, &catalogue) {
+    if let Err(e) = write_index(&corpus_root, catalogue.works(), &catalogue) {
         eprintln!("could not write the work index: {e}");
         return std::process::ExitCode::FAILURE;
     }
@@ -212,11 +232,52 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Counts {
     counts.lock().map(|c| *c).unwrap_or_default()
 }
 
+/// Rewrite every work's `work.json` from the catalogue, keeping what only the
+/// text file knows.
+///
+/// The catalogue is built from the schemas, so it knows a work's title,
+/// categories, author, era and — since W9 — the sefer it is a commentary on.
+/// It does **not** know the printed edition: that is read out of the text when
+/// the text is read, so it is carried over from what is already on disk rather
+/// than being blanked by a pass that never opened a merged.json.
+///
+/// Returns how many were rewritten and how many the catalogue knows but the
+/// shelf does not.
+fn rewrite_metadata(root: &Path, catalogue: &Catalogue) -> (usize, usize) {
+    let mut merged = Vec::new();
+    let mut missing = 0usize;
+    for work in catalogue.works() {
+        let path = import::work_dir(root, &work.slug).join("work.json");
+        let Ok(existing) = std::fs::read_to_string(&path) else {
+            missing += 1;
+            continue;
+        };
+        let mut work = work.clone();
+        if let Ok(on_disk) = serde_json::from_str::<Work>(&existing) {
+            work.version = on_disk.version;
+        }
+        match serde_json::to_vec_pretty(&work) {
+            Ok(body) => {
+                if let Err(e) = std::fs::write(&path, body) {
+                    eprintln!("could not rewrite {}: {e}", work.slug);
+                    continue;
+                }
+                merged.push(work);
+            }
+            Err(e) => eprintln!("could not encode {}: {e}", work.slug),
+        }
+    }
+    if let Err(e) = write_index(root, &merged, catalogue) {
+        eprintln!("could not write the work index: {e}");
+    }
+    (merged.len(), missing)
+}
+
 /// One line per work, so the shelf and the link importer do not each have to
 /// walk the tree to find out what is on it.
-fn write_index(root: &Path, catalogue: &Catalogue) -> Result<(), std::io::Error> {
+fn write_index(root: &Path, works: &[Work], catalogue: &Catalogue) -> Result<(), std::io::Error> {
     let mut body = String::new();
-    for work in catalogue.works() {
+    for work in works {
         match serde_json::to_string(work) {
             Ok(line) => {
                 body.push_str(&line);

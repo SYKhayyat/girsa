@@ -138,11 +138,38 @@ pub enum SegmentIdError {
 ///
 /// Every correction, note, highlight, link and citation inside a Ksav document
 /// points at one of these. Editing text cannot move one.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// # One shape, everywhere
+///
+/// It is written and read as **the text it travels as**, never as its three
+/// fields. A ref inside a Ksav document is one string; a link row is one
+/// string; and an id that serialized as `{"work":…,"path":…,"ordinal":…}` in
+/// one place and as `girsa:bavli/berakhot/2a:1#1` in another is the same anchor
+/// in two shapes, which is the bug the whole crate exists to avoid — it will
+/// not compare equal to itself across the two.
+///
+/// This is not hypothetical: W9's pane sync shipped a struct-shaped id to the
+/// window for an afternoon, and the column beside the Gemara silently never
+/// moved, because nothing in the page could match it against the ids it already
+/// had.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SegmentId {
     work: String,
     path: Vec<String>,
     ordinal: Ordinal,
+}
+
+impl Serialize for SegmentId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for SegmentId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 impl SegmentId {
@@ -342,6 +369,27 @@ impl FromStr for SegmentId {
 
 #[cfg(test)]
 mod tests {
+    // A panic in a test is a failure report. The workspace denies these in
+    // library code, where a panic would take the reader's window with it.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    #[test]
+    fn an_id_is_written_down_as_the_text_it_travels_as() {
+        // Not as its three fields. Everything that holds an anchor — a link
+        // row, a Ksav document, the window's idea of where a pane is — holds
+        // the string; an id that serialized as an object somewhere would not
+        // compare equal to the same id written as text.
+        let id = SegmentId::new(
+            "bavli/berakhot",
+            vec!["2a".into(), "1".into()],
+            Ordinal::root(1),
+        );
+        let written = serde_json::to_string(&id).expect("writes");
+        assert_eq!(written, "\"girsa:bavli/berakhot/2a:1#1\"");
+        let back: SegmentId = serde_json::from_str(&written).expect("reads");
+        assert_eq!(back, id);
+    }
+
     use super::*;
 
     fn id(n: u32) -> SegmentId {
