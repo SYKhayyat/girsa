@@ -231,12 +231,21 @@ impl SegmentId {
     /// caught: after the ids are on disk and inside documents, they are
     /// permanent by definition.
     ///
-    /// **A `-` in a section name counts too**, and less obviously: `girsa-ref`
-    /// reads a hyphen in an address as the separator of a span, so
-    /// `girsa:tur/orach-chayim:240:1` reads back as a range from `orach` to
-    /// `chayim:240:1`. That is a place-shaped thing that is not a place, and it
-    /// does not error. Section labels are joined with `_` for exactly this
-    /// (see [`crate::work::section_label_of`]).
+    /// **A `-` in a section name counts too.** `girsa-ref` 0.1 read a hyphen
+    /// anywhere in an address as the separator of a span, so
+    /// `girsa:tur/orach-chayim:240:1` came back as a range from `orach` to
+    /// `chayim:240:1` — a place-shaped thing that is not a place, and no error.
+    /// That is fixed at the source in 0.2: a hyphen separates two addresses only
+    /// when both sides are addressed by number, so a hyphenated section name now
+    /// round-trips.
+    ///
+    /// The ban stays anyway, and it is not legacy. Section labels are joined
+    /// with `_` (see [`crate::work::section_label_of`]) and every id already
+    /// minted was minted that way; an id is permanent from the moment it is
+    /// written, so the character set it may use is the one thing here worth
+    /// keeping narrower than the grammar strictly requires. What changed is that
+    /// this is now defence in depth rather than the only thing standing between
+    /// the corpus and a misread address.
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
         !self.work.is_empty()

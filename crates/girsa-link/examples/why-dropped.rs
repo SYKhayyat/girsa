@@ -72,7 +72,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or("");
 
         for (citation, work_column) in [(c1, t1), (c2, t2)] {
-            let Resolved::Exact(reference) = resolver.resolve_citation(citation, work_column)
+            let Resolved::Exact(reference) =
+                resolver.resolve_citation(citation, work_column, &index)
             else {
                 continue;
             };

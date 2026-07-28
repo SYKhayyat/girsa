@@ -57,7 +57,7 @@ is on top of it.** All four verify commands green in all three repositories.
 | **W5** · fetch | 12,826 files, 3.4 GB on disk. Resumable — killed at 47%, resumed with nothing refetched. |
 | **W6** · segment IDs | `girsa:mishnah-berurah/1:1#7`. One typo fix, 501 links: **line numbers moved 501, permanent ids moved 0.** |
 | **W7** · import | Sefaria spine, Otzaria fill. **7,189 works · 5,000,545 segments**, each named once and never again. Mishnah Berurah 18,120/701 and Shulchan Arukh O.C. 697/4,171 — `spec.md` §2's numbers, exactly. |
-| **W8** · links | The graph, on segment ids rather than line numbers. **4,177,203 edges** from 5,108,893 rows — 81.8%, and **92.4%** of the rows whose sefer is on the shelf at all. Every dropped row counted under why. Mishnah Berakhot 1:1 → the Rambam on it, end to end. |
+| **W8** · links | The graph, on segment ids rather than line numbers. **4,182,344 edges** from 5,108,893 rows — 81.9%, and **92.6%** of the rows whose sefer is on the shelf at all. Every dropped row counted under why, and **nothing left ambiguous**. Mishnah Berakhot 1:1 → the Rambam on it, end to end. |
 
 The segments file is the load-bearing part and it is worth one line: each record
 **carries its own id**, so the file can be sorted, reordered, appended to or
@@ -70,12 +70,65 @@ not a measurement:
 
 | | rows | |
 |---|---|---|
-| became an edge | 4,177,203 | 81.8% |
-| the sefer is not on the shelf | 594,580 | 11.6% — Sefaria catalogues it and has no Hebrew text for it |
-| the address is not in the sefer | 323,531 | 6.3% |
-| the citation resolved to nothing | 6,289 | 0.12% |
-| still ambiguous after the row's own columns | 5,520 | 0.11% — **dropped, never picked** |
+| became an edge | 4,182,344 | 81.9% |
+| the sefer is not on the shelf | 594,660 | 11.6% — Sefaria catalogues it and has no Hebrew text for it |
+| the address is not in the sefer | 323,817 | 6.3% |
+| the citation resolved to nothing | 6,309 | 0.12% |
 | an Otzaria line that is not a segment | 1,763 | a blank line, or past the end of the file |
+| still ambiguous | **0** | and the queue for them is written down anyway |
+
+Those six lines add up to 5,108,893 exactly. They have to: a row that is not in
+one of them is a row nobody counted.
+
+### The ambiguous ones, and why there are none left
+
+There were 5,520, dropped rather than picked — a rate without a remainder, and
+worse, a question thrown away. All of them turn out to be **one word**:
+
+```
+Meilah          bavli/meilah      addressed 2a:1, 3b:4 — dafim
+                mishnah-meilah    addressed 1:1, 3:2  — perek and mishnah
+```
+
+A masechta of Gemara and a masechta of Mishnah with the same name, and 5,532
+link endpoints that say `Meilah` and nothing else. The resolver is right to
+refuse: `או"ח` means two seforim and so does this.
+
+But the **address settles it**, and reading the address is not guessing. `Meilah
+9b:3` is a place in the Bavli and is not a place in the Mishnah — the two are
+addressed in different units, so almost every citation names exactly one of
+them. 5,391 endpoints resolved that way; the rest name a place neither has, and
+are now counted as a missing address rather than as a question.
+
+The rule, stated so it can be argued with: **a candidate is eliminated only when
+the shelf can refute it** — the work is here and the address is not in it.
+A candidate whose work is *not* on the shelf is never eliminated, because
+nothing here knows what is inside a sefer it does not have, and one of those
+surviving keeps the whole thing a choice. Refuting needs evidence; an absent
+sefer is not evidence about its contents. It also inherits the address lookup's
+limits: where the lookup cannot find a real address, this reads it as a
+refutation, which is why the 5,391 is **reported next to the import rate rather
+than folded into it**.
+
+And what nothing settles is no longer only counted. `corpus/links/unsettled.jsonl`
+gets one line per citation, with every candidate and how often it came up — the
+queue W23's repair UI reads. Today it is empty, which is the right outcome and
+not a reason to delete the file: the next corpus update will not be.
+
+Two more silent picks, found by re-running the import rather than by reading it:
+
+- **The importer appended.** A run is many flushes, so each shard was opened in
+  append mode — and so a *second* run added its edges to the first one's. Twice
+  the graph, every commentary showing twice, no error. A shard is now replaced
+  the first time a run touches it and appended to after that, which is what "a
+  command someone else can run" has to mean.
+- **A filename that names two seforim kept the first.** T4 resolves an Otzaria
+  link target by filename, and `TitleIndex` held one work per key and let the
+  rest fall out — so a collision sent every link in that file into whichever
+  sefer the work index happened to list first. It now returns all of them and
+  the caller declines to choose. On today's corpus this changed **no rows**:
+  there are no collisions. It is fixed because the next import is not promised
+  the same.
 
 Nothing draws a pixel yet. The shell (W9), the shelf (W10) and search (W11–W14)
 are next, and the Ksav loop (W15–W19) is the milestone that makes the project

@@ -18,7 +18,7 @@
 //! this se'if" is the reverse direction and is answered from an index built
 //! over the shards, not from a second copy that could disagree with the first.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -71,10 +71,24 @@ impl Row {
 /// Buffered by work rather than written per edge: the graph is millions of
 /// edges over thousands of works, and opening a file per edge is the difference
 /// between an import that finishes and one that does not.
+///
+/// # Running it twice
+///
+/// A run is bounded by the buffer, not by the graph: `flush` is called many
+/// times per import, so a shard is written to more than once and cannot simply
+/// be truncated each time. But a **new** `Writer` is a new run, and appending to
+/// what the last run left would silently double every edge — a link graph twice
+/// its own size, with every commentary showing twice and no error anywhere.
+///
+/// So each shard is truncated the first time *this* writer touches it and
+/// appended to afterwards. Re-running the import is then the same as running it
+/// once, which is what "a command someone else can run" has to mean.
 #[derive(Debug, Default)]
 pub struct Writer {
     by_work: BTreeMap<String, String>,
     written: usize,
+    /// Shards this writer has already opened, and so must not truncate again.
+    opened: BTreeSet<String>,
 }
 
 impl Writer {
@@ -106,20 +120,26 @@ impl Writer {
         self.by_work.values().map(String::len).sum()
     }
 
-    /// Append everything held to disk and forget it.
+    /// Write everything held to disk and forget it.
+    ///
+    /// The first flush that touches a work **replaces** that work's shard; every
+    /// flush after it in the same run appends. See the note on [`Writer`].
     ///
     /// # Errors
     ///
-    /// If a shard cannot be created or appended to.
+    /// If a shard cannot be created or written to.
     pub fn flush(&mut self, root: &Path) -> Result<(), std::io::Error> {
         for (slug, body) in std::mem::take(&mut self.by_work) {
             let path = edges_path(root, &slug);
             if let Some(dir) = path.parent() {
                 fs::create_dir_all(dir)?;
             }
+            let first_touch = self.opened.insert(slug);
             let mut file = fs::OpenOptions::new()
                 .create(true)
-                .append(true)
+                .append(!first_touch)
+                .write(first_touch)
+                .truncate(first_touch)
                 .open(&path)?;
             file.write_all(body.as_bytes())?;
         }
@@ -207,6 +227,32 @@ mod tests {
         let back = read_back(&dir, "mishnah/berakhot").expect("reads");
         assert_eq!(back.len(), 1);
         assert_eq!(back[0], edge());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn running_the_import_twice_does_not_double_the_graph() {
+        // A run is many flushes, so a shard is appended to within a run — and
+        // appending to what the *last* run left would silently double every
+        // edge. Twice the graph, every commentary showing twice, no error.
+        let dir = std::env::temp_dir().join("girsa-link-store-rerun");
+        let _ = fs::remove_dir_all(&dir);
+
+        for _ in 0..2 {
+            let mut writer = Writer::default();
+            // Two flushes, the way a real run buffers and spills.
+            writer.push(&edge());
+            writer.flush(&dir).expect("writes");
+            writer.push(&edge());
+            writer.flush(&dir).expect("writes again");
+        }
+
+        let back = read_back(&dir, "mishnah/berakhot").expect("reads");
+        assert_eq!(
+            back.len(),
+            2,
+            "the second run replaced the first, and its own two flushes both landed"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

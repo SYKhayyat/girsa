@@ -157,26 +157,37 @@ pub fn target_title(path_2: &str) -> Option<String> {
 /// catalogue made to decide the split in the first place.
 #[derive(Debug, Clone, Default)]
 pub struct TitleIndex {
-    by_key: HashMap<String, Work>,
+    by_key: HashMap<String, Vec<Work>>,
 }
 
 impl TitleIndex {
     #[must_use]
     pub fn build(works: &[Work]) -> Self {
-        let mut by_key = HashMap::new();
+        let mut by_key: HashMap<String, Vec<Work>> = HashMap::new();
         for work in works {
             for title in [&work.he_title, &work.en_title] {
-                by_key
-                    .entry(match_key(title))
-                    .or_insert_with(|| work.clone());
+                let entry = by_key.entry(match_key(title)).or_default();
+                if !entry.iter().any(|w| w.slug == work.slug) {
+                    entry.push(work.clone());
+                }
             }
         }
         Self { by_key }
     }
 
+    /// Every work a filename could name.
+    ///
+    /// **All of them, not the first.** This kept one work per key and let the
+    /// rest fall out — a filename two seforim answer to resolved silently to
+    /// whichever the work index listed first, and every link in that file
+    /// pointed into the wrong sefer. Not a broken link: the wrong sefer, with
+    /// no error, which is the failure mode BUILDER.md rule 6 exists to prevent
+    /// and the same one the `Text N` column is read to avoid.
     #[must_use]
-    pub fn get(&self, title: &str) -> Option<&Work> {
-        self.by_key.get(&match_key(title))
+    pub fn get(&self, title: &str) -> &[Work] {
+        self.by_key
+            .get(&match_key(title))
+            .map_or(&[], Vec::as_slice)
     }
 }
 
@@ -250,9 +261,26 @@ pub fn read_file(
             tally.unknown_target_file += 1;
             continue;
         };
-        let Some(target) = titles.get(&title).cloned() else {
-            tally.unknown_target_file += 1;
-            continue;
+        let target = match titles.get(&title) {
+            [one] => one.clone(),
+            [] => {
+                tally.unknown_target_file += 1;
+                continue;
+            }
+            // Two seforim on the shelf answer to this filename. T4 says to
+            // resolve a target by its filename, and here the filename does not
+            // settle it — so it is the same question the `Text N` column
+            // usually answers, asked from the other direction, and it goes into
+            // the same queue rather than being decided by list order.
+            several => {
+                resolver.record_unsettled(
+                    &title,
+                    several.iter().map(|w| w.slug.clone()).collect(),
+                    true,
+                );
+                tally.common.ambiguous += 1;
+                continue;
+            }
         };
 
         let to = match target.source {
@@ -278,10 +306,16 @@ pub fn read_file(
                 // Grime, and it is the corpus's: these arrive with a trailing
                 // comma and doubled spaces.
                 let cleaned = he_ref.trim().trim_end_matches(',').trim();
-                match resolver.resolve_citation(cleaned, &target.he_title) {
+                match resolver.resolve_citation(cleaned, &target.he_title, index) {
                     Resolved::Exact(r) => index.resolve(&r).map(|run| run.first),
                     Resolved::Ambiguous(_) => {
                         tally.common.ambiguous += 1;
+                        continue;
+                    }
+                    // Every sefer it could be is here, and none of them has this
+                    // address. A missing address, not a question.
+                    Resolved::NoPlace => {
+                        tally.common.address_not_found += 1;
                         continue;
                     }
                     Resolved::Unresolved => {
@@ -348,10 +382,35 @@ mod tests {
         // The 5,640 shared works are on the shelf under Sefaria's slug, and an
         // Otzaria link file names them by their Hebrew filename. This is the
         // same match the catalogue made to decide the split.
-        let works = vec![Work {
-            slug: "shulchan-arukh/orach-chayim".into(),
-            he_title: "שולחן ערוך, אורח חיים".into(),
-            en_title: "Shulchan Arukh, Orach Chayim".into(),
+        let works = vec![work("shulchan-arukh/orach-chayim", "שולחן ערוך, אורח חיים")];
+        let index = TitleIndex::build(&works);
+        let found = index.get("שולחן ערוך אורח חיים");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].slug, "shulchan-arukh/orach-chayim");
+        assert!(index.get("קרן אורה על נדרים").is_empty());
+    }
+
+    #[test]
+    fn a_filename_two_seforim_answer_to_returns_both_rather_than_the_first() {
+        // T4 resolves a target by filename, and a filename is not always
+        // unique. Keeping one work per key and letting the rest fall out sent
+        // every link in that file into whichever sefer the work index happened
+        // to list first — the wrong sefer, with no error. The same guess
+        // BUILDER.md rule 6 forbids, made by a `HashMap::or_insert_with`.
+        let works = vec![
+            work("otzaria/מגן-אברהם", "מגן אברהם"),
+            work("magen-avraham", "מגן אברהם"),
+        ];
+        let index = TitleIndex::build(&works);
+        let found = index.get("מגן אברהם");
+        assert_eq!(found.len(), 2, "both, so the caller can decline to choose");
+    }
+
+    fn work(slug: &str, he_title: &str) -> Work {
+        Work {
+            slug: slug.into(),
+            he_title: he_title.into(),
+            en_title: slug.into(),
             categories: vec![],
             source: Source::Sefaria,
             origin: std::path::PathBuf::new(),
@@ -360,12 +419,6 @@ mod tests {
             era: None,
             comp_date: None,
             version: None,
-        }];
-        let index = TitleIndex::build(&works);
-        let found = index
-            .get("שולחן ערוך אורח חיים")
-            .expect("found by filename");
-        assert_eq!(found.slug, "shulchan-arukh/orach-chayim");
-        assert!(index.get("קרן אורה על נדרים").is_none());
+        }
     }
 }

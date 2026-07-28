@@ -28,7 +28,7 @@
 //! first verse would be silently wrong for a large fraction of the graph, so an
 //! endpoint is a run (see [`Anchor`]).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 
@@ -48,8 +48,12 @@ pub struct Tally {
     pub imported: usize,
     /// The citation did not name a work the lexicon knows.
     pub unresolved_citation: usize,
-    /// The citation named two or more works and Sefaria's own `Text N` column
-    /// did not say which. Never picked at random — see [`resolve_citation`].
+    /// The citation named two or more works, and neither the row's own `Text N`
+    /// column nor the shelf said which. Never picked — see
+    /// [`Resolver::resolve_citation`] — and never only counted either: each one
+    /// is written out with its candidates ([`Unsettled`]), because rule 6 says
+    /// ambiguity is surfaced as a **choice**, and a choice nobody can see is a
+    /// drop with better manners.
     pub ambiguous: usize,
     /// The citation named a work that is not on the shelf at all.
     ///
@@ -104,7 +108,38 @@ pub struct Resolver<'a> {
     /// cache: the same string can be both, and one map would let a title that
     /// resolved to nothing overwrite the record of a citation that resolved to
     /// several — turning an ambiguity into a miss in the tally.
-    works: HashMap<String, Option<String>>,
+    works: HashMap<String, Vec<String>>,
+    /// What nothing settled, kept so it can be written down.
+    unsettled: BTreeMap<String, Unsettled>,
+    /// Endpoints an ambiguity was taken off by the row's own `Text N`.
+    settled_by_column: usize,
+    /// Endpoints an ambiguity was taken off because every other candidate names
+    /// no place on the shelf. Counted apart from the column because it is the
+    /// weaker evidence of the two and its size should be visible.
+    settled_by_shelf: usize,
+}
+
+/// One citation the row's own columns and the shelf between them could not
+/// narrow to a single work.
+///
+/// A count is not enough. BUILDER.md rule 6 says ambiguity is surfaced to the
+/// reader **as a choice**, and a choice nobody can see is a drop with better
+/// manners — so every one of these is written out with its candidates, ready
+/// for the repair queue W23 builds. The import cannot ask anybody anything;
+/// what it can do is not throw the question away.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Unsettled {
+    /// The citation exactly as the CSV wrote it.
+    pub citation: String,
+    /// Every work it could equally be, as refs.
+    pub candidates: Vec<String>,
+    /// How many times this citation turned up as one end of a link. Not the
+    /// number of edges it would unlock — the other end may have failed too.
+    pub occurrences: usize,
+    /// Whether every candidate is a place that exists on the shelf. When it is
+    /// false, some candidate is a work Sefaria catalogues and has no Hebrew
+    /// text for, and the choice cannot be made from the corpus alone.
+    pub all_on_shelf: bool,
 }
 
 impl<'a> Resolver<'a> {
@@ -115,7 +150,18 @@ impl<'a> Resolver<'a> {
             cache: HashMap::new(),
             ambiguous: HashMap::new(),
             works: HashMap::new(),
+            unsettled: BTreeMap::new(),
+            settled_by_column: 0,
+            settled_by_shelf: 0,
         }
+    }
+
+    /// How many ambiguous endpoints each kind of evidence took off, so the
+    /// narrowing is a reported number rather than an invisible improvement to
+    /// the import rate.
+    #[must_use]
+    pub fn settled(&self) -> (usize, usize) {
+        (self.settled_by_column, self.settled_by_shelf)
     }
 
     /// The slug a bare work title names, if exactly one work goes by it.
@@ -124,21 +170,82 @@ impl<'a> Resolver<'a> {
     /// reason: T4 says to resolve an Otzaria link target **by filename**, and a
     /// filename is a bare title.
     pub fn work_slug_of(&mut self, title: &str) -> Option<String> {
-        self.work_slug(title)
+        match self.work_slugs(title) {
+            slugs if slugs.len() == 1 => slugs.into_iter().next(),
+            _ => None,
+        }
     }
 
-    /// Resolve a citation, using Sefaria's own work column to settle a tie.
+    /// Record an ambiguity that did not come from a citation.
+    ///
+    /// The Otzaria half asks the same question from the other direction — T4
+    /// resolves a link target **by filename**, and a filename two seforim
+    /// answer to settles nothing either. One queue, because it is one question:
+    /// *which sefer did this mean?*
+    pub fn record_unsettled(&mut self, key: &str, candidates: Vec<String>, all_on_shelf: bool) {
+        let entry = self
+            .unsettled
+            .entry(key.to_string())
+            .or_insert_with(|| Unsettled {
+                citation: key.to_string(),
+                candidates,
+                occurrences: 0,
+                all_on_shelf,
+            });
+        entry.occurrences += 1;
+    }
+
+    /// Every ambiguity that survived, worst first.
+    pub fn unsettled(&self) -> Vec<&Unsettled> {
+        let mut out: Vec<&Unsettled> = self.unsettled.values().collect();
+        out.sort_by(|a, b| {
+            b.occurrences
+                .cmp(&a.occurrences)
+                .then(a.citation.cmp(&b.citation))
+        });
+        out
+    }
+
+    /// Resolve a citation, narrowing it by everything the row and the corpus
+    /// already say — and by nothing else.
     ///
     /// `או"ח` is Orach Chayim in the Shulchan Arukh *and* in the Tur, and
-    /// `girsa-ref` returns both rather than choosing — BUILDER.md rule 6. Here
-    /// there is a third party who knows: the CSV's `Text N` column names the
-    /// work the citation came from, separately from the citation itself. Using
-    /// it is not a guess, it is reading the other column.
+    /// `girsa-ref` returns both rather than choosing — BUILDER.md rule 6. Two
+    /// things narrow that without anybody guessing:
     ///
-    /// When that column does not settle it either, the row is counted as
-    /// ambiguous and **dropped**. An edge is followed by a reader who is not
-    /// asked anything, so an ambiguous link is a wrong link half the time.
-    pub fn resolve_citation(&mut self, citation: &str, work_column: &str) -> Resolved {
+    /// 1. **The row's own `Text N` column**, which names the work the citation
+    ///    came from separately from the citation itself. Using it is not a
+    ///    guess, it is reading the other column. It narrows even when it is
+    ///    *itself* ambiguous: a column meaning either of two seforim, against a
+    ///    citation meaning either of two others, can still leave exactly one in
+    ///    common.
+    /// 2. **The shelf.** A candidate whose work is here and whose address is
+    ///    not in it is not a place — the citation cannot have meant it. This is
+    ///    elimination, not selection, and it is the same rule
+    ///    [`girsa_corpus::index`] already applies to a section name that might
+    ///    be two levels: *accepted only if exactly one of them is a real
+    ///    address in that work*.
+    ///
+    ///    A candidate whose work is **not** on the shelf cannot be eliminated
+    ///    this way — nothing here knows what is inside a sefer it does not
+    ///    have — so one of those surviving keeps the whole thing a choice. That
+    ///    asymmetry is the point: refuting a candidate needs evidence, and
+    ///    absence of a sefer is not evidence about its contents.
+    ///
+    ///    It inherits the address lookup's own limits, and honestly: where the
+    ///    lookup cannot find a real address, this reads it as a refutation. That
+    ///    is why rows settled this way are counted separately in the [`Tally`]
+    ///    rather than folded into the import rate.
+    ///
+    /// What neither settles is counted, **dropped, and written down** — see
+    /// [`Unsettled`]. An edge is followed by a reader who is not asked
+    /// anything, so an ambiguous link is a wrong link half the time.
+    pub fn resolve_citation(
+        &mut self,
+        citation: &str,
+        work_column: &str,
+        index: &SegmentIndex,
+    ) -> Resolved {
         let citation = citation.trim();
         if citation.is_empty() {
             return Resolved::Unresolved;
@@ -147,7 +254,9 @@ impl<'a> Resolver<'a> {
             return match cached {
                 Some(r) => Resolved::Exact(r.clone()),
                 None => match self.ambiguous.get(citation) {
-                    Some(candidates) => self.settle(candidates.clone(), work_column),
+                    Some(candidates) => {
+                        self.settle(citation, candidates.clone(), work_column, index)
+                    }
                     None => Resolved::Unresolved,
                 },
             };
@@ -163,7 +272,7 @@ impl<'a> Resolver<'a> {
                 self.cache.insert(citation.to_string(), None);
                 self.ambiguous
                     .insert(citation.to_string(), candidates.clone());
-                self.settle(candidates, work_column)
+                self.settle(citation, candidates, work_column, index)
             }
             Resolution::Unresolved => {
                 self.cache.insert(citation.to_string(), None);
@@ -172,45 +281,111 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Narrow candidates using the work named in the row's own `Text N`.
-    fn settle(&mut self, candidates: Vec<Ref>, work_column: &str) -> Resolved {
-        let work_column = work_column.trim();
-        if !work_column.is_empty() {
-            if let Some(slug) = self.work_slug(work_column) {
-                let mut matching: Vec<Ref> = candidates
-                    .iter()
-                    .filter(|r| r.work_slug() == slug)
-                    .cloned()
-                    .collect();
-                if matching.len() == 1 {
-                    return Resolved::Exact(matching.remove(0));
+    /// Narrow candidates by the row's own `Text N` and then by the shelf.
+    fn settle(
+        &mut self,
+        citation: &str,
+        candidates: Vec<Ref>,
+        work_column: &str,
+        index: &SegmentIndex,
+    ) -> Resolved {
+        let mut candidates = self.narrow_by_column(candidates, work_column);
+        if candidates.len() == 1 {
+            self.settled_by_column += 1;
+            return Resolved::Exact(candidates.remove(0));
+        }
+
+        // Elimination by the shelf. Three outcomes per candidate, and the
+        // difference between the last two is the whole safety of this step.
+        let mut real: Vec<Ref> = Vec::new();
+        let mut unknown: Vec<Ref> = Vec::new();
+        for candidate in candidates {
+            if index.resolve(&candidate).is_some() {
+                real.push(candidate);
+            } else if !index.has_work(&candidate.work_slug()) {
+                unknown.push(candidate);
+            }
+            // Otherwise: on the shelf, and this address is not in it. Refuted.
+        }
+
+        if unknown.is_empty() {
+            match real.len() {
+                // Every candidate refuted. Not an ambiguity — there is no place
+                // here at all, and saying "ambiguous" would blame the reader
+                // for a citation that names nothing.
+                0 => return Resolved::NoPlace,
+                1 => {
+                    self.settled_by_shelf += 1;
+                    return Resolved::Exact(real.remove(0));
                 }
+                _ => {}
             }
         }
-        Resolved::Ambiguous(candidates.len())
+
+        real.extend(unknown);
+        let all_on_shelf = real.iter().all(|r| index.has_work(&r.work_slug()));
+        self.record_unsettled(
+            citation,
+            real.iter().map(ToString::to_string).collect(),
+            all_on_shelf,
+        );
+        Resolved::Ambiguous(real)
     }
 
-    /// The slug for a bare work title, cached.
-    fn work_slug(&mut self, title: &str) -> Option<String> {
+    /// Keep only the candidates the row's own work column also allows.
+    ///
+    /// An intersection rather than a match, so a column that is itself
+    /// ambiguous still narrows. A column naming nothing in the candidate set
+    /// says nothing about it, and the set comes back untouched.
+    fn narrow_by_column(&mut self, candidates: Vec<Ref>, work_column: &str) -> Vec<Ref> {
+        let work_column = work_column.trim();
+        if work_column.is_empty() {
+            return candidates;
+        }
+        let allowed = self.work_slugs(work_column);
+        if allowed.is_empty() {
+            return candidates;
+        }
+        let narrowed: Vec<Ref> = candidates
+            .iter()
+            .filter(|r| allowed.contains(&r.work_slug()))
+            .cloned()
+            .collect();
+        if narrowed.is_empty() {
+            candidates
+        } else {
+            narrowed
+        }
+    }
+
+    /// Every work a bare title could name, cached.
+    fn work_slugs(&mut self, title: &str) -> Vec<String> {
         if let Some(cached) = self.works.get(title) {
             return cached.clone();
         }
-        let slug = match girsa_ref::resolve(self.lexicon, title) {
-            Resolution::Exact(r) => Some(r.work_slug()),
-            // A bare title that is itself ambiguous settles nothing.
-            _ => None,
-        };
-        self.works.insert(title.to_string(), slug.clone());
-        slug
+        let mut slugs: Vec<String> = girsa_ref::resolve(self.lexicon, title)
+            .candidates()
+            .iter()
+            .map(Ref::work_slug)
+            .collect();
+        slugs.sort();
+        slugs.dedup();
+        self.works.insert(title.to_string(), slugs.clone());
+        slugs
     }
 }
 
-/// What a citation turned out to be, once the row's own columns were used.
+/// What a citation turned out to be, once the row's own columns and the shelf
+/// were used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolved {
     Exact(Ref),
-    /// Still several works after `Text N` was consulted. Counted, dropped.
-    Ambiguous(usize),
+    /// Still several works. Counted, dropped, and written down as a choice
+    /// nobody was here to make — see [`Unsettled`].
+    Ambiguous(Vec<Ref>),
+    /// Every candidate was a work on the shelf that does not contain this
+    /// address. A different fact from an ambiguity, and reported as one.
+    NoPlace,
     Unresolved,
 }
 
@@ -261,14 +436,20 @@ pub fn read_file(
             .map(String::as_str)
             .unwrap_or("");
 
-        let from = resolver.resolve_citation(citation_1, text_1);
-        let to = resolver.resolve_citation(citation_2, text_2);
+        let from = resolver.resolve_citation(citation_1, text_1, index);
+        let to = resolver.resolve_citation(citation_2, text_2, index);
 
         let (Resolved::Exact(from), Resolved::Exact(to)) = (&from, &to) else {
-            if matches!(from, Resolved::Ambiguous(_)) || matches!(to, Resolved::Ambiguous(_)) {
-                tally.ambiguous += 1;
-            } else {
+            // Most specific fact first. A citation that named nothing at all is
+            // a different problem from one that named two seforim, and one that
+            // named seforim none of which contains the address is a third —
+            // lumping any two of them together hides which it was.
+            if matches!(from, Resolved::Unresolved) || matches!(to, Resolved::Unresolved) {
                 tally.unresolved_citation += 1;
+            } else if matches!(from, Resolved::NoPlace) || matches!(to, Resolved::NoPlace) {
+                tally.address_not_found += 1;
+            } else {
+                tally.ambiguous += 1;
             }
             continue;
         };
@@ -330,7 +511,67 @@ mod tests {
             },
             &["Tur, Orach Chayim", "או\"ח"],
         );
+        // A third sefer that also answers to או"ח, so a `Text N` column which is
+        // itself ambiguous still has something to narrow.
+        lex.add(
+            Work {
+                slug: "levush/orach-chayim".into(),
+                he_title: "לבוש, אורח חיים".into(),
+                en_title: "Levush, Orach Chayim".into(),
+            },
+            &["Levush, Orach Chayim", "או\"ח"],
+        );
+        // Written out, `אורח חיים` is the Tur's volume and also the Mishnah
+        // Berurah's — but not the Shulchan Arukh's or the Levush's, which is
+        // what makes it able to narrow without settling on its own.
+        lex.add(
+            Work {
+                slug: "mishnah-berurah".into(),
+                he_title: "משנה ברורה".into(),
+                en_title: "Mishnah Berurah".into(),
+            },
+            &["Mishnah Berurah", "אורח חיים"],
+        );
+        lex.add(
+            Work {
+                slug: "tur/orach-chayim".into(),
+                he_title: "טור, אורח חיים".into(),
+                en_title: "Tur, Orach Chayim".into(),
+            },
+            &["אורח חיים"],
+        );
         lex
+    }
+
+    /// A shelf holding the two Orach Chayims, each with the simanim it has.
+    ///
+    /// The Shulchan Arukh's O.C. runs to 697 simanim and the Tur's to 5 here,
+    /// which is enough to make the two disagree about whether a given siman is
+    /// a place.
+    fn shelf(works: &[(&str, u32)]) -> SegmentIndex {
+        use girsa_corpus::index::WorkSegments;
+        use girsa_corpus::segment::Ordinal;
+
+        let mut index = SegmentIndex::default();
+        for (slug, simanim) in works {
+            let paths: Vec<(Vec<String>, Ordinal)> = (1..=*simanim)
+                .map(|n| (vec![n.to_string()], Ordinal::root(n)))
+                .collect();
+            index.insert(
+                *slug,
+                WorkSegments::from_segments(paths.iter().map(|(p, o)| (p.as_slice(), o))),
+            );
+        }
+        index
+    }
+
+    /// Both Orach Chayims present, both deep enough to contain siman 1.
+    fn both_on_the_shelf() -> SegmentIndex {
+        shelf(&[
+            ("shulchan-arukh/orach-chayim", 10),
+            ("tur/orach-chayim", 10),
+            ("levush/orach-chayim", 10),
+        ])
     }
 
     #[test]
@@ -339,8 +580,9 @@ mod tests {
         // resolver is right to refuse to choose. The row itself says which,
         // in a different column, and reading it is not a guess.
         let lexicon = lexicon();
+        let index = both_on_the_shelf();
         let mut resolver = Resolver::new(&lexicon);
-        let settled = resolver.resolve_citation("או\"ח א'", "Tur, Orach Chayim");
+        let settled = resolver.resolve_citation("או\"ח א'", "Tur, Orach Chayim", &index);
         assert_eq!(
             settled,
             Resolved::Exact("girsa:tur/orach-chayim/1".parse().expect("parses"))
@@ -348,28 +590,131 @@ mod tests {
     }
 
     #[test]
-    fn an_ambiguity_the_row_does_not_settle_is_dropped_and_not_picked() {
+    fn a_work_column_that_is_itself_ambiguous_still_narrows() {
+        // Sefaria's `Text N` is a title, and a title can be ambiguous too —
+        // which the first version read as "settles nothing" and threw away. A
+        // column meaning either of three seforim, against a citation meaning
+        // either of two, leaves exactly one in common. Intersecting two sets is
+        // not a guess; taking the first of them would be.
+        let lexicon = lexicon();
+        let index = both_on_the_shelf();
+        let mut resolver = Resolver::new(&lexicon);
+
+        // `או"ח` is three seforim. `אורח חיים` is two, and only one of them is
+        // in the first set. Neither column nor citation says which alone.
+        let settled = resolver.resolve_citation("או\"ח א'", "אורח חיים", &index);
+        assert_eq!(
+            settled,
+            Resolved::Exact("girsa:tur/orach-chayim/1".parse().expect("parses")),
+        );
+        assert_eq!(
+            resolver.settled(),
+            (1, 0),
+            "the column's doing, not the shelf's"
+        );
+    }
+
+    #[test]
+    fn a_candidate_that_names_no_place_on_the_shelf_is_not_a_candidate() {
+        // The Tur's Orach Chayim here stops at siman 5. A citation to siman 9
+        // cannot have meant it: that is not a choice between two places, it is
+        // one place and one thing that is not a place. Eliminating it is the
+        // rule girsa_corpus::index already applies to a section name that might
+        // be two levels.
+        let lexicon = lexicon();
+        let index = shelf(&[
+            ("shulchan-arukh/orach-chayim", 20),
+            ("tur/orach-chayim", 5),
+            ("levush/orach-chayim", 5),
+        ]);
+        let mut resolver = Resolver::new(&lexicon);
+        assert_eq!(
+            resolver.resolve_citation("או\"ח ט'", "", &index),
+            Resolved::Exact(
+                "girsa:shulchan-arukh/orach-chayim/9"
+                    .parse()
+                    .expect("parses")
+            )
+        );
+        assert_eq!(resolver.settled(), (0, 1), "counted as the shelf's doing");
+    }
+
+    #[test]
+    fn a_candidate_that_is_not_on_the_shelf_cannot_be_ruled_out() {
+        // The asymmetry that makes the step above safe. Nothing here knows what
+        // is inside a sefer the shelf does not have — Sefaria catalogues 387
+        // works it ships no Hebrew text for — so "we do not have it" is not
+        // evidence that the citation did not mean it. One of those surviving
+        // keeps the whole thing a choice.
+        let lexicon = lexicon();
+        let index = shelf(&[("shulchan-arukh/orach-chayim", 20)]);
+        let mut resolver = Resolver::new(&lexicon);
+        let r = resolver.resolve_citation("או\"ח ט'", "", &index);
+        assert!(
+            matches!(&r, Resolved::Ambiguous(candidates) if candidates.len() == 3),
+            "{r:?}"
+        );
+        assert_eq!(resolver.settled(), (0, 0));
+    }
+
+    #[test]
+    fn a_citation_no_candidate_contains_is_a_missing_address_not_an_ambiguity() {
+        // Every candidate on the shelf and none of them holding siman 99. There
+        // is nothing to choose between, and calling it ambiguous would report a
+        // question where there is only an absence.
+        let lexicon = lexicon();
+        let index = both_on_the_shelf();
+        let mut resolver = Resolver::new(&lexicon);
+        assert_eq!(
+            resolver.resolve_citation("או\"ח צ\"ט", "", &index),
+            Resolved::NoPlace
+        );
+    }
+
+    #[test]
+    fn an_ambiguity_nothing_settles_is_dropped_and_written_down() {
         // BUILDER.md rule 6. An edge is followed by a reader who is never asked
         // anything, so an ambiguous link is a wrong link half the time — and a
         // wrong link does not look wrong.
+        //
+        // But rule 6 says ambiguity is surfaced **as a choice**, and a choice
+        // nobody can see is a drop with better manners. So it is also recorded:
+        // the citation, every candidate, and how often it came up.
         let lexicon = lexicon();
+        let index = both_on_the_shelf();
         let mut resolver = Resolver::new(&lexicon);
+        for column in ["", "Something Else Entirely"] {
+            let r = resolver.resolve_citation("או\"ח א'", column, &index);
+            assert!(
+                matches!(&r, Resolved::Ambiguous(candidates) if candidates.len() == 3),
+                "{column:?} -> {r:?}"
+            );
+        }
+
+        let unsettled = resolver.unsettled();
+        assert_eq!(unsettled.len(), 1);
+        assert_eq!(unsettled[0].citation, "או\"ח א'");
+        assert_eq!(unsettled[0].occurrences, 2);
+        assert!(unsettled[0].all_on_shelf);
+        let mut candidates = unsettled[0].candidates.clone();
+        candidates.sort();
         assert_eq!(
-            resolver.resolve_citation("או\"ח א'", ""),
-            Resolved::Ambiguous(2)
-        );
-        assert_eq!(
-            resolver.resolve_citation("או\"ח א'", "Something Else Entirely"),
-            Resolved::Ambiguous(2)
+            candidates,
+            [
+                "girsa:levush/orach-chayim/1",
+                "girsa:shulchan-arukh/orach-chayim/1",
+                "girsa:tur/orach-chayim/1",
+            ]
         );
     }
 
     #[test]
     fn an_unknown_sefer_is_unresolved_rather_than_the_nearest_match() {
         let lexicon = lexicon();
+        let index = both_on_the_shelf();
         let mut resolver = Resolver::new(&lexicon);
         assert_eq!(
-            resolver.resolve_citation("Keren Orah on Nedarim 2a", "Keren Orah"),
+            resolver.resolve_citation("Keren Orah on Nedarim 2a", "Keren Orah", &index),
             Resolved::Unresolved
         );
     }
@@ -377,22 +722,23 @@ mod tests {
     #[test]
     fn the_cache_answers_the_same_citation_the_same_way() {
         let lexicon = lexicon();
+        let index = both_on_the_shelf();
         let mut resolver = Resolver::new(&lexicon);
-        let first = resolver.resolve_citation("Shulchan Arukh, Orach Chayim 1:1", "");
-        let again = resolver.resolve_citation("Shulchan Arukh, Orach Chayim 1:1", "");
+        let first = resolver.resolve_citation("Shulchan Arukh, Orach Chayim 1:1", "", &index);
+        let again = resolver.resolve_citation("Shulchan Arukh, Orach Chayim 1:1", "", &index);
         assert_eq!(first, again);
         assert!(matches!(first, Resolved::Exact(_)));
 
         // And an ambiguous one stays ambiguous, rather than the cache turning
         // it into a miss on the second visit.
-        let a = resolver.resolve_citation("או\"ח א'", "");
-        let b = resolver.resolve_citation("או\"ח א'", "");
+        let a = resolver.resolve_citation("או\"ח א'", "", &index);
+        let b = resolver.resolve_citation("או\"ח א'", "", &index);
         assert_eq!(a, b);
-        assert_eq!(a, Resolved::Ambiguous(2));
+        assert!(matches!(a, Resolved::Ambiguous(_)));
 
         // …and still settles when the row says which.
         assert!(matches!(
-            resolver.resolve_citation("או\"ח א'", "Tur, Orach Chayim"),
+            resolver.resolve_citation("או\"ח א'", "Tur, Orach Chayim", &index),
             Resolved::Exact(_)
         ));
     }

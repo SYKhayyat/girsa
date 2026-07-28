@@ -20,6 +20,7 @@
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::index::SegmentIndex;
@@ -107,10 +108,47 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
 
-    report(sefaria, otzaria)
+    let unsettled = match write_unsettled(&corpus_root, &resolver) {
+        Ok(n) => n,
+        Err(e) => {
+            // Loud, and fatal. The whole point of the file is that an ambiguity
+            // is not thrown away; a run that dropped 5,000 of them and could not
+            // write the list has thrown them away and must not look successful.
+            eprintln!("could not write the unsettled citations: {e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    report(sefaria, otzaria, resolver.settled(), unsettled)
 }
 
-fn report(sefaria: Tally, otzaria: OtzariaTally) -> std::process::ExitCode {
+/// Write every ambiguity nothing settled, worst first.
+///
+/// BUILDER.md rule 6: *ambiguity is surfaced to the user as a choice.* An
+/// import has no user to ask, so it does the only other honest thing — it keeps
+/// the question. `corpus/links/unsettled.jsonl` is the queue W23's repair UI
+/// reads, and until then it is a file anyone can open and count.
+fn write_unsettled(root: &Path, resolver: &Resolver<'_>) -> Result<usize, std::io::Error> {
+    let unsettled = resolver.unsettled();
+    let dir = root.join("links");
+    std::fs::create_dir_all(&dir)?;
+    let mut out = std::io::BufWriter::new(std::fs::File::create(dir.join("unsettled.jsonl"))?);
+    for row in &unsettled {
+        let Ok(line) = serde_json::to_string(row) else {
+            continue;
+        };
+        writeln!(out, "{line}")?;
+    }
+    out.flush()?;
+    Ok(unsettled.len())
+}
+
+fn report(
+    sefaria: Tally,
+    otzaria: OtzariaTally,
+    settled: (usize, usize),
+    unsettled: usize,
+) -> std::process::ExitCode {
     println!("\n== Sefaria links*.csv — citation-addressed, the whole corpus");
     print_tally(&sefaria);
     println!("\n== Otzaria *_links.json — the 978 works Sefaria has no text for");
@@ -133,6 +171,24 @@ fn report(sefaria: Tally, otzaria: OtzariaTally) -> std::process::ExitCode {
          measured at 74% and says originates upstream.",
         total.untyped,
         (total.untyped as f64) * 100.0 / (total.rows.max(1) as f64)
+    );
+
+    // Reported, not folded into the rate. These are the endpoints where a
+    // citation named several seforim and something other than a guess said
+    // which — so the size of each kind of evidence stays visible, and a change
+    // that starts leaning on the weaker one shows up as a number rather than as
+    // a slightly better import.
+    let (by_column, by_shelf) = settled;
+    println!(
+        "\n{} ambiguous endpoints were settled without a guess: \
+         {by_column} by the row's own Text N column, {by_shelf} because every \
+         other candidate names no place on the shelf.",
+        by_column + by_shelf
+    );
+    println!(
+        "{unsettled} citations nothing settled are written to \
+         corpus/links/unsettled.jsonl, with their candidates — dropped from the \
+         graph, kept as a question."
     );
 
     if total.imported == 0 {
