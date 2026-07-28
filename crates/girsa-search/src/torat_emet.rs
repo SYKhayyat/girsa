@@ -160,23 +160,56 @@ impl Query {
         }
     }
 
-    /// One word as the pattern the index will be asked for.
-    ///
-    /// For [`Match::Word`] the pattern **is** the word: no `.*`, no
-    /// alternation, nothing that could reach a different word. The other two
-    /// are regexes over whole terms, so they carry their own anchoring.
     fn pattern_for(&self, word: &str) -> String {
-        match self.matching {
-            Match::Word => word.to_string(),
-            Match::Contains => format!(".*{}.*", escape(word)),
-            Match::Letters => {
-                let mut pattern = String::from(".*");
-                for c in word.chars() {
-                    pattern.push_str(&escape(&c.to_string()));
-                    pattern.push_str(".*");
-                }
-                pattern
+        pattern_for(self.matching, word)
+    }
+}
+
+/// One word as the pattern the index will be asked for.
+///
+/// For [`Match::Word`] the pattern **is** the word: no `.*`, no alternation,
+/// nothing that could reach a different word. The other two are regexes over
+/// whole terms, so they carry their own anchoring.
+///
+/// Free rather than a method because W13's ladder builds patterns for words the
+/// reader did not type — a peeled stem, an abbreviation's expansion — and those
+/// have to be built by the same rule as the typed ones or the widened search
+/// stops meaning what the literal one meant.
+#[must_use]
+pub fn pattern_for(matching: Match, word: &str) -> String {
+    match matching {
+        Match::Word => word.to_string(),
+        Match::Contains => format!(".*{}.*", escape(word)),
+        Match::Letters => {
+            let mut pattern = String::from(".*");
+            for c in word.chars() {
+                pattern.push_str(&escape(&c.to_string()));
+                pattern.push_str(".*");
             }
+            pattern
+        }
+    }
+}
+
+/// Whether an indexed word answers a typed one under a given [`Match`] rule.
+///
+/// The same three rules the patterns encode, in Rust rather than in a regex —
+/// because a highlight has to agree with the search exactly, and two
+/// descriptions of one rule drift. Both arguments are normal forms.
+#[must_use]
+pub fn matches_under(matching: Match, typed: &str, indexed: &str) -> bool {
+    match matching {
+        Match::Word => typed == indexed,
+        Match::Contains => indexed.contains(typed),
+        Match::Letters => {
+            let mut letters = typed.chars();
+            let mut wanted = letters.next();
+            for c in indexed.chars() {
+                if Some(c) == wanted {
+                    wanted = letters.next();
+                }
+            }
+            wanted.is_none()
         }
     }
 }
@@ -186,6 +219,14 @@ impl Query {
 /// Held separately from the query so that a result header can say what was
 /// searched for without re-deriving it — and so that a test can assert the
 /// literal mode changed nothing, which is the acceptance of W12.
+///
+/// W13 moved the index's query builder onto [`crate::ladder::Widening`], which
+/// can hold several forms per position where this holds one. That would have
+/// left this struct describing a query nobody runs, so
+/// `ladder::tests::a_query_with_no_rungs_applied_is_still_the_literal_query`
+/// asserts the two agree wherever a plan has an opinion: same words, same
+/// patterns, same shape, one form per position. The acceptance of W12 is
+/// checked against the thing that runs, not beside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
     /// The typed words, with their marks off. In order.
@@ -209,26 +250,9 @@ impl Plan {
     }
 
     /// Whether an indexed word answers a typed one, under this plan's rule.
-    ///
-    /// The same three rules the patterns encode, in Rust rather than in a
-    /// regex — because a highlight has to agree with the search exactly, and
-    /// two descriptions of one rule drift. Both take normal forms.
     #[must_use]
     pub fn matches(&self, typed: &str, indexed: &str) -> bool {
-        match self.matching {
-            Match::Word => typed == indexed,
-            Match::Contains => indexed.contains(typed),
-            Match::Letters => {
-                let mut letters = typed.chars();
-                let mut wanted = letters.next();
-                for c in indexed.chars() {
-                    if Some(c) == wanted {
-                        wanted = letters.next();
-                    }
-                }
-                wanted.is_none()
-            }
-        }
+        matches_under(self.matching, typed, indexed)
     }
 
     /// A line a result header can show: what was searched for, in words.
@@ -262,7 +286,8 @@ fn permutation_count(n: usize) -> usize {
 /// geresh and gershayim, so in practice nothing here needs escaping. It is done
 /// anyway: the day the normal form admits one more character is not the day to
 /// discover that a query became a pattern.
-fn escape(word: &str) -> String {
+#[must_use]
+pub fn escape(word: &str) -> String {
     const SYNTAX: [char; 14] = [
         '.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '\\',
     ];

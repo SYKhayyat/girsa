@@ -47,6 +47,10 @@ use tantivy::schema::{
 };
 use tantivy::{IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
+use crate::ladder::{
+    Alternative, Form, Offer, Offers, Position, Refusal, Rung, Standing, Widened, Widening,
+    MOST_EXACT_QUERIES,
+};
 use crate::tokenizer;
 use crate::torat_emet::{self, Match, Plan, Together, MOST_WORDS_UNORDERED};
 
@@ -149,6 +153,13 @@ pub enum IndexError {
          in order instead"
     )]
     TooManyWords { words: usize, limit: usize },
+    /// Widening a proximity query into every form of every word would take more
+    /// exact searches than the ceiling allows.
+    #[error(
+        "widening those words into all their forms would take {queries} exact searches (the \
+         limit is {limit}) — narrow the query, or take one rung at a time"
+    )]
+    TooManyForms { queries: usize, limit: usize },
     #[error(transparent)]
     Tantivy(#[from] tantivy::TantivyError),
 }
@@ -199,17 +210,39 @@ pub struct Found {
     pub total: usize,
     /// Exactly what was searched for. The literal mode's promise, in a struct.
     pub asked: Plan,
+    /// What was done to the query beyond taking its marks off, if anything.
+    /// `None` in the literal mode, always.
+    pub widening: Option<Widening>,
+}
+
+impl Found {
+    /// Where in a hit's printed text the words that answered the query sit.
+    ///
+    /// Routed through the widening when there is one, so a hit found by peeling
+    /// a prefix is marked on `וכשהמלך` — the word that actually answered the
+    /// question — rather than on the three letters of it the reader typed.
+    #[must_use]
+    pub fn marks(&self, hit: &Hit) -> Vec<(usize, usize)> {
+        let Some(widening) = &self.widening else {
+            return hit.marks(&self.asked);
+        };
+        girsa_hebrew::tokenize(&hit.text)
+            .into_iter()
+            .filter(|token| widening.matches_word(&token.text))
+            .map(|token| (token.start, token.end))
+            .collect()
+    }
 }
 
 /// The clauses of a boolean query, before it is built.
 type Clauses = Vec<(Occur, Box<dyn Query>)>;
 
-/// Every ordering of the patterns, for order-free proximity.
+/// Every ordering of the positions, for order-free proximity.
 ///
 /// Heap's algorithm, iterative. The caller has already refused anything long
 /// enough for this to matter.
-fn orderings(patterns: &[String]) -> Vec<Vec<String>> {
-    let mut current: Vec<String> = patterns.to_vec();
+fn orderings<T: Clone>(patterns: &[T]) -> Vec<Vec<T>> {
+    let mut current: Vec<T> = patterns.to_vec();
     let mut out = vec![current.clone()];
     let n = current.len();
     let mut counters = vec![0usize; n];
@@ -225,6 +258,38 @@ fn orderings(patterns: &[String]) -> Vec<Vec<String>> {
             counters[i] = 0;
             i += 1;
         }
+    }
+    out
+}
+
+/// How many combinations of alternatives these positions have between them.
+///
+/// Computed before any of them is built, so a query too wide to ask exactly is
+/// refused instead of half-run.
+fn combination_count(order: &[&Position]) -> usize {
+    order
+        .iter()
+        .try_fold(1usize, |acc, p| acc.checked_mul(p.alternatives.len()))
+        .unwrap_or(usize::MAX)
+}
+
+/// Every combination of these positions' alternatives, as flat runs of forms.
+///
+/// A multi-word alternative — `שו"ע` expanded to `שולחן ערוך` — flattens into
+/// consecutive slots, so the expansion stays contiguous while the positions
+/// around it keep the distance the reader asked for.
+fn flattened(order: &[&Position]) -> Vec<Vec<Form>> {
+    let mut out: Vec<Vec<Form>> = vec![Vec::new()];
+    for position in order {
+        let mut next: Vec<Vec<Form>> = Vec::with_capacity(out.len() * position.alternatives.len());
+        for so_far in &out {
+            for alternative in &position.alternatives {
+                let mut sequence = so_far.clone();
+                sequence.extend(alternative.forms.iter().cloned());
+                next.push(sequence);
+            }
+        }
+        out = next;
     }
     out
 }
@@ -500,15 +565,124 @@ impl SearchIndex {
     pub fn search(&self, query: &torat_emet::Query) -> Result<Found, IndexError> {
         let asked = query.plan();
         if asked.is_empty() {
-            return Ok(Found {
-                hits: Vec::new(),
-                total: 0,
-                asked,
-            });
+            return Ok(Self::nothing(asked));
         }
-        let built = self.build(&asked, query.max_expansions())?;
+        // Through the same builder as a widened search, with no rungs applied.
+        // Two builders would be two chances for the literal mode to stop being
+        // literal without anyone noticing.
+        let widening = Widened::new(query.clone(), []).widening();
+        let built = self.build(&widening, query.max_expansions())?;
         let (hits, total) = self.run(&*built)?;
-        Ok(Found { hits, total, asked })
+        Ok(Found {
+            hits,
+            total,
+            asked,
+            // A literal search reports no widening because there was none. A
+            // zero here stays a zero: the ladder is offered by
+            // [`SearchIndex::offers`] and climbed only when the reader clicks.
+            widening: None,
+        })
+    }
+
+    /// Run a query with rungs of the relaxation ladder applied (W13).
+    ///
+    /// What comes back carries [`Found::widening`], which says which rungs were
+    /// applied and what each word was allowed to be — so a header can report
+    /// the change out of the thing that ran rather than out of a description of
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// [`IndexError::TooManyForms`] when the widening would take more exact
+    /// searches than the ceiling allows, plus everything
+    /// [`SearchIndex::search`] can fail with.
+    pub fn search_widened(&self, widened: &Widened) -> Result<Found, IndexError> {
+        let asked = widened.literal().plan();
+        if asked.is_empty() {
+            return Ok(Self::nothing(asked));
+        }
+        let widening = widened.widening();
+        let built = self.build(&widening, widened.literal().max_expansions())?;
+        let (hits, total) = self.run(&*built)?;
+        Ok(Found {
+            hits,
+            total,
+            asked,
+            widening: Some(widening),
+        })
+    }
+
+    /// How many results a widened query would return, without fetching any.
+    ///
+    /// This is what makes `[try other forms — 7]` possible: the number beside
+    /// the offer comes from the query the click would run, so the promise and
+    /// the result cannot disagree.
+    ///
+    /// # Errors
+    ///
+    /// As [`SearchIndex::search_widened`].
+    pub fn count_widened(&self, widened: &Widened) -> Result<usize, IndexError> {
+        if widened.literal().plan().is_empty() {
+            return Ok(0);
+        }
+        let built = self.build(&widened.widening(), widened.literal().max_expansions())?;
+        self.reader
+            .searcher()
+            .search(&*built, &Count)
+            .map_err(IndexError::from_tantivy)
+    }
+
+    /// What the ladder has to say about a literal query (spec.md §9.6).
+    ///
+    /// Every rung is priced by running it, and **nothing is applied**: the
+    /// reader's result set is whatever [`SearchIndex::search`] returned, until
+    /// they click. Rungs that would change nothing are left out, rungs that
+    /// would find nothing are left out — there is no such thing as
+    /// `[try other forms — 0]` — and rungs that could not be priced are named
+    /// in [`Offers::refused`] rather than dropped, because a missing chip reads
+    /// as *there is nothing down that road*.
+    #[must_use]
+    pub fn offers(&self, query: &torat_emet::Query) -> Offers {
+        let mut offers = Offers::default();
+        if query.plan().is_empty() {
+            return offers;
+        }
+        for rung in Rung::ALL {
+            match rung.standing() {
+                Standing::Climbed => {}
+                Standing::Deferred(_) => offers.deferred.push(rung),
+                Standing::Ready => {
+                    let widened = Widened::new(query.clone(), [rung]);
+                    if !widened.widening().changes_anything() {
+                        continue;
+                    }
+                    match self.count_widened(&widened) {
+                        Ok(0) => {}
+                        Ok(count) => offers.offers.push(Offer {
+                            rung,
+                            label: rung.label(),
+                            count,
+                            widened,
+                        }),
+                        Err(why) => offers.refused.push(Refusal {
+                            rung,
+                            why: why.to_string(),
+                        }),
+                    }
+                }
+            }
+        }
+        offers
+    }
+
+    /// A result that found nothing, for a query that asked for nothing.
+    fn nothing(asked: Plan) -> Found {
+        Found {
+            hits: Vec::new(),
+            total: 0,
+            asked,
+            widening: None,
+        }
     }
 
     /// Segments holding **all** of these words, in any order.
@@ -534,47 +708,67 @@ impl SearchIndex {
             .hits)
     }
 
-    /// Turn a plan into the query tantivy will run.
+    /// Turn a widening into the query tantivy will run.
     ///
-    /// Every branch here matches a sentence in [`Plan::describe`]. If the two
-    /// ever disagree, the result header is describing a search that did not
-    /// happen — which is the one thing this mode may not do.
-    fn build(&self, plan: &Plan, max_expansions: u32) -> Result<Box<dyn Query>, IndexError> {
-        let single = plan.words.len() == 1;
-        match plan.together {
+    /// Every branch here matches a sentence in [`Widening::describe`]. If the
+    /// two ever disagree, the result header is describing a search that did not
+    /// happen — which is the one thing this engine may not do.
+    ///
+    /// A literal query is the case where every position has exactly one
+    /// alternative of exactly one word, so it comes down this same path and
+    /// builds the same `TermQuery`/`PhraseQuery` W12 built.
+    fn build(&self, wide: &Widening, max_expansions: u32) -> Result<Box<dyn Query>, IndexError> {
+        let positions = &wide.positions;
+        let single = positions.len() == 1;
+        match wide.together {
             // All of them, anywhere in the segment. An *and*: a result that
             // does not have every word you asked for is a result you have to
             // check by eye, which is the other way a search box loses trust.
+            //
+            // Widening never crosses positions here — each one is still
+            // required, it may just be answered more ways — so there is no
+            // cross product and no ceiling.
             Together::Anywhere => {
-                let mut clauses: Clauses = Vec::with_capacity(plan.patterns.len());
-                for pattern in &plan.patterns {
-                    clauses.push((Occur::Must, self.one_word(plan, pattern)?));
+                let mut clauses: Clauses = Vec::with_capacity(positions.len());
+                for position in positions {
+                    clauses.push((
+                        Occur::Must,
+                        self.one_position(wide.matching, position, max_expansions)?,
+                    ));
                 }
                 Ok(Box::new(BooleanQuery::new(clauses)))
             }
             // One word is a legal phrase and a legal proximity — it is the
             // word. Tantivy's phrase queries assert on fewer than two terms,
             // and an assert is a window that closes.
-            Together::Phrase if single => self.one_word(plan, &plan.patterns[0]),
-            Together::Near { .. } if single => self.one_word(plan, &plan.patterns[0]),
-            Together::Phrase => self.in_a_row(plan, &plan.patterns, 0, max_expansions),
+            Together::Phrase | Together::Near { .. } if single => {
+                self.one_position(wide.matching, &positions[0], max_expansions)
+            }
+            Together::Phrase => self.exactly(
+                wide.matching,
+                &positions.iter().collect::<Vec<_>>(),
+                0,
+                max_expansions,
+                1,
+            ),
             // Order-free proximity: the union over orderings. Each ordering is
             // asked for exactly, so the union is exactly *"these words with at
             // most `words` between them, in some order"* — as against a slop
             // wide enough to allow a reversal, which would also allow a
             // distance the reader did not ask for.
             Together::Near { words: gap } => {
-                if plan.words.len() > MOST_WORDS_UNORDERED {
+                if positions.len() > MOST_WORDS_UNORDERED {
                     return Err(IndexError::TooManyWords {
-                        words: plan.words.len(),
+                        words: positions.len(),
                         limit: MOST_WORDS_UNORDERED,
                     });
                 }
-                let mut clauses: Clauses = Vec::new();
-                for ordering in orderings(&plan.patterns) {
+                let every = orderings(&positions.iter().collect::<Vec<_>>());
+                let mut clauses: Clauses = Vec::with_capacity(every.len());
+                for ordering in &every {
                     clauses.push((
                         Occur::Should,
-                        self.in_a_row(plan, &ordering, gap, max_expansions)?,
+                        self.exactly(wide.matching, ordering, gap, max_expansions, every.len())?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(clauses)))
@@ -582,45 +776,125 @@ impl SearchIndex {
         }
     }
 
+    /// One position — the typed word, or any of the forms a rung allows for it.
+    fn one_position(
+        &self,
+        matching: Match,
+        position: &Position,
+        max_expansions: u32,
+    ) -> Result<Box<dyn Query>, IndexError> {
+        if let [only] = position.alternatives.as_slice() {
+            return self.one_alternative(matching, only, max_expansions);
+        }
+        let mut clauses: Clauses = Vec::with_capacity(position.alternatives.len());
+        for alternative in &position.alternatives {
+            clauses.push((
+                Occur::Should,
+                self.one_alternative(matching, alternative, max_expansions)?,
+            ));
+        }
+        Ok(Box::new(BooleanQuery::new(clauses)))
+    }
+
+    /// One alternative: a word, or the run of words an abbreviation expands to.
+    fn one_alternative(
+        &self,
+        matching: Match,
+        alternative: &Alternative,
+        max_expansions: u32,
+    ) -> Result<Box<dyn Query>, IndexError> {
+        match alternative.forms.as_slice() {
+            [only] => self.one_form(only),
+            // `שו"ע` becomes `שולחן ערוך`, and those two words have to be found
+            // beside each other — an *and* over them would match a page holding
+            // both in different sentences.
+            forms => self.in_a_row(matching, forms, 0, max_expansions),
+        }
+    }
+
     /// One written word, matched the way the reader asked.
-    fn one_word(&self, plan: &Plan, pattern: &str) -> Result<Box<dyn Query>, IndexError> {
-        Ok(match plan.matching {
+    fn one_form(&self, form: &Form) -> Result<Box<dyn Query>, IndexError> {
+        Ok(if form.regex {
+            Box::new(RegexQuery::from_pattern(&form.pattern, self.fields.text)?)
+        } else {
             // The term itself. No automaton, no expansion, no ceiling to hit.
-            Match::Word => Box::new(TermQuery::new(
-                Term::from_field_text(self.fields.text, pattern),
+            Box::new(TermQuery::new(
+                Term::from_field_text(self.fields.text, &form.pattern),
                 IndexRecordOption::WithFreqs,
-            )),
-            Match::Contains | Match::Letters => {
-                Box::new(RegexQuery::from_pattern(pattern, self.fields.text)?)
-            }
+            ))
         })
     }
 
-    /// Several words in a row, with `slop` others allowed between them.
+    /// These positions in this order, with `slop` other words allowed between.
+    ///
+    /// Where a position has several alternatives, this is the union over every
+    /// combination of them — each combination asked for **exactly**, because a
+    /// phrase query cannot hold an alternation at one of its positions without
+    /// also loosening what sits either side of it.
+    fn exactly(
+        &self,
+        matching: Match,
+        order: &[&Position],
+        slop: u32,
+        max_expansions: u32,
+        orderings: usize,
+    ) -> Result<Box<dyn Query>, IndexError> {
+        let queries = combination_count(order).saturating_mul(orderings);
+        if queries > MOST_EXACT_QUERIES {
+            return Err(IndexError::TooManyForms {
+                queries,
+                limit: MOST_EXACT_QUERIES,
+            });
+        }
+        let sequences = flattened(order);
+        if let [only] = sequences.as_slice() {
+            return self.in_a_row(matching, only, slop, max_expansions);
+        }
+        let mut clauses: Clauses = Vec::with_capacity(sequences.len());
+        for sequence in &sequences {
+            clauses.push((
+                Occur::Should,
+                self.in_a_row(matching, sequence, slop, max_expansions)?,
+            ));
+        }
+        Ok(Box::new(BooleanQuery::new(clauses)))
+    }
+
+    /// Several forms in a row, with `slop` others allowed between them.
     fn in_a_row(
         &self,
-        plan: &Plan,
-        patterns: &[String],
+        matching: Match,
+        forms: &[Form],
         slop: u32,
         max_expansions: u32,
     ) -> Result<Box<dyn Query>, IndexError> {
-        match plan.matching {
-            Match::Word => {
-                let terms: Vec<Term> = patterns
-                    .iter()
-                    .map(|word| Term::from_field_text(self.fields.text, word))
-                    .collect();
-                let mut phrase = PhraseQuery::new(terms);
-                phrase.set_slop(slop);
-                Ok(Box::new(phrase))
-            }
-            Match::Contains | Match::Letters => {
-                let mut phrase = RegexPhraseQuery::new(self.fields.text, patterns.to_vec());
-                phrase.set_slop(slop);
-                phrase.set_max_expansions(max_expansions);
-                Ok(Box::new(phrase))
-            }
+        if let [only] = forms {
+            return self.one_form(only);
         }
+        if forms.iter().any(|form| form.regex) {
+            let patterns: Vec<String> = forms
+                .iter()
+                .map(|form| {
+                    if form.regex {
+                        form.pattern.clone()
+                    } else {
+                        torat_emet::escape(&form.pattern)
+                    }
+                })
+                .collect();
+            let mut phrase = RegexPhraseQuery::new(self.fields.text, patterns);
+            phrase.set_slop(slop);
+            phrase.set_max_expansions(max_expansions);
+            return Ok(Box::new(phrase));
+        }
+        debug_assert_eq!(matching, Match::Word, "only Match::Word builds plain terms");
+        let terms: Vec<Term> = forms
+            .iter()
+            .map(|form| Term::from_field_text(self.fields.text, &form.pattern))
+            .collect();
+        let mut phrase = PhraseQuery::new(terms);
+        phrase.set_slop(slop);
+        Ok(Box::new(phrase))
     }
 
     /// The hits, and how many there were in total.

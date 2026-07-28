@@ -30,8 +30,11 @@ use std::time::Instant;
 
 use girsa_corpus::import;
 use girsa_corpus::work::Work;
-use girsa_search::index::{Hit, SearchIndex, Stamp, CACHE_STAMP, PROBE_LIMIT};
-use girsa_search::torat_emet::{Match, Plan, Query, Together};
+use girsa_hebrew::VariantKind;
+use girsa_search::index::{Found, Hit, SearchIndex, Stamp, CACHE_STAMP, PROBE_LIMIT};
+use girsa_search::ladder::{Rung, Standing, Widened};
+use girsa_search::smart::Smart;
+use girsa_search::torat_emet::{Match, Query, Together};
 
 /// The writer's budget. Big enough that the whole corpus goes in without
 /// merging itself to death, small enough to leave the machine usable.
@@ -75,7 +78,13 @@ fn usage() -> std::process::ExitCode {
          --contains   the word contains these letters      קדש → המקדש\n  \
          --letters    these letters, in this order         קדש → קידוש\n  \
          --phrase     the words one after the other\n  \
-         --near N     within N words of each other, in any order"
+         --near N     within N words of each other, in any order\n\
+         \n\
+         the relaxation ladder (spec.md §9.6). In the literal mode a zero is\n\
+         offered the rungs with their counts and nothing is applied; --rung is\n\
+         the click:\n  \
+         --rung NAME  prefixes · spellings · gershayim · abbreviations · proximity\n  \
+         --smart      Smart mode: apply the form rungs, and say what that did"
     );
     std::process::ExitCode::from(2)
 }
@@ -240,6 +249,8 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
 fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
     let mut matching = Match::default();
     let mut together = Together::default();
+    let mut rungs: Vec<Rung> = Vec::new();
+    let mut smart = false;
     let mut words: Vec<&str> = Vec::new();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -247,10 +258,20 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             "--contains" => matching = Match::Contains,
             "--letters" => matching = Match::Letters,
             "--phrase" => together = Together::Phrase,
+            "--smart" => smart = true,
             "--near" => match args.next().and_then(|n| n.parse().ok()) {
                 Some(gap) => together = Together::Near { words: gap },
                 None => {
                     eprintln!("--near wants a number of words");
+                    return std::process::ExitCode::from(2);
+                }
+            },
+            "--rung" => match args.next().map(String::as_str).and_then(rung_named) {
+                Some(rung) => rungs.push(rung),
+                None => {
+                    eprintln!(
+                        "--rung wants one of: prefixes spellings gershayim abbreviations proximity"
+                    );
                     return std::process::ExitCode::from(2);
                 }
             },
@@ -272,19 +293,99 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let found = match index.search(&query) {
+
+    if smart {
+        if !rungs.is_empty() {
+            eprintln!("--smart chooses its own rungs; --rung is the literal mode's click");
+            return std::process::ExitCode::from(2);
+        }
+        return smart_find(&index, &query);
+    }
+
+    // A refusal is an answer here, and it says why. What it never is, in either
+    // branch, is a shorter list of results with no note attached.
+    let found = if rungs.is_empty() {
+        index.search(&query)
+    } else {
+        index.search_widened(&Widened::new(query.clone(), rungs))
+    };
+    let found = match found {
         Ok(found) => found,
         Err(e) => {
-            // A refusal is an answer here, and it says why. What it never is
-            // is a shorter list of results with no note attached.
             eprintln!("{e}");
             return std::process::ExitCode::FAILURE;
         }
     };
 
-    // What was searched for, then how much of it is being shown. A page whose
-    // total is unstated reads as the whole of it.
-    println!("searched for: {}", found.asked.describe());
+    match &found.widening {
+        Some(widening) => println!("searched for: {}", widening.describe()),
+        None => println!("searched for: {}", found.asked.describe()),
+    }
+    page(&index, &found);
+
+    // spec.md §9.6: zero results is a bug in the interface, not an answer — but
+    // the default mode offers the next step rather than taking it, with the
+    // counts worked out first.
+    if found.total == 0 && found.widening.is_none() {
+        ladder(&index, &query);
+    }
+    std::process::ExitCode::SUCCESS
+}
+
+/// Smart mode: widen, and say what widening did.
+fn smart_find(index: &SearchIndex, query: &Query) -> std::process::ExitCode {
+    let answered = match Smart::new(query.clone()).run(index) {
+        Ok(answered) => answered,
+        Err(e) => {
+            eprintln!("{e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    if let Some(widening) = &answered.found.widening {
+        println!("searched for: {}", widening.describe());
+    }
+    println!("{}", answered.announcement());
+    if answered.from_other_forms() > 0 {
+        println!(
+            "[exact form only] would show {} — girsa-index find … without --smart",
+            answered.exact_total
+        );
+    }
+    page(index, &answered.found);
+    std::process::ExitCode::SUCCESS
+}
+
+/// The rungs on offer, priced before anything is applied.
+fn ladder(index: &SearchIndex, query: &Query) {
+    let offers = index.offers(query);
+    if offers.offers.is_empty() && offers.refused.is_empty() {
+        println!("\nnothing on the ladder would find it either.");
+    }
+    for offer in &offers.offers {
+        println!(
+            "  [{} — {}]   --rung {}",
+            offer.label,
+            offer.count,
+            cli_name(offer.rung)
+        );
+    }
+    for refusal in &offers.refused {
+        println!(
+            "  [{}] could not be counted: {}",
+            refusal.rung.label(),
+            refusal.why
+        );
+    }
+    for rung in &offers.deferred {
+        if let Standing::Deferred(why) = rung.standing() {
+            println!("  [{}] is not built: {why}", rung.label());
+        }
+    }
+}
+
+/// How much of the result set is being shown, and the hits themselves.
+fn page(index: &SearchIndex, found: &Found) {
+    // A page whose total is unstated reads as the whole of it.
     println!(
         "{} in {} segments · showing {}{}\n",
         found.total,
@@ -298,17 +399,41 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
     );
     for hit in &found.hits {
         println!("{}  [{}]", hit.id, hit.kind.as_str());
-        println!("  {}", excerpt(hit, &found.asked));
+        println!("  {}", excerpt(hit, found));
     }
-    std::process::ExitCode::SUCCESS
+}
+
+/// The ladder's rungs, as they are typed on a command line.
+fn rung_named(name: &str) -> Option<Rung> {
+    Some(match name {
+        "prefixes" => Rung::Forms(VariantKind::PrefixPeeled),
+        "spellings" => Rung::Forms(VariantKind::KtivSwapped),
+        "gershayim" => Rung::Forms(VariantKind::GershayimDropped),
+        "abbreviations" => Rung::Forms(VariantKind::AbbreviationExpanded),
+        "proximity" => Rung::Proximity,
+        _ => return None,
+    })
+}
+
+fn cli_name(rung: Rung) -> &'static str {
+    match rung {
+        Rung::Forms(VariantKind::PrefixPeeled) => "prefixes",
+        Rung::Forms(VariantKind::KtivSwapped) => "spellings",
+        Rung::Forms(VariantKind::GershayimDropped) => "gershayim",
+        Rung::Forms(VariantKind::AbbreviationExpanded) => "abbreviations",
+        Rung::Proximity => "proximity",
+        Rung::Nikud | Rung::Root => "",
+    }
 }
 
 /// A line of the hit with the matched words bracketed.
 ///
-/// Through [`Hit::marks`], so what is bracketed is what the index matched —
-/// pointed at the text as printed, which is the property W11 has to hold.
-fn excerpt(hit: &Hit, plan: &Plan) -> String {
-    let marks = hit.marks(plan);
+/// Through [`Found::marks`], so what is bracketed is what the index matched —
+/// pointed at the text as printed, which is the property W11 has to hold, and
+/// following the widening when there is one, so a hit found by peeling a prefix
+/// brackets `[וכשהמלך]` rather than the three letters of it that were typed.
+fn excerpt(hit: &Hit, found: &Found) -> String {
+    let marks = found.marks(hit);
     let mut out = String::new();
     let mut at = 0usize;
     for (start, end) in marks {

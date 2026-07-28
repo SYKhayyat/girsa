@@ -5,10 +5,13 @@
 //! literal mode, is the default; widening is offered with counts, and only
 //! auto-applied in Smart mode where widening is the declared purpose.
 //!
-//! W11 built the index and the tokenizer under it. The modes, the ladder and
-//! the facets are W12–W14.
+//! W11 built the index and the tokenizer under it, W12 the literal mode and
+//! W13 the ladder and Smart mode. The remaining modes, the chips and the facets
+//! are W14.
 
 pub mod index;
+pub mod ladder;
+pub mod smart;
 pub mod tokenizer;
 pub mod torat_emet;
 
