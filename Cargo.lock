@@ -71,6 +71,7 @@ name = "girsa-link"
 version = "0.1.0"
 dependencies = [
  "girsa-corpus",
+ "girsa-hebrew",
  "girsa-ref",
  "serde",
  "serde_json",

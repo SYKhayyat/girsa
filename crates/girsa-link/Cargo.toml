@@ -15,5 +15,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+# The acceptance test compares two Hebrew strings — one menukad, one bare — and
+# W2's sibling rule is that every such comparison routes through this crate.
+girsa-hebrew.workspace = true
+
 [lints]
 workspace = true

@@ -207,6 +207,12 @@ fn walk(node: &Node, text: &Value, path: &mut Vec<String>, out: &mut Vec<RawSegm
                 return;
             };
             for child in children {
+                // Matched on the exact title, not on a normalized form. The
+                // two strings come from different files — the schema and the
+                // merged text — so a normalized fallback looked worth having;
+                // measured over 518 complex works and 5,059 child nodes, it
+                // would have rescued **one**, and that one is a node the text
+                // genuinely does not contain. Left exact.
                 let Some(child_text) = map.get(&child.text_key) else {
                     continue;
                 };
@@ -301,7 +307,7 @@ fn daf(i: usize) -> String {
 /// that survives the grammar — no `/`, no `:`, no `#`. Hebrew names keep their
 /// letters; everything else is a separator.
 fn section_label(title: &str) -> String {
-    let slug = crate::work::hebrew_slug_of(title);
+    let slug = crate::work::section_label_of(title);
     if slug.is_empty() {
         "1".to_string()
     } else {

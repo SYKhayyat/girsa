@@ -6,8 +6,10 @@
 //!
 //! Filled in by W5–W8.
 
+pub mod csv;
 pub mod fetch;
 pub mod import;
+pub mod index;
 pub mod segment;
 pub mod store;
 pub mod work;

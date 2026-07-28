@@ -185,14 +185,16 @@ pub enum ImportError {
 }
 
 impl ImportError {
-    pub(crate) fn io(path: &Path) -> impl Fn(std::io::Error) -> Self + '_ {
+    /// Public because the link importer reads the same files this one wrote,
+    /// and reports its failures in the same shape.
+    pub fn io(path: &Path) -> impl Fn(std::io::Error) -> Self + '_ {
         move |source| Self::Io {
             path: path.display().to_string(),
             source,
         }
     }
 
-    pub(crate) fn malformed(path: &Path, message: impl Into<String>) -> Self {
+    pub fn malformed(path: &Path, message: impl Into<String>) -> Self {
         Self::Malformed {
             path: path.display().to_string(),
             message: message.into(),
@@ -208,7 +210,18 @@ impl ImportError {
 /// target platforms use has been UTF-8-safe for a decade.
 #[must_use]
 pub fn work_dir(root: &Path, slug: &str) -> PathBuf {
-    let mut path = root.join("works");
+    slug_dir(&root.join("works"), slug)
+}
+
+/// A slug as a directory under any base.
+///
+/// `girsa-link` puts a work's edges at `corpus/links/<slug>/`, mirroring
+/// `corpus/works/<slug>/`, and the sanitizing a slug needs to survive being a
+/// Windows path has to be identical in both — a second copy of it would drift
+/// and the two halves of a sefer would stop lining up.
+#[must_use]
+pub fn slug_dir(base: &Path, slug: &str) -> PathBuf {
+    let mut path = base.to_path_buf();
     for part in slug.split('/') {
         path.push(sanitize_component(part));
     }

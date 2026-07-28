@@ -230,6 +230,13 @@ impl SegmentId {
     /// this on every id it mints, because that is the one moment it can be
     /// caught: after the ids are on disk and inside documents, they are
     /// permanent by definition.
+    ///
+    /// **A `-` in a section name counts too**, and less obviously: `girsa-ref`
+    /// reads a hyphen in an address as the separator of a span, so
+    /// `girsa:tur/orach-chayim:240:1` reads back as a range from `orach` to
+    /// `chayim:240:1`. That is a place-shaped thing that is not a place, and it
+    /// does not error. Section labels are joined with `_` for exactly this
+    /// (see [`crate::work::section_label_of`]).
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
         !self.work.is_empty()
@@ -241,7 +248,7 @@ impl SegmentId {
             && !self
                 .path
                 .iter()
-                .any(|p| p.is_empty() || p.contains(['/', ':', '#']))
+                .any(|p| p.is_empty() || p.contains(['/', ':', '#', '-']))
     }
 }
 
@@ -450,7 +457,12 @@ mod tests {
         );
         assert!(good.is_well_formed());
 
-        for bad_path in [vec!["5/1".to_string()], vec!["2a:1".to_string()], vec![]] {
+        for bad_path in [
+            vec!["5/1".to_string()],
+            vec!["2a:1".to_string()],
+            vec!["orach-chayim".to_string()],
+            vec![],
+        ] {
             let bad = SegmentId::new("chovot-halevavot", bad_path.clone(), Ordinal::root(1));
             assert!(
                 !bad.is_well_formed(),

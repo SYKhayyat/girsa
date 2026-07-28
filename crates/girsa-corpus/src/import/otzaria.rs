@@ -188,14 +188,17 @@ fn section_path(open: &[Open]) -> Vec<String> {
     open.iter().map(|s| s.label.clone()).collect()
 }
 
-/// A second `סימן א` in one file becomes `1-2`, so no two sections share an
+/// A second `סימן א` in one file becomes `1_2`, so no two sections share an
 /// address. Rare, and silent collisions would make one of them unreachable.
+///
+/// `_` and not `-`, for the reason [`crate::work::section_label_of`] gives: a
+/// hyphen in an address level is how `girsa-ref` writes a span.
 fn disambiguate(label: String, taken: &[String]) -> String {
     if !taken.contains(&label) {
         return label;
     }
     for n in 2..=u32::MAX {
-        let candidate = format!("{label}-{n}");
+        let candidate = format!("{label}_{n}");
         if !taken.contains(&candidate) {
             return candidate;
         }
@@ -259,7 +262,7 @@ fn section_label(inner: &str) -> String {
             }
         }
     }
-    crate::work::hebrew_slug_of(&inner)
+    crate::work::section_label_of(&inner)
 }
 
 /// Take the markup off, keeping the words.
@@ -354,7 +357,7 @@ mod tests {
         let got = addressed("<h3>סימן א</h3>\nראשון\n<h3>סימן א</h3>\nשני\n");
         assert_eq!(
             got.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
-            ["1", "1:1", "1-2", "1-2:1"]
+            ["1", "1:1", "1_2", "1_2:1"]
         );
     }
 

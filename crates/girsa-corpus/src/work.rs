@@ -185,6 +185,32 @@ pub fn slug_of(title: &str, categories: &[String]) -> String {
 /// said), and whitespace is what separates.
 #[must_use]
 pub fn hebrew_slug_of(title: &str) -> String {
+    slug_with(title, '-')
+}
+
+/// The same, for a **section of a work** rather than a work.
+///
+/// The words are joined with `_` and not `-`, and the reason is not taste.
+/// `girsa-ref` reads a hyphen in the address as the separator of a **span** —
+/// `2a:1-2b:4` — on the stated assumption that no address level contains one.
+/// Slugging `Orach Chayim` to `orach-chayim` made that false: `girsa:tur/orach-chayim:240:1`
+/// read back as a span from `orach` to `chayim:240:1`, which is not a place and
+/// is not an error either.
+///
+/// So work slugs keep the hyphen §4.2 writes them with — they sit before the
+/// last `/` and are never part of an address — and section labels take the
+/// underscore.
+///
+/// **The hazard is still latent in `girsa-ref`**: a hyphen reaching an address
+/// level from anywhere else would misparse the same way. Not fixed here,
+/// because it is a shared crate and this is not the work order for it; recorded
+/// so it is not rediscovered the hard way.
+#[must_use]
+pub fn section_label_of(title: &str) -> String {
+    slug_with(title, '_')
+}
+
+fn slug_with(title: &str, joiner: char) -> String {
     let mut slug = String::with_capacity(title.len());
     let mut pending_dash = false;
     for c in title.chars() {
@@ -201,7 +227,7 @@ pub fn hebrew_slug_of(title: &str) -> String {
         match keep {
             Some(c) => {
                 if pending_dash && !slug.is_empty() {
-                    slug.push('-');
+                    slug.push(joiner);
                 }
                 pending_dash = false;
                 slug.push(c);
