@@ -7,8 +7,10 @@
 //! Filled in by W5–W8.
 
 pub mod fetch;
+pub mod import;
 pub mod segment;
 pub mod store;
+pub mod work;
 
 /// Identifies the rules a derived cache was built under.
 ///

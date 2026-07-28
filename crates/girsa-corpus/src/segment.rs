@@ -10,7 +10,7 @@
 //! # The shape
 //!
 //! ```text
-//! girsa:mishnah-berurah/1/1#7
+//! girsa:mishnah-berurah/1:1#7
 //!       └── work ─────┘ └p┘ └ordinal
 //! ```
 //!
@@ -43,6 +43,18 @@
 //! cannot cross machines. A content hash is identical everywhere by
 //! construction but moves when the text is corrected, which unmoors every note
 //! attached to it — the exact failure being designed out.
+//!
+//! # Why the section path is written with `:` and not `/`
+//!
+//! A segment id and a [`girsa_ref::Ref`] are stored in the same places — inside
+//! Ksav documents, in patch files, in link rows — and `girsa-cite` is handed
+//! ids and prints refs. So they have to be **one grammar**, and `girsa-ref`'s
+//! rule is that *the last `/`-separated component is the address*.
+//!
+//! Writing the section path with `/` broke that. `girsa:shulchan-arukh/orach-chayim/1/1#7`
+//! read back as the work `shulchan-arukh/orach-chayim/1` — a sefer that does
+//! not exist — at siman 1. It resolved, it printed, and it was wrong, which is
+//! the failure mode this whole crate is arranged against.
 
 use std::fmt;
 use std::str::FromStr;
@@ -189,6 +201,48 @@ impl SegmentId {
     pub fn covers(&self, other: &Self) -> bool {
         self.work == other.work && self.ordinal.covers(&other.ordinal)
     }
+
+    /// The citation this segment sits at, dropping the ordinal.
+    ///
+    /// What `girsa-cite` prints and what a link row is matched against. The
+    /// ordinal is the durable name; the ref is the human address, and the two
+    /// are deliberately different things.
+    #[must_use]
+    pub fn to_ref(&self) -> girsa_ref::Ref {
+        let work: Vec<String> = self.work.split('/').map(str::to_string).collect();
+        if self.path.is_empty() {
+            return girsa_ref::Ref::whole_work(work);
+        }
+        let levels = self
+            .path
+            .iter()
+            .map(|p| girsa_ref::Level::canonical(p.clone()))
+            .collect();
+        girsa_ref::Ref::point(work, girsa_ref::Address::new(levels))
+    }
+
+    /// Whether this id survives being written down and read back.
+    ///
+    /// It does not, if a section name carries one of the grammar's own
+    /// separators — a Sefaria named section really can be
+    /// `שער חמישי - שער ייחוד המעשה`, and one containing a `/` or a `:` would
+    /// re-read as a different work at a different place. The importer asserts
+    /// this on every id it mints, because that is the one moment it can be
+    /// caught: after the ids are on disk and inside documents, they are
+    /// permanent by definition.
+    #[must_use]
+    pub fn is_well_formed(&self) -> bool {
+        !self.work.is_empty()
+            && !self.work.starts_with('/')
+            && !self.work.ends_with('/')
+            && !self.work.contains(':')
+            && !self.work.contains('#')
+            && !self.path.is_empty()
+            && !self
+                .path
+                .iter()
+                .any(|p| p.is_empty() || p.contains(['/', ':', '#']))
+    }
 }
 
 /// Reading order, which is ordinal order within a work.
@@ -214,8 +268,9 @@ impl PartialOrd for SegmentId {
 impl fmt::Display for SegmentId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "girsa:{}", self.work)?;
-        for part in &self.path {
-            write!(f, "/{part}")?;
+        for (i, part) in self.path.iter().enumerate() {
+            f.write_str(if i == 0 { "/" } else { ":" })?;
+            f.write_str(part)?;
         }
         write!(f, "#{}", self.ordinal)
     }
@@ -232,12 +287,23 @@ impl FromStr for SegmentId {
             .split_once('#')
             .ok_or_else(|| SegmentIdError::NoOrdinal(s.to_string()))?;
 
-        let mut parts = address.split('/');
-        let work = parts
-            .next()
-            .filter(|w| !w.is_empty())
-            .ok_or(SegmentIdError::NoWork)?;
-        let path: Vec<String> = parts.map(str::to_string).collect();
+        // The same split `girsa_ref::Ref` makes, for the same reason: the two
+        // are one grammar because they are stored in the same places. The last
+        // `/`-separated component is the address; everything before it names
+        // the work, `/` and all.
+        let (work, path) = match address.rsplit_once('/') {
+            Some((work, tail)) => (
+                work,
+                tail.split(':')
+                    .filter(|p| !p.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+            ),
+            None => (address, Vec::new()),
+        };
+        if work.is_empty() {
+            return Err(SegmentIdError::NoWork);
+        }
 
         let mut numbers = Vec::new();
         for piece in ordinal.split('.') {
@@ -272,16 +338,17 @@ mod tests {
 
     #[test]
     fn an_id_reads_the_way_it_was_promised() {
-        assert_eq!(id(7).to_string(), "girsa:mishnah-berurah/1/1#7");
+        assert_eq!(id(7).to_string(), "girsa:mishnah-berurah/1:1#7");
     }
 
     #[test]
     fn an_id_survives_a_round_trip_through_text() {
         // It has to: these are stored inside Ksav documents as text.
         for s in [
-            "girsa:mishnah-berurah/1/1#7",
-            "girsa:mishnah-berurah/1/1#7.2",
+            "girsa:mishnah-berurah/1:1#7",
+            "girsa:mishnah-berurah/1:1#7.2",
             "girsa:bavli/berakhot/2a#1",
+            "girsa:shulchan-arukh/orach-chayim/121:3#8",
             "girsa:user/reb-shmuel-handout-2024#12",
         ] {
             let parsed: SegmentId = match s.parse() {
@@ -308,8 +375,8 @@ mod tests {
         let eight = id(8);
         let children = seven.split(2);
 
-        assert_eq!(children[0].to_string(), "girsa:mishnah-berurah/1/1#7.1");
-        assert_eq!(children[1].to_string(), "girsa:mishnah-berurah/1/1#7.2");
+        assert_eq!(children[0].to_string(), "girsa:mishnah-berurah/1:1#7.1");
+        assert_eq!(children[1].to_string(), "girsa:mishnah-berurah/1:1#7.2");
         assert_eq!(eight, id(8), "the following segment must not move");
     }
 
@@ -339,10 +406,57 @@ mod tests {
         let seven = id(7);
         let first_child = seven.split(2).remove(0);
         let grandchild = first_child.split(2).remove(1);
-        assert_eq!(grandchild.to_string(), "girsa:mishnah-berurah/1/1#7.1.2");
+        assert_eq!(grandchild.to_string(), "girsa:mishnah-berurah/1:1#7.1.2");
         assert!(seven.covers(&grandchild));
         assert!(first_child.covers(&grandchild));
         assert!(grandchild < id(8));
+    }
+
+    #[test]
+    fn a_segment_id_reads_as_a_ref_naming_the_same_place() {
+        // Segment ids are stored inside Ksav documents and are handed to
+        // `girsa-cite` to print. Both go through `girsa_ref::Ref`, which reads
+        // *the last `/`-separated component as the address* — so a work path
+        // and a section path cannot both be written with `/`, or the last
+        // section silently becomes the address and everything before it
+        // becomes the work.
+        let id = SegmentId::new(
+            "shulchan-arukh/orach-chayim",
+            vec!["1".into(), "1".into()],
+            Ordinal::root(7),
+        );
+        let printed = id.to_string();
+        let as_ref: girsa_ref::Ref = match printed.parse() {
+            Ok(r) => r,
+            Err(e) => panic!("{printed} did not read as a ref: {e}"),
+        };
+        assert_eq!(as_ref.work_slug(), "shulchan-arukh/orach-chayim");
+        assert_eq!(as_ref.from().to_string(), "1:1");
+        // And the same place when the id hands over its ref directly, rather
+        // than the two agreeing only by way of a string.
+        assert_eq!(id.to_ref(), as_ref);
+    }
+
+    #[test]
+    fn a_section_name_carrying_a_separator_is_caught_at_import_and_not_after() {
+        // Sefaria really does name a section `שער חמישי - שער ייחוד המעשה`. A
+        // `/` or a `:` in one would make the id re-read as a different work at
+        // a different place, and an id is permanent from the moment it is
+        // written — so the only useful time to notice is while minting it.
+        let good = SegmentId::new(
+            "chovot-halevavot",
+            vec!["5".into(), "1".into()],
+            Ordinal::root(1),
+        );
+        assert!(good.is_well_formed());
+
+        for bad_path in [vec!["5/1".to_string()], vec!["2a:1".to_string()], vec![]] {
+            let bad = SegmentId::new("chovot-halevavot", bad_path.clone(), Ordinal::root(1));
+            assert!(
+                !bad.is_well_formed(),
+                "{bad_path:?} should not have passed as a section path"
+            );
+        }
     }
 
     #[test]
