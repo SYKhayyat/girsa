@@ -179,7 +179,103 @@ export const api = {
   shelfMake: (parent: string, title: string) => call<string>("shelf_make", { parent, title }),
   shelfReset: () => call<void>("shelf_reset"),
   addMine: (paths: string[]) => call<Dropped>("add_mine", { paths }),
+
+  // --- searching (W14) ----------------------------------------------------
+  find: (query: string, page: number) => call<Found>("find", { query, page }),
+  findChip: (chip: string, key: string) => call<void>("find_chip", { chip, key }),
+  /** Click an offer: apply one rung, and say in the header that it was applied
+   * (spec.md §9.6). Nothing is applied until this is called. */
+  findRung: (query: string, page: number, rung: string) =>
+    call<Found>("find_rung", { query, page, rung }),
+  findNarrow: (dimension: Dimension, row: FacetRow, exclude: boolean) =>
+    call<void>("find_narrow", { dimension, row, exclude }),
+  findWholeShelf: () => call<void>("find_whole_shelf"),
 };
+
+
+// --- searching (W14) --------------------------------------------------------
+//
+// Every one of these is drawn, not decided. What the chips are, what they can
+// be set to, which facet rows exist and what clicking one means are all worked
+// out in `girsa-search` and sent here as they stand — see spec.md §9.5, which
+// is about controls being objects rather than a syntax.
+
+/** One option on a chip, and the sigil that sets it by typing. */
+export interface Choice {
+  key: string;
+  label: string;
+  sigil: string | null;
+  chosen: boolean;
+}
+
+export interface Chip {
+  name: string;
+  choices: Choice[];
+}
+
+/** One row of a facet: a count, and what clicking it narrows by. */
+export interface FacetRow {
+  key: string;
+  label: string;
+  count: number;
+  /** How far to indent it. Only shelves nest. */
+  depth: number;
+}
+
+/** The link-type facet, which can be *not built* as well as empty — spec.md
+ * §9.8. Two different statements, and a column of zeros says the wrong one. */
+export type LinkFacet = { state: "counted"; rows: FacetRow[] } | { state: "not_built" };
+
+export interface Facets {
+  sefer: FacetRow[];
+  shelf: FacetRow[];
+  era: FacetRow[];
+  author: FacetRow[];
+  link: LinkFacet;
+  /** Hits in seforim the catalogue does not have. Above zero, the three
+   * derived facets are short by this many, and the panel says so. */
+  uncatalogued: number;
+  total: number;
+}
+
+export type Dimension = "sefer" | "shelf" | "era" | "author" | "link";
+
+export interface Hit {
+  id: string;
+  address: string;
+  work: string;
+  he_title: string;
+  runs: Run[];
+}
+
+/** A rung of the relaxation ladder, priced before the click (spec.md §9.6). */
+export interface Offer {
+  label: string;
+  count: number;
+  rung: string;
+}
+
+export interface Landing {
+  said: string;
+  places: { reference: string; id: string; work: string }[];
+  near: string[];
+}
+
+export interface Found {
+  header: string;
+  note: string | null;
+  hits: Hit[];
+  total: number;
+  page: number;
+  pages: number;
+  facets: Facets | null;
+  chips: Chip[];
+  offers: Offer[];
+  /** A refusal is an answer and it says why — never a shorter list of results
+   * with nothing attached. */
+  refused: string | null;
+  landing: Landing | null;
+}
 
 /** Files dropped on the window, as they arrive from the shell. */
 export async function whenFilesDropped(handler: (paths: string[]) => void): Promise<void> {
@@ -266,6 +362,25 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "set_nikud":
       fixtureState.nikud = Boolean(args?.on);
       return undefined as T;
+    // Search is the shell's. The fixtures are static JSON written by
+    // `dev-fixtures`, and a search index is neither static nor small — so the
+    // browser says which of the two it is looking at rather than showing an
+    // empty result list that reads as a corpus with nothing in it.
+    case "find":
+      return {
+        header: "",
+        note: null,
+        hits: [],
+        total: 0,
+        page: 1,
+        pages: 0,
+        facets: null,
+        chips: [],
+        offers: [],
+        refused:
+          "החיפוש פועל בחלון בלבד — הדפדפן קורא קבצי דוגמה סטטיים, ואין בהם אינדקס",
+        landing: null,
+      } as T;
     default:
       return undefined as T;
   }

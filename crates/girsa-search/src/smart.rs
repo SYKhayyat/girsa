@@ -37,8 +37,9 @@
 
 use girsa_hebrew::VariantKind;
 
-use crate::index::{Found, IndexError, SearchIndex};
+use crate::index::{Found, IndexError, Paging, SearchIndex};
 use crate::ladder::{Rung, Widened};
+use crate::scope::Scope;
 use crate::torat_emet::Query;
 
 /// A query in Smart mode.
@@ -83,7 +84,21 @@ impl Smart {
     /// As [`SearchIndex::search_widened`] — including
     /// [`IndexError::TooManyForms`], which is raised rather than worked around.
     pub fn run(&self, index: &SearchIndex) -> Result<Answered, IndexError> {
-        let exact = index.search(&self.base)?;
+        self.run_in(index, &Scope::everything(), Paging::first())
+    }
+
+    /// The same, confined to a scope and one page deep.
+    ///
+    /// # Errors
+    ///
+    /// As [`Smart::run`].
+    pub fn run_in(
+        &self,
+        index: &SearchIndex,
+        scope: &Scope,
+        paging: Paging,
+    ) -> Result<Answered, IndexError> {
+        let exact = index.search_in(&self.base, scope, paging)?;
         let exact_total = exact.total;
 
         let mut climbed: Vec<Rung> = Vec::new();
@@ -98,10 +113,11 @@ impl Smart {
                 exact_total,
                 literal: self.base.clone(),
                 climbed: Self::baseline(),
+                widened,
             });
         }
         climbed.extend(widened.rungs().iter().copied());
-        let mut found = index.search_widened(&widened)?;
+        let mut found = index.search_widened_in(&widened, scope, paging)?;
 
         if found.total == 0 {
             let with_proximity = Widened::new(
@@ -115,7 +131,7 @@ impl Smart {
             if with_proximity.widening().together != widened.widening().together {
                 climbed.push(Rung::Proximity);
                 widened = with_proximity;
-                found = index.search_widened(&widened)?;
+                found = index.search_widened_in(&widened, scope, paging)?;
             }
         }
 
@@ -125,6 +141,7 @@ impl Smart {
             exact_total,
             literal: self.base.clone(),
             climbed,
+            widened,
         })
     }
 }
@@ -143,6 +160,9 @@ pub struct Answered {
     /// Every rung reached for, in order, including ones that changed nothing.
     /// What the mode *tried*, as against what it managed.
     pub climbed: Vec<Rung>,
+    /// The widened query itself, so that the facets are counted over the search
+    /// that ran rather than over one built afterwards to look like it.
+    pub widened: Widened,
 }
 
 impl Answered {

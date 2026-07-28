@@ -38,7 +38,7 @@ file in the app's data directory.
 | Crate | Purpose |
 |---|---|
 | `girsa-corpus` | Storage, ingest, schemas, permanent segment IDs |
-| `girsa-search` | tantivy indices, the five modes, the relaxation ladder |
+| `girsa-search` | tantivy indices, the five modes, the ladder, the chips and the facets |
 | `girsa-link` | The typed link graph, repair, later mining |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
 
@@ -46,7 +46,7 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and twenty-three commands, and **nothing
+`app/` is the Tauri shell: a window and twenty-eight commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -85,30 +85,47 @@ The index is built and probed the same way — and it is a **rebuildable cache**
 so `build` throws the old one away rather than patching it:
 
 ```sh
+cargo run --release -p girsa-link  --bin girsa-link-types -- corpus
 cargo run --release -p girsa-search --bin girsa-index -- build index corpus personal
 cargo run --release -p girsa-search --bin girsa-index -- stamp index
-cargo run --release -p girsa-search --bin girsa-index -- find  index יתגבר כארי
+cargo run --release -p girsa-search --bin girsa-index -- find  index corpus יתגבר כארי
 ```
 
-`find` searches in Torat Emet, the literal mode, and its chips are flags —
-nothing else is ever applied:
+`girsa-link-types` reads the graph from the **segment's** side and has to run
+before the index if the link facet is to have anything to count — see below. It
+is a cache like the index, and an index built without it says so rather than
+showing an empty column.
+
+`find` searches in Torat Emet, the literal mode, and the chips of spec.md §9.5
+are flags. Nothing else is ever applied:
 
 ```sh
-girsa-index find index --contains קדש          # המקדש · ויקדשהו
-girsa-index find index --letters  קדש          # קידוש too
-girsa-index find index --phrase   יתגבר כארי   # one after the other
-girsa-index find index --near 5   יתגבר כארי   # within five words, either order
+girsa-index find index corpus --contains קדש          # המקדש · ויקדשהו
+girsa-index find index corpus --letters  קדש          # קידוש too
+girsa-index find index corpus --phrase   יתגבר כארי   # one after the other
+girsa-index find index corpus --near 5   יתגבר כארי   # within five words, either order
 ```
 
-The other four modes, the relaxation ladder and the facets are W13–W14, and
-none of this is in the window yet.
+The other four modes, and the scope chip the facets set:
+
+```sh
+girsa-index find index corpus --regex "מאימת."             # whole words, no hand-holding
+girsa-index find index corpus "@ברכות ב."                  # a mareh makom — @ is the sigil
+girsa-index find index corpus --instrument gematria 611    # every word that comes to it
+girsa-index find index corpus --instrument rashei --in bavli/berakhot מקאש
+girsa-index find index corpus --instrument dilug --skips 45-50 --in genesis תורה
+girsa-index find index corpus --shelf תלמוד --not-shelf חסידות יתגבר כארי
+```
+
+In the window it is **Ctrl+F**, and the flags above are the chips under the
+query bar.
 
 ## Status
 
-**Tier 0 through Tier 3 are done, and Tier 4 can be searched — the corpus is on
-the shelf, the graph is on top of it, there is a window, the shelf is one you
-can rearrange, and every word of it is findable, literally.** All four verify
-commands green in all three repositories.
+**Tier 0 through Tier 4 are done — the corpus is on the shelf, the graph is on
+top of it, there is a window, the shelf is one you can rearrange, and all five
+ways of searching it are in that window with the counts to narrow by.** All four
+verify commands green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -124,6 +141,8 @@ commands green in all three repositories.
 | **W10** · the shelf | One taxonomy over two corpora's vocabularies: **15 shelves, 7,189 seforim, each on exactly one**. Editable — move, rename, reorder, make a shelf — as **one file in your own layer**, which a re-import cannot touch. A file you drop in is a sefer with permanent ids like any other. |
 | **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
 | **W12** · Torat Emet | The literal mode, and the default. The three operators that get used — the word, the letters it **contains**, those letters **in order** with others between — plus **within X words of each other, in either order**. Every query carries a plan saying exactly what was asked of the index, and a test asserts that plan is the typed words with their nikud off and nothing else. On the shelf: `קדש` is 31,483 segments, `--contains קדש` is 301,910, and the difference is a thing the reader asked for. |
+| **W13** · the ladder | Two columns of one table (§9.6), and the difference between them is the work order: the default mode **offers** the rungs with their counts and applies nothing; Smart climbs them and says so. The counts are computed from the query the click would run, so the promise and the result cannot disagree — checked both ways. Two rungs are named and not offered, because a missing chip reads as *there is nothing down that road*: nikud is already off in every mode, and the root rung is what §9.4 rejected every analyser for. |
+| **W14** · the rest of §9 | The other three modes, the chip row, and the five facets. **A facet row's count is the number clicking it gives you** — the ladder's promise, one section on, asserted for every row of every dimension. On the shelf: `יתגבר כארי` is 79 segments; the rail says `חסידות 26`, and clicking it gives 26. The two instruments the index cannot answer say so by name instead of approximating: a dilug reads letters and a notarikon is four patterns each matching half the vocabulary. |
 
 The segments file is the load-bearing part and it is worth one line: each record
 **carries its own id**, so the file can be sorted, reordered, appended to or
@@ -476,6 +495,234 @@ single query with slop 2 matches *"two words apart in order"* **and**
 ordering separately, at exactly the distance requested, and taking the union is
 the same thing said precisely.
 
+### Five modes, and what each one promises
+
+spec.md §9.3 names five and the promises are not the same promise, which is the
+point of having five rather than a setting:
+
+```
+$ girsa-index find index corpus יתגבר כארי
+searched for: the words יתגבר כארי, anywhere in a segment
+79 in 5000545 segments · showing 79
+```
+
+| mode | and what it will not do |
+|---|---|
+| **Torat Emet** | what you typed. On a zero it **offers** the ladder and applies nothing |
+| **Smart** | widens, and says what it widened, with the literal query as the undo |
+| **Regex** | whole words, no hand-holding — and **nothing** offered on a zero |
+| **Citation** | a mareh makom, and never a near-miss presented as a place |
+| **Instruments** | gematria · rashei tevot · sofei tevot · atbash · dilug |
+
+Regex refuses three patterns rather than running them, and each one would
+otherwise return nothing for ever while looking like an honest empty result —
+in the mode whose whole contract is that an empty result means the corpus does
+not say it. A pattern carrying **nikud**, one carrying a **final letter**, and
+one that is **anchored**:
+
+```
+$ girsa-index find index corpus --regex "^קדש$"
+`^קדש$` is anchored, and a pattern here is matched against the whole of a word,
+so `^` is already implied — write `קדש`
+```
+
+The third is the interesting one. `^…$` means nothing here — a pattern is
+already matched against the whole of a word — and tantivy answers it with a
+parser error about empty match operators. Stripping the anchors would change no
+result at all, and it is still not done: it would be the engine editing a
+pattern somebody wrote, in the one mode that promises it does not.
+
+Citation has three answers and only one of them is a jump:
+
+```
+$ girsa-index find index corpus "@Meilah"
+Meilah could be 2 places
+  girsa:bavli/meilah      →  קׇדְשֵׁי קָדָשִׁים שֶׁשְּׁחָטָן בַּדָּרוֹם – מוֹעֲלִין בָּהֶן…
+  girsa:mishnah-meilah    →  קָדְשֵׁי קָדָשִׁים שֶׁשְּׁחָטָן בַּדָּרוֹם, מוֹעֲלִים בָּהֶן…
+
+$ girsa-index find index corpus "@ברכות צט."
+ברכות צט. is not a place on this shelf
+  [bavli/berakhot] is on the shelf and has no 99a — open the sefer?
+```
+
+That second line is the whole mode. `ברכות צט.` parses perfectly, resolves
+perfectly, and there is no daf 99 — so it opens nothing and offers the sefer. A
+near-miss here does not look like an error: it resolves, it opens a page, and it
+is the wrong page, and if it is copied into a Ksav document it is wrong in a
+printed sefer.
+
+**A candidate is eliminated only when the shelf can refute it.** W8 settled that
+rule for the link graph and this is the same rule in the same words: `או"ח`
+naming a sefer we do not have is not refuted by our not having it, so it stays a
+choice. Picking the one that happens to be downloaded would be choosing by
+what is on the disk rather than by what was written.
+
+### Two of the instruments are not index questions, and say so
+
+Gematria and atbash are. Gematria adds up **every distinct word in the index**
+once and searches for the ones that came to the number, which is a different
+thing from a list somebody wrote:
+
+```
+$ girsa-index find index corpus --instrument gematria 611
+searched for: words that come to 611
+1407 words of the corpus: אאגרות אאתרוג אבולוציונית אבזרתא … and 1395 more
+285191 in 5000545 segments
+```
+
+Notarikon and dilug are not, and they are **refused by name** rather than
+approximated with something an inverted index happens to be able to do:
+
+- a **dilug** runs through the letters of a sefer and pays no attention to where
+  words or segments end;
+- a **notarikon** looks like an index question and is not. `מקאש` is four
+  one-letter patterns — `מ.*`, `ק.*`, `א.*`, `ש.*` — and on this corpus each of
+  them matches more distinct words than a phrase query will hold, so the index
+  answers it with a refusal about postings lists. True, and useless.
+
+Both are read off the text instead, and both are bounded by **the scope chip**
+rather than by a ceiling nobody chose. Over the whole shelf they say which sefer
+they need; over one, they read it:
+
+```
+$ girsa-index find index corpus --instrument rashei --in bavli/berakhot מקאש
+searched for: words whose first letters spell מקאש
+read through 1 sefer of text, not the index
+4 in 5000545 segments
+
+girsa:bavli/berakhot/2a:1#1
+  <big><strong>[מֵאֵימָתַי]</strong></big> [קוֹרִין] [אֶת] [שְׁמַע] בָּעֲרָבִין?…
+```
+
+That first line is there because of one thing the scan has to know: **a tag is
+not a word.** The corpus stores it as
+`<big><strong>מֵאֵימָתַי</strong></big> קוֹרִין`, so tokenized as it stands there
+are two words called `strong` and `big` standing between the first word of Shas
+and the second, and the notarikon a reader can plainly see is not found. Only
+words written in Hebrew letters count as words here; on the page the tags are
+invisible and those four words do stand together, which is what the instrument
+is about.
+
+### The chips, and the sigils that teach them
+
+spec.md §9.5: *nobody should ever have to learn a syntax* — and *typing a sigil
+flips the matching chip, so the power syntax teaches itself*. Both halves, and
+the acceptance is that they are **the same search**:
+
+| typed | the chip it flips |
+|---|---|
+| `"יתגבר כארי"` | one after the other |
+| `*קדש*` | the word contains these letters |
+| `~קדש` | these letters, in this order |
+| `~5` | within 5 words of each other |
+| `/מאימת./` | Regex |
+| `@ברכות ב.` | Citation |
+| `=613` | Instruments — gematria |
+
+A sigil is taken **off** what is searched for and put **on** a chip, so what is
+on the screen is what was searched for. The chip then shows the sigil beside the
+setting, which is how the syntax actually teaches itself: you click it once and
+see what you could have typed. And a sigil never touches a chip it did not name
+— a reader who narrowed to the Bavli by clicking a facet does not lose it by
+typing a quotation mark.
+
+### The facets, and the promise on every row
+
+§9.8 wants five, with counts, each one click to narrow or exclude. The counts
+are taken over the **whole** result set, from the same built query the hits came
+from — not over the page, which would change as a reader scrolled and would be a
+measurement of nothing:
+
+```
+$ girsa-index find index corpus --size 3 יתגבר כארי
+79 in 5000545 segments · showing 3 · page 1 of 27
+…
+narrow by:
+  shelf      חסידות 26 · הלכה 22 ·   שולחן ערוך 10 · מוסר 9 ·   אחרונים 9
+             … and 54 more
+  era        אחרונים 49 · no era recorded 26 · אמוראים 2 · מחברי זמננו 1 · ראשונים 1
+  author     אליעזר פאפו 6 · נתן שטרנהרץ 5 · חיים דוד אזולאי 4 · צדוק הכהן רבינוביץ 4
+  sefer      פלא יועץ 6 · ליקוטי הלכות 5 · כף החיים על שולחן ערוך אורח חיים 3
+  link type  references 29 · comments-on 25 · quotes 2
+```
+
+**The number on the row is the number clicking it gives you** — the ladder's
+promise, one section on, and asserted for every row of every dimension rather
+than for a sample:
+
+```
+$ girsa-index find index corpus --shelf חסידות     יתגבר כארי   →  26
+$ girsa-index find index corpus --linked comments-on יתגבר כארי →  25
+$ girsa-index find index corpus --not-shelf חסידות  יתגבר כארי  →  53
+```
+
+Four things the column is careful about, each of which is a way a facet could
+lie quietly:
+
+- **two clicks narrow twice.** A scope is one clause per click and a hit has to
+  satisfy all of them. The first shape of this was a set of slugs that each
+  click added to — so narrowing to `תלמוד` and then to `ראשונים` gave *either*,
+  which is a **widening** with a narrowing's label on it. The test caught it and
+  the type changed.
+- **`no era recorded` is a row.** 2,377 of the 7,189 works have no era in either
+  corpus, and a column listing only the five real eras would hide a third of the
+  library behind something that looked complete.
+- **shelf rows nest and say how deep they are.** `תלמוד` and `תלמוד/בבלי` are
+  both rows, so the column does not add up to the total and is not meant to —
+  flattening to top shelves answers *which shelf* and never *which part of it*.
+- **hits in seforim the catalogue does not have are counted out loud**, because
+  otherwise the three derived facets are short by that many and nothing says so.
+
+Three of the five — shelf, era, author — are not facts about a segment at all
+but about the sefer it is in, so they are added up through the catalogue rather
+than indexed. That is why correcting an author's dates costs a `girsa-import
+--metadata-only` and not a re-index of five million segments. And the shelf they
+group by is **the same `girsa_corpus::taxonomy` the bookcase browses by**,
+including the reader's own arrangement: a sefer on one shelf in the tree and
+another in a result list would be two answers to one question.
+
+### The link facet needed the graph turned round
+
+The other two facets are columns of the index, and one of them did not exist.
+spec.md §8.2 stores an edge **once, in the direction it was written**, and W8
+put each one in the shard of the work it points *from* — so Berakhot's own shard
+holds the handful of edges Berakhot makes, and the millions that land **on** it
+are scattered across every shard in the corpus. Answering *what kind of link
+touches this segment* per query would mean reading all 691 MB of the graph to
+draw one row.
+
+So the graph is walked once and each end of each edge is written into the file
+of the work it lands in:
+
+```
+$ girsa-link-types corpus
+  shards read        5790
+  edges              4182344
+  rows               3637528   (both ends of each)
+  took               98s
+```
+
+4,182,344 — W8's number exactly, walked from the other side. The 273 MB that
+costs sits beside the edges as `touching.jsonl`, and it is a cache: delete it
+and run the tool again. What is **not** allowed is an index reading its absence
+as a zero, so the index writes down whether it had it:
+
+```
+$ cat index/girsa-build.json
+{"works":7189,"segments":5000545,"link_types":true}
+```
+
+Without that file the link facet says *not built* rather than showing an empty
+column. *Nothing here is commented on* and *nobody worked out what is commented
+on* are different statements, and a column of zeros says the first while meaning
+the second — which is exactly the silent gap §9.7 forbids one facet over.
+
+Adding the column bumped the index's schema to 2, which is what the stamp is
+for: the old index was refused rather than read, and rebuilt. It cost time —
+**1,215s against W11's 248s**, because the build now reads 964 MB of graph
+alongside the text — and 3.5 GB on disk, and both are the price of a facet that
+is a count rather than an estimate.
+
 ### What has not been checked
 
 **The shelf panel has been driven in a browser, not in the shell.**
@@ -498,18 +745,28 @@ dev-fixtures -- corpus app/public/dev` writes the real Gemara to static JSON and
 hand. That catches two engines disagreeing about where a nikud point sits. It
 does not stand in for WebKit.
 
-**Search has no window on it.** `girsa-index find` is a command line, not a
-search bar: one mode of five, its chips typed as flags, and a hundred results
-with no paging. The other four modes, the relaxation ladder with its counts
-computed before the click, the chips as objects and the live facets are
-W13–W14, and nothing in the shell searches yet. The Ksav loop
-(W15–W19) is the milestone that makes the project itself — `BUILDER.md` says to
-pull it as early as Tier 2 allows.
+**The search panel has not been driven with a mouse either.** Ctrl+F opens it
+in the shell, and every part of what it draws — the chips, their options, the
+facet rows, what clicking one narrows by — is decided in `girsa-search` and
+tested there, over an index built in memory and over the real one from the
+command line. The shell builds, the commands are registered and the panel is
+wired to them; nobody has clicked a facet row with a pointer.
+
+**And it does not draw in a browser.** `npm run dev` reads static JSON written
+by `dev-fixtures`, and a search index is neither static nor small, so the panel
+in a browser says so instead of showing an empty result list — which would read
+as a corpus with nothing in it. The consequence is that the W9 trap stands for
+this panel: its Hebrew has been looked at on one engine only.
+
+The Ksav loop (W15–W19) is the milestone that makes the project itself —
+`BUILDER.md` says to pull it as early as Tier 2 allows.
 
 Two things W10 leaves for the orders that own them. A sefer of yours is **not in
 the resolver's lexicon**, so it is opened and filed by title and not yet cited
-by one — the lexicon is built from Sefaria's schemas and W14's citation mode is
-what wires the resolver into the query bar. And a PDF has pages and no words,
+by one. W14 wired the resolver into the query bar and did not change that: the
+lexicon is `corpus/lexicon.tsv` and the 978 Otzaria titles beside it, both
+written by the import, and a sefer you dropped in this morning is in neither. It
+is searchable like anything else and it is not citable by name. And a PDF has pages and no words,
 which is W26's to change; the index already carries them as `page` segments so
 that §9.7's *"4 PDFs on this shelf aren't searchable yet"* is a count somebody
 can take, rather than a silent gap.

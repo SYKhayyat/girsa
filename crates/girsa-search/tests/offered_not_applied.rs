@@ -78,7 +78,7 @@ fn loaded() -> SearchIndex {
     for (i, text) in shelf().into_iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)]
         writer
-            .add(&segment(i as u32 + 1, text))
+            .add(&segment(i as u32 + 1, text), &[])
             .expect("adding a segment");
     }
     writer.commit().expect("committing");

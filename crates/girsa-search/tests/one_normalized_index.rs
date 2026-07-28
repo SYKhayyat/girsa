@@ -81,7 +81,7 @@ fn loaded() -> SearchIndex {
     let index = SearchIndex::in_memory().expect("an index in memory");
     let mut writer = index.writer().expect("a writer");
     for s in shelf() {
-        writer.add(&s).expect("adding a segment");
+        writer.add(&s, &[]).expect("adding a segment");
     }
     writer.commit().expect("committing");
     index.reload().expect("reloading");
@@ -123,12 +123,15 @@ fn a_maqaf_does_not_glue_two_words_into_one() {
     let index = SearchIndex::in_memory().expect("an index in memory");
     let mut writer = index.writer().expect("a writer");
     writer
-        .add(&segment(
-            "torah/genesis",
-            &["1", "1"],
-            1,
-            "בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ׃",
-        ))
+        .add(
+            &segment(
+                "torah/genesis",
+                &["1", "1"],
+                1,
+                "בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ׃",
+            ),
+            &[],
+        )
         .expect("adding a segment");
     writer.commit().expect("committing");
     index.reload().expect("reloading");
@@ -163,7 +166,7 @@ fn an_abbreviation_is_not_expanded_at_import() {
     let index = SearchIndex::in_memory().expect("an index in memory");
     let mut writer = index.writer().expect("a writer");
     writer
-        .add(&segment("tur", &["1", "1"], 1, "וכן פסק שו\"ע שם"))
+        .add(&segment("tur", &["1", "1"], 1, "וכן פסק שו\"ע שם"), &[])
         .expect("adding a segment");
     writer.commit().expect("committing");
     index.reload().expect("reloading");
@@ -227,7 +230,7 @@ fn an_index_written_under_older_normalizer_rules_is_refused() {
         let index = SearchIndex::create(dir.path()).expect("creating an index");
         let mut writer = index.writer().expect("a writer");
         writer
-            .add(&segment("bavli/berakhot", &["2a", "1"], 1, "מֵאֵימָתַי"))
+            .add(&segment("bavli/berakhot", &["2a", "1"], 1, "מֵאֵימָתַי"), &[])
             .expect("adding a segment");
         writer.commit().expect("committing");
     }
@@ -283,7 +286,7 @@ fn an_index_reopened_from_disk_still_answers() {
         let index = SearchIndex::create(dir.path()).expect("creating an index");
         let mut writer = index.writer().expect("a writer");
         for s in shelf() {
-            writer.add(&s).expect("adding a segment");
+            writer.add(&s, &[]).expect("adding a segment");
         }
         writer.commit().expect("committing");
     }
@@ -302,7 +305,7 @@ fn reindexing_a_work_replaces_it_rather_than_doubling_it() {
     for _ in 0..2 {
         let mut writer = index.writer().expect("a writer");
         for s in shelf() {
-            writer.add(&s).expect("adding a segment");
+            writer.add(&s, &[]).expect("adding a segment");
         }
         writer.commit().expect("committing");
     }

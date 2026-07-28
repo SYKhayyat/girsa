@@ -18,11 +18,13 @@ import {
 import { build } from "./layout.ts";
 import { PaneView } from "./pane.ts";
 import { Picker } from "./picker.ts";
+import { SearchView } from "./search.ts";
 import { ShelfView } from "./shelf.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
 const shelf = new ShelfView();
+const find = new SearchView();
 const views = new Map<PaneId, PaneView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
@@ -38,7 +40,7 @@ function titleOf(slug: string): string {
 async function main(): Promise<void> {
   if (!root) return;
   await connect();
-  root.append(picker.element, shelf.element);
+  root.append(picker.element, shelf.element, find.element);
   document.addEventListener("keydown", shortcut);
   await whenFilesDropped(whenDropped);
   await reload();
@@ -89,7 +91,7 @@ async function draw(): Promise<void> {
   const open = tab();
   if (!open) {
     chrome.append(nothingOpen());
-    root.replaceChildren(chrome, picker.element, shelf.element);
+    root.replaceChildren(chrome, picker.element, shelf.element, find.element);
     return;
   }
 
@@ -98,7 +100,7 @@ async function draw(): Promise<void> {
   });
   boxes.classList.add("panes");
   chrome.append(boxes);
-  root.replaceChildren(chrome, picker.element, shelf.element);
+  root.replaceChildren(chrome, picker.element, shelf.element, find.element);
 
   // Panes that are no longer open go, and the ones that stayed keep their
   // scroll position rather than being rebuilt underneath the reader.
@@ -202,11 +204,29 @@ function tabBar(): HTMLElement {
   });
   bar.append(button("＋", "פתח ספר (Ctrl+O)", openSomething));
   bar.append(button("מדף", "עיין במדף (Ctrl+B)", browseShelf));
+  bar.append(button("חפש", "חפש בכל המדף (Ctrl+F)", search));
   return bar;
 }
 
 function browseShelf(): void {
   void shelf.toggle(openTab);
+}
+
+function search(): void {
+  void find.toggle(openFound);
+}
+
+/// A result, opened: the sefer in a tab, at the segment that was found.
+///
+/// The scroll goes through the same `goTo` the commentary column uses, so a hit
+/// lands on the line by its **permanent id** and not by counting lines — which
+/// is the whole of W6 showing up in a place nobody would think to look.
+async function openFound(slug: string, id: string): Promise<void> {
+  await api.openTab(slug);
+  await reload();
+  const open = tab();
+  const pane = open?.panes.find((p) => p.slug === slug);
+  if (pane) views.get(pane.id)?.goTo({ kind: "at", ids: [id] }, "linked");
 }
 
 function toolBar(): HTMLElement {
@@ -253,12 +273,14 @@ function nothingOpen(): HTMLElement {
   title.textContent = "גִּרְסָא";
   const hint = document.createElement("p");
   hint.className = "empty-hint";
-  hint.textContent = "Ctrl+O — פתח ספר · Ctrl+B — עיין במדף";
+  hint.textContent = "Ctrl+O — פתח ספר · Ctrl+B — עיין במדף · Ctrl+F — חפש";
   const open = button("פתח ספר", "Ctrl+O", openSomething);
   open.classList.add("empty-button");
   const browse = button("עיין במדף", "Ctrl+B", browseShelf);
   browse.classList.add("empty-button");
-  empty.append(title, hint, open, browse);
+  const look = button("חפש", "Ctrl+F", search);
+  look.classList.add("empty-button");
+  empty.append(title, hint, open, browse, look);
   return empty;
 }
 
@@ -269,6 +291,21 @@ function openSomething(): void {
 function shortcut(event: KeyboardEvent): void {
   if (picker.isOpen) return;
   const control = event.ctrlKey || event.metaKey;
+  if (find.isOpen && event.key === "Escape") {
+    event.preventDefault();
+    find.close();
+    return;
+  }
+  if (control && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    search();
+    return;
+  }
+  if (find.isOpen) {
+    // The search is a place, like the shelf: the reading shortcuts are not
+    // live while it is open, and a typed letter goes into the query box.
+    return;
+  }
   if (shelf.isOpen && event.key === "Escape") {
     event.preventDefault();
     shelf.close();

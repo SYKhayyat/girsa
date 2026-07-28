@@ -24,6 +24,7 @@
 pub mod otzaria;
 pub mod sefaria;
 pub mod store;
+pub mod touching;
 
 use girsa_corpus::segment::SegmentId;
 
@@ -35,7 +36,10 @@ use girsa_corpus::segment::SegmentId;
 /// blank `"Conection Type"` land on [`References`](EdgeType::References) — the
 /// weak catch-all — and stay there until something better assigns them. A
 /// schema change is expensive; filling in values is not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Ordered so that a set of them has one printing order — the order they are
+/// written below, strongest claim first, which is the order a facet lists them
+/// in and the order the repair UI will offer them in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EdgeType {
     CommentsOn,
     Quotes,

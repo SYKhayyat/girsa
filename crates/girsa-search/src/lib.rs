@@ -9,8 +9,15 @@
 //! W13 the ladder and Smart mode. The remaining modes, the chips and the facets
 //! are W14.
 
+pub mod bar;
+pub mod chips;
+pub mod citation;
+pub mod facets;
 pub mod index;
+pub mod instruments;
 pub mod ladder;
+pub mod regex_mode;
+pub mod scope;
 pub mod smart;
 pub mod tokenizer;
 pub mod torat_emet;

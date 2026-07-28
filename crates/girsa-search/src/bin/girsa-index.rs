@@ -30,11 +30,21 @@ use std::time::Instant;
 
 use girsa_corpus::import;
 use girsa_corpus::work::Work;
-use girsa_hebrew::VariantKind;
-use girsa_search::index::{Found, Hit, SearchIndex, Stamp, CACHE_STAMP, PROBE_LIMIT};
-use girsa_search::ladder::{Rung, Standing, Widened};
-use girsa_search::smart::Smart;
+use girsa_ref::resolve::Context;
+use girsa_search::bar::{Answer, Bar, Results};
+use girsa_search::chips::{Chips, Skips, Sounding};
+use girsa_search::citation::{Landing, NearMiss};
+use girsa_search::facets::{Catalogue, Dimension, Facets, Links};
+use girsa_search::index::{BuildReport, Hit, Paging, SearchIndex, Stamp, CACHE_STAMP};
+use girsa_search::ladder::{Offers, Rung, Standing, Widened};
 use girsa_search::torat_emet::{Match, Query, Together};
+use girsa_search::Mode;
+
+/// How many rows of one facet the rail shows.
+///
+/// A rail nobody reads is a rail nobody clicks. What is cut is **counted** on
+/// the next line, because a list that silently stops reads as all of them.
+const FACET_ROWS: usize = 6;
 
 /// The writer's budget. Big enough that the whole corpus goes in without
 /// merging itself to death, small enough to leave the machine usable.
@@ -56,7 +66,7 @@ fn main() -> std::process::ExitCode {
             _ => usage(),
         },
         "find" => match rest.split_first() {
-            Some((index_dir, rest)) if !rest.is_empty() => find(Path::new(index_dir), rest),
+            Some((index_dir, rest)) if rest.len() > 1 => find(Path::new(index_dir), rest),
             _ => usage(),
         },
         "stamp" => match rest.first() {
@@ -102,12 +112,16 @@ struct Tally {
     wordless: usize,
     /// Works listed on the shelf whose segments would not read.
     unreadable: Vec<String>,
+    /// Works the link-type cache had something to say about. Zero over the
+    /// whole run means the cache was never built, and the link facet then
+    /// reports *not built* rather than a column of zeros (spec.md §9.8).
+    with_links: usize,
 }
 
 fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
     let started = Instant::now();
 
-    let index = match SearchIndex::rebuild(index_dir) {
+    let mut index = match SearchIndex::rebuild(index_dir) {
         Ok(index) => index,
         Err(e) => {
             eprintln!("cannot create the index at {}: {e}", index_dir.display());
@@ -156,8 +170,25 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
                     continue;
                 }
             };
-            for segment in &imported.segments {
-                if let Err(e) = writer.add(segment) {
+            // Which kinds of link touch each segment, from both directions —
+            // spec.md §9.8's fifth facet. A cache (`girsa-link-types`), and
+            // allowed to be missing: what is not allowed is reading its
+            // absence as *nothing is commented on*, which is why the build
+            // records whether it was there.
+            let touching = girsa_link::touching::read_back(&root, &work.slug).unwrap_or_default();
+            if !touching.is_empty() {
+                tally.with_links += 1;
+            }
+            let ids: Vec<girsa_corpus::segment::SegmentId> =
+                imported.segments.iter().map(|s| s.id.clone()).collect();
+            let by_segment = girsa_link::touching::by_segment(&touching, &ids);
+
+            for (at, segment) in imported.segments.iter().enumerate() {
+                let kinds: Vec<girsa_link::EdgeType> = by_segment
+                    .get(at)
+                    .map(|set| set.iter().copied().collect())
+                    .unwrap_or_default();
+                if let Err(e) = writer.add(segment, &kinds) {
                     eprintln!("cannot index {}: {e}", segment.id);
                     return std::process::ExitCode::FAILURE;
                 }
@@ -197,6 +228,17 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
 
+    // What went in, written beside the index — so the facets can tell an empty
+    // link column from a link column nobody filled (spec.md §9.8).
+    if let Err(e) = index.declare(BuildReport {
+        works: tally.works,
+        segments: tally.segments,
+        link_types: tally.with_links > 0,
+    }) {
+        eprintln!("cannot write the build report: {e}");
+        return std::process::ExitCode::FAILURE;
+    }
+
     let elapsed = started.elapsed();
     println!("\nindexed:");
     println!("  works              {}", tally.works);
@@ -207,6 +249,15 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
         tally.wordless
     );
     println!("  in the index       {}", index.count());
+    println!(
+        "  link types from    {} works{}",
+        tally.with_links,
+        if tally.with_links == 0 {
+            "   (girsa-link-types has not run — the link facet will say so)"
+        } else {
+            ""
+        }
+    );
     println!(
         "  took               {:.0}s  ({:.0} segments/s)",
         elapsed.as_secs_f64(),
@@ -241,37 +292,85 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-/// Search, in the literal mode, with the chips given as flags.
+/// Search, with the chips given as flags (spec.md §9.5, W14).
 ///
-/// The flags are not a query language — spec.md §9.5 makes every control an
-/// object you can see, and these are those objects on a command line. Anything
-/// that is not a flag is part of what you are looking for.
+/// The flags are not a query language — §9.5 makes every control an object you
+/// can see, and these are those objects on a command line. Anything that is not
+/// a flag is part of what you are looking for, and the **sigils** work here too:
+/// `"…"`, `*…*`, `~…`, `~5`, `/…/`, `@…`, `=613` set the same chips they set in
+/// the window, because they are read by the same code.
 fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
-    let mut matching = Match::default();
-    let mut together = Together::default();
+    let Some((root, rest)) = args.split_first() else {
+        return usage();
+    };
+    let root = PathBuf::from(root);
+
+    let mut chips = Chips::default();
     let mut rungs: Vec<Rung> = Vec::new();
-    let mut smart = false;
+    let mut paging = Paging::first();
     let mut words: Vec<&str> = Vec::new();
-    let mut args = args.iter();
+    let mut narrow: Vec<(Dimension, String)> = Vec::new();
+    let mut exclude: Vec<(Dimension, String)> = Vec::new();
+    let mut args = rest.iter();
     while let Some(arg) = args.next() {
+        let mut value = || {
+            args.next()
+                .map(String::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
         match arg.as_str() {
-            "--contains" => matching = Match::Contains,
-            "--letters" => matching = Match::Letters,
-            "--phrase" => together = Together::Phrase,
-            "--smart" => smart = true,
-            "--near" => match args.next().and_then(|n| n.parse().ok()) {
-                Some(gap) => together = Together::Near { words: gap },
-                None => {
+            "--contains" => chips.matching = Match::Contains,
+            "--letters" => chips.matching = Match::Letters,
+            "--phrase" => chips.together = Together::Phrase,
+            "--smart" => chips.mode = Mode::Smart,
+            "--regex" => chips.mode = Mode::Regex,
+            "--citation" => chips.mode = Mode::Citation,
+            "--near" => match value().parse() {
+                Ok(gap) => chips.together = Together::Near { words: gap },
+                Err(_) => {
                     eprintln!("--near wants a number of words");
                     return std::process::ExitCode::from(2);
                 }
             },
-            "--rung" => match args.next().map(String::as_str).and_then(rung_named) {
+            "--rung" => match Rung::named(&value()) {
                 Some(rung) => rungs.push(rung),
                 None => {
                     eprintln!(
                         "--rung wants one of: prefixes spellings gershayim abbreviations proximity"
                     );
+                    return std::process::ExitCode::from(2);
+                }
+            },
+            "--instrument" => match sounding_named(&value()) {
+                Some(sounding) => {
+                    chips.mode = Mode::Instruments;
+                    chips.sounding = sounding;
+                }
+                None => {
+                    eprintln!("--instrument wants one of: gematria rashei sofei atbash dilug");
+                    return std::process::ExitCode::from(2);
+                }
+            },
+            "--skips" => match value().split_once('-').map(|(a, b)| (a.parse(), b.parse())) {
+                Some((Ok(from), Ok(to))) => chips.skips = Skips { from, to },
+                _ => {
+                    eprintln!("--skips wants a range, like 1-50");
+                    return std::process::ExitCode::from(2);
+                }
+            },
+            "--in" => narrow.push((Dimension::Sefer, value())),
+            "--shelf" => narrow.push((Dimension::Shelf, value())),
+            "--era" => narrow.push((Dimension::Era, value())),
+            "--by" => narrow.push((Dimension::Author, value())),
+            "--linked" => narrow.push((Dimension::Link, value())),
+            "--not" => exclude.push((Dimension::Sefer, value())),
+            "--not-shelf" => exclude.push((Dimension::Shelf, value())),
+            "--page" => paging = pages(paging, &value()),
+            "--size" => match value().parse() {
+                Ok(size) => paging = Paging { size, ..paging },
+                Err(_) => {
+                    eprintln!("--size wants a number of results");
                     return std::process::ExitCode::from(2);
                 }
             },
@@ -282,9 +381,6 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             word => words.push(word),
         }
     }
-    let query = Query::new(words.join(" "))
-        .matching(matching)
-        .together(together);
 
     let index = match SearchIndex::open(index_dir) {
         Ok(index) => index,
@@ -293,80 +389,206 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-
-    if smart {
-        if !rungs.is_empty() {
-            eprintln!("--smart chooses its own rungs; --rung is the literal mode's click");
-            return std::process::ExitCode::from(2);
+    let works = match load_works(&root) {
+        Ok(works) => works,
+        Err(e) => {
+            eprintln!("cannot read {}'s work index: {e}", root.display());
+            return std::process::ExitCode::FAILURE;
         }
-        return smart_find(&index, &query);
+    };
+    let bar = Bar::new(index, Catalogue::of(&works), &root);
+
+    // The scope chip, set the way a facet click sets it — through the same
+    // functions, so the command line cannot narrow by a rule the window does
+    // not have.
+    for (dimension, key) in narrow {
+        chips.scope =
+            girsa_search::facets::narrow(&chips.scope, bar.catalogue(), dimension, &row(&key));
+    }
+    for (dimension, key) in exclude {
+        chips.scope =
+            girsa_search::facets::exclude(&chips.scope, bar.catalogue(), dimension, &row(&key));
     }
 
-    // A refusal is an answer here, and it says why. What it never is, in either
-    // branch, is a shorter list of results with no note attached.
-    let found = if rungs.is_empty() {
-        index.search(&query)
-    } else {
-        index.search_widened(&Widened::new(query.clone(), rungs))
-    };
-    let found = match found {
+    let typed = words.join(" ");
+    // `--rung` is the click on an offer, and it is the literal mode's only way
+    // of widening. It is applied here rather than inside the bar because the
+    // bar never widens on its own.
+    if !rungs.is_empty() {
+        return clicked(&bar, &typed, &chips, &rungs, paging);
+    }
+
+    match bar.ask(&typed, &chips, paging, &Context::default()) {
+        Answer::Segments {
+            results,
+            offers,
+            note,
+        } => {
+            println!("searched for: {}", results.header);
+            if let Some(note) = note {
+                println!("{note}");
+            }
+            show(&bar, &results, paging);
+            if !offers.is_empty() {
+                ladder(&offers);
+            }
+            std::process::ExitCode::SUCCESS
+        }
+        Answer::Cited(landing) => {
+            cited(&bar, &landing);
+            std::process::ExitCode::SUCCESS
+        }
+        Answer::Refused(why) => {
+            eprintln!("{why}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// A rung clicked: the widened search, run and reported as widened.
+fn clicked(
+    bar: &Bar,
+    typed: &str,
+    chips: &Chips,
+    rungs: &[Rung],
+    paging: Paging,
+) -> std::process::ExitCode {
+    let query = Query::new(typed)
+        .matching(chips.matching)
+        .together(chips.together);
+    let widened = Widened::new(query, rungs.to_vec());
+    let found = match bar
+        .index()
+        .search_widened_in(&widened, &chips.scope, paging)
+    {
         Ok(found) => found,
         Err(e) => {
             eprintln!("{e}");
             return std::process::ExitCode::FAILURE;
         }
     };
-
     match &found.widening {
         Some(widening) => println!("searched for: {}", widening.describe()),
         None => println!("searched for: {}", found.asked.describe()),
     }
-    page(&index, &found);
-
-    // spec.md §9.6: zero results is a bug in the interface, not an answer — but
-    // the default mode offers the next step rather than taking it, with the
-    // counts worked out first.
-    if found.total == 0 && found.widening.is_none() {
-        ladder(&index, &query);
+    println!(
+        "{} in {} segments · showing {}",
+        found.total,
+        bar.index().count(),
+        found.hits.len()
+    );
+    for hit in &found.hits {
+        println!("{}  [{}]", hit.id, hit.kind.as_str());
+        println!("  {}", excerpt(hit, &found.marks(hit)));
     }
     std::process::ExitCode::SUCCESS
 }
 
-/// Smart mode: widen, and say what widening did.
-fn smart_find(index: &SearchIndex, query: &Query) -> std::process::ExitCode {
-    let answered = match Smart::new(query.clone()).run(index) {
-        Ok(answered) => answered,
-        Err(e) => {
-            eprintln!("{e}");
-            return std::process::ExitCode::FAILURE;
-        }
+/// One page of results, and the facets under them.
+fn show(bar: &Bar, results: &Results, paging: Paging) {
+    // A scan hands back everything it found — it read the scope, not a page of
+    // it — so it is not divided into pages, and saying it was would invite a
+    // reader to look for results that are already on the screen.
+    let pages = if results.hits.len() >= results.total {
+        1
+    } else {
+        results.total.div_ceil(paging.size.max(1))
     };
-    if let Some(widening) = &answered.found.widening {
-        println!("searched for: {}", widening.describe());
+    println!(
+        "{} in {} segments · showing {}{}\n",
+        results.total,
+        bar.index().count(),
+        results.hits.len(),
+        if pages > 1 {
+            format!(
+                " · page {} of {pages}",
+                paging.from / paging.size.max(1) + 1
+            )
+        } else {
+            String::new()
+        }
+    );
+    for hit in &results.hits {
+        println!("{}  [{}]", hit.id, hit.kind.as_str());
+        println!("  {}", excerpt(hit, &results.marker.marks(hit)));
     }
-    println!("{}", answered.announcement());
-    if answered.from_other_forms() > 0 {
+    if results.total > 0 {
+        rail(&results.facets);
+    }
+}
+
+/// The facet rail (spec.md §9.8), counted over the whole result set.
+fn rail(facets: &Facets) {
+    println!("\nnarrow by:");
+    for dimension in Dimension::ALL {
+        if dimension == Dimension::Link {
+            if let Links::NotBuilt = facets.link {
+                println!(
+                    "  {:<10} not built — run girsa-link-types and index again",
+                    dimension.label()
+                );
+                continue;
+            }
+        }
+        let rows = facets.rows(dimension);
+        if rows.is_empty() {
+            continue;
+        }
+        let shown: Vec<String> = rows
+            .iter()
+            .take(FACET_ROWS)
+            .map(|row| format!("{}{} {}", "  ".repeat(row.depth), row.label, row.count))
+            .collect();
+        println!("  {:<10} {}", dimension.label(), shown.join(" · "));
+        if rows.len() > FACET_ROWS {
+            println!("  {:<10} … and {} more", "", rows.len() - FACET_ROWS);
+        }
+    }
+    if facets.uncatalogued > 0 {
         println!(
-            "[exact form only] would show {} — girsa-index find … without --smart",
-            answered.exact_total
+            "  {:<10} {} hits are in seforim this catalogue does not have — the three above are \
+             short by that many",
+            "note:", facets.uncatalogued
         );
     }
-    page(index, &answered.found);
-    std::process::ExitCode::SUCCESS
+}
+
+/// A citation: a jump, a choice, or neither — and never a guess.
+fn cited(bar: &Bar, landing: &Landing) {
+    println!("{}", landing.describe());
+    for place in &landing.places {
+        println!("  {}  →  {}", place.reference, place.run.first);
+        if let Ok(Some(hit)) = bar.index().segment(&place.run.first) {
+            println!("     {}", excerpt(&hit, &[]));
+        }
+    }
+    for near in &landing.near {
+        match near {
+            NearMiss::AddressNotThere { reference, work } => println!(
+                "  [{work}] is on the shelf and has no {} — open the sefer?",
+                reference.from()
+            ),
+            NearMiss::NotOnTheShelf { reference, work } => println!(
+                "  [{work}] would answer {reference}, and this shelf has no Hebrew text for it"
+            ),
+            NearMiss::OtherTitle { spelling, slug } => {
+                println!("  did you mean [{spelling}] ({slug})?");
+            }
+        }
+    }
+    if landing.more_spellings > 0 {
+        println!("  … and {} more spellings", landing.more_spellings);
+    }
 }
 
 /// The rungs on offer, priced before anything is applied.
-fn ladder(index: &SearchIndex, query: &Query) {
-    let offers = index.offers(query);
-    if offers.offers.is_empty() && offers.refused.is_empty() {
-        println!("\nnothing on the ladder would find it either.");
-    }
+fn ladder(offers: &Offers) {
     for offer in &offers.offers {
         println!(
             "  [{} — {}]   --rung {}",
             offer.label,
             offer.count,
-            cli_name(offer.rung)
+            offer.rung.name()
         );
     }
     for refusal in &offers.refused {
@@ -381,70 +603,58 @@ fn ladder(index: &SearchIndex, query: &Query) {
             println!("  [{}] is not built: {why}", rung.label());
         }
     }
-}
-
-/// How much of the result set is being shown, and the hits themselves.
-fn page(index: &SearchIndex, found: &Found) {
-    // A page whose total is unstated reads as the whole of it.
-    println!(
-        "{} in {} segments · showing {}{}\n",
-        found.total,
-        index.count(),
-        found.hits.len(),
-        if found.hits.len() == PROBE_LIMIT {
-            " (the probe stops here; paging is W14)"
-        } else {
-            ""
-        }
-    );
-    for hit in &found.hits {
-        println!("{}  [{}]", hit.id, hit.kind.as_str());
-        println!("  {}", excerpt(hit, found));
+    if offers.is_empty() {
+        println!("\nnothing on the ladder would find it either.");
     }
 }
 
-/// The ladder's rungs, as they are typed on a command line.
-fn rung_named(name: &str) -> Option<Rung> {
+/// A facet row named on the command line rather than clicked.
+fn row(key: &str) -> girsa_search::facets::Row {
+    girsa_search::facets::Row {
+        key: key.to_string(),
+        label: key.to_string(),
+        count: 0,
+        depth: 0,
+    }
+}
+
+fn pages(paging: Paging, n: &str) -> Paging {
+    let page: usize = n.parse().unwrap_or(1);
+    Paging {
+        from: paging.size * page.saturating_sub(1),
+        size: paging.size,
+    }
+}
+
+fn sounding_named(name: &str) -> Option<Sounding> {
     Some(match name {
-        "prefixes" => Rung::Forms(VariantKind::PrefixPeeled),
-        "spellings" => Rung::Forms(VariantKind::KtivSwapped),
-        "gershayim" => Rung::Forms(VariantKind::GershayimDropped),
-        "abbreviations" => Rung::Forms(VariantKind::AbbreviationExpanded),
-        "proximity" => Rung::Proximity,
+        "gematria" => Sounding::Gematria,
+        "rashei" => Sounding::Rashei,
+        "sofei" => Sounding::Sofei,
+        "atbash" => Sounding::Atbash,
+        "dilug" => Sounding::Dilug,
         _ => return None,
     })
 }
 
-fn cli_name(rung: Rung) -> &'static str {
-    match rung {
-        Rung::Forms(VariantKind::PrefixPeeled) => "prefixes",
-        Rung::Forms(VariantKind::KtivSwapped) => "spellings",
-        Rung::Forms(VariantKind::GershayimDropped) => "gershayim",
-        Rung::Forms(VariantKind::AbbreviationExpanded) => "abbreviations",
-        Rung::Proximity => "proximity",
-        Rung::Nikud | Rung::Root => "",
-    }
-}
-
 /// A line of the hit with the matched words bracketed.
 ///
-/// Through [`Found::marks`], so what is bracketed is what the index matched —
-/// pointed at the text as printed, which is the property W11 has to hold, and
-/// following the widening when there is one, so a hit found by peeling a prefix
-/// brackets `[וכשהמלך]` rather than the three letters of it that were typed.
-fn excerpt(hit: &Hit, found: &Found) -> String {
-    let marks = found.marks(hit);
+/// The marks come from the answer's own [`girsa_search::bar::Marker`], so what
+/// is bracketed is what the search matched — the widened word rather than the
+/// three letters of it that were typed, and the word a gematria added up rather
+/// than the number.
+fn excerpt(hit: &Hit, marks: &[(usize, usize)]) -> String {
     let mut out = String::new();
     let mut at = 0usize;
     for (start, end) in marks {
-        if start < at || end > hit.text.len() {
+        if *start < at || *end > hit.text.len() {
             continue;
         }
-        out.push_str(hit.text.get(at..start).unwrap_or_default());
+        out.push_str(hit.text.get(at..*start).unwrap_or_default());
         out.push('[');
-        out.push_str(hit.text.get(start..end).unwrap_or_default());
+        out.push_str(hit.text.get(*start..*end).unwrap_or_default());
         out.push(']');
-        at = end;
+        at = *end;
     }
     out.push_str(hit.text.get(at..).unwrap_or_default());
     out.chars().take(220).collect()

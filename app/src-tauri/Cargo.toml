@@ -24,6 +24,10 @@ serde_json = "1"
 # window is in there, where it can be tested without a webview.
 girsa-app = { path = "../../crates/girsa-app" }
 girsa-corpus = { path = "../../crates/girsa-corpus" }
+# The search bar: five modes, three chips, five facets (spec.md §9). The window
+# draws what this crate decides and decides nothing itself.
+girsa-search = { path = "../../crates/girsa-search" }
+girsa-ref = { path = "../../../sefer-crates/crates/girsa-ref" }
 
 [lints.rust]
 unsafe_code = "forbid"

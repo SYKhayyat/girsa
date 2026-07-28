@@ -31,31 +31,47 @@
 //! did not write. The index is a rebuildable cache (spec.md §4.1); refusing it
 //! costs a rebuild, and trusting it costs the reader's trust in the search box.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::{Segment, SegmentKind};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::CacheProvenance;
+use girsa_link::EdgeType;
 use serde::{Deserialize, Serialize};
-use tantivy::collector::{Count, TopDocs};
+use tantivy::collector::{Collector, Count, SegmentCollector, TopDocs};
+use tantivy::columnar::StrColumn;
 use tantivy::query::{
     BooleanQuery, Occur, PhraseQuery, Query, RegexPhraseQuery, RegexQuery, TermQuery,
 };
 use tantivy::schema::{
     IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED, STRING,
 };
-use tantivy::{IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
+use tantivy::{
+    DocId, IndexReader, IndexWriter, ReloadPolicy, Score, SegmentOrdinal, SegmentReader,
+    TantivyDocument, Term,
+};
 
 use crate::ladder::{
     Alternative, Form, Offer, Offers, Position, Refusal, Rung, Standing, Widened, Widening,
     MOST_EXACT_QUERIES,
 };
+use crate::scope::Scope;
 use crate::tokenizer;
 use crate::torat_emet::{self, Match, Plan, Together, MOST_WORDS_UNORDERED};
 
 /// The file that says what rules this index was built under.
 pub const CACHE_STAMP: &str = "girsa-cache.json";
+
+/// The file that says what went **into** this index, as against under what
+/// rules.
+///
+/// A different question from [`CACHE_STAMP`] and it has to be asked separately.
+/// The stamp says the normalizer agrees; this says whether the link-type cache
+/// existed when the index was built — and without it the link facet has to
+/// report *not built* rather than a column of zeros (spec.md §9.7's rule, one
+/// facet over).
+pub const BUILD_REPORT: &str = "girsa-build.json";
 
 /// Bumped when the *shape* of the index changes — a field added, a field
 /// indexed differently.
@@ -65,7 +81,11 @@ pub const CACHE_STAMP: &str = "girsa-cache.json";
 /// second location type in this same index, and that is a schema change: an
 /// index written before it is not wrong, it is *incomplete*, and reading it as
 /// though it were complete would produce exactly the silent gap §9.7 forbids.
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// **2** — W14 added the `link` column, which is what makes §9.8's link-type
+/// facet a count rather than a guess. An index built at 1 has every other field
+/// right and would show that facet as empty, so it is refused and rebuilt.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// How many hits the index's own probes return.
 ///
@@ -160,6 +180,16 @@ pub enum IndexError {
          limit is {limit}) — narrow the query, or take one rung at a time"
     )]
     TooManyForms { queries: usize, limit: usize },
+    /// Asked of the index, and not a question an index can answer.
+    ///
+    /// Named rather than answered with the nearest thing an inverted index can
+    /// do. A dilug over an index of words would be a different instrument
+    /// wearing this one's name.
+    #[error("{what} is not something the index can answer — {instead}")]
+    NotAnIndexQuestion {
+        what: &'static str,
+        instead: &'static str,
+    },
     #[error(transparent)]
     Tantivy(#[from] tantivy::TantivyError),
 }
@@ -234,8 +264,203 @@ impl Found {
     }
 }
 
+/// An instrument, built into a query.
+///
+/// Instruments have no [`Plan`], because no words were typed to plan for. What
+/// they have instead is [`Sounded::words`]: the words of the corpus the
+/// instrument actually reached, which is half the finding when the question was
+/// *which words come to 613* — and which is also what a highlight marks.
+#[derive(Debug)]
+pub struct Sounded {
+    pub prepared: Prepared,
+    /// The words this reached, where naming them is part of the answer.
+    pub words: Vec<String>,
+}
+
 /// The clauses of a boolean query, before it is built.
 type Clauses = Vec<(Occur, Box<dyn Query>)>;
+
+/// A query, built, scoped, and ready to be asked more than one question.
+///
+/// Hits, a total and the facet counts are three questions about one query. Two
+/// builds of "the same" query is how a result header comes to disagree with the
+/// facet column beside it, so it is built once and asked three times.
+pub struct Prepared {
+    query: Box<dyn Query>,
+}
+
+impl std::fmt::Debug for Prepared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Prepared").finish_non_exhaustive()
+    }
+}
+
+/// Which page of the results, and how many to a page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Paging {
+    pub from: usize,
+    pub size: usize,
+}
+
+impl Paging {
+    /// The first page, at the default size.
+    #[must_use]
+    pub const fn first() -> Self {
+        Self {
+            from: 0,
+            size: PROBE_LIMIT,
+        }
+    }
+
+    /// A page of a size the caller chose.
+    #[must_use]
+    pub const fn of(size: usize) -> Self {
+        Self { from: 0, size }
+    }
+
+    /// The next page along.
+    #[must_use]
+    pub const fn then(self) -> Self {
+        Self {
+            from: self.from + self.size,
+            size: self.size,
+        }
+    }
+}
+
+impl Default for Paging {
+    fn default() -> Self {
+        Self::first()
+    }
+}
+
+/// What a result set is made of, counted by what a reader can narrow by.
+///
+/// The raw material of [`crate::facets`]: this counts the two columns the index
+/// carries, and the catalogue turns the works into shelves, eras and authors.
+#[derive(Debug, Clone, Default)]
+pub struct Counts {
+    /// Hits per sefer, by slug.
+    pub by_work: BTreeMap<String, usize>,
+    /// Hits per kind of link touching them.
+    pub by_link: BTreeMap<EdgeType, usize>,
+    /// Hits altogether. Equal to the sum of [`Counts::by_work`], and not to the
+    /// sum of [`Counts::by_link`] — a segment can be touched by two kinds of
+    /// link and is one hit.
+    pub total: usize,
+    /// Whether the link column was filled in when this index was built. When it
+    /// was not, [`Counts::by_link`] is empty because **nobody worked it out**,
+    /// which is a different statement from *there are none*.
+    pub link_types_built: bool,
+}
+
+/// Counts every matching document by the two columns a facet is drawn from.
+///
+/// A collector rather than one search per facet row: the alternative is
+/// thousands of queries per keystroke, and the counts would be taken at
+/// slightly different moments.
+struct Tallies;
+
+/// One segment's worth: ordinal counts, resolved to strings at the end.
+///
+/// Counting into a vector indexed by term ordinal keeps the hot loop to an
+/// increment. Turning ordinals into slugs is done once per segment of the
+/// index, not once per hit.
+struct SegmentTallies {
+    work: Option<StrColumn>,
+    link: Option<StrColumn>,
+    work_counts: Vec<usize>,
+    link_counts: Vec<usize>,
+    total: usize,
+}
+
+impl Collector for Tallies {
+    type Fruit = (BTreeMap<String, usize>, BTreeMap<String, usize>, usize);
+    type Child = SegmentTallies;
+
+    fn for_segment(
+        &self,
+        _: SegmentOrdinal,
+        reader: &SegmentReader,
+    ) -> tantivy::Result<SegmentTallies> {
+        let work = reader.fast_fields().str(Fields::WORK)?;
+        let link = reader.fast_fields().str(Fields::LINK)?;
+        let work_counts = vec![0; work.as_ref().map_or(0, |c| c.dictionary().num_terms())];
+        let link_counts = vec![0; link.as_ref().map_or(0, |c| c.dictionary().num_terms())];
+        Ok(SegmentTallies {
+            work,
+            link,
+            work_counts,
+            link_counts,
+            total: 0,
+        })
+    }
+
+    fn requires_scoring(&self) -> bool {
+        false
+    }
+
+    fn merge_fruits(&self, fruits: Vec<Self::Fruit>) -> tantivy::Result<Self::Fruit> {
+        let mut works: BTreeMap<String, usize> = BTreeMap::new();
+        let mut links: BTreeMap<String, usize> = BTreeMap::new();
+        let mut total = 0;
+        for (work, link, n) in fruits {
+            for (key, count) in work {
+                *works.entry(key).or_default() += count;
+            }
+            for (key, count) in link {
+                *links.entry(key).or_default() += count;
+            }
+            total += n;
+        }
+        Ok((works, links, total))
+    }
+}
+
+impl SegmentCollector for SegmentTallies {
+    type Fruit = (BTreeMap<String, usize>, BTreeMap<String, usize>, usize);
+
+    fn collect(&mut self, doc: DocId, _: Score) {
+        self.total += 1;
+        if let Some(column) = &self.work {
+            for ord in column.term_ords(doc) {
+                if let Some(slot) = self.work_counts.get_mut(ord as usize) {
+                    *slot += 1;
+                }
+            }
+        }
+        if let Some(column) = &self.link {
+            for ord in column.term_ords(doc) {
+                if let Some(slot) = self.link_counts.get_mut(ord as usize) {
+                    *slot += 1;
+                }
+            }
+        }
+    }
+
+    fn harvest(self) -> Self::Fruit {
+        let named = |column: Option<&StrColumn>, counts: &[usize]| {
+            let mut out = BTreeMap::new();
+            let Some(column) = column else {
+                return out;
+            };
+            let mut name = String::new();
+            for (ord, count) in counts.iter().enumerate() {
+                if *count == 0 {
+                    continue;
+                }
+                name.clear();
+                if column.ord_to_str(ord as u64, &mut name).unwrap_or(false) {
+                    *out.entry(name.clone()).or_default() += *count;
+                }
+            }
+            out
+        };
+        let works = named(self.work.as_ref(), &self.work_counts);
+        let links = named(self.link.as_ref(), &self.link_counts);
+        (works, links, self.total)
+    }
+}
 
 /// Every ordering of the positions, for order-free proximity.
 ///
@@ -294,17 +519,27 @@ fn flattened(order: &[&Position]) -> Vec<Vec<Form>> {
     out
 }
 
-/// The four things every segment is indexed by.
+/// The five things every segment is indexed by.
 #[derive(Debug, Clone, Copy)]
 struct Fields {
     /// The permanent name, stored so a hit can be opened.
     id: tantivy::schema::Field,
-    /// The work slug — the unit a re-import replaces, and W14's first facet.
+    /// The work slug — the unit a re-import replaces, and the first facet of
+    /// spec.md §9.8. Shelf, era and author are read off the work, so this one
+    /// column answers four of the five.
     work: tantivy::schema::Field,
     /// `text` · `heading` · `page`. A hit inside a heading is a different kind
     /// of result, and a `page` with no words is spec.md §9.7's *"not
     /// searchable yet"* rather than an absence.
     kind: tantivy::schema::Field,
+    /// Every kind of link touching this segment, in or out — the fifth facet.
+    ///
+    /// Multi-valued: a se'if the Mishnah Berurah comments on and the Beur
+    /// Halacha quotes carries both. Written from
+    /// [`girsa_link::touching`], which is the graph read from the segment's
+    /// side; without that cache this column is empty and the facet says so
+    /// rather than showing zeros (see [`BuildReport`]).
+    link: tantivy::schema::Field,
     /// The words, as printed. Indexed through the normalizer, stored as they
     /// stand — the reader is looking at the page, not at the index.
     text: tantivy::schema::Field,
@@ -314,6 +549,7 @@ impl Fields {
     const ID: &'static str = "id";
     const WORK: &'static str = "work";
     const KIND: &'static str = "kind";
+    const LINK: &'static str = "link";
     const TEXT: &'static str = "text";
 
     fn schema() -> Schema {
@@ -332,6 +568,10 @@ impl Fields {
         builder.add_text_field(Self::ID, STRING | STORED);
         builder.add_text_field(Self::WORK, STRING | STORED | FAST);
         builder.add_text_field(Self::KIND, STRING | STORED | FAST);
+        // Indexed *and* fast, because a facet is two things at once: a count
+        // (the column) and a filter the reader clicks (the term). §9.8's
+        // *"one click to narrow or exclude"* is the second half.
+        builder.add_text_field(Self::LINK, STRING | FAST);
         builder.add_text_field(Self::TEXT, text);
         builder.build()
     }
@@ -347,11 +587,30 @@ impl Fields {
             kind: schema
                 .get_field(Self::KIND)
                 .map_err(|_| IndexError::Field(Self::KIND))?,
+            link: schema
+                .get_field(Self::LINK)
+                .map_err(|_| IndexError::Field(Self::LINK))?,
             text: schema
                 .get_field(Self::TEXT)
                 .map_err(|_| IndexError::Field(Self::TEXT))?,
         })
     }
+}
+
+/// What went into an index, as against under what rules it was built.
+///
+/// Written on build, read by the facets. The field that matters is
+/// [`BuildReport::link_types`]: an index built while the link-type cache was
+/// missing has an empty `link` column, and *nothing comments on any of these
+/// segments* is a different claim from *nobody worked out the link types*. One
+/// of those is an answer and the other is a gap, and a facet showing zeros
+/// cannot tell a reader which it is looking at.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuildReport {
+    pub works: usize,
+    pub segments: usize,
+    /// Whether `girsa-link-types` had run when this index was built.
+    pub link_types: bool,
 }
 
 /// One segment, found.
@@ -401,6 +660,9 @@ pub struct SearchIndex {
     /// `None` for an in-memory index, which cannot go stale because it does not
     /// outlive the process that built it.
     path: Option<PathBuf>,
+    /// What went in, if the builder said. `None` is *nobody wrote it down*,
+    /// which the facets report as such.
+    report: Option<BuildReport>,
 }
 
 impl std::fmt::Debug for SearchIndex {
@@ -498,11 +760,16 @@ impl SearchIndex {
             // says so. The alternative is a test that passes on a fast machine.
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
+        let report = path
+            .as_ref()
+            .and_then(|dir| std::fs::read_to_string(dir.join(BUILD_REPORT)).ok())
+            .and_then(|body| serde_json::from_str(&body).ok());
         Ok(Self {
             index,
             fields,
             reader,
             path,
+            report,
         })
     }
 
@@ -510,6 +777,31 @@ impl SearchIndex {
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// Say what went into this index, and write it down beside it.
+    ///
+    /// # Errors
+    ///
+    /// If the report cannot be written. It is not optional: an index whose
+    /// build was never described reports every facet it cannot compute as
+    /// *not built*, which is honest but useless, and silently skipping the
+    /// write would make that the normal state.
+    pub fn declare(&mut self, report: BuildReport) -> Result<(), IndexError> {
+        if let Some(dir) = &self.path {
+            let path = dir.join(BUILD_REPORT);
+            let body = serde_json::to_string(&report)
+                .map_err(|e| IndexError::stale(dir, e.to_string()))?;
+            std::fs::write(&path, body).map_err(IndexError::io(&path))?;
+        }
+        self.report = Some(report);
+        Ok(())
+    }
+
+    /// What the builder said went in, if it said.
+    #[must_use]
+    pub fn report(&self) -> Option<&BuildReport> {
+        self.report.as_ref()
     }
 
     /// A writer with the default budget.
@@ -551,7 +843,7 @@ impl SearchIndex {
         usize::try_from(self.reader.searcher().num_docs()).unwrap_or(usize::MAX)
     }
 
-    /// Run a Torat Emet query (W12).
+    /// Run a Torat Emet query over the whole shelf (W12).
     ///
     /// The literal mode, and the default. What comes back is what was asked
     /// for, and [`Found::asked`] says what that was — see
@@ -563,16 +855,26 @@ impl SearchIndex {
     /// cannot be run exactly; a partial answer is never returned in its place.
     /// Otherwise if the search fails or a stored document cannot be read back.
     pub fn search(&self, query: &torat_emet::Query) -> Result<Found, IndexError> {
+        self.search_in(query, &Scope::everything(), Paging::first())
+    }
+
+    /// The same, confined to a scope and one page deep (W14).
+    ///
+    /// # Errors
+    ///
+    /// As [`SearchIndex::search`].
+    pub fn search_in(
+        &self,
+        query: &torat_emet::Query,
+        scope: &Scope,
+        paging: Paging,
+    ) -> Result<Found, IndexError> {
         let asked = query.plan();
         if asked.is_empty() {
             return Ok(Self::nothing(asked));
         }
-        // Through the same builder as a widened search, with no rungs applied.
-        // Two builders would be two chances for the literal mode to stop being
-        // literal without anyone noticing.
-        let widening = Widened::new(query.clone(), []).widening();
-        let built = self.build(&widening, query.max_expansions())?;
-        let (hits, total) = self.run(&*built)?;
+        let prepared = self.prepare(query, scope)?;
+        let (hits, total) = self.page(&prepared, paging)?;
         Ok(Found {
             hits,
             total,
@@ -581,6 +883,154 @@ impl SearchIndex {
             // zero here stays a zero: the ladder is offered by
             // [`SearchIndex::offers`] and climbed only when the reader clicks.
             widening: None,
+        })
+    }
+
+    /// Build a literal query, ready to be asked more than one question.
+    ///
+    /// Hits, a total and the facet counts are three questions about **one**
+    /// query, and a facet computed from a differently-built copy of it would be
+    /// a column of numbers that did not add up to the header.
+    ///
+    /// # Errors
+    ///
+    /// As [`SearchIndex::search`].
+    pub fn prepare(
+        &self,
+        query: &torat_emet::Query,
+        scope: &Scope,
+    ) -> Result<Prepared, IndexError> {
+        // Through the same builder as a widened search, with no rungs applied.
+        // Two builders would be two chances for the literal mode to stop being
+        // literal without anyone noticing.
+        let widening = Widened::new(query.clone(), []).widening();
+        let built = self.build(&widening, query.max_expansions())?;
+        Ok(self.confined(built, scope))
+    }
+
+    /// Build a widened query the same way.
+    ///
+    /// # Errors
+    ///
+    /// As [`SearchIndex::search_widened`].
+    pub fn prepare_widened(
+        &self,
+        widened: &Widened,
+        scope: &Scope,
+    ) -> Result<Prepared, IndexError> {
+        let built = self.build(&widened.widening(), widened.literal().max_expansions())?;
+        Ok(self.confined(built, scope))
+    }
+
+    /// Confine a built query to a scope.
+    ///
+    /// Every clause added here is a `Must` or a `MustNot`, so a scope can only
+    /// ever take hits away. Nothing in this path can widen a query, which is
+    /// the property that lets the chip change the number in the header without
+    /// changing what was searched for.
+    fn confined(&self, query: Box<dyn Query>, scope: &Scope) -> Prepared {
+        if scope.is_everything() {
+            return Prepared { query };
+        }
+        let mut clauses: Clauses = vec![(Occur::Must, query)];
+        // One `Must` per click, so two narrowings are an *and*. Folding them
+        // into one set of slugs would make a second click widen the first.
+        for clause in scope.clauses() {
+            clauses.push((
+                Occur::Must,
+                self.any_of(self.fields.work, clause.iter().map(String::as_str)),
+            ));
+        }
+        for slug in scope.excluded_works() {
+            clauses.push((Occur::MustNot, self.one_term(self.fields.work, slug)));
+        }
+        if !scope.link_types().is_empty() {
+            clauses.push((
+                Occur::Must,
+                self.any_of(
+                    self.fields.link,
+                    scope.link_types().iter().map(|t| t.as_str()),
+                ),
+            ));
+        }
+        for kind in scope.excluded_link_types() {
+            clauses.push((
+                Occur::MustNot,
+                self.one_term(self.fields.link, kind.as_str()),
+            ));
+        }
+        Prepared {
+            query: Box::new(BooleanQuery::new(clauses)),
+        }
+    }
+
+    fn one_term(&self, field: tantivy::schema::Field, value: &str) -> Box<dyn Query> {
+        Box::new(TermQuery::new(
+            Term::from_field_text(field, value),
+            IndexRecordOption::Basic,
+        ))
+    }
+
+    fn any_of<'a>(
+        &self,
+        field: tantivy::schema::Field,
+        values: impl Iterator<Item = &'a str>,
+    ) -> Box<dyn Query> {
+        let clauses: Clauses = values
+            .map(|value| (Occur::Should, self.one_term(field, value)))
+            .collect();
+        Box::new(BooleanQuery::new(clauses))
+    }
+
+    /// One page of hits, and how many there were altogether.
+    ///
+    /// # Errors
+    ///
+    /// If the search fails or a stored document cannot be read back.
+    pub fn page(
+        &self,
+        prepared: &Prepared,
+        paging: Paging,
+    ) -> Result<(Vec<Hit>, usize), IndexError> {
+        self.run(&*prepared.query, paging)
+    }
+
+    /// How many a prepared query matches, without fetching any of them.
+    ///
+    /// # Errors
+    ///
+    /// If the search fails.
+    pub fn count_of(&self, prepared: &Prepared) -> Result<usize, IndexError> {
+        self.reader
+            .searcher()
+            .search(&*prepared.query, &Count)
+            .map_err(IndexError::from_tantivy)
+    }
+
+    /// The counts behind the facets (spec.md §9.8), over the **whole** result
+    /// set.
+    ///
+    /// Not over the page. A facet row that counted only what fits on screen
+    /// would tell a reader that a shelf holds three of their hits when it holds
+    /// three hundred, and the number would change as they scrolled.
+    ///
+    /// # Errors
+    ///
+    /// If the search fails or a column cannot be read.
+    pub fn tally(&self, prepared: &Prepared) -> Result<Counts, IndexError> {
+        let (by_work, by_link, total) = self
+            .reader
+            .searcher()
+            .search(&*prepared.query, &Tallies)
+            .map_err(IndexError::from_tantivy)?;
+        Ok(Counts {
+            by_work,
+            by_link: by_link
+                .into_iter()
+                .filter_map(|(name, n)| girsa_link::touching::type_named(&name).map(|t| (t, n)))
+                .collect(),
+            total,
+            link_types_built: self.report.as_ref().is_some_and(|r| r.link_types),
         })
     }
 
@@ -597,13 +1047,27 @@ impl SearchIndex {
     /// searches than the ceiling allows, plus everything
     /// [`SearchIndex::search`] can fail with.
     pub fn search_widened(&self, widened: &Widened) -> Result<Found, IndexError> {
+        self.search_widened_in(widened, &Scope::everything(), Paging::first())
+    }
+
+    /// The same, confined to a scope and one page deep.
+    ///
+    /// # Errors
+    ///
+    /// As [`SearchIndex::search_widened`].
+    pub fn search_widened_in(
+        &self,
+        widened: &Widened,
+        scope: &Scope,
+        paging: Paging,
+    ) -> Result<Found, IndexError> {
         let asked = widened.literal().plan();
         if asked.is_empty() {
             return Ok(Self::nothing(asked));
         }
         let widening = widened.widening();
-        let built = self.build(&widening, widened.literal().max_expansions())?;
-        let (hits, total) = self.run(&*built)?;
+        let prepared = self.prepare_widened(widened, scope)?;
+        let (hits, total) = self.page(&prepared, paging)?;
         Ok(Found {
             hits,
             total,
@@ -622,14 +1086,21 @@ impl SearchIndex {
     ///
     /// As [`SearchIndex::search_widened`].
     pub fn count_widened(&self, widened: &Widened) -> Result<usize, IndexError> {
+        self.count_widened_in(widened, &Scope::everything())
+    }
+
+    /// The same, in a scope — so an offer made inside a narrowed search
+    /// promises the number that search will show.
+    ///
+    /// # Errors
+    ///
+    /// As [`SearchIndex::search_widened`].
+    pub fn count_widened_in(&self, widened: &Widened, scope: &Scope) -> Result<usize, IndexError> {
         if widened.literal().plan().is_empty() {
             return Ok(0);
         }
-        let built = self.build(&widened.widening(), widened.literal().max_expansions())?;
-        self.reader
-            .searcher()
-            .search(&*built, &Count)
-            .map_err(IndexError::from_tantivy)
+        let prepared = self.prepare_widened(widened, scope)?;
+        self.count_of(&prepared)
     }
 
     /// What the ladder has to say about a literal query (spec.md §9.6).
@@ -643,6 +1114,15 @@ impl SearchIndex {
     /// as *there is nothing down that road*.
     #[must_use]
     pub fn offers(&self, query: &torat_emet::Query) -> Offers {
+        self.offers_in(query, &Scope::everything())
+    }
+
+    /// The same, priced inside the scope the reader is searching in.
+    ///
+    /// An offer counted over the whole shelf and applied inside a narrowed one
+    /// would promise a number the click cannot produce.
+    #[must_use]
+    pub fn offers_in(&self, query: &torat_emet::Query, scope: &Scope) -> Offers {
         let mut offers = Offers::default();
         if query.plan().is_empty() {
             return offers;
@@ -656,7 +1136,7 @@ impl SearchIndex {
                     if !widened.widening().changes_anything() {
                         continue;
                     }
-                    match self.count_widened(&widened) {
+                    match self.count_widened_in(&widened, scope) {
                         Ok(0) => {}
                         Ok(count) => offers.offers.push(Offer {
                             rung,
@@ -673,6 +1153,170 @@ impl SearchIndex {
             }
         }
         offers
+    }
+
+    /// Run a Regex query — mode 3 (W14).
+    ///
+    /// Each pattern is matched against a **whole word** of the index, and the
+    /// words relate the way the `together` chip says. No ladder, no offers, no
+    /// widening: spec.md §9.6's table says nothing happens on a zero here.
+    ///
+    /// # Errors
+    ///
+    /// If a pattern will not compile — tantivy's message, unedited, because a
+    /// person writing a regex wants the parser's complaint and not a
+    /// paraphrase of it.
+    pub fn prepare_regex(
+        &self,
+        query: &crate::regex_mode::Query,
+        scope: &Scope,
+    ) -> Result<Prepared, IndexError> {
+        let built = self.regex_query(query.patterns(), query.shape())?;
+        Ok(self.confined(built, scope))
+    }
+
+    /// Patterns over whole terms, related by shape.
+    fn regex_query(
+        &self,
+        patterns: &[String],
+        together: Together,
+    ) -> Result<Box<dyn Query>, IndexError> {
+        if let [only] = patterns {
+            return Ok(Box::new(RegexQuery::from_pattern(only, self.fields.text)?));
+        }
+        match together {
+            Together::Anywhere => {
+                let mut clauses: Clauses = Vec::with_capacity(patterns.len());
+                for pattern in patterns {
+                    clauses.push((
+                        Occur::Must,
+                        Box::new(RegexQuery::from_pattern(pattern, self.fields.text)?),
+                    ));
+                }
+                Ok(Box::new(BooleanQuery::new(clauses)))
+            }
+            // In order, adjacent. `Near` never arrives: `regex_mode::Query`
+            // refuses it rather than answering it with a slop, which would be a
+            // window the reader did not ask for (W12's rule, unchanged).
+            Together::Phrase | Together::Near { .. } => {
+                let mut phrase = RegexPhraseQuery::new(self.fields.text, patterns.to_vec());
+                phrase.set_slop(0);
+                phrase.set_max_expansions(torat_emet::MOST_EXPANSIONS);
+                Ok(Box::new(phrase))
+            }
+        }
+    }
+
+    /// Build an instrument into a query — mode 5 (W14).
+    ///
+    /// **Two of the four are not index questions.** A dilug runs through the
+    /// letters of a sefer and ignores where words end; a notarikon is four
+    /// patterns each matching half the vocabulary. Both are refused here, by
+    /// name and with what to do instead, rather than approximated with
+    /// something an inverted index happens to be able to do.
+    ///
+    /// # Errors
+    ///
+    /// [`IndexError::NotAnIndexQuestion`] for those two; otherwise as the
+    /// searches it is built from.
+    pub fn prepare_instrument(
+        &self,
+        instrument: &crate::instruments::Instrument,
+        scope: &Scope,
+    ) -> Result<Sounded, IndexError> {
+        use crate::instruments::Instrument;
+        match instrument {
+            Instrument::Gematria { value, .. } => {
+                // Every distinct word in the index, added up once. The words
+                // are the finding as much as the segments are: *which* words
+                // come to 613 is the question, and the segments follow.
+                let words = self.words_worth(*value)?;
+                let terms: Vec<Term> = words
+                    .iter()
+                    .map(|word| Term::from_field_text(self.fields.text, word))
+                    .collect();
+                let built: Box<dyn Query> = Box::new(tantivy::query::TermSetQuery::new(terms));
+                Ok(Sounded {
+                    prepared: self.confined(built, scope),
+                    words: words.into_iter().collect(),
+                })
+            }
+            // Not an index question, though it looks like one. `מקאש` is four
+            // one-letter patterns and each of them matches more distinct words
+            // than a phrase query will hold — the index answers it with a
+            // refusal about postings lists, which is true and useless. It is
+            // read off the text instead, in a scope the reader named.
+            Instrument::Notarikon { .. } => Err(IndexError::NotAnIndexQuestion {
+                what: "a notarikon",
+                instead: "one letter matches half the words in the corpus, so it is read off \
+                          the text — narrow the scope to a sefer and ask again",
+            }),
+            // The transformed word, searched for literally. Atbash is a
+            // different **word**, not a different kind of search, so it goes
+            // down the same path as anything a reader types.
+            Instrument::Atbash { becomes, .. } => {
+                let query = torat_emet::Query::new(becomes.clone());
+                Ok(Sounded {
+                    prepared: self.prepare(&query, scope)?,
+                    words: query.plan().words,
+                })
+            }
+            Instrument::Dilug { .. } => Err(IndexError::NotAnIndexQuestion {
+                what: "a dilug",
+                instead: "it reads the letters of a sefer in order, so it needs the text and a \
+                          sefer to read — narrow the scope to one and ask again",
+            }),
+        }
+    }
+
+    /// Every distinct word in the index that comes to a value.
+    ///
+    /// Walks the term dictionary rather than guessing at candidates: the words
+    /// worth 613 are whatever is written in the seforim, and no generated list
+    /// of them would be the same list.
+    ///
+    /// # Errors
+    ///
+    /// If a term dictionary cannot be read.
+    pub fn words_worth(
+        &self,
+        value: u32,
+    ) -> Result<std::collections::BTreeSet<String>, IndexError> {
+        let searcher = self.reader.searcher();
+        let mut out = std::collections::BTreeSet::new();
+        for reader in searcher.segment_readers() {
+            let inverted = reader.inverted_index(self.fields.text)?;
+            let mut terms = inverted.terms().stream().map_err(|source| IndexError::Io {
+                path: "the term dictionary".to_string(),
+                source,
+            })?;
+            while terms.advance() {
+                let Ok(word) = std::str::from_utf8(terms.key()) else {
+                    continue;
+                };
+                if crate::instruments::value_of(word) == Some(value) {
+                    out.insert(word.to_string());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// One segment, by its permanent name.
+    ///
+    /// What a citation opens: the ref resolved to an id, and the id read back
+    /// out of the index the reader is already searching.
+    ///
+    /// # Errors
+    ///
+    /// If the search fails or the stored document cannot be read.
+    pub fn segment(&self, id: &SegmentId) -> Result<Option<Hit>, IndexError> {
+        let query = TermQuery::new(
+            Term::from_field_text(self.fields.id, &id.to_string()),
+            IndexRecordOption::Basic,
+        );
+        let (hits, _) = self.run(&query, Paging::of(1))?;
+        Ok(hits.into_iter().next())
     }
 
     /// A result that found nothing, for a query that asked for nothing.
@@ -901,12 +1545,17 @@ impl SearchIndex {
     ///
     /// Both, always: a page of results whose total is unknown cannot say
     /// *"1 of 4,190"*, and W13's ladder is counts before clicks.
-    fn run(&self, query: &dyn Query) -> Result<(Vec<Hit>, usize), IndexError> {
+    fn run(&self, query: &dyn Query, paging: Paging) -> Result<(Vec<Hit>, usize), IndexError> {
         let searcher = self.reader.searcher();
         let (found, total) = searcher
             .search(
                 query,
-                &(TopDocs::with_limit(PROBE_LIMIT).order_by_score(), Count),
+                &(
+                    TopDocs::with_limit(paging.size.max(1))
+                        .and_offset(paging.from)
+                        .order_by_score(),
+                    Count,
+                ),
             )
             .map_err(IndexError::from_tantivy)?;
         let mut hits = Vec::with_capacity(found.len());
@@ -956,10 +1605,17 @@ impl Writer {
     /// Index one segment, replacing its work the first time this writer sees
     /// it.
     ///
+    /// `touching` is every kind of link that lands on this segment, from either
+    /// direction — [`girsa_link::touching`] — and it is a parameter rather than
+    /// something looked up here because the graph is read per work and this is
+    /// called per segment. An empty slice means *no links touch it*; the
+    /// difference between that and *nobody worked the links out* is recorded
+    /// once, in [`BuildReport::link_types`], rather than five million times.
+    ///
     /// # Errors
     ///
     /// If tantivy will not take the document.
-    pub fn add(&mut self, segment: &Segment) -> Result<(), IndexError> {
+    pub fn add(&mut self, segment: &Segment, touching: &[EdgeType]) -> Result<(), IndexError> {
         let work = segment.id.work();
         if !self.replaced.contains(work) {
             self.writer
@@ -971,6 +1627,9 @@ impl Writer {
         doc.add_text(self.fields.id, segment.id.to_string());
         doc.add_text(self.fields.work, work);
         doc.add_text(self.fields.kind, segment.kind.as_str());
+        for kind in touching {
+            doc.add_text(self.fields.link, kind.as_str());
+        }
         doc.add_text(self.fields.text, &segment.text);
         self.writer.add_document(doc)?;
         Ok(())

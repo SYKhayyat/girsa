@@ -265,17 +265,18 @@ fn edges_between(
 }
 
 /// The segments an anchor names, in reading order.
+///
+/// Through [`store::span_of`], which is the one implementation of *which
+/// segments does this endpoint cover* — the indexer asks it too, to work out
+/// which kinds of link touch a segment (spec.md §9.8). Two answers that drifted
+/// would put a commentary beside a line the graph does not join it to in one
+/// place and count it in the other.
 fn expand(anchor: &girsa_link::Anchor, work: &Open) -> Vec<SegmentId> {
-    let Some(from) = work.position_of(&anchor.from) else {
+    let Some(range) = girsa_link::touching::span_of(anchor, |id| work.position_of(id)) else {
         return Vec::new();
     };
-    let to = anchor
-        .to
-        .as_ref()
-        .and_then(|id| work.position_of(id))
-        .unwrap_or(from);
     work.segments
-        .get(from..=to.max(from))
+        .get(range)
         .map(|run| run.iter().map(|s| s.id.clone()).collect())
         .unwrap_or_default()
 }

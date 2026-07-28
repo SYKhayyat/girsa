@@ -27,6 +27,12 @@ use girsa_app::taxonomy::Branch;
 use girsa_app::workspace::{Axis, PaneId};
 use girsa_app::{display, Beside, Place, Session, Shelf, Workspace};
 use girsa_corpus::segment::SegmentId;
+use girsa_search::bar::{Answer, Bar};
+use girsa_search::chips::{Chip, Chips, Sounding};
+use girsa_search::facets::{self, Dimension, Facets, Row};
+use girsa_search::index::{Paging, SearchIndex};
+use girsa_search::torat_emet::{Match, Together};
+use girsa_search::Mode;
 use serde::Serialize;
 
 /// How many seforim are kept in memory at once.
@@ -38,6 +44,16 @@ const KEEP_OPEN: usize = 12;
 
 struct State {
     shelf: Option<Shelf>,
+    /// The search bar, if there is an index to search. Kept beside the shelf
+    /// rather than inside it because an index is a rebuildable cache and a
+    /// shelf is not: a window with no index still reads seforim, and says why
+    /// it cannot search rather than returning nothing.
+    bar: Option<Bar>,
+    /// Why there is no search, if there is none.
+    no_search: Option<String>,
+    /// The chip row as it stands (spec.md §9.5). Held here, not in the webview,
+    /// so that what the chips say and what the engine does cannot drift.
+    chips: Chips,
     /// Why the shelf is not there, if it is not. Shown in the window.
     trouble: Option<String>,
     session: Session,
@@ -68,6 +84,12 @@ impl State {
         self.trouble
             .clone()
             .unwrap_or_else(|| "there is no shelf here".to_string())
+    }
+
+    fn no_search(&self) -> String {
+        self.no_search
+            .clone()
+            .unwrap_or_else(|| "there is no index here".to_string())
     }
 
     fn save(&self) {
@@ -198,6 +220,422 @@ fn recent(shared: tauri::State<'_, Shared>) -> Result<Vec<Card>, String> {
         .map(Card::of)
         .take(12)
         .collect())
+}
+
+// ── Searching (spec.md §9, BUILDER.md W14) ──────────────────────────────────
+
+/// One hit, as a row of results.
+#[derive(Serialize)]
+struct HitRow {
+    id: String,
+    address: String,
+    work: String,
+    he_title: String,
+    /// The text as printed, cut into runs — the same shape a reading pane
+    /// draws, so a result reads like the page it came from and inline markup
+    /// never reaches the window as markup.
+    runs: Vec<display::Run>,
+}
+
+/// What one search has to say.
+#[derive(Serialize)]
+struct FoundPage {
+    /// What was searched for, read off the query that ran.
+    header: String,
+    /// What the mode did, where that is worth announcing.
+    note: Option<String>,
+    hits: Vec<HitRow>,
+    total: usize,
+    page: usize,
+    pages: usize,
+    facets: Option<Facets>,
+    /// The chip row, as it stands after any sigils were read.
+    chips: Vec<Chip>,
+    /// The relaxation ladder, priced and not applied (spec.md §9.6).
+    offers: Vec<OfferRow>,
+    /// A refusal, in the words the engine gave.
+    refused: Option<String>,
+    /// A citation, when the mode was Citation.
+    landing: Option<LandingRow>,
+}
+
+/// One rung, with the count clicking it will give.
+#[derive(Serialize)]
+struct OfferRow {
+    label: String,
+    count: usize,
+    /// What to send back to apply it.
+    rung: String,
+}
+
+/// A mareh makom: where it lands, or what it could be.
+#[derive(Serialize)]
+struct LandingRow {
+    said: String,
+    /// One entry per candidate the shelf could not rule out. **Never narrowed
+    /// to one by this crate** — a choice is shown as a choice.
+    places: Vec<PlaceRow>,
+    near: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct PlaceRow {
+    reference: String,
+    id: String,
+    work: String,
+}
+
+/// Search, and hand back everything the panel draws.
+///
+/// The chips are read from what was typed first (a sigil flips a chip — §9.5),
+/// so the row that comes back is the row the search actually ran under.
+#[tauri::command]
+fn find(
+    shared: tauri::State<'_, Shared>,
+    query: String,
+    page: usize,
+) -> Result<FoundPage, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let size = PAGE;
+    let paging = Paging {
+        from: size * page.saturating_sub(1).min(usize::MAX / size.max(1)),
+        size,
+    };
+    // A sigil sets a chip, and the chip stays set — that is what makes typing
+    // one a way of *finding* the chips rather than a syntax beside them.
+    let (chips, _) = state.chips.read(&query);
+    state.chips = chips;
+    let nikud = state.session.nikud;
+    let chips = state.chips.clone();
+    let Some(bar) = state.bar.as_ref() else {
+        let why = state.no_search();
+        return Ok(FoundPage::refused(&chips, why));
+    };
+
+    let answer = bar.ask(&query, &chips, paging, &girsa_ref::resolve::Context::default());
+    Ok(match answer {
+        Answer::Segments {
+            results,
+            offers,
+            note,
+        } => {
+            let pages = results.total.div_ceil(size.max(1));
+            FoundPage {
+                header: results.header.clone(),
+                note,
+                hits: results
+                    .hits
+                    .iter()
+                    .map(|hit| HitRow {
+                        id: hit.id.to_string(),
+                        address: hit.id.path().join(":"),
+                        work: hit.id.work().to_string(),
+                        he_title: bar
+                            .catalogue()
+                            .facts(hit.id.work())
+                            .map_or_else(|| hit.id.work().to_string(), |f| f.title.clone()),
+                        runs: display::runs(&if nikud {
+                            hit.text.clone()
+                        } else {
+                            display::without_marks(&hit.text)
+                        }),
+                    })
+                    .collect(),
+                total: results.total,
+                page: page.max(1),
+                pages,
+                facets: Some(results.facets.clone()),
+                chips: chips.row(),
+                offers: offers
+                    .offers
+                    .iter()
+                    .map(|offer| OfferRow {
+                        label: offer.label.to_string(),
+                        count: offer.count,
+                        rung: offer.rung.name().to_string(),
+                    })
+                    .collect(),
+                refused: None,
+                landing: None,
+            }
+        }
+        Answer::Cited(landing) => FoundPage {
+            header: landing.describe(),
+            note: None,
+            hits: Vec::new(),
+            total: landing.places.len(),
+            page: 1,
+            pages: 1,
+            facets: None,
+            chips: chips.row(),
+            offers: Vec::new(),
+            refused: None,
+            landing: Some(LandingRow {
+                said: landing.describe(),
+                places: landing
+                    .places
+                    .iter()
+                    .map(|place| PlaceRow {
+                        reference: place.reference.to_string(),
+                        id: place.run.first.to_string(),
+                        work: place.run.first.work().to_string(),
+                    })
+                    .collect(),
+                near: landing.near.iter().map(near_said).collect(),
+            }),
+        },
+        Answer::Refused(why) => FoundPage::refused(&chips, why),
+    })
+}
+
+impl FoundPage {
+    /// A refusal is an answer, and it says why. What it never is, is a shorter
+    /// list of results with nothing attached.
+    fn refused(chips: &Chips, why: String) -> Self {
+        Self {
+            header: String::new(),
+            note: None,
+            hits: Vec::new(),
+            total: 0,
+            page: 1,
+            pages: 0,
+            facets: None,
+            chips: chips.row(),
+            offers: Vec::new(),
+            refused: Some(why),
+            landing: None,
+        }
+    }
+}
+
+fn near_said(near: &girsa_search::citation::NearMiss) -> String {
+    use girsa_search::citation::NearMiss;
+    match near {
+        NearMiss::AddressNotThere { reference, work } => {
+            format!("{work} is here, and has no {}", reference.from())
+        }
+        NearMiss::NotOnTheShelf { work, .. } => {
+            format!("{work} would answer it, and is not on this shelf")
+        }
+        NearMiss::OtherTitle { spelling, .. } => spelling.clone(),
+    }
+}
+
+/// Apply one rung of the ladder — the click on an offer (spec.md §9.6).
+///
+/// A search of its own, and it reports itself: the header that comes back is
+/// [`girsa_search::ladder::Widening::describe`], which is read off the query
+/// that ran. The undo is not a flag but the literal query, which is what
+/// `find` does without a rung.
+#[tauri::command]
+fn find_rung(
+    shared: tauri::State<'_, Shared>,
+    query: String,
+    page: usize,
+    rung: String,
+) -> Result<FoundPage, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let (chips, text) = state.chips.read(&query);
+    state.chips = chips.clone();
+    let nikud = state.session.nikud;
+    let Some(rung) = girsa_search::ladder::Rung::named(&rung) else {
+        return Err(format!("no such rung: {rung}"));
+    };
+    let Some(bar) = state.bar.as_ref() else {
+        let why = state.no_search();
+        return Ok(FoundPage::refused(&chips, why));
+    };
+    let query = girsa_search::torat_emet::Query::new(text)
+        .matching(chips.matching)
+        .together(chips.together);
+    let widened = girsa_search::ladder::Widened::new(query, [rung]);
+    let paging = Paging {
+        from: PAGE * page.saturating_sub(1),
+        size: PAGE,
+    };
+    let found = bar
+        .index()
+        .search_widened_in(&widened, &chips.scope, paging)
+        .map_err(|e| e.to_string())?;
+    let header = found
+        .widening
+        .as_ref()
+        .map_or_else(|| found.asked.describe(), |w| w.describe());
+    Ok(FoundPage {
+        header,
+        note: Some("החל — לחזרה, חפש שוב בלי הצעה".to_string()),
+        hits: found
+            .hits
+            .iter()
+            .map(|hit| HitRow {
+                id: hit.id.to_string(),
+                address: hit.id.path().join(":"),
+                work: hit.id.work().to_string(),
+                he_title: bar
+                    .catalogue()
+                    .facts(hit.id.work())
+                    .map_or_else(|| hit.id.work().to_string(), |f| f.title.clone()),
+                runs: display::runs(&if nikud {
+                    hit.text.clone()
+                } else {
+                    display::without_marks(&hit.text)
+                }),
+            })
+            .collect(),
+        total: found.total,
+        page: page.max(1),
+        pages: found.total.div_ceil(PAGE),
+        facets: None,
+        chips: chips.row(),
+        offers: Vec::new(),
+        refused: None,
+        landing: None,
+    })
+}
+
+/// Set one chip.
+///
+/// Named rather than free-form: the window may choose among the options the
+/// engine offered and may not invent one.
+#[tauri::command]
+fn find_chip(shared: tauri::State<'_, Shared>, chip: String, key: String) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let chips = &mut state.chips;
+    match chip.as_str() {
+        "mode" => {
+            chips.mode = match key.as_str() {
+                "Smart" => Mode::Smart,
+                "Regex" => Mode::Regex,
+                "Citation" => Mode::Citation,
+                "Instruments" => Mode::Instruments,
+                _ => Mode::ToratEmet,
+            }
+        }
+        "the word" => {
+            chips.matching = match key.as_str() {
+                "Contains" => Match::Contains,
+                "Letters" => Match::Letters,
+                _ => Match::Word,
+            }
+        }
+        "together" => {
+            chips.together = match key.as_str() {
+                "Phrase" => Together::Phrase,
+                other => match other.strip_prefix("Near").and_then(|n| n.parse().ok()) {
+                    Some(words) => Together::Near { words },
+                    None => Together::Anywhere,
+                },
+            }
+        }
+        "instrument" => {
+            chips.sounding = match key.as_str() {
+                "Rashei" => Sounding::Rashei,
+                "Sofei" => Sounding::Sofei,
+                "Atbash" => Sounding::Atbash,
+                "Dilug" => Sounding::Dilug,
+                _ => Sounding::Gematria,
+            }
+        }
+        other => return Err(format!("no such chip: {other}")),
+    }
+    Ok(())
+}
+
+/// Click a facet row: narrow to it, or rule it out (spec.md §9.8).
+#[tauri::command]
+fn find_narrow(
+    shared: tauri::State<'_, Shared>,
+    dimension: Dimension,
+    row: Row,
+    exclude: bool,
+) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let Some(bar) = state.bar.as_ref() else {
+        return Err(state.no_search());
+    };
+    let scope = if exclude {
+        facets::exclude(&state.chips.scope, bar.catalogue(), dimension, &row)
+    } else {
+        facets::narrow(&state.chips.scope, bar.catalogue(), dimension, &row)
+    };
+    state.chips.scope = scope;
+    Ok(())
+}
+
+/// Back to the whole shelf.
+#[tauri::command]
+fn find_whole_shelf(shared: tauri::State<'_, Shared>) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.chips.scope = girsa_search::scope::Scope::everything();
+    Ok(())
+}
+
+/// How many results to a page.
+const PAGE: usize = 25;
+
+/// Where the index is, if it is anywhere.
+///
+/// `GIRSA_INDEX`, else beside the corpus. An index is a rebuildable cache
+/// (spec.md §4.1) and a window without one still reads: what it must not do is
+/// look like a library with nothing in it, so the reason is carried through to
+/// the search panel and shown there.
+fn find_index(corpus: &std::path::Path) -> Result<PathBuf, String> {
+    let mut tried = Vec::new();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(from_env) = std::env::var("GIRSA_INDEX") {
+        candidates.push(PathBuf::from(from_env));
+    }
+    if let Some(beside) = corpus.parent() {
+        candidates.push(beside.join("index"));
+    }
+    candidates.push(corpus.join("index"));
+    for candidate in candidates {
+        if candidate.join(girsa_search::index::CACHE_STAMP).is_file() {
+            return Ok(candidate);
+        }
+        tried.push(candidate.display().to_string());
+    }
+    Err(format!(
+        "no search index. Looked in: {}. Run girsa-index build, or set GIRSA_INDEX.",
+        tried.join(", ")
+    ))
+}
+
+/// Open the index and put a bar over it.
+///
+/// The shelf knows where the corpus is; the index is beside it. A window with a
+/// shelf and no index reads perfectly well and cannot search, and it says which
+/// of those two it is rather than returning nothing.
+fn open_bar_for(shelf: &Option<Shelf>) -> (Option<Bar>, Option<String>) {
+    let Some(shelf) = shelf.as_ref() else {
+        return (None, Some("there is no shelf to search".to_string()));
+    };
+    open_bar(&shelf.root().to_path_buf(), Some(shelf))
+}
+
+fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Option<String>) {
+    let Some(shelf) = shelf else {
+        return (None, Some("there is no shelf to search".to_string()));
+    };
+    let index_dir = match find_index(corpus) {
+        Ok(dir) => dir,
+        Err(why) => return (None, Some(why)),
+    };
+    // A stale index is refused rather than read (spec.md §4.1, W11). The reason
+    // it gives names the rules it was built under, and it reaches the reader.
+    let index = match SearchIndex::open(&index_dir) {
+        Ok(index) => index,
+        Err(e) => return (None, Some(e.to_string())),
+    };
+    let mut catalogue = girsa_search::facets::Catalogue::of(shelf.works());
+    // The reader's own arrangement, over the shipped shelf: a result list that
+    // filed seforim by the shipped taxonomy while the bookcase beside it used
+    // theirs would be two answers to one question (spec.md §5).
+    for work in shelf.works() {
+        let key = girsa_app::taxonomy::shelf_key_of(work, shelf.arrangement());
+        catalogue.filed(&work.slug, key.split('/').map(str::to_string).collect());
+    }
+    (Some(Bar::new(index, catalogue, corpus)), None)
 }
 
 /// The shelf, as a tree — the shipped taxonomy with your arrangement on top.
@@ -579,10 +1017,14 @@ pub fn run() {
                 },
                 Err(e) => (None, Some(e)),
             };
+            let (bar, no_search) = open_bar_for(&shelf);
             tauri::Manager::manage(
                 app,
                 Mutex::new(State {
                     shelf,
+                    bar,
+                    no_search,
+                    chips: Chips::default(),
                     trouble,
                     session,
                     session_path,
@@ -616,6 +1058,11 @@ pub fn run() {
             shelf_make,
             shelf_reset,
             add_mine,
+            find,
+            find_chip,
+            find_rung,
+            find_narrow,
+            find_whole_shelf,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

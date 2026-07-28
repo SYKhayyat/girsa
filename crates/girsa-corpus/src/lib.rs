@@ -12,6 +12,7 @@ pub mod import;
 pub mod index;
 pub mod segment;
 pub mod store;
+pub mod taxonomy;
 pub mod work;
 
 /// Identifies the rules a derived cache was built under.

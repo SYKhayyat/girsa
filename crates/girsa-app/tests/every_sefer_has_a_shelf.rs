@@ -21,7 +21,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use girsa_app::taxonomy::{self, TOP};
+use girsa_corpus::taxonomy::{self, TOP};
 use girsa_corpus::work::Work;
 
 fn works() -> Option<Vec<Work>> {

@@ -128,6 +128,31 @@ impl Rung {
         }
     }
 
+    /// The name this rung travels under — on a command line, and between the
+    /// window and the engine.
+    ///
+    /// One naming, in one place. A chip that said `prefixes` while the flag
+    /// that applied it was called something else would be two vocabularies for
+    /// one ladder, and the second one to be edited would quietly stop matching.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Nikud => "nikud",
+            Self::Forms(VariantKind::PrefixPeeled) => "prefixes",
+            Self::Forms(VariantKind::KtivSwapped) => "spellings",
+            Self::Forms(VariantKind::GershayimDropped) => "gershayim",
+            Self::Forms(VariantKind::AbbreviationExpanded) => "abbreviations",
+            Self::Root => "root",
+            Self::Proximity => "proximity",
+        }
+    }
+
+    /// A rung by that name, or nothing. Never a nearest match.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|rung| rung.name() == name)
+    }
+
     /// Where this rung sits on the ladder. Used to keep offers in order.
     #[must_use]
     pub fn height(self) -> usize {
