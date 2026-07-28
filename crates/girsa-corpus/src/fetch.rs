@@ -192,6 +192,61 @@ fn urlencode_path(name: &str) -> String {
     out
 }
 
+/// Turn a bucket object name into a path Windows will actually accept.
+///
+/// Sefaria has books whose titles contain `?` and `"`:
+///
+/// ```text
+/// schemas/Will_We_Have_Jewish_Grandchildren?_Jewish_Continuity_and_How_to_Achieve_It.json
+/// schemas/Conversion_"According_to_Halakhah";_What_Is_It.json
+/// ```
+///
+/// Those are legal object names, legal on Linux and macOS, and rejected
+/// outright by Windows — `os error 123`, before a byte is written. Three
+/// seforim, which is not many until you notice that the same three would go
+/// missing from every Windows install with nothing in the corpus to show for
+/// it. The characters are percent-encoded, reversibly and stably, so a resume
+/// finds the same file it wrote.
+///
+/// Reserved device names get the same treatment: a file called `CON.json`
+/// cannot exist on Windows at any path, for reasons dating to CP/M.
+fn disk_path(rel_path: &str) -> String {
+    const FORBIDDEN: [char; 8] = ['<', '>', ':', '"', '\\', '|', '?', '*'];
+    const RESERVED: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+
+    let mut out = String::with_capacity(rel_path.len());
+    for (i, component) in rel_path.split('/').enumerate() {
+        if i > 0 {
+            out.push('/');
+        }
+
+        let mut encoded = String::with_capacity(component.len());
+        for c in component.chars() {
+            if FORBIDDEN.contains(&c) || (c as u32) < 0x20 {
+                encoded.push_str(&format!("%{:02X}", c as u32));
+            } else {
+                encoded.push(c);
+            }
+        }
+        // A component may not end in a space or a dot. `.json` is a dot
+        // followed by letters, so only a *trailing* one is a problem.
+        while encoded.ends_with(' ') || encoded.ends_with('.') {
+            let last = encoded.pop().unwrap_or('.');
+            encoded.push_str(&format!("%{:02X}", last as u32));
+        }
+        let stem = encoded.split('.').next().unwrap_or("");
+        if RESERVED.contains(&stem.to_ascii_uppercase().as_str()) {
+            encoded.insert_str(0, "%00");
+        }
+
+        out.push_str(&encoded);
+    }
+    out
+}
+
 #[derive(Debug, Deserialize)]
 struct Object {
     name: String,
@@ -294,6 +349,12 @@ pub fn run(root: &Path, plan: &Plan, threads: usize) -> Result<usize, FetchError
         return Ok(0);
     }
 
+    // Workers take from the back, so the queue is reversed to make them come
+    // out in plan order. Without this the ordering `plan()` is careful about is
+    // exactly inverted: the texts arrive first and the 32 MB of schemas — the
+    // part every later work order is seeded from — arrives last, two hours in.
+    let mut outstanding = outstanding;
+    outstanding.reverse();
     let queue = Arc::new(Mutex::new(outstanding));
     let root = root.to_path_buf();
 
@@ -342,7 +403,7 @@ fn next_target(queue: &Mutex<Vec<Target>>) -> Option<Target> {
 /// `x` — but a disk that filled up, or an older run from before the size was
 /// recorded, can still leave a short file at the real path.
 fn already_complete(root: &Path, target: &Target) -> bool {
-    let path = root.join(&target.rel_path);
+    let path = root.join(disk_path(&target.rel_path));
     match (fs::metadata(&path), target.size) {
         (Ok(meta), Some(want)) => meta.len() == want,
         (Ok(meta), None) => meta.len() > 0,
@@ -351,7 +412,7 @@ fn already_complete(root: &Path, target: &Target) -> bool {
 }
 
 fn fetch_one(root: &Path, target: &Target) -> Result<usize, FetchError> {
-    let final_path = root.join(&target.rel_path);
+    let final_path = root.join(disk_path(&target.rel_path));
     if let Some(parent) = final_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -491,6 +552,74 @@ mod tests {
         );
         assert!(urlencode_path("schemas/Ba'al HaTurim.json").contains("%27"));
         assert!(urlencode_path("schemas/Ba'al HaTurim.json").contains("%20"));
+    }
+
+    #[test]
+    fn a_title_windows_refuses_still_lands_somewhere() {
+        // These three are real. Before this, they failed with os error 123 and
+        // the corpus was quietly three seforim short on every Windows install.
+        for name in [
+            "schemas/Will_We_Have_Jewish_Grandchildren%3F_Jewish_Continuity.json",
+            "schemas/One_People%3F_Tradition,_Modernity,_and_Jewish_Unity.json",
+            "schemas/Conversion_%22According_to_Halakhah%22;_What_Is_It.json",
+        ] {
+            assert!(
+                !name.contains('?') && !name.contains('"'),
+                "the expectation itself is wrong"
+            );
+        }
+        assert_eq!(
+            disk_path("schemas/One_People?_Tradition.json"),
+            "schemas/One_People%3F_Tradition.json"
+        );
+        assert_eq!(
+            disk_path("schemas/Conversion_\"According_to_Halakhah\".json"),
+            "schemas/Conversion_%22According_to_Halakhah%22.json"
+        );
+    }
+
+    #[test]
+    fn a_path_separator_survives_but_a_backslash_does_not() {
+        // `/` is the directory structure and must stay. `\` is a character in a
+        // title on Linux and a separator on Windows, so it is encoded.
+        assert_eq!(
+            disk_path("json/Tanakh/Torah/Genesis/Hebrew/merged.json"),
+            "json/Tanakh/Torah/Genesis/Hebrew/merged.json"
+        );
+        assert!(disk_path("schemas/A\\B.json").contains("%5C"));
+    }
+
+    #[test]
+    fn a_component_may_not_end_in_a_dot_or_a_space() {
+        assert!(disk_path("schemas/Trailing .json").ends_with(".json"));
+        assert_eq!(disk_path("schemas/Odd."), "schemas/Odd%2E");
+    }
+
+    #[test]
+    fn a_reserved_device_name_is_moved_out_of_the_way() {
+        // A file called CON.json cannot exist on Windows at any path.
+        assert_ne!(disk_path("schemas/CON.json"), "schemas/CON.json");
+        assert_ne!(disk_path("schemas/com1.json"), "schemas/com1.json");
+        assert_eq!(
+            disk_path("schemas/Connections.json"),
+            "schemas/Connections.json"
+        );
+    }
+
+    #[test]
+    fn the_mapping_is_stable_so_a_resume_finds_what_it_wrote() {
+        for name in [
+            "schemas/One_People?_Tradition.json",
+            "json/Tanakh/Torah/Genesis/Hebrew/merged.json",
+            "schemas/CON.json",
+        ] {
+            assert_eq!(disk_path(name), disk_path(name));
+            assert_eq!(
+                disk_path(&disk_path(name)),
+                disk_path(name),
+                "not idempotent"
+            );
+        }
     }
 
     #[test]
