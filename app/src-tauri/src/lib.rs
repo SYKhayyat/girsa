@@ -12,12 +12,18 @@
 //! executable, then `../../corpus` for a dev build. If it is not found the
 //! window still opens and says so, rather than failing to start with a message
 //! only a terminal would show.
+//!
+//! Your own layer — the arrangement of the shelf, and the seforim you dropped
+//! in — is at `GIRSA_PERSONAL`, else `personal/` in the app's data directory.
+//! It is **never** under the corpus root: the corpus is re-downloadable and
+//! this is not.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use girsa_app::shelf::{Companion, Open};
+use girsa_app::taxonomy::Branch;
 use girsa_app::workspace::{Axis, PaneId};
 use girsa_app::{display, Beside, Place, Session, Shelf, Workspace};
 use girsa_corpus::segment::SegmentId;
@@ -84,6 +90,9 @@ struct Card {
     categories: Vec<String>,
     author: Option<String>,
     era: Option<String>,
+    /// `sefaria`, `otzaria` or `mine`. Shown on the row: a sefer of yours
+    /// should be recognisable as yours without being second-class.
+    source: &'static str,
 }
 
 impl Card {
@@ -94,9 +103,30 @@ impl Card {
             en_title: work.en_title.clone(),
             categories: work.categories.clone(),
             author: work.author.clone(),
-            era: work.era.clone(),
+            era: work
+                .era
+                .as_deref()
+                .map(|code| display::era_said(code).to_string()),
+            source: work.source.as_str(),
         }
     }
+}
+
+/// What came of dropping files on the window.
+///
+/// Both halves are reported. A file that was not read has to say so by name —
+/// a drop that half-worked and said nothing is the reader believing a sefer is
+/// on the shelf when it is not.
+#[derive(Serialize)]
+struct Dropped {
+    added: Vec<Card>,
+    refused: Vec<Refusal>,
+}
+
+#[derive(Serialize)]
+struct Refusal {
+    file: String,
+    why: String,
 }
 
 /// One line of a sefer, ready to be put on the page.
@@ -170,6 +200,133 @@ fn recent(shared: tauri::State<'_, Shared>) -> Result<Vec<Card>, String> {
         .collect())
 }
 
+/// The shelf, as a tree — the shipped taxonomy with your arrangement on top.
+///
+/// Counts only; the seforim themselves come one shelf at a time from
+/// [`shelf_works`]. 7,189 cards is not a browse, it is a dump.
+#[tauri::command]
+fn shelf_tree(shared: tauri::State<'_, Shared>) -> Result<Vec<Branch>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(shelf.tree())
+}
+
+#[tauri::command]
+fn shelf_works(shared: tauri::State<'_, Shared>, key: String) -> Result<Vec<Card>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(shelf.works_on(&key).into_iter().map(Card::of).collect())
+}
+
+/// Put a sefer on a shelf.
+#[tauri::command]
+fn shelf_put_work(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    shelf: String,
+) -> Result<(), String> {
+    edit_shelf(&shared, move |a| {
+        a.put_work(&slug, &shelf);
+        Ok(())
+    })
+}
+
+/// Put a shelf under another one. Refused if that would make it its own
+/// ancestor, and the refusal is shown rather than repaired.
+#[tauri::command]
+fn shelf_put_shelf(
+    shared: tauri::State<'_, Shared>,
+    key: String,
+    parent: String,
+) -> Result<(), String> {
+    edit_shelf(&shared, move |a| a.put_shelf(&key, &parent))
+}
+
+#[tauri::command]
+fn shelf_rename(shared: tauri::State<'_, Shared>, key: String, title: String) -> Result<(), String> {
+    edit_shelf(&shared, move |a| {
+        a.rename(&key, &title);
+        Ok(())
+    })
+}
+
+/// Pin a shelf, or a sefer, to the front of the one it is on.
+#[tauri::command]
+fn shelf_pin(shared: tauri::State<'_, Shared>, parent: String, key: String) -> Result<(), String> {
+    edit_shelf(&shared, move |a| {
+        let mut order = a.order.get(&parent).cloned().unwrap_or_default();
+        order.retain(|k| *k != key);
+        order.insert(0, key);
+        a.reorder(&parent, order);
+        Ok(())
+    })
+}
+
+#[tauri::command]
+fn shelf_make(
+    shared: tauri::State<'_, Shared>,
+    parent: String,
+    title: String,
+) -> Result<String, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut made = String::new();
+    shelf
+        .edit(|a| {
+            made = a.make(&parent, &title);
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(made)
+}
+
+/// Put the shelf back the way it shipped. Your seforim stay; only the
+/// arrangement goes.
+#[tauri::command]
+fn shelf_reset(shared: tauri::State<'_, Shared>) -> Result<(), String> {
+    edit_shelf(&shared, |a| {
+        a.reset();
+        Ok(())
+    })
+}
+
+/// Files dropped on the window become seforim.
+#[tauri::command]
+fn add_mine(shared: tauri::State<'_, Shared>, paths: Vec<String>) -> Result<Dropped, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+
+    let mut added = Vec::new();
+    let mut refused = Vec::new();
+    for path in paths {
+        let file = PathBuf::from(&path);
+        match shelf.add_mine(&file, None) {
+            Ok(slug) => {
+                if let Some(work) = shelf.work(&slug) {
+                    added.push(Card::of(work));
+                }
+            }
+            Err(e) => refused.push(Refusal {
+                file: path,
+                why: e.to_string(),
+            }),
+        }
+    }
+    Ok(Dropped { added, refused })
+}
+
+fn edit_shelf(
+    shared: &tauri::State<'_, Shared>,
+    change: impl FnOnce(&mut girsa_app::Arrangement) -> Result<(), girsa_app::arrangement::Refused>,
+) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    shelf.edit(change).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Companion>, String> {
     let state = shared.lock().map_err(|_| "state is poisoned")?;
@@ -198,10 +355,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
             .map(|s| Line {
                 id: s.id.to_string(),
                 address: s.id.path().join(":"),
-                kind: match s.kind {
-                    girsa_corpus::import::SegmentKind::Heading => "heading",
-                    girsa_corpus::import::SegmentKind::Text => "text",
-                },
+                kind: s.kind.as_str(),
                 runs: display::runs(&if nikud {
                     s.text.clone()
                 } else {
@@ -389,27 +543,42 @@ fn find_corpus() -> Result<PathBuf, String> {
     ))
 }
 
+/// Where your own layer is: the arrangement, and the seforim you added.
+///
+/// Beside the session file, in the app's data directory — not under the corpus
+/// root, which a re-download is entitled to replace wholesale.
+fn find_personal(data: &std::path::Path) -> PathBuf {
+    std::env::var("GIRSA_PERSONAL")
+        .map_or_else(|_| data.join("personal"), PathBuf::from)
+}
+
 /// # Panics
 ///
 /// If the window cannot be created at all, which is not a condition the app can
 /// carry on from.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (shelf, trouble) = match find_corpus() {
-        Ok(root) => match Shelf::open(&root) {
-            Ok(shelf) => (Some(shelf), None),
-            Err(e) => (None, Some(e.to_string())),
-        },
-        Err(e) => (None, Some(e)),
-    };
-
     tauri::Builder::default()
         .setup(move |app| {
-            let session_path = tauri::Manager::path(app)
+            let data = tauri::Manager::path(app)
                 .app_data_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join("session.json");
+                .unwrap_or_else(|_| PathBuf::from("."));
+            let session_path = data.join("session.json");
             let session = Session::load(&session_path);
+            let personal = find_personal(&data);
+
+            let (shelf, trouble) = match find_corpus() {
+                Ok(root) => match Shelf::open(&root, &personal) {
+                    // An unreadable arrangement is the shelf's own trouble to
+                    // report, and it is not a reason to open no shelf.
+                    Ok(shelf) => {
+                        let trouble = shelf.trouble().map(ToString::to_string);
+                        (Some(shelf), trouble)
+                    }
+                    Err(e) => (None, Some(e.to_string())),
+                },
+                Err(e) => (None, Some(e)),
+            };
             tauri::Manager::manage(
                 app,
                 Mutex::new(State {
@@ -438,6 +607,15 @@ pub fn run() {
             set_nikud,
             set_text_size,
             moved,
+            shelf_tree,
+            shelf_works,
+            shelf_put_work,
+            shelf_put_shelf,
+            shelf_rename,
+            shelf_pin,
+            shelf_make,
+            shelf_reset,
+            add_mine,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

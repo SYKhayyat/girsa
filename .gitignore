@@ -13,6 +13,11 @@
 # Derived indices. Rebuildable by definition (spec.md §4.1).
 /index/
 
+# The personal layer: how the shelf was arranged, and the seforim somebody
+# added. Not derived, not the corpus, and not anybody else's — the one thing
+# here that no command can rebuild (spec.md §11).
+/personal/
+
 node_modules/
 dist/
 .gstack/

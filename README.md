@@ -23,6 +23,18 @@ Videos/
   sefer-crates/   the shared contract      github.com/SYKhayyat/sefer-crates
 ```
 
+Two roots at run time, and they are not the same kind of thing:
+
+```
+corpus/          the download. Rebuildable, replaceable, never yours to edit
+personal/        yours: how you arranged the shelf, and the seforim you added
+```
+
+`girsa-import` rewrites the whole of `corpus/works/index.jsonl` on every run, so
+nothing of yours is ever kept in it. The window looks for the corpus at
+`GIRSA_CORPUS` and for your layer at `GIRSA_PERSONAL`, else beside the session
+file in the app's data directory.
+
 | Crate | Purpose |
 |---|---|
 | `girsa-corpus` | Storage, ingest, schemas, permanent segment IDs |
@@ -34,8 +46,8 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and thirteen commands, and **nothing that
-decides anything**. Where a pane lands, what may sit beside what, and what the
+`app/` is the Tauri shell: a window and twenty-three commands, and **nothing
+that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
 
@@ -60,11 +72,20 @@ npm --prefix app run build          # tsc --noEmit && vite build
 cd app/src-tauri && cargo build     # and `npm --prefix app run tauri dev` to run it
 ```
 
+The shelf can also be walked without a window, which is how W10 is checked:
+
+```sh
+cargo run -p girsa-app --bin girsa-shelf -- corpus personal
+cargo run -p girsa-app --bin girsa-shelf -- corpus personal add ~/חבורה.txt
+cargo run -p girsa-app --bin girsa-shelf -- corpus personal move bavli/berakhot שלי
+cargo run -p girsa-app --bin girsa-shelf -- corpus personal reset
+```
+
 ## Status
 
-**Tier 0 through Tier 3's first order are done — the corpus is on the shelf,
-the graph is on top of it, and there is a window.** All four verify commands
-green in all three repositories.
+**Tier 0 through Tier 3 are done — the corpus is on the shelf, the graph is on
+top of it, there is a window, and the shelf is one you can rearrange.** All four
+verify commands green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -77,6 +98,7 @@ green in all three repositories.
 | **W7** · import | Sefaria spine, Otzaria fill. **7,189 works · 5,000,545 segments**, each named once and never again. Mishnah Berurah 18,120/701 and Shulchan Arukh O.C. 697/4,171 — `spec.md` §2's numbers, exactly. |
 | **W8** · links | The graph, on segment ids rather than line numbers. **4,182,344 edges** from 5,108,893 rows — 81.9%, and **92.6%** of the rows whose sefer is on the shelf at all. Every dropped row counted under why, and **nothing left ambiguous**. Mishnah Berakhot 1:1 → the Rambam on it, end to end. |
 | **W9** · the workspace | Tabs, splits, RTL, nikud toggle, per-sefer position memory — and **a commentary column that follows the text**. Berakhot open with Rashi beside it: move the Gemara to 2a:6 and the Rashi column moves to 2a:6:1. **1,718 of Berakhot's 2,749 lines have a Rashi**; on the other 1,031 the column says *אין כאן* and stays where it is. |
+| **W10** · the shelf | One taxonomy over two corpora's vocabularies: **15 shelves, 7,189 seforim, each on exactly one**. Editable — move, rename, reorder, make a shelf — as **one file in your own layer**, which a re-import cannot touch. A file you drop in is a sefer with permanent ids like any other. |
 
 The segments file is the load-bearing part and it is worth one line: each record
 **carries its own id**, so the file can be sorted, reordered, appended to or
@@ -206,7 +228,137 @@ to again.
   and how it is set — and the window builds elements from them. Corpus text is
   never put into the page as markup.
 
+### The shelf: one taxonomy over two corpora
+
+The corpus does not have a taxonomy. It has two. Sefaria files an acharon on the
+Gemara under `Talmud/Bavli/Acharonim on Talmud`, in English; Otzaria files one
+under `תלמוד בבלי/אחרונים`, in Hebrew. Both are right about their own download
+and **neither is a shelf** — side by side they make a reader know which of two
+corpora his sefer came from, which is the one thing the union was built to stop
+mattering. So there is one shipped taxonomy, in Hebrew, and both vocabularies
+are mapped onto it by three rules:
+
+- **a prefix table** takes the first category, sometimes the first two, onto a
+  top shelf: `Talmud/Bavli` and `תלמוד בבלי` both become `תלמוד/בבלי`;
+- **`X on Y` loses its `on Y`** where `Y` names the shelf it is already under —
+  `Acharonim on Talmud` is *the acharonim*, said twice, and the second saying is
+  the whole of what kept it off Otzaria's `אחרונים`;
+- **a term table** translates what is left, and **anything not in it is carried
+  through exactly as the corpus wrote it.**
+
+That last rule is why the shelf has `חסידות/Early Works` and
+`תוספתא/Lieberman Edition` on it. `Early Works` there means the first
+generations of chasidus, and `ראשונים` would file the Maggid of Mezritch with
+the Rishonim; a category nobody has a Hebrew name for is shown in the corpus's
+words rather than in a guess at them, and since any shelf can be renamed with a
+double-click, a bad default costs one drag rather than a wrong label forever.
+
+`cargo run -p girsa-app --bin girsa-shelf -- corpus personal` prints the whole
+of it and the line that matters is the last one:
+
+```
+ תלמוד                           2141
+   בבלי                            1624
+   ירושלמי                          517
+ …
+ אחר                                2
+
+15 shelves · 7189 seforim counted of 7189 on the shelf
+```
+
+**7,189 counted of 7,189.** A sefer on no shelf is a sefer that is on the shelf
+and cannot be browsed to, and nothing anywhere would have said so — so the sum
+is asserted, against the real corpus, in a test and in the tool.
+
+`תלמוד/בבלי/אחרונים` holds **717** seforim, from both corpora, which is the
+merge working. And `אחר` holds exactly **2**: `הודעה חשובה` and
+`עריכת ספר באוצריא` — Otzaria ships its own about-box and a notice as works, and
+W7 imported them as seforim because at import they are two more `.txt` files.
+They are not deleted. They are on a shelf a reader can see, which is what `אחר`
+is for.
+
+`spec.md` §5 names seven shelves — *Tanach / Shas / Halacha / Machshava /
+Chassidus / Responsa / yours*. The corpus does not fit in seven: משנה, תוספתא,
+מדרש, מוסר, קבלה, תפילה and בית שני are each hundreds of seforim that would
+otherwise be filed under something they are not. Sixteen ship, and the last two
+are `שלי` and `אחר`.
+
+### The arrangement is a file of yours
+
+*The shipped taxonomy is a default, not a fact* (§5), and the whole of what
+makes that true is `personal/shelf.json`. Move a sefer, move a shelf, rename
+one, pin one to the front, make one: every edit writes that file and **nothing
+writes to the corpus** — the same rule as corrections (§7.1) and link
+judgments (§8.3), for the same reason, and a test fingerprints every byte under
+`corpus/` before and after a pile of edits to keep it true.
+
+Two things it is keyed to, and neither is a position:
+
+- a **work** by its slug, so that `girsa-import` rewriting all 7,189 catalogue
+  records leaves your filing where you put it;
+- a **shelf** by the key the taxonomy derived for it — `תלמוד/בבלי` — which it
+  **keeps wherever it is dragged to.** A key that moved with the shelf would
+  break every other edit that named it. Titles are display, keys are identity,
+  and the two are allowed to disagree: that is what renaming a shelf means.
+
+An edit naming a sefer the shelf does not have is **kept**, not dropped. It
+costs a line of JSON and it is the difference between a shelf that survives a
+corpus update and one that quietly forgets what you did to it.
+
+Three refusals worth naming, because each of them is a way a shelf could lose a
+sefer without saying so:
+
+- **a shelf cannot be put inside itself**, or inside its own child. Refused, not
+  repaired — the reader has hold of one end of it and knows what they meant.
+- **a hand-edited loop does not take the seforim with it.** `shelf.json` is a
+  text file and can be made to say `a` hangs under `b` and `b` under `a`;
+  neither would be reachable from any root and everything on them would be gone
+  from the tree. A shelf in a loop is stood at the top instead.
+- **an arrangement file that will not parse is moved aside, never overwritten.**
+  It is the only copy of somebody's filing; the shipped shelf is shown and the
+  window says what happened and where the file went.
+
+### Your own material
+
+A `.txt`, `.docx` or `.pdf` dropped on the window becomes a sefer — spec.md §5's
+*not an onboarding step, not a second-class attachment*. It goes through the
+same door as Shas: parsed into segments, **every one given a permanent id**, and
+written as the same `work.json` + `segments.jsonl` every other work is. It is on
+`שלי`, it can be filed anywhere, it opens in a pane, and the picker finds it.
+
+It is catalogued in `personal/works/index.jsonl` and **not** in the corpus's,
+for one reason: the importer truncates the file it owns, so a sefer of yours
+filed in it would be gone at the next corpus update with nothing to say so.
+
+Three places it is deliberately not clever:
+
+- **a scan has no words.** A PDF becomes one segment per page and **no text at
+  all** until it is OCR'd (W26). A parser that does not know the font's encoding
+  would put invented Hebrew into a sefer, permanently, under a real segment id.
+  §9.7 already says what to do instead: the page is addressable and citable, and
+  search says *not searchable yet* rather than quietly returning nothing.
+- **a heading is one Word was told about.** `w:pStyle`, and nothing reads a line
+  and decides it looks like a heading.
+- **a byte the code page does not define stays visible.** A Hebrew `.txt` off a
+  Windows machine is usually windows-1255 and is not a UTF-8 string at all, so
+  it is decoded with the code page written out — and an undefined byte becomes
+  `U+FFFD` rather than a plausible letter. The work records which encoding was
+  used, because a reader looking at a mangled word deserves to see what it was
+  read as.
+
+Two seforim of yours with one name are two seforim: the second is minted a new
+slug rather than landing on top of the first, whose ids are permanent and
+already anchored to.
+
 ### What has not been checked
+
+**The shelf panel has been driven in a browser, not in the shell.**
+`cargo run -p girsa-app --example dev-fixtures` writes the real 7,189-work tree
+to static JSON and the same page draws it — the counts above were read off that
+page — but drag-to-rearrange and the file-drop event **only exist in the shell**
+and were exercised through the Rust API and `girsa-shelf` instead. The shell
+starts, opens the shelf and serves the commands; nobody has dragged a sefer with
+a mouse.
 
 `BUILDER.md` W9 carries a trap: *Tauri uses Edge's engine on Windows and
 Safari's on macOS. Test Hebrew-with-nikud rendering on both — a screenshot from
@@ -220,9 +372,15 @@ dev-fixtures -- corpus app/public/dev` writes the real Gemara to static JSON and
 hand. That catches two engines disagreeing about where a nikud point sits. It
 does not stand in for WebKit.
 
-Nothing here searches yet. The shelf (W10) and search (W11–W14) are next, and
-the Ksav loop (W15–W19) is the milestone that makes the project itself —
-`BUILDER.md` says to pull it as early as Tier 2 allows.
+Nothing here searches yet. Search (W11–W14) is next, and the Ksav loop
+(W15–W19) is the milestone that makes the project itself — `BUILDER.md` says to
+pull it as early as Tier 2 allows.
+
+Two things W10 leaves for the orders that own them. A sefer of yours is **not in
+the resolver's lexicon**, so it is opened and filed by title and not yet cited
+by one — the lexicon is built from Sefaria's schemas and W11–W14 are what wire
+the resolver into the window. And a PDF has pages and no words, which is W26's
+to change.
 
 ### Measured against `spec.md` §2
 

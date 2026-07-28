@@ -23,6 +23,7 @@
 //! inserting and deleting are all safe, and a split writes `#30.1` and `#30.2`
 //! wherever it likes.
 
+pub mod mine;
 pub mod otzaria;
 pub mod sefaria;
 
@@ -48,6 +49,26 @@ pub enum SegmentKind {
     /// A structural heading — Otzaria's `<h1>/<h2>/<h3>`, or a Sefaria schema
     /// node that names a section rather than holding one.
     Heading,
+    /// A page of a scan you brought (spec.md §6.3). It is addressable and
+    /// citable now and it has **no words** until it is OCR'd — which is a
+    /// different thing from a segment that is empty, and search has to be able
+    /// to tell them apart so that a PDF is *"not searchable yet"* rather than
+    /// silently absent (§9.7).
+    Page,
+}
+
+impl SegmentKind {
+    /// What the window calls it. One implementation, because two — the shell's
+    /// and the fixture writer's — is how a page ends up rendering a heading as
+    /// body text in a browser and not in the app.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Heading => "heading",
+            Self::Page => "page",
+        }
+    }
 }
 
 /// A segment as it goes to disk: its permanent name, and its words.
@@ -164,6 +185,9 @@ pub fn read(work: &Work) -> Result<ImportedWork, ImportError> {
             raw
         }
         Source::Otzaria => otzaria::read(&work)?,
+        // Yours, re-read from the file itself — the same rule as everything
+        // else here (spec.md §4.1: the file on disk is the truth).
+        Source::Mine => mine::read(&work)?,
     };
     Ok(ImportedWork::assemble(work, raw))
 }

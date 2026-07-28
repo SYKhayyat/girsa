@@ -22,13 +22,17 @@
 //! showing a reader one sefer while the header names another — BUILDER.md rule
 //! 6, in the one place a reader would never think to check.
 
+pub mod arrangement;
 pub mod beside;
 pub mod display;
 pub mod session;
 pub mod shelf;
+pub mod taxonomy;
 pub mod workspace;
 
+pub use arrangement::Arrangement;
 pub use beside::{Beside, Place, Relation};
 pub use session::Session;
 pub use shelf::{Companion, Open, Shelf, ShelfError};
+pub use taxonomy::Branch;
 pub use workspace::{Axis, Layout, Pane, PaneId, Tab, Workspace};

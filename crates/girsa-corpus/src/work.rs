@@ -43,6 +43,11 @@ pub enum Source {
     Sefaria,
     /// Text from the Otzaria `.txt` tree, structured from its own headings.
     Otzaria,
+    /// Yours. A file you dropped in — spec.md §5, *not an onboarding step, not
+    /// a second-class attachment*. It is in the same enum as the other two
+    /// because that is what first-class means: everything downstream that asks
+    /// a work where its text came from gets an answer of the same kind.
+    Mine,
 }
 
 impl Source {
@@ -51,6 +56,7 @@ impl Source {
         match self {
             Self::Sefaria => "sefaria",
             Self::Otzaria => "otzaria",
+            Self::Mine => "mine",
         }
     }
 }

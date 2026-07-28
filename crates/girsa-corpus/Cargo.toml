@@ -21,5 +21,18 @@ thiserror.workspace = true
 # platforms. MIT OR Apache-2.0.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+# Your own material (spec.md §5). A .docx is a zip with an XML part in it, and
+# a PDF's page count cannot be counted by looking — a modern one keeps its page
+# tree inside a compressed object stream. Both MIT, both with their default
+# features off: nothing here encrypts, renders or rasterizes anything.
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+lopdf = { version = "0.42.0", default-features = false }
+
+[dev-dependencies]
+# The fixtures for those two: an integration test writes a real .docx and a
+# real .pdf rather than checking in binaries nobody can diff.
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+lopdf = { version = "0.42.0", default-features = false }
+
 [lints]
 workspace = true

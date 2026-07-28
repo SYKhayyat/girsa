@@ -6,13 +6,23 @@
 // we move them. When the answer is *nowhere*, nothing moves and the pane says
 // so — see `girsa_app::beside`.
 
-import { api, connect, isShell, type AppState, type PaneId, type Tab } from "./api.ts";
+import {
+  api,
+  connect,
+  isShell,
+  whenFilesDropped,
+  type AppState,
+  type PaneId,
+  type Tab,
+} from "./api.ts";
 import { build } from "./layout.ts";
 import { PaneView } from "./pane.ts";
 import { Picker } from "./picker.ts";
+import { ShelfView } from "./shelf.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
+const shelf = new ShelfView();
 const views = new Map<PaneId, PaneView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
@@ -28,8 +38,35 @@ function titleOf(slug: string): string {
 async function main(): Promise<void> {
   if (!root) return;
   await connect();
-  root.append(picker.element);
+  root.append(picker.element, shelf.element);
   document.addEventListener("keydown", shortcut);
+  await whenFilesDropped(whenDropped);
+  await reload();
+}
+
+/** Files dropped on the window become seforim (spec.md §5). */
+async function whenDropped(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  if (!shelf.isOpen) await shelf.show(openTab);
+  shelf.say(`קורא ${paths.length} קבצים…`, false);
+  const dropped = await api.addMine(paths);
+  await shelf.refresh();
+
+  const added = dropped.added.map((card) => card.he_title).join(", ");
+  // Both halves, always. A drop that half-worked and said nothing leaves a
+  // reader believing a sefer is on the shelf when it is not.
+  const refused = dropped.refused.map((r) => r.why).join(" · ");
+  if (dropped.added.length > 0 && dropped.refused.length === 0) {
+    shelf.say(`נוסף: ${added}`, false);
+  } else if (dropped.added.length > 0) {
+    shelf.say(`נוסף: ${added} — ולא נוסף: ${refused}`, true);
+  } else {
+    shelf.say(refused || "לא נוסף כלום", true);
+  }
+}
+
+async function openTab(slug: string): Promise<void> {
+  await api.openTab(slug);
   await reload();
 }
 
@@ -52,7 +89,7 @@ async function draw(): Promise<void> {
   const open = tab();
   if (!open) {
     chrome.append(nothingOpen());
-    root.replaceChildren(chrome, picker.element);
+    root.replaceChildren(chrome, picker.element, shelf.element);
     return;
   }
 
@@ -61,7 +98,7 @@ async function draw(): Promise<void> {
   });
   boxes.classList.add("panes");
   chrome.append(boxes);
-  root.replaceChildren(chrome, picker.element);
+  root.replaceChildren(chrome, picker.element, shelf.element);
 
   // Panes that are no longer open go, and the ones that stayed keep their
   // scroll position rather than being rebuilt underneath the reader.
@@ -164,7 +201,12 @@ function tabBar(): HTMLElement {
     bar.append(button);
   });
   bar.append(button("＋", "פתח ספר (Ctrl+O)", openSomething));
+  bar.append(button("מדף", "עיין במדף (Ctrl+B)", browseShelf));
   return bar;
+}
+
+function browseShelf(): void {
+  void shelf.toggle(openTab);
 }
 
 function toolBar(): HTMLElement {
@@ -211,24 +253,34 @@ function nothingOpen(): HTMLElement {
   title.textContent = "גִּרְסָא";
   const hint = document.createElement("p");
   hint.className = "empty-hint";
-  hint.textContent = "Ctrl+O — פתח ספר";
+  hint.textContent = "Ctrl+O — פתח ספר · Ctrl+B — עיין במדף";
   const open = button("פתח ספר", "Ctrl+O", openSomething);
   open.classList.add("empty-button");
-  empty.append(title, hint, open);
+  const browse = button("עיין במדף", "Ctrl+B", browseShelf);
+  browse.classList.add("empty-button");
+  empty.append(title, hint, open, browse);
   return empty;
 }
 
 function openSomething(): void {
-  picker.openTab(async (slug) => {
-    await api.openTab(slug);
-    await reload();
-  });
+  picker.openTab(openTab);
 }
 
 function shortcut(event: KeyboardEvent): void {
   if (picker.isOpen) return;
   const control = event.ctrlKey || event.metaKey;
-  if (control && event.key.toLowerCase() === "o") {
+  if (shelf.isOpen && event.key === "Escape") {
+    event.preventDefault();
+    shelf.close();
+    return;
+  }
+  if (control && event.key.toLowerCase() === "b") {
+    event.preventDefault();
+    browseShelf();
+  } else if (shelf.isOpen) {
+    // The shelf is a place, not an overlay on top of the reading: the reading
+    // shortcuts are not live while it is open.
+  } else if (control && event.key.toLowerCase() === "o") {
     event.preventDefault();
     openSomething();
   } else if (control && event.key === "\\") {

@@ -30,6 +30,13 @@ fn corpus() -> Option<PathBuf> {
     root.join("works/index.jsonl").is_file().then_some(root)
 }
 
+/// These read the shelf and change nothing, so the personal layer they are
+/// given is one that does not exist: an empty arrangement, and none of the
+/// reader's own seforim in the way of an assertion about the corpus.
+fn no_personal() -> PathBuf {
+    std::env::temp_dir().join("girsa-no-personal-layer")
+}
+
 macro_rules! corpus_or_skip {
     () => {
         match corpus() {
@@ -57,7 +64,7 @@ fn first_id(place: &Place) -> Option<String> {
 #[test]
 fn scrolling_the_gemara_moves_the_rashi_column_to_the_matching_place() {
     let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root).expect("the shelf opens");
+    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
 
     let gemara = shelf.read(GEMARA).expect("Berakhot is on the shelf");
     let rashi = shelf
@@ -122,7 +129,7 @@ fn a_line_with_no_rashi_on_it_leaves_the_column_where_it_was() {
     // to say it had moved (BUILDER.md rule 6, in the place a reader would
     // never check).
     let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root).expect("the shelf opens");
+    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
     let gemara = shelf.read(GEMARA).expect("Berakhot");
     let rashi = shelf.read(RASHI).expect("Rashi on Berakhot");
     let beside = Beside::between(&gemara, &rashi, &root);
@@ -147,7 +154,7 @@ fn two_seforim_nothing_relates_do_not_drag_each_other_around() {
     // accident — both are addressed `1:1` — and a pane that followed that
     // would show a reader one sefer while claiming to show another.
     let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root).expect("the shelf opens");
+    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
     let Ok(gemara) = shelf.read(GEMARA) else {
         return;
     };
@@ -175,7 +182,7 @@ fn two_seforim_nothing_relates_do_not_drag_each_other_around() {
 fn the_second_commentary_column_follows_the_same_gemara() {
     // Two columns beside one, which is what a daf looks like.
     let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root).expect("the shelf opens");
+    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
     let gemara = shelf.read(GEMARA).expect("Berakhot");
     let Ok(tosafot) = shelf.read(TOSAFOT) else {
         println!("skipped: Tosafot on Berakhot is not on this shelf");
@@ -200,7 +207,7 @@ fn the_shelf_offers_the_commentaries_on_what_you_are_reading() {
     // a guess — so the offer is what the corpus declares plus what the link
     // graph recorded.
     let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root).expect("the shelf opens");
+    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
     let beside_it = shelf.companions(GEMARA);
     assert!(
         beside_it.iter().any(|c| c.slug == RASHI),

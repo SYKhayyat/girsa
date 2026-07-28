@@ -295,6 +295,11 @@ pub fn read_file(
                     _ => None,
                 }
             }
+            // One of yours. Otzaria's CSVs are about Otzaria's corpus and can
+            // only ever name a work of yours by a collision of titles, so the
+            // link is dropped rather than pointed at a sefer of the reader's
+            // that nobody said anything about.
+            Source::Mine => None,
             // Sefaria supplies it, so Otzaria's line numbers describe a file
             // that is not on the shelf. The citation means the same thing in
             // either copy; the line number does not.

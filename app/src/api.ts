@@ -23,6 +23,28 @@ export interface Card {
   categories: string[];
   author: string | null;
   era: string | null;
+  source: "sefaria" | "otzaria" | "mine";
+}
+
+/** One shelf, and everything under it — see `girsa_app::taxonomy`. */
+export interface Branch {
+  key: string;
+  title: string;
+  /** Seforim standing on this shelf itself. */
+  here: number;
+  /** On it and everything under it. */
+  count: number;
+  /** The reader made this shelf. */
+  mine: boolean;
+  /** It is not where, or not what, it shipped as. */
+  edited: boolean;
+  children: Branch[];
+}
+
+/** What came of dropping files on the window. Both halves are reported. */
+export interface Dropped {
+  added: Card[];
+  refused: { file: string; why: string }[];
 }
 
 /** A stretch of words and how it is set — see `girsa_app::display::runs`. */
@@ -143,7 +165,30 @@ export const api = {
   setNikud: (on: boolean) => call<void>("set_nikud", { on }),
   setTextSize: (percent: number) => call<void>("set_text_size", { percent }),
   moved: (pane: PaneId, at: string) => call<Move[]>("moved", { pane, at }),
+
+  // --- the shelf (W10) ----------------------------------------------------
+  //
+  // The tree carries counts and no seforim: 7,189 cards is not a browse, it is
+  // a dump. The works of one shelf are asked for when that shelf is opened.
+  shelfTree: () => call<Branch[]>("shelf_tree"),
+  shelfWorks: (key: string) => call<Card[]>("shelf_works", { key }),
+  shelfPutWork: (slug: string, shelf: string) => call<void>("shelf_put_work", { slug, shelf }),
+  shelfPutShelf: (key: string, parent: string) => call<void>("shelf_put_shelf", { key, parent }),
+  shelfRename: (key: string, title: string) => call<void>("shelf_rename", { key, title }),
+  shelfPin: (parent: string, key: string) => call<void>("shelf_pin", { parent, key }),
+  shelfMake: (parent: string, title: string) => call<string>("shelf_make", { parent, title }),
+  shelfReset: () => call<void>("shelf_reset"),
+  addMine: (paths: string[]) => call<Dropped>("add_mine", { paths }),
 };
+
+/** Files dropped on the window, as they arrive from the shell. */
+export async function whenFilesDropped(handler: (paths: string[]) => void): Promise<void> {
+  if (!invoke) return;
+  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  await getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === "drop") handler(event.payload.paths);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // The browser fallback
@@ -203,6 +248,14 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
           runs: l.runs.map((r) => ({ ...r, text: withoutMarks(r.text) })),
         })),
       } as T;
+    }
+    case "shelf_tree":
+      return json<Branch[]>("/dev/tree.json").catch(() => [] as Branch[]) as Promise<T>;
+    case "shelf_works": {
+      const shelves = await json<Record<string, Card[]>>("/dev/shelf.json").catch(
+        () => ({}) as Record<string, Card[]>,
+      );
+      return (shelves[String(args?.key)] ?? []) as T;
     }
     case "moved": {
       const places = await json<Record<string, Move[]>>("/dev/moves.json").catch(

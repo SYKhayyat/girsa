@@ -4,6 +4,14 @@
 //! work is loaded only when a pane opens it. Five million segments do not fit
 //! in a window and are not wanted in one — a reader has two or three seforim
 //! open, not the library.
+//!
+//! # Two catalogues, one shelf
+//!
+//! The corpus's, at `corpus/works/index.jsonl`, which `girsa-import` rewrites
+//! in full every run; and yours, at `personal/works/index.jsonl`, which nothing
+//! but you ever writes. They are kept in **separate files for one reason**: the
+//! importer truncates the file it owns, so a sefer of yours filed in it would
+//! be gone at the next corpus update and nothing would say so.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -11,8 +19,11 @@ use std::path::{Path, PathBuf};
 use girsa_corpus::import::{self, Segment};
 use girsa_corpus::index::{SegmentIndex, WorkSegments};
 use girsa_corpus::segment::SegmentId;
-use girsa_corpus::work::Work;
+use girsa_corpus::work::{Source, Work};
 use girsa_ref::{Address, Ref};
+
+use crate::arrangement::{Arrangement, Refused};
+use crate::taxonomy::{self, Branch};
 
 /// Why the shelf, or a sefer on it, would not open.
 #[derive(Debug, thiserror::Error)]
@@ -29,12 +40,21 @@ pub enum ShelfError {
     NoSuchWork(String),
     #[error("{0} is on the shelf and will not open: {1}")]
     Unreadable(String, String),
+    #[error("{0}")]
+    Refused(String),
 }
 
 /// The catalogue, in memory.
 #[derive(Debug)]
 pub struct Shelf {
     root: PathBuf,
+    /// Where your own layer lives: the arrangement, and your own seforim.
+    personal: PathBuf,
+    /// How you have arranged the shelf. Empty until you move something.
+    arrangement: Arrangement,
+    /// Something wrong with the personal layer that the reader should be told
+    /// about — an arrangement file that would not read, so far.
+    trouble: Option<String>,
     works: Vec<Work>,
     by_slug: HashMap<String, usize>,
     /// Base work slug → the works that declare themselves commentaries on it.
@@ -60,24 +80,27 @@ pub struct Companion {
 }
 
 impl Shelf {
-    /// Read `works/index.jsonl`, and the companions cache if it is there.
+    /// Read the corpus catalogue, your own catalogue, your arrangement, and
+    /// the companions cache if it is there.
     ///
     /// # Errors
     ///
-    /// If there is no work index — which means the import has not run.
-    pub fn open(root: &Path) -> Result<Self, ShelfError> {
+    /// If there is no corpus work index — which means the import has not run.
+    /// A missing personal layer is not an error; it is a reader who has not
+    /// added anything yet.
+    pub fn open(root: &Path, personal: &Path) -> Result<Self, ShelfError> {
         let index = root.join("works/index.jsonl");
         let body = std::fs::read_to_string(&index)
             .map_err(|_| ShelfError::NoShelf(root.display().to_string()))?;
 
-        let mut works = Vec::new();
-        for line in body.lines().filter(|l| !l.trim().is_empty()) {
-            // A work whose record will not parse is skipped rather than fatal:
-            // one unreadable line should cost one sefer, not the library.
-            if let Ok(work) = serde_json::from_str::<Work>(line) {
-                works.push(work);
-            }
+        let mut works = catalogue(&body);
+        // Yours, after the corpus's, and never in the same file — see the
+        // module note.
+        if let Ok(mine) = std::fs::read_to_string(personal.join("works/index.jsonl")) {
+            works.extend(catalogue(&mine));
         }
+
+        let (arrangement, trouble) = Arrangement::load(&personal.join("shelf.json"));
 
         let by_slug = works
             .iter()
@@ -94,6 +117,9 @@ impl Shelf {
         Ok(Self {
             linked: read_companions(root),
             root: root.to_path_buf(),
+            personal: personal.to_path_buf(),
+            arrangement,
+            trouble,
             works,
             by_slug,
             commentaries,
@@ -121,9 +147,38 @@ impl Shelf {
             .work(slug)
             .ok_or_else(|| ShelfError::NoSuchWork(slug.to_string()))?
             .clone();
-        let read = import::read_back(&self.root, slug)
+        // Yours were written under the personal root and the corpus's under
+        // the corpus root — one line, and it is the whole of what the rest of
+        // the app has to know about the difference.
+        let root = self.root_of(&work);
+        let read = import::read_back(root, slug)
             .map_err(|e| ShelfError::Unreadable(slug.to_string(), e.to_string()))?;
         Ok(Open::new(work, read.segments))
+    }
+
+    /// Which root a work's files are under.
+    #[must_use]
+    pub fn root_of(&self, work: &Work) -> &Path {
+        match work.source {
+            Source::Mine => &self.personal,
+            Source::Sefaria | Source::Otzaria => &self.root,
+        }
+    }
+
+    /// Put a file of yours on the shelf: a sefer, with permanent ids, in your
+    /// own layer.
+    ///
+    /// # Errors
+    ///
+    /// If the file is of a kind nothing here reads, has nothing in it, or the
+    /// personal layer will not take it. See [`import::mine::add`].
+    pub fn add_mine(&mut self, file: &Path, title: Option<&str>) -> Result<String, ShelfError> {
+        let added = import::mine::add(&self.personal, file, title)
+            .map_err(|e| ShelfError::Refused(e.to_string()))?;
+        let slug = added.work.slug.clone();
+        self.by_slug.insert(slug.clone(), self.works.len());
+        self.works.push(added.work);
+        Ok(slug)
     }
 
     /// The seforim worth opening in the column beside this one, best first.
@@ -236,6 +291,96 @@ impl Shelf {
     pub fn root(&self) -> &Path {
         &self.root
     }
+
+    #[must_use]
+    pub fn personal(&self) -> &Path {
+        &self.personal
+    }
+
+    /// Anything wrong with the personal layer the reader should be told.
+    #[must_use]
+    pub fn trouble(&self) -> Option<&str> {
+        self.trouble.as_deref()
+    }
+
+    /// The shelf as it is browsed: the shipped taxonomy with your edits on top.
+    #[must_use]
+    pub fn tree(&self) -> Vec<Branch> {
+        taxonomy::tree(&self.works, &self.arrangement)
+    }
+
+    /// The seforim standing on one shelf — not the ones on the shelves under
+    /// it, which is what makes browsing a walk rather than a dump.
+    #[must_use]
+    pub fn works_on(&self, key: &str) -> Vec<&Work> {
+        let mut on: Vec<&Work> = self
+            .works
+            .iter()
+            .filter(|w| taxonomy::shelf_key_of(w, &self.arrangement) == key)
+            .collect();
+        let placed = |slug: &str| {
+            self.arrangement
+                .order
+                .get(key)
+                .and_then(|order| order.iter().position(|k| k == slug))
+                .unwrap_or(usize::MAX)
+        };
+        on.sort_by(|a, b| {
+            placed(&a.slug)
+                .cmp(&placed(&b.slug))
+                .then_with(|| a.he_title.cmp(&b.he_title))
+        });
+        on
+    }
+
+    #[must_use]
+    pub fn arrangement(&self) -> &Arrangement {
+        &self.arrangement
+    }
+
+    /// Where the arrangement is kept.
+    #[must_use]
+    pub fn arrangement_path(&self) -> PathBuf {
+        self.personal.join("shelf.json")
+    }
+
+    /// Change the arrangement and write it down.
+    ///
+    /// Every edit goes through here so that **one** function knows the file is
+    /// under `personal/` — nothing in this module is allowed to write into the
+    /// corpus, and a second place that saved would be the place that one day
+    /// did.
+    ///
+    /// # Errors
+    ///
+    /// If the edit is refused (a shelf inside itself), or the personal layer
+    /// cannot be written. An edit that will not save is **not** applied in
+    /// memory either: a shelf that rearranges itself back at the next restart
+    /// is worse than one that says it could not.
+    pub fn edit(
+        &mut self,
+        change: impl FnOnce(&mut Arrangement) -> Result<(), Refused>,
+    ) -> Result<(), ShelfError> {
+        let mut next = self.arrangement.clone();
+        change(&mut next).map_err(|e| ShelfError::Refused(e.to_string()))?;
+        next.save(&self.arrangement_path())
+            .map_err(|source| ShelfError::Io {
+                path: self.arrangement_path().display().to_string(),
+                source,
+            })?;
+        self.arrangement = next;
+        Ok(())
+    }
+}
+
+/// One catalogue file, as works. A record that will not parse is skipped
+/// rather than fatal: one unreadable line should cost one sefer, not the
+/// library.
+fn catalogue(body: &str) -> Vec<Work> {
+    body.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Work>(l).ok())
+        .collect()
 }
 
 /// A sefer with its text, ready to be read and to be lined up against another.
@@ -374,6 +519,39 @@ pub(crate) mod tests {
         }
     }
 
+    /// A shelf of these works, with a personal layer at `personal` — pass a
+    /// scratch directory to test an edit, or nothing to test what is on it.
+    pub(crate) fn shelf_of(works: Vec<Work>, personal: &Path) -> Shelf {
+        let mut commentaries: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, work) in works.iter().enumerate() {
+            for base in &work.commentary_on {
+                commentaries.entry(base.slug.clone()).or_default().push(i);
+            }
+        }
+        let (arrangement, trouble) = Arrangement::load(&personal.join("shelf.json"));
+        Shelf {
+            root: PathBuf::new(),
+            personal: personal.to_path_buf(),
+            arrangement,
+            trouble,
+            by_slug: works
+                .iter()
+                .enumerate()
+                .map(|(i, w)| (w.slug.clone(), i))
+                .collect(),
+            works,
+            commentaries,
+            linked: HashMap::new(),
+        }
+    }
+
+    /// A scratch personal layer, emptied first.
+    pub(crate) fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
     pub(crate) fn open(slug: &str, addresses: &[&[&str]]) -> Open {
         let segments = addresses
             .iter()
@@ -421,17 +599,7 @@ pub(crate) mod tests {
         works[1].he_title = "ברכות".into();
         works[1].en_title = "Berakhot".into();
 
-        let shelf = Shelf {
-            root: PathBuf::new(),
-            by_slug: works
-                .iter()
-                .enumerate()
-                .map(|(i, w)| (w.slug.clone(), i))
-                .collect(),
-            works,
-            commentaries: HashMap::new(),
-            linked: HashMap::new(),
-        };
+        let shelf = shelf_of(works, &scratch("girsa-shelf-search"));
 
         let found = |q: &str| {
             shelf
@@ -453,20 +621,10 @@ pub(crate) mod tests {
             slug: "bavli/berakhot".into(),
             mapping: Mapping::ManyToOne,
         }];
-        let works = vec![work("bavli/berakhot"), rashi];
-        let mut commentaries = HashMap::new();
-        commentaries.insert("bavli/berakhot".to_string(), vec![1usize]);
-        let shelf = Shelf {
-            root: PathBuf::new(),
-            by_slug: works
-                .iter()
-                .enumerate()
-                .map(|(i, w)| (w.slug.clone(), i))
-                .collect(),
-            works,
-            commentaries,
-            linked: HashMap::new(),
-        };
+        let shelf = shelf_of(
+            vec![work("bavli/berakhot"), rashi],
+            &scratch("girsa-shelf-companions"),
+        );
 
         let beside_gemara = shelf.companions("bavli/berakhot");
         assert_eq!(beside_gemara.len(), 1);

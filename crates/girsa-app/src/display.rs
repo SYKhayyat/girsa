@@ -177,9 +177,35 @@ pub fn has_marks(text: &str) -> bool {
     text.chars().any(girsa_hebrew::is_mark)
 }
 
+/// An era, as a reader says it rather than as Sefaria codes it.
+///
+/// The catalogue records `AH`, `RI`, `T`, `A`, `GN`, `CO` — 4,812 of the 7,189
+/// works carry one — and a shelf row that says `A` beside `ברכות` is telling
+/// the reader nothing. A code nobody here has a word for is **shown as it is**,
+/// not dropped and not guessed at: an unknown era is a thing to notice.
+#[must_use]
+pub fn era_said(code: &str) -> &str {
+    match code {
+        "T" => "תנאים",
+        "A" => "אמוראים",
+        "GN" => "גאונים",
+        "RI" => "ראשונים",
+        "AH" => "אחרונים",
+        "CO" => "מחברי זמננו",
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_era_is_said_in_words_and_an_unknown_code_is_shown_rather_than_dropped() {
+        assert_eq!(era_said("RI"), "ראשונים");
+        assert_eq!(era_said("A"), "אמוראים");
+        assert_eq!(era_said("XX"), "XX");
+    }
 
     #[test]
     fn the_toggle_takes_off_nikud_and_leaves_the_letters() {

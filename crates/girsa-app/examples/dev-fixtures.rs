@@ -33,8 +33,13 @@ fn main() -> std::process::ExitCode {
     let mut args = std::env::args().skip(1);
     let root = PathBuf::from(args.next().unwrap_or_else(|| "corpus".into()));
     let out = PathBuf::from(args.next().unwrap_or_else(|| "app/public/dev".into()));
+    // The reader's own layer, wherever the app would keep it. A fixture run is
+    // read-only and takes it as it finds it — including the seforim of yours
+    // that are on the shelf, so the page shows the shelf the app shows.
+    let personal =
+        PathBuf::from(std::env::var("GIRSA_PERSONAL").unwrap_or_else(|_| "personal".to_string()));
 
-    let shelf = match Shelf::open(&root) {
+    let shelf = match Shelf::open(&root, &personal) {
         Ok(shelf) => shelf,
         Err(e) => {
             eprintln!("{e}");
@@ -80,14 +85,23 @@ fn main() -> std::process::ExitCode {
     let cards: Vec<serde_json::Value> = [LEADER, FOLLOWER, "mishnah-berakhot", "genesis"]
         .iter()
         .filter_map(|slug| shelf.work(slug))
-        .map(|w| {
-            serde_json::json!({
-                "slug": w.slug, "he_title": w.he_title, "en_title": w.en_title,
-                "categories": w.categories, "author": w.author, "era": w.era,
-            })
-        })
+        .map(card)
         .collect();
     write(&out.join("recent.json"), &serde_json::json!(cards));
+
+    // The shelf: the tree with its counts, and every shelf's seforim by key.
+    // Written whole rather than sampled — the point of looking at this page in
+    // a second browser is to see the real thing, and a shelf of four seforim
+    // would not show what 2,141 under `תלמוד` does to a scrolling list.
+    write(&out.join("tree.json"), &serde_json::json!(shelf.tree()));
+    let mut by_shelf: BTreeMap<String, Vec<serde_json::Value>> = BTreeMap::new();
+    for work in shelf.works() {
+        by_shelf
+            .entry(girsa_app::taxonomy::shelf_key_of(work, shelf.arrangement()))
+            .or_default()
+            .push(card(work));
+    }
+    write(&out.join("shelf.json"), &serde_json::json!(by_shelf));
 
     for sefer in [&leader, &follower] {
         let text = serde_json::json!({
@@ -100,10 +114,7 @@ fn main() -> std::process::ExitCode {
             "lines": sefer.segments.iter().map(|s| serde_json::json!({
                 "id": s.id.to_string(),
                 "address": s.id.path().join(":"),
-                "kind": match s.kind {
-                    girsa_corpus::import::SegmentKind::Heading => "heading",
-                    girsa_corpus::import::SegmentKind::Text => "text",
-                },
+                "kind": s.kind.as_str(),
                 "runs": display::runs(&s.text),
             })).collect::<Vec<_>>(),
         });
@@ -161,4 +172,18 @@ fn write(path: &Path, value: &serde_json::Value) {
 
 fn flatten(slug: &str) -> String {
     slug.replace('/', "_")
+}
+
+/// A work as the window's `Card` — the same fields the shell's command sends,
+/// because the page is the same page.
+fn card(work: &girsa_corpus::work::Work) -> serde_json::Value {
+    serde_json::json!({
+        "slug": work.slug,
+        "he_title": work.he_title,
+        "en_title": work.en_title,
+        "categories": work.categories,
+        "author": work.author,
+        "era": work.era.as_deref().map(display::era_said),
+        "source": work.source.as_str(),
+    })
 }
