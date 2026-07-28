@@ -199,7 +199,7 @@ fn a_hit_carries_the_text_as_printed_and_marks_the_word_on_it() {
     assert_eq!(hit.text, "מֵאֵימָתַי קוֹרִין אֶת שְׁמַע בָּעֲרָבִין");
     assert_eq!(hit.kind, SegmentKind::Text);
 
-    let marks = hit.marks("קורין");
+    let marks = hit.marks(&girsa_search::torat_emet::Query::new("קורין").plan());
     assert_eq!(marks.len(), 1, "one word matched, one mark");
     let (start, end) = marks[0];
     assert_eq!(&hit.text[start..end], "קוֹרִין");

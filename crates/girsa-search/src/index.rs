@@ -38,14 +38,17 @@ use girsa_corpus::import::{Segment, SegmentKind};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::CacheProvenance;
 use serde::{Deserialize, Serialize};
-use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, Occur, PhraseQuery, Query, TermQuery};
+use tantivy::collector::{Count, TopDocs};
+use tantivy::query::{
+    BooleanQuery, Occur, PhraseQuery, Query, RegexPhraseQuery, RegexQuery, TermQuery,
+};
 use tantivy::schema::{
     IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED, STRING,
 };
 use tantivy::{IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
 use crate::tokenizer;
+use crate::torat_emet::{self, Match, Plan, Together, MOST_WORDS_UNORDERED};
 
 /// The file that says what rules this index was built under.
 pub const CACHE_STAMP: &str = "girsa-cache.json";
@@ -129,6 +132,23 @@ pub enum IndexError {
     Stale { path: String, reason: String },
     #[error("the index is missing the field {0}, which this build requires")]
     Field(&'static str),
+    /// A `contains` or `letters` pattern matched more distinct words than a
+    /// phrase search can hold at once.
+    ///
+    /// **Refused, not trimmed.** Running the phrase over the first few thousand
+    /// of the matching words would return a subset of the truth wearing the
+    /// face of the whole of it, and the reader would have no way to tell.
+    #[error(
+        "those letters match more than {limit} different words — narrow them, or drop the \
+         proximity and search for the letters alone"
+    )]
+    TooBroad { limit: u32 },
+    /// Order-free proximity over more words than there are orderings for.
+    #[error(
+        "{words} words is too many to check in any order (the limit is {limit}) — ask for them \
+         in order instead"
+    )]
+    TooManyWords { words: usize, limit: usize },
     #[error(transparent)]
     Tantivy(#[from] tantivy::TantivyError),
 }
@@ -147,6 +167,66 @@ impl IndexError {
             reason: reason.into(),
         }
     }
+
+    /// Give tantivy's expansion ceiling a name of ours.
+    ///
+    /// It arrives as a formatted string, so this reads one. The test
+    /// `a_pattern_that_matches_too_much_is_refused_rather_than_quietly_cut`
+    /// pins it: if a tantivy upgrade rewords the message, that test fails
+    /// rather than the refusal silently becoming a generic error.
+    fn from_tantivy(error: tantivy::TantivyError) -> Self {
+        match &error {
+            tantivy::TantivyError::InvalidArgument(message)
+                if message.contains("max expansions") =>
+            {
+                Self::TooBroad {
+                    limit: crate::torat_emet::MOST_EXPANSIONS,
+                }
+            }
+            _ => Self::Tantivy(error),
+        }
+    }
+}
+
+/// What a search found, and what it was asked.
+#[derive(Debug, Clone)]
+pub struct Found {
+    /// The first page of them, best first.
+    pub hits: Vec<Hit>,
+    /// How many there were altogether. Counted, not estimated — a result
+    /// header that cannot say *"1 of 4,190"* is a header nobody can act on,
+    /// and W13's ladder is counts computed before the click.
+    pub total: usize,
+    /// Exactly what was searched for. The literal mode's promise, in a struct.
+    pub asked: Plan,
+}
+
+/// The clauses of a boolean query, before it is built.
+type Clauses = Vec<(Occur, Box<dyn Query>)>;
+
+/// Every ordering of the patterns, for order-free proximity.
+///
+/// Heap's algorithm, iterative. The caller has already refused anything long
+/// enough for this to matter.
+fn orderings(patterns: &[String]) -> Vec<Vec<String>> {
+    let mut current: Vec<String> = patterns.to_vec();
+    let mut out = vec![current.clone()];
+    let n = current.len();
+    let mut counters = vec![0usize; n];
+    let mut i = 0;
+    while i < n {
+        if counters[i] < i {
+            let j = if i % 2 == 0 { 0 } else { counters[i] };
+            current.swap(j, i);
+            out.push(current.clone());
+            counters[i] += 1;
+            i = 0;
+        } else {
+            counters[i] = 0;
+            i += 1;
+        }
+    }
+    out
 }
 
 /// The four things every segment is indexed by.
@@ -223,21 +303,26 @@ pub struct Hit {
 }
 
 impl Hit {
-    /// Where in [`Hit::text`] the words of `query` sit, as byte spans.
+    /// Where in [`Hit::text`] the words this plan asked for sit, as byte spans.
     ///
     /// Computed from the printed text through the same normalizer the index was
     /// built with, so a mark lands on `קוֹרִין` and not on the bare spelling that
     /// matched. A caller that highlighted by searching the printed string for
     /// the query would find nothing at all on a menukad page.
+    ///
+    /// It marks by the **plan's own rule**: a `contains` search highlights the
+    /// longer word it found the letters inside, because that is the word that
+    /// answered the question. Highlighting the typed letters instead would
+    /// point at a word the reader did not search for.
     #[must_use]
-    pub fn marks(&self, query: &str) -> Vec<(usize, usize)> {
-        let wanted: HashSet<String> = girsa_hebrew::normalize(query)
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
+    pub fn marks(&self, plan: &Plan) -> Vec<(usize, usize)> {
         girsa_hebrew::tokenize(&self.text)
             .into_iter()
-            .filter(|token| wanted.contains(&token.text))
+            .filter(|token| {
+                plan.words
+                    .iter()
+                    .any(|word| plan.matches(word, &token.text))
+            })
             .map(|token| (token.start, token.end))
             .collect()
     }
@@ -401,29 +486,41 @@ impl SearchIndex {
         usize::try_from(self.reader.searcher().num_docs()).unwrap_or(usize::MAX)
     }
 
+    /// Run a Torat Emet query (W12).
+    ///
+    /// The literal mode, and the default. What comes back is what was asked
+    /// for, and [`Found::asked`] says what that was — see
+    /// [`crate::torat_emet`].
+    ///
+    /// # Errors
+    ///
+    /// [`IndexError::TooBroad`] or [`IndexError::TooManyWords`] when the query
+    /// cannot be run exactly; a partial answer is never returned in its place.
+    /// Otherwise if the search fails or a stored document cannot be read back.
+    pub fn search(&self, query: &torat_emet::Query) -> Result<Found, IndexError> {
+        let asked = query.plan();
+        if asked.is_empty() {
+            return Ok(Found {
+                hits: Vec::new(),
+                total: 0,
+                asked,
+            });
+        }
+        let built = self.build(&asked, query.max_expansions())?;
+        let (hits, total) = self.run(&*built)?;
+        Ok(Found { hits, total, asked })
+    }
+
     /// Segments holding **all** of these words, in any order.
     ///
-    /// The index's own probe, not the search bar: no widening, no operators, no
-    /// paging. W12 builds the literal mode on top of this and W13 the ladder
-    /// beside it.
+    /// The index's own probe: [`SearchIndex::search`] with everything left at
+    /// its default. Kept because a probe wants to be one line.
     ///
     /// # Errors
     ///
     /// If the search cannot be run or a stored document cannot be read back.
     pub fn words(&self, query: &str) -> Result<Vec<Hit>, IndexError> {
-        let terms = self.terms(query);
-        if terms.is_empty() {
-            return Ok(Vec::new());
-        }
-        let clauses: Vec<(Occur, Box<dyn Query>)> = terms
-            .into_iter()
-            .map(|term| {
-                let query: Box<dyn Query> =
-                    Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs));
-                (Occur::Must, query)
-            })
-            .collect();
-        self.run(&BooleanQuery::new(clauses))
+        Ok(self.search(&torat_emet::Query::new(query))?.hits)
     }
 
     /// Segments holding these words, adjacent and in this order.
@@ -432,29 +529,112 @@ impl SearchIndex {
     ///
     /// If the search cannot be run or a stored document cannot be read back.
     pub fn phrase(&self, query: &str) -> Result<Vec<Hit>, IndexError> {
-        let terms = self.terms(query);
-        match terms.len() {
-            0 => Ok(Vec::new()),
-            1 => self.words(query),
-            _ => self.run(&PhraseQuery::new(terms)),
+        Ok(self
+            .search(&torat_emet::Query::new(query).together(torat_emet::Together::Phrase))?
+            .hits)
+    }
+
+    /// Turn a plan into the query tantivy will run.
+    ///
+    /// Every branch here matches a sentence in [`Plan::describe`]. If the two
+    /// ever disagree, the result header is describing a search that did not
+    /// happen — which is the one thing this mode may not do.
+    fn build(&self, plan: &Plan, max_expansions: u32) -> Result<Box<dyn Query>, IndexError> {
+        let single = plan.words.len() == 1;
+        match plan.together {
+            // All of them, anywhere in the segment. An *and*: a result that
+            // does not have every word you asked for is a result you have to
+            // check by eye, which is the other way a search box loses trust.
+            Together::Anywhere => {
+                let mut clauses: Clauses = Vec::with_capacity(plan.patterns.len());
+                for pattern in &plan.patterns {
+                    clauses.push((Occur::Must, self.one_word(plan, pattern)?));
+                }
+                Ok(Box::new(BooleanQuery::new(clauses)))
+            }
+            // One word is a legal phrase and a legal proximity — it is the
+            // word. Tantivy's phrase queries assert on fewer than two terms,
+            // and an assert is a window that closes.
+            Together::Phrase if single => self.one_word(plan, &plan.patterns[0]),
+            Together::Near { .. } if single => self.one_word(plan, &plan.patterns[0]),
+            Together::Phrase => self.in_a_row(plan, &plan.patterns, 0, max_expansions),
+            // Order-free proximity: the union over orderings. Each ordering is
+            // asked for exactly, so the union is exactly *"these words with at
+            // most `words` between them, in some order"* — as against a slop
+            // wide enough to allow a reversal, which would also allow a
+            // distance the reader did not ask for.
+            Together::Near { words: gap } => {
+                if plan.words.len() > MOST_WORDS_UNORDERED {
+                    return Err(IndexError::TooManyWords {
+                        words: plan.words.len(),
+                        limit: MOST_WORDS_UNORDERED,
+                    });
+                }
+                let mut clauses: Clauses = Vec::new();
+                for ordering in orderings(&plan.patterns) {
+                    clauses.push((
+                        Occur::Should,
+                        self.in_a_row(plan, &ordering, gap, max_expansions)?,
+                    ));
+                }
+                Ok(Box::new(BooleanQuery::new(clauses)))
+            }
         }
     }
 
-    /// A query, normalized by the same code the index was built with.
-    ///
-    /// This is the whole point of W2 in one function: the reader may type
-    /// `מֵאֵימָתַי`, `מאימתי` or `מאימתי` with a stray gershayim, and all three
-    /// become the term that is actually on disk.
-    fn terms(&self, query: &str) -> Vec<Term> {
-        girsa_hebrew::normalize(query)
-            .split_whitespace()
-            .map(|word| Term::from_field_text(self.fields.text, word))
-            .collect()
+    /// One written word, matched the way the reader asked.
+    fn one_word(&self, plan: &Plan, pattern: &str) -> Result<Box<dyn Query>, IndexError> {
+        Ok(match plan.matching {
+            // The term itself. No automaton, no expansion, no ceiling to hit.
+            Match::Word => Box::new(TermQuery::new(
+                Term::from_field_text(self.fields.text, pattern),
+                IndexRecordOption::WithFreqs,
+            )),
+            Match::Contains | Match::Letters => {
+                Box::new(RegexQuery::from_pattern(pattern, self.fields.text)?)
+            }
+        })
     }
 
-    fn run(&self, query: &dyn Query) -> Result<Vec<Hit>, IndexError> {
+    /// Several words in a row, with `slop` others allowed between them.
+    fn in_a_row(
+        &self,
+        plan: &Plan,
+        patterns: &[String],
+        slop: u32,
+        max_expansions: u32,
+    ) -> Result<Box<dyn Query>, IndexError> {
+        match plan.matching {
+            Match::Word => {
+                let terms: Vec<Term> = patterns
+                    .iter()
+                    .map(|word| Term::from_field_text(self.fields.text, word))
+                    .collect();
+                let mut phrase = PhraseQuery::new(terms);
+                phrase.set_slop(slop);
+                Ok(Box::new(phrase))
+            }
+            Match::Contains | Match::Letters => {
+                let mut phrase = RegexPhraseQuery::new(self.fields.text, patterns.to_vec());
+                phrase.set_slop(slop);
+                phrase.set_max_expansions(max_expansions);
+                Ok(Box::new(phrase))
+            }
+        }
+    }
+
+    /// The hits, and how many there were in total.
+    ///
+    /// Both, always: a page of results whose total is unknown cannot say
+    /// *"1 of 4,190"*, and W13's ladder is counts before clicks.
+    fn run(&self, query: &dyn Query) -> Result<(Vec<Hit>, usize), IndexError> {
         let searcher = self.reader.searcher();
-        let found = searcher.search(query, &TopDocs::with_limit(PROBE_LIMIT).order_by_score())?;
+        let (found, total) = searcher
+            .search(
+                query,
+                &(TopDocs::with_limit(PROBE_LIMIT).order_by_score(), Count),
+            )
+            .map_err(IndexError::from_tantivy)?;
         let mut hits = Vec::with_capacity(found.len());
         for (score, address) in found {
             let doc: TantivyDocument = searcher.doc(address)?;
@@ -469,7 +649,7 @@ impl SearchIndex {
                 .total_cmp(&a.score)
                 .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
         });
-        Ok(hits)
+        Ok((hits, total))
     }
 
     fn hit(&self, doc: &TantivyDocument, score: f32) -> Option<Hit> {

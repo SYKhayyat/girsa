@@ -31,6 +31,7 @@ use std::time::Instant;
 use girsa_corpus::import;
 use girsa_corpus::work::Work;
 use girsa_search::index::{Hit, SearchIndex, Stamp, CACHE_STAMP, PROBE_LIMIT};
+use girsa_search::torat_emet::{Match, Plan, Query, Together};
 
 /// The writer's budget. Big enough that the whole corpus goes in without
 /// merging itself to death, small enough to leave the machine usable.
@@ -51,10 +52,8 @@ fn main() -> std::process::ExitCode {
             Some((index_dir, roots)) if !roots.is_empty() => build(Path::new(index_dir), roots),
             _ => usage(),
         },
-        "words" | "phrase" => match rest.split_first() {
-            Some((index_dir, query)) if !query.is_empty() => {
-                probe(Path::new(index_dir), command, &query.join(" "))
-            }
+        "find" => match rest.split_first() {
+            Some((index_dir, rest)) if !rest.is_empty() => find(Path::new(index_dir), rest),
             _ => usage(),
         },
         "stamp" => match rest.first() {
@@ -68,10 +67,15 @@ fn main() -> std::process::ExitCode {
 fn usage() -> std::process::ExitCode {
     eprintln!(
         "usage:\n  \
-         girsa-index build  <index-dir> <corpus-root> [personal-root …]\n  \
-         girsa-index words  <index-dir> <query …>\n  \
-         girsa-index phrase <index-dir> <query …>\n  \
-         girsa-index stamp  <index-dir>"
+         girsa-index build <index-dir> <corpus-root> [personal-root …]\n  \
+         girsa-index find  <index-dir> [how …] <query …>\n  \
+         girsa-index stamp <index-dir>\n\
+         \n\
+         how — the chips of spec.md §9.5, as flags. Nothing else is applied:\n  \
+         --contains   the word contains these letters      קדש → המקדש\n  \
+         --letters    these letters, in this order         קדש → קידוש\n  \
+         --phrase     the words one after the other\n  \
+         --near N     within N words of each other, in any order"
     );
     std::process::ExitCode::from(2)
 }
@@ -228,7 +232,39 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn probe(index_dir: &Path, how: &str, query: &str) -> std::process::ExitCode {
+/// Search, in the literal mode, with the chips given as flags.
+///
+/// The flags are not a query language — spec.md §9.5 makes every control an
+/// object you can see, and these are those objects on a command line. Anything
+/// that is not a flag is part of what you are looking for.
+fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
+    let mut matching = Match::default();
+    let mut together = Together::default();
+    let mut words: Vec<&str> = Vec::new();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--contains" => matching = Match::Contains,
+            "--letters" => matching = Match::Letters,
+            "--phrase" => together = Together::Phrase,
+            "--near" => match args.next().and_then(|n| n.parse().ok()) {
+                Some(gap) => together = Together::Near { words: gap },
+                None => {
+                    eprintln!("--near wants a number of words");
+                    return std::process::ExitCode::from(2);
+                }
+            },
+            other if other.starts_with("--") => {
+                eprintln!("no such chip: {other}");
+                return usage();
+            }
+            word => words.push(word),
+        }
+    }
+    let query = Query::new(words.join(" "))
+        .matching(matching)
+        .together(together);
+
     let index = match SearchIndex::open(index_dir) {
         Ok(index) => index,
         Err(e) => {
@@ -236,34 +272,33 @@ fn probe(index_dir: &Path, how: &str, query: &str) -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let found = if how == "phrase" {
-        index.phrase(query)
-    } else {
-        index.words(query)
-    };
-    let hits = match found {
-        Ok(hits) => hits,
+    let found = match index.search(&query) {
+        Ok(found) => found,
         Err(e) => {
+            // A refusal is an answer here, and it says why. What it never is
+            // is a shorter list of results with no note attached.
             eprintln!("{e}");
             return std::process::ExitCode::FAILURE;
         }
     };
 
-    // The count is what the probe returned, and the probe is capped — say so,
-    // rather than printing a number that reads like a total and is not one.
+    // What was searched for, then how much of it is being shown. A page whose
+    // total is unstated reads as the whole of it.
+    println!("searched for: {}", found.asked.describe());
     println!(
-        "{how} {query} · {} hits shown{} · {} segments in the index\n",
-        hits.len(),
-        if hits.len() == PROBE_LIMIT {
+        "{} in {} segments · showing {}{}\n",
+        found.total,
+        index.count(),
+        found.hits.len(),
+        if found.hits.len() == PROBE_LIMIT {
             " (the probe stops here; paging is W14)"
         } else {
             ""
-        },
-        index.count()
+        }
     );
-    for hit in &hits {
+    for hit in &found.hits {
         println!("{}  [{}]", hit.id, hit.kind.as_str());
-        println!("  {}", excerpt(hit, query));
+        println!("  {}", excerpt(hit, &found.asked));
     }
     std::process::ExitCode::SUCCESS
 }
@@ -272,8 +307,8 @@ fn probe(index_dir: &Path, how: &str, query: &str) -> std::process::ExitCode {
 ///
 /// Through [`Hit::marks`], so what is bracketed is what the index matched —
 /// pointed at the text as printed, which is the property W11 has to hold.
-fn excerpt(hit: &Hit, query: &str) -> String {
-    let marks = hit.marks(query);
+fn excerpt(hit: &Hit, plan: &Plan) -> String {
+    let marks = hit.marks(plan);
     let mut out = String::new();
     let mut at = 0usize;
     for (start, end) in marks {

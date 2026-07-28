@@ -10,6 +10,7 @@
 
 pub mod index;
 pub mod tokenizer;
+pub mod torat_emet;
 
 /// The five modes of spec.md §9.3. The selector is always visible, and the
 /// default is the literal one.

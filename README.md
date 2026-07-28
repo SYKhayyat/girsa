@@ -86,20 +86,29 @@ so `build` throws the old one away rather than patching it:
 
 ```sh
 cargo run --release -p girsa-search --bin girsa-index -- build index corpus personal
-cargo run --release -p girsa-search --bin girsa-index -- phrase index משעה שהכהנים נכנסים
-cargo run --release -p girsa-search --bin girsa-index -- words  index יתגבר כארי
-cargo run --release -p girsa-search --bin girsa-index -- stamp  index
+cargo run --release -p girsa-search --bin girsa-index -- stamp index
+cargo run --release -p girsa-search --bin girsa-index -- find  index יתגבר כארי
 ```
 
-`words` and `phrase` are the index's own probes, not the search bar. The bar has
-five modes, a relaxation ladder and facets, and those are W12–W14.
+`find` searches in Torat Emet, the literal mode, and its chips are flags —
+nothing else is ever applied:
+
+```sh
+girsa-index find index --contains קדש          # המקדש · ויקדשהו
+girsa-index find index --letters  קדש          # קידוש too
+girsa-index find index --phrase   יתגבר כארי   # one after the other
+girsa-index find index --near 5   יתגבר כארי   # within five words, either order
+```
+
+The other four modes, the relaxation ladder and the facets are W13–W14, and
+none of this is in the window yet.
 
 ## Status
 
-**Tier 0 through Tier 3 are done, and Tier 4 has its index — the corpus is on
+**Tier 0 through Tier 3 are done, and Tier 4 can be searched — the corpus is on
 the shelf, the graph is on top of it, there is a window, the shelf is one you
-can rearrange, and every word of it is findable.** All four verify commands
-green in all three repositories.
+can rearrange, and every word of it is findable, literally.** All four verify
+commands green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -114,6 +123,7 @@ green in all three repositories.
 | **W9** · the workspace | Tabs, splits, RTL, nikud toggle, per-sefer position memory — and **a commentary column that follows the text**. Berakhot open with Rashi beside it: move the Gemara to 2a:6 and the Rashi column moves to 2a:6:1. **1,718 of Berakhot's 2,749 lines have a Rashi**; on the other 1,031 the column says *אין כאן* and stays where it is. |
 | **W10** · the shelf | One taxonomy over two corpora's vocabularies: **15 shelves, 7,189 seforim, each on exactly one**. Editable — move, rename, reorder, make a shelf — as **one file in your own layer**, which a re-import cannot touch. A file you drop in is a sefer with permanent ids like any other. |
 | **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
+| **W12** · Torat Emet | The literal mode, and the default. The three operators that get used — the word, the letters it **contains**, those letters **in order** with others between — plus **within X words of each other, in either order**. Every query carries a plan saying exactly what was asked of the index, and a test asserts that plan is the typed words with their nikud off and nothing else. On the shelf: `קדש` is 31,483 segments, `--contains קדש` is 301,910, and the difference is a thing the reader asked for. |
 
 The segments file is the load-bearing part and it is worth one line: each record
 **carries its own id**, so the file can be sorted, reordered, appended to or
@@ -423,6 +433,49 @@ That refusal is the whole reason the file exists. A stale index does not
 error — it silently returns less, which looks like an answer. Rebuilding costs
 four minutes; reading it anyway costs the search box's credibility.
 
+### What you typed is what was searched for
+
+Torat Emet is the default mode, and its promise is that one sentence. The
+operators are the ones that get used in learning, and each is a thing you turn
+on — never something that happens to your query while you are not looking:
+
+| | on the whole shelf |
+|---|---|
+| `קדש` | **31,483** segments — the word |
+| `--contains קדש` | **301,910** — `המקדש`, `ויקדשהו` |
+| `--letters קדש` | **577,637** — `קידוש` as well: ק then ד then ש |
+| `--phrase יתגבר כארי` | **63** — one after the other |
+| `--near 5 יתגבר כארי` | **69** — within five words, in either order |
+
+Every query carries a **plan**, and the plan is the acceptance of W12: for any
+input, `plan.words` is what was typed with the nikud off, and in the plain case
+`plan.patterns` is the same list again — no `.*`, no alternation, nothing that
+could reach a different word. The result header prints it, so what a reader is
+told they searched for is read out of the thing that was actually run:
+
+```
+$ girsa-index find index --near 5 יתגבר כארי
+searched for: the words יתגבר כארי, within 5 words of each other
+69 in 5000545 segments · showing 69
+```
+
+Two places it refuses rather than approximates, both for the same reason —
+a partial answer here is indistinguishable from a complete one:
+
+- **within X words, in any order** is the union over orderings, one exact query
+  each. Past five words that is more orderings than is reasonable, so it says
+  so and points at the in-order chip instead of quietly checking some of them.
+- **`--contains` inside a phrase** expands to every word matching the pattern,
+  and there is a ceiling. Past it: *"those letters match more than 16384
+  different words — narrow them, or drop the proximity"*. Not the first 16,384.
+
+Order-free proximity is worth one more line, because the obvious implementation
+is wrong. Tantivy's slop is a budget that lets terms reorder at a cost, so a
+single query with slop 2 matches *"two words apart in order"* **and**
+*"reversed and adjacent"* — a window the reader did not ask for. Asking each
+ordering separately, at exactly the distance requested, and taking the union is
+the same thing said precisely.
+
 ### What has not been checked
 
 **The shelf panel has been driven in a browser, not in the shell.**
@@ -445,10 +498,11 @@ dev-fixtures -- corpus app/public/dev` writes the real Gemara to static JSON and
 hand. That catches two engines disagreeing about where a nikud point sits. It
 does not stand in for WebKit.
 
-**The index has no window on it.** W11 is the index and its two probes;
-`girsa-index words` and `girsa-index phrase` are a command line, not a search
-bar. The five modes, the relaxation ladder with its counts, the chips and the
-facets are W12–W14, and nothing in the shell searches yet. The Ksav loop
+**Search has no window on it.** `girsa-index find` is a command line, not a
+search bar: one mode of five, its chips typed as flags, and a hundred results
+with no paging. The other four modes, the relaxation ladder with its counts
+computed before the click, the chips as objects and the live facets are
+W13–W14, and nothing in the shell searches yet. The Ksav loop
 (W15–W19) is the milestone that makes the project itself — `BUILDER.md` says to
 pull it as early as Tier 2 allows.
 
