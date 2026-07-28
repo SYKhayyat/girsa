@@ -69,6 +69,19 @@ impl SegmentKind {
             Self::Page => "page",
         }
     }
+
+    /// Read back what [`SegmentKind::as_str`] wrote.
+    ///
+    /// The search index stores the kind as this word — a result row says which
+    /// it is, and W14's facets count by it. Kept beside `as_str` so the pair
+    /// cannot drift; anything else parsing these words by hand would be a
+    /// second implementation of the same fact.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::Text, Self::Heading, Self::Page]
+            .into_iter()
+            .find(|kind| kind.as_str() == word)
+    }
 }
 
 /// A segment as it goes to disk: its permanent name, and its words.

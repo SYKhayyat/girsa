@@ -5,7 +5,11 @@
 //! literal mode, is the default; widening is offered with counts, and only
 //! auto-applied in Smart mode where widening is the declared purpose.
 //!
-//! Filled in by W11–W14. This is the W1 scaffold.
+//! W11 built the index and the tokenizer under it. The modes, the ladder and
+//! the facets are W12–W14.
+
+pub mod index;
+pub mod tokenizer;
 
 /// The five modes of spec.md §9.3. The selector is always visible, and the
 /// default is the literal one.

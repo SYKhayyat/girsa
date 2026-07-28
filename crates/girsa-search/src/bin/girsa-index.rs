@@ -1,0 +1,343 @@
+//! Build the search index, and probe it (BUILDER.md W11).
+//!
+//! ```sh
+//! cargo run --release -p girsa-search --bin girsa-index -- build corpus index personal
+//! cargo run --release -p girsa-search --bin girsa-index -- words  index יתגבר כארי
+//! cargo run --release -p girsa-search --bin girsa-index -- phrase index יתגבר כארי
+//! cargo run --release -p girsa-search --bin girsa-index -- stamp  index
+//! ```
+//!
+//! `build` reads every root's `works/index.jsonl` and each work's
+//! `segments.jsonl` — the files `girsa-import` wrote — and indexes them under
+//! the normalizer. The index is a **rebuildable cache** (spec.md §4.1), so
+//! `build` throws away whatever was there rather than patching it.
+//!
+//! # It reports what did not land
+//!
+//! Same rule as the link importer: a work that would not read is named, and the
+//! segment count is checked against what was on the shelf. An index quietly one
+//! sefer short is indistinguishable, from the search box, from a corpus that
+//! does not contain the passage.
+//!
+//! `words` and `phrase` are the index's own probes, not the search bar — no
+//! widening, no operators, no paging. Those are W12–W14.
+
+// A tally is printed at the end; this is a command-line tool.
+#![allow(clippy::print_stderr, clippy::print_stdout)]
+
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use girsa_corpus::import;
+use girsa_corpus::work::Work;
+use girsa_search::index::{Hit, SearchIndex, Stamp, CACHE_STAMP, PROBE_LIMIT};
+
+/// The writer's budget. Big enough that the whole corpus goes in without
+/// merging itself to death, small enough to leave the machine usable.
+const HEAP_BYTES: usize = 512 * 1024 * 1024;
+
+/// Commit every so often, so a run that dies at 90% leaves a usable index
+/// rather than nothing — the same promise the fetch makes (spec.md §5).
+const COMMIT_EVERY: usize = 250_000;
+
+fn main() -> std::process::ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let Some((command, rest)) = args.split_first() else {
+        return usage();
+    };
+
+    match command.as_str() {
+        "build" => match rest.split_first() {
+            Some((index_dir, roots)) if !roots.is_empty() => build(Path::new(index_dir), roots),
+            _ => usage(),
+        },
+        "words" | "phrase" => match rest.split_first() {
+            Some((index_dir, query)) if !query.is_empty() => {
+                probe(Path::new(index_dir), command, &query.join(" "))
+            }
+            _ => usage(),
+        },
+        "stamp" => match rest.first() {
+            Some(index_dir) => stamp(Path::new(index_dir)),
+            None => usage(),
+        },
+        _ => usage(),
+    }
+}
+
+fn usage() -> std::process::ExitCode {
+    eprintln!(
+        "usage:\n  \
+         girsa-index build  <index-dir> <corpus-root> [personal-root …]\n  \
+         girsa-index words  <index-dir> <query …>\n  \
+         girsa-index phrase <index-dir> <query …>\n  \
+         girsa-index stamp  <index-dir>"
+    );
+    std::process::ExitCode::from(2)
+}
+
+/// What a build found, and what it could not.
+#[derive(Default)]
+struct Tally {
+    works: usize,
+    segments: usize,
+    headings: usize,
+    /// Segments with no words at all once normalized — an empty `<h2></h2>`
+    /// (BUILDER.md T8), or a `page` of a scan that has not been OCR'd
+    /// (spec.md §9.7). Counted rather than dropped silently: the second kind is
+    /// *"not searchable yet"* and the reader has to be able to be told so.
+    wordless: usize,
+    /// Works listed on the shelf whose segments would not read.
+    unreadable: Vec<String>,
+}
+
+fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
+    let started = Instant::now();
+
+    let index = match SearchIndex::rebuild(index_dir) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("cannot create the index at {}: {e}", index_dir.display());
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let mut writer = match index.writer_with_heap(HEAP_BYTES) {
+        Ok(writer) => writer,
+        Err(e) => {
+            eprintln!("cannot open a writer: {e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    let mut tally = Tally::default();
+    let mut since_commit = 0usize;
+
+    for root in roots {
+        let root = PathBuf::from(root);
+        // A personal layer that does not exist yet is the ordinary state of a
+        // fresh install, not an error — but it is said out loud, because "your
+        // seforim are not in the index" is exactly the kind of thing that must
+        // never be found out from an empty result.
+        if !root.exists() {
+            eprintln!("{}: not there, nothing to index", root.display());
+            continue;
+        }
+        let works = match load_works(&root) {
+            Ok(works) => works,
+            Err(e) => {
+                eprintln!(
+                    "cannot read {}'s work index — has girsa-import run? {e}",
+                    root.display()
+                );
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+        eprintln!("{}: {} works", root.display(), works.len());
+
+        for work in works {
+            let imported = match import::read_back(&root, &work.slug) {
+                Ok(imported) => imported,
+                Err(e) => {
+                    eprintln!("  {}: {e}", work.slug);
+                    tally.unreadable.push(work.slug.clone());
+                    continue;
+                }
+            };
+            for segment in &imported.segments {
+                if let Err(e) = writer.add(segment) {
+                    eprintln!("cannot index {}: {e}", segment.id);
+                    return std::process::ExitCode::FAILURE;
+                }
+                if girsa_hebrew::normalize(&segment.text).is_empty() {
+                    tally.wordless += 1;
+                }
+                if segment.kind == girsa_corpus::import::SegmentKind::Heading {
+                    tally.headings += 1;
+                }
+            }
+            tally.works += 1;
+            tally.segments += imported.segments.len();
+            since_commit += imported.segments.len();
+
+            if since_commit >= COMMIT_EVERY {
+                if let Err(e) = writer.commit() {
+                    eprintln!("cannot commit: {e}");
+                    return std::process::ExitCode::FAILURE;
+                }
+                since_commit = 0;
+                eprintln!(
+                    "  … {} works, {} segments, {:.0}s",
+                    tally.works,
+                    tally.segments,
+                    started.elapsed().as_secs_f64()
+                );
+            }
+        }
+    }
+
+    if let Err(e) = writer.commit() {
+        eprintln!("cannot commit: {e}");
+        return std::process::ExitCode::FAILURE;
+    }
+    if let Err(e) = index.reload() {
+        eprintln!("cannot reload: {e}");
+        return std::process::ExitCode::FAILURE;
+    }
+
+    let elapsed = started.elapsed();
+    println!("\nindexed:");
+    println!("  works              {}", tally.works);
+    println!("  segments           {}", tally.segments);
+    println!("  of which headings  {}", tally.headings);
+    println!(
+        "  wordless           {}   (empty headings, and scans not yet OCR'd)",
+        tally.wordless
+    );
+    println!("  in the index       {}", index.count());
+    println!(
+        "  took               {:.0}s  ({:.0} segments/s)",
+        elapsed.as_secs_f64(),
+        tally.segments as f64 / elapsed.as_secs_f64().max(0.001)
+    );
+    println!("  on disk            {}", size_on_disk(index_dir));
+
+    if !tally.unreadable.is_empty() {
+        println!(
+            "\n{} works on the shelf would not read and are NOT in the index:",
+            tally.unreadable.len()
+        );
+        for slug in &tally.unreadable {
+            println!("  {slug}");
+        }
+    }
+
+    // The count that matters: everything the shelf held is findable. A
+    // shortfall here looks, from the search box, exactly like a corpus that
+    // does not contain the passage.
+    if index.count() != tally.segments {
+        eprintln!(
+            "\nMISMATCH: {} segments were read and {} are in the index",
+            tally.segments,
+            index.count()
+        );
+        return std::process::ExitCode::FAILURE;
+    }
+    if !tally.unreadable.is_empty() {
+        return std::process::ExitCode::FAILURE;
+    }
+    std::process::ExitCode::SUCCESS
+}
+
+fn probe(index_dir: &Path, how: &str, query: &str) -> std::process::ExitCode {
+    let index = match SearchIndex::open(index_dir) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("{e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let found = if how == "phrase" {
+        index.phrase(query)
+    } else {
+        index.words(query)
+    };
+    let hits = match found {
+        Ok(hits) => hits,
+        Err(e) => {
+            eprintln!("{e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    // The count is what the probe returned, and the probe is capped — say so,
+    // rather than printing a number that reads like a total and is not one.
+    println!(
+        "{how} {query} · {} hits shown{} · {} segments in the index\n",
+        hits.len(),
+        if hits.len() == PROBE_LIMIT {
+            " (the probe stops here; paging is W14)"
+        } else {
+            ""
+        },
+        index.count()
+    );
+    for hit in &hits {
+        println!("{}  [{}]", hit.id, hit.kind.as_str());
+        println!("  {}", excerpt(hit, query));
+    }
+    std::process::ExitCode::SUCCESS
+}
+
+/// A line of the hit with the matched words bracketed.
+///
+/// Through [`Hit::marks`], so what is bracketed is what the index matched —
+/// pointed at the text as printed, which is the property W11 has to hold.
+fn excerpt(hit: &Hit, query: &str) -> String {
+    let marks = hit.marks(query);
+    let mut out = String::new();
+    let mut at = 0usize;
+    for (start, end) in marks {
+        if start < at || end > hit.text.len() {
+            continue;
+        }
+        out.push_str(hit.text.get(at..start).unwrap_or_default());
+        out.push('[');
+        out.push_str(hit.text.get(start..end).unwrap_or_default());
+        out.push(']');
+        at = end;
+    }
+    out.push_str(hit.text.get(at..).unwrap_or_default());
+    out.chars().take(220).collect()
+}
+
+fn stamp(index_dir: &Path) -> std::process::ExitCode {
+    let path = index_dir.join(CACHE_STAMP);
+    match std::fs::read_to_string(&path) {
+        Ok(body) => {
+            println!("{}: {}", path.display(), body.trim());
+            println!(
+                "this build wants: {}",
+                serde_json::to_string(&Stamp::current()).unwrap_or_default()
+            );
+            match SearchIndex::open(index_dir) {
+                Ok(index) => {
+                    println!("usable, {} segments", index.count());
+                    std::process::ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    println!("NOT usable: {e}");
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("{}: {e}", path.display());
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn load_works(root: &Path) -> Result<Vec<Work>, std::io::Error> {
+    let body = std::fs::read_to_string(root.join("works/index.jsonl"))?;
+    Ok(body
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Work>(l).ok())
+        .collect())
+}
+
+fn size_on_disk(dir: &Path) -> String {
+    fn walk(dir: &Path) -> u64 {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| match entry.file_type() {
+                Ok(kind) if kind.is_dir() => walk(&entry.path()),
+                _ => entry.metadata().map(|m| m.len()).unwrap_or_default(),
+            })
+            .sum()
+    }
+    let bytes = walk(dir) as f64;
+    format!("{:.1} GB", bytes / 1_073_741_824.0)
+}

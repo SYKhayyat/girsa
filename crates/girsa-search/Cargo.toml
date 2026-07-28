@@ -13,7 +13,15 @@ girsa-corpus.workspace = true
 girsa-hebrew.workspace = true
 girsa-ref.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+
+# The index. Chosen for what spec.md §9 needs and nothing more: positions (so a
+# phrase and a proximity are askable), a pluggable tokenizer (so the index is
+# built by the *same* normalizer the query bar uses — W2's whole point), and an
+# embedded segment store, because offline is the product (spec.md §14) and a
+# search server is not something a reader should have to run.
+tantivy = "0.26"
 
 [lints]
 workspace = true

@@ -81,11 +81,25 @@ cargo run -p girsa-app --bin girsa-shelf -- corpus personal move bavli/berakhot 
 cargo run -p girsa-app --bin girsa-shelf -- corpus personal reset
 ```
 
+The index is built and probed the same way — and it is a **rebuildable cache**,
+so `build` throws the old one away rather than patching it:
+
+```sh
+cargo run --release -p girsa-search --bin girsa-index -- build index corpus personal
+cargo run --release -p girsa-search --bin girsa-index -- phrase index משעה שהכהנים נכנסים
+cargo run --release -p girsa-search --bin girsa-index -- words  index יתגבר כארי
+cargo run --release -p girsa-search --bin girsa-index -- stamp  index
+```
+
+`words` and `phrase` are the index's own probes, not the search bar. The bar has
+five modes, a relaxation ladder and facets, and those are W12–W14.
+
 ## Status
 
-**Tier 0 through Tier 3 are done — the corpus is on the shelf, the graph is on
-top of it, there is a window, and the shelf is one you can rearrange.** All four
-verify commands green in all three repositories.
+**Tier 0 through Tier 3 are done, and Tier 4 has its index — the corpus is on
+the shelf, the graph is on top of it, there is a window, the shelf is one you
+can rearrange, and every word of it is findable.** All four verify commands
+green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -99,6 +113,7 @@ verify commands green in all three repositories.
 | **W8** · links | The graph, on segment ids rather than line numbers. **4,182,344 edges** from 5,108,893 rows — 81.9%, and **92.6%** of the rows whose sefer is on the shelf at all. Every dropped row counted under why, and **nothing left ambiguous**. Mishnah Berakhot 1:1 → the Rambam on it, end to end. |
 | **W9** · the workspace | Tabs, splits, RTL, nikud toggle, per-sefer position memory — and **a commentary column that follows the text**. Berakhot open with Rashi beside it: move the Gemara to 2a:6 and the Rashi column moves to 2a:6:1. **1,718 of Berakhot's 2,749 lines have a Rashi**; on the other 1,031 the column says *אין כאן* and stays where it is. |
 | **W10** · the shelf | One taxonomy over two corpora's vocabularies: **15 shelves, 7,189 seforim, each on exactly one**. Editable — move, rename, reorder, make a shelf — as **one file in your own layer**, which a re-import cannot touch. A file you drop in is a sefer with permanent ids like any other. |
+| **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
 
 The segments file is the load-bearing part and it is worth one line: each record
 **carries its own id**, so the file can be sorted, reordered, appended to or
@@ -350,6 +365,64 @@ Two seforim of yours with one name are two seforim: the second is minted a new
 slug rather than landing on top of the first, whose ids are permanent and
 already anchored to.
 
+### One index, and what is deliberately not in it
+
+Five million segments, indexed by `girsa-hebrew` wearing tantivy's tokenizer
+trait. Not *"the same rules as"* the query bar — the same function. Two
+implementations of what a Hebrew word is would fail the way this system fails
+worst: the reader is told the sefer does not contain a line that is printed in
+front of them.
+
+```
+$ girsa-index build index corpus
+  works              7189
+  segments           5000545
+  of which headings  356638
+  wordless           1241   (empty headings, and scans not yet OCR'd)
+  in the index       5000545
+  took               248s  (20203 segments/s)
+  on disk            3.6 GB
+```
+
+`in the index` is checked against `segments` and the run exits non-zero if they
+differ. An index one sefer short is indistinguishable, from a search box, from a
+corpus that does not contain the passage.
+
+Nikud comes off here and in every mode, with no toggle (spec.md §9.1) — so a
+bare query finds the pointed page, and the highlight still lands on the pointed
+word:
+
+```
+$ girsa-index phrase index משעה שהכהנים נכנסים לאכול בתרומתן
+girsa:bavli/berakhot/2a:1#1  [text]
+  <big><strong>מֵאֵימָתַי</strong></big> קוֹרִין אֶת שְׁמַע בָּעֲרָבִין? [מִשָּׁעָה] [שֶׁהַכֹּהֲנִים]
+  [נִכְנָסִים] [לֶאֱכוֹל] [בִּתְרוּמָתָן]. עַד סוֹף הָאַשְׁמוּרָה הָרִאשׁוֹנָה…
+```
+
+**And nothing else was done to the words.** No peeled prefixes, no expanded
+abbreviations, no roots: `שבת` does not find `ובשבת`, and a test asserts it.
+That is not a limitation to be outgrown, it is what makes the rest possible —
+if widening were baked in at import there would be no literal index left for
+Torat Emet to default to (spec.md §9.3), and §9.6's *[try other forms — 7]*
+could not show the count before the click, because the widened and unwidened
+result sets would be the same set. The widening is W13's, applied by a reader
+who asked for it.
+
+The index is a **rebuildable cache** and it says what rules it was built under:
+
+```
+$ cat index/girsa-cache.json
+{"schema_version":1,"normalizer_version":1,"ref_scheme":"girsa"}
+
+$ girsa-index words index מאימתי         # after editing that 1 to a 0
+the index at index cannot be trusted: built under schema 1 / normalizer 0 /
+refs girsa; this build wants schema 1 / normalizer 1 / refs girsa
+```
+
+That refusal is the whole reason the file exists. A stale index does not
+error — it silently returns less, which looks like an answer. Rebuilding costs
+four minutes; reading it anyway costs the search box's credibility.
+
 ### What has not been checked
 
 **The shelf panel has been driven in a browser, not in the shell.**
@@ -372,15 +445,20 @@ dev-fixtures -- corpus app/public/dev` writes the real Gemara to static JSON and
 hand. That catches two engines disagreeing about where a nikud point sits. It
 does not stand in for WebKit.
 
-Nothing here searches yet. Search (W11–W14) is next, and the Ksav loop
+**The index has no window on it.** W11 is the index and its two probes;
+`girsa-index words` and `girsa-index phrase` are a command line, not a search
+bar. The five modes, the relaxation ladder with its counts, the chips and the
+facets are W12–W14, and nothing in the shell searches yet. The Ksav loop
 (W15–W19) is the milestone that makes the project itself — `BUILDER.md` says to
 pull it as early as Tier 2 allows.
 
 Two things W10 leaves for the orders that own them. A sefer of yours is **not in
 the resolver's lexicon**, so it is opened and filed by title and not yet cited
-by one — the lexicon is built from Sefaria's schemas and W11–W14 are what wire
-the resolver into the window. And a PDF has pages and no words, which is W26's
-to change.
+by one — the lexicon is built from Sefaria's schemas and W14's citation mode is
+what wires the resolver into the query bar. And a PDF has pages and no words,
+which is W26's to change; the index already carries them as `page` segments so
+that §9.7's *"4 PDFs on this shelf aren't searchable yet"* is a count somebody
+can take, rather than a silent gap.
 
 ### Measured against `spec.md` §2
 
