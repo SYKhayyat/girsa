@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Corpus. Downloaded at first run, never committed — 2.2 GB from Sefaria plus a
+# 3.4 GB local Otzaria tree (spec.md §2.3b).
+/corpus/
+/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+
+# Derived indices. Rebuildable by definition (spec.md §4.1).
+/index/
+
+node_modules/
+dist/

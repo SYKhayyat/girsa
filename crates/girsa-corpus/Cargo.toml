@@ -1,0 +1,19 @@
+[package]
+name = "girsa-corpus"
+description = "Storage, ingest, schemas, and permanent segment IDs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+girsa-ref.workspace = true
+girsa-hebrew.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

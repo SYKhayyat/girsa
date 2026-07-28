@@ -1,0 +1,19 @@
+[package]
+name = "girsa-search"
+description = "tantivy indices, the five search modes, and the relaxation ladder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+girsa-corpus.workspace = true
+girsa-hebrew.workspace = true
+girsa-ref.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

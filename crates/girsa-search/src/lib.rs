@@ -1,0 +1,60 @@
+//! tantivy indices, the five search modes, and the relaxation ladder.
+//!
+//! The governing constraint is not "make it powerful" — it is that **the engine
+//! never changes your query without you knowing** (spec.md §9). Torat Emet, the
+//! literal mode, is the default; widening is offered with counts, and only
+//! auto-applied in Smart mode where widening is the declared purpose.
+//!
+//! Filled in by W11–W14. This is the W1 scaffold.
+
+/// The five modes of spec.md §9.3. The selector is always visible, and the
+/// default is the literal one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// Completely literal. Nothing stemmed, expanded or guessed.
+    #[default]
+    ToratEmet,
+    /// Opt-in widening: prefixes, ktiv male/chaser, abbreviations.
+    Smart,
+    /// Full power, no hand-holding.
+    Regex,
+    /// Type a mareh makom, jump.
+    Citation,
+    /// Gematria, notarikon, atbash, dilug.
+    Instruments,
+}
+
+impl Mode {
+    /// Whether this mode may widen a query on its own initiative.
+    ///
+    /// Only Smart may, and even there it announces the change and offers a
+    /// one-click undo. Everywhere else a widening is *offered* with a count
+    /// computed up front, and applied only when clicked (spec.md §9.6).
+    #[must_use]
+    pub const fn may_auto_relax(self) -> bool {
+        matches!(self, Self::Smart)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_mode_is_literal() {
+        assert_eq!(Mode::default(), Mode::ToratEmet);
+    }
+
+    #[test]
+    fn only_smart_mode_may_widen_a_query_by_itself() {
+        for mode in [
+            Mode::ToratEmet,
+            Mode::Regex,
+            Mode::Citation,
+            Mode::Instruments,
+        ] {
+            assert!(!mode.may_auto_relax(), "{mode:?} must not auto-relax");
+        }
+        assert!(Mode::Smart.may_auto_relax());
+    }
+}

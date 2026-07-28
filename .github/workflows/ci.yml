@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Girsa
+
+      # Girsa depends on the shared crates by exact version with a `path` to a
+      # sibling checkout, so the sibling has to be here. Once sefer-crates is
+      # published this step becomes unnecessary and the pin alone does the work.
+      - uses: actions/checkout@v4
+        with:
+          repository: SYKhayyat/sefer-crates
+          path: sefer-crates
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Girsa
+
+      - run: cargo build --all-targets
+        working-directory: Girsa
+      - run: cargo test
+        working-directory: Girsa
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: Girsa
+      - run: cargo fmt -- --check
+        working-directory: Girsa

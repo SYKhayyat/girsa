@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/girsa-corpus",
+    "crates/girsa-search",
+    "crates/girsa-link",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/SYKhayyat/girsa"
+authors = ["Shaul Khayyat"]
+
+[workspace.dependencies]
+girsa-corpus = { version = "=0.1.0", path = "crates/girsa-corpus" }
+girsa-search = { version = "=0.1.0", path = "crates/girsa-search" }
+girsa-link = { version = "=0.1.0", path = "crates/girsa-link" }
+
+# --- shared with Ksav, from the sefer-crates repository ---------------------
+#
+# Pinned to an EXACT version on purpose. sefer-crates is a separate repository,
+# so a breaking change there is no longer one atomic commit that compile-checks
+# both applications — which is the drift the shared-crate design exists to
+# prevent. `=0.1.0` makes taking a new version a deliberate act on this side,
+# and sefer-crates CI builds both dependents before a change can land there.
+#
+# `path` points at the sibling checkout so day-to-day work across all three
+# repositories feels like one workspace without them being one. When these are
+# published, the `path` key is what cargo ignores and `version` is what it uses;
+# until then the checkout must be present.
+girsa-source = { version = "=0.1.0", path = "../sefer-crates/crates/girsa-source" }
+girsa-ref = { version = "=0.1.0", path = "../sefer-crates/crates/girsa-ref" }
+girsa-hebrew = { version = "=0.1.0", path = "../sefer-crates/crates/girsa-hebrew" }
+girsa-cite = { version = "=0.1.0", path = "../sefer-crates/crates/girsa-cite" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[profile.dev]
+opt-level = 1        # ingest and indexing are unusable at opt-level 0
+
+[profile.release]
+opt-level = 3

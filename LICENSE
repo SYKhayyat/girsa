@@ -1,0 +1,36 @@
+Girsa is dual-licensed under either of
+
+  * Apache License, Version 2.0 ...... LICENSE-APACHE  (or http://www.apache.org/licenses/LICENSE-2.0)
+  * MIT license ...................... LICENSE-MIT     (or http://opensource.org/licenses/MIT)
+
+at your option.
+
+This is the Rust ecosystem's convention: the MIT licence is short and
+maximally permissive, and Apache-2.0 adds an explicit patent grant that some
+organisations require before they will use or contribute to a project. You may
+comply with either one; you do not have to comply with both.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in Girsa by you shall be dual-licensed as above, without any
+additional terms or conditions.
+
+
+WHY THIS LICENCE AND NOT ANOTHER
+--------------------------------
+
+Girsa shares crates with Ksav (see the sefer-crates repository), and Ksav is
+MIT OR Apache-2.0. The shared-crate design is the whole reason the two-app
+system works, and it forces the licence: a copyleft dependency pulled in here
+would relicense Ksav through the shared code.
+
+The three most relevant prior-art projects are all copyleft — Zayit
+(AGPL-3.0 Section 7b), HebMorph (AGPL) and Sefaria-ElasticSearch (GPL-3.0).
+Read them; copy nothing from them. Otzaria is UNLICENSE and safe to draw from.
+
+
+THE CORPUS IS NOT COVERED BY THIS LICENCE
+-----------------------------------------
+
+No corpus text is committed to this repository. Texts are downloaded at first
+run and each carries its own source and licence in its metadata (spec.md 13).
+This licence covers the software only.
