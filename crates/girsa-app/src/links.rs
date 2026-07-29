@@ -107,9 +107,26 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
         }
     }
 
-    // …and the ones you drew, which are in no shard at all.
+    // …the ones you drew, which are in no shard at all…
     for repaired in repairs.drawn_touching(at) {
         let outgoing = repaired.edge.from.covers(at);
+        links.push(link(shelf, repaired, outgoing));
+    }
+
+    // …and what you have written about this line (W27).
+    //
+    // This is the whole of spec.md §11's claim, and it is four lines because it
+    // has to be: a note's edge is a `girsa_link::Edge` like the four million
+    // Sefaria seeded, so *what have I written that touches this sugya* is
+    // answered here, by this function, in the same list and the same sort —
+    // not by a second panel with a second idea of what a connection is.
+    //
+    // Through `repairs.apply` like everything else, so a note's edge can be
+    // retyped or rejected by W23's layer; and `mine`, because you wrote it.
+    for repaired in repairs.apply(shelf.notes().edges_touching(at)) {
+        let outgoing = repaired.edge.from.covers(at);
+        let mut repaired = repaired;
+        repaired.mine = true;
         links.push(link(shelf, repaired, outgoing));
     }
 

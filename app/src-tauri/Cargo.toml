@@ -36,6 +36,10 @@ girsa-fix = { path = "../../crates/girsa-fix" }
 # The link graph and your repairs to it (spec.md §8.3). The window shows what
 # this crate says about an edge and judges nothing itself.
 girsa-link = { path = "../../crates/girsa-link" }
+# Your own layer: notes, marks, saved queries, folders (spec.md §11). A note's
+# connection to a sugya is a link like any other, so the window has no separate
+# panel for it — see the W27 section at the foot of `lib.rs`.
+girsa-note = { path = "../../crates/girsa-note" }
 # The search bar: five modes, three chips, five facets (spec.md §9). The window
 # draws what this crate decides and decides nothing itself.
 girsa-search = { path = "../../crates/girsa-search" }

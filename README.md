@@ -27,7 +27,8 @@ Two roots at run time, and they are not the same kind of thing:
 
 ```
 corpus/          the download. Rebuildable, replaceable, never yours to edit
-personal/        yours: how you arranged the shelf, and the seforim you added
+personal/        yours: how you arranged the shelf, the seforim you added,
+                 and everything you wrote — notes, marks, queries, folders
 ```
 
 `girsa-import` rewrites the whole of `corpus/works/index.jsonl` on every run, so
@@ -41,6 +42,7 @@ file in the app's data directory.
 | `girsa-search` | tantivy indices, the five modes, the ladder, the chips and the facets |
 | `girsa-link` | The typed link graph, your repairs to it, later mining |
 | `girsa-fix` | Corrections as an overlay, and the ranked OCR queue |
+| `girsa-note` | Your own layer: notes as nodes, marks, tags, saved queries, chaburah folders |
 | `girsa-scan` | Scans you brought: which page is which daf, and what a page cites as |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
 
@@ -106,6 +108,24 @@ cargo run -p girsa-app --bin girsa-daf -- corpus personal page user/ברכות "
 `5=ב.` says page 5 of the file is daf ב, amud alef, and the count runs on from
 there. `43=-` says *from here these are not pages of the sefer* — the plates.
 
+Your own layer is a terminal away too, and the second command below is the whole
+of W27's claim: what you wrote comes back **in the list of links on the line**,
+not in a list of its own.
+
+```sh
+cargo run -p girsa-app --bin girsa-notes -- corpus personal \
+    write mishnah-berakhot 1:1 "וצריך עיון מה שכתב הרמב\"ם כאן" --title מאימתי --tag ברכות
+cargo run -p girsa-app --bin girsa-notes -- corpus personal on mishnah-berakhot 1:1
+cargo run -p girsa-app --bin girsa-notes -- corpus personal after "girsa:note/מאימתי/2#2" "ובאמת"
+cargo run -p girsa-app --bin girsa-notes -- corpus personal mark mishnah-berakhot 1:1 0 6
+cargo run -p girsa-app --bin girsa-notes -- corpus personal folder thursday "חבורה יום ה" mishnah-berakhot 1:1
+cargo run -p girsa-app --bin girsa-notes -- corpus personal export /tmp/my-layer
+```
+
+In the window it is **Ctrl+N** to write one where you are standing, **Ctrl+M**
+for the שלי drawer, **Ctrl+Shift+H** to highlight what is selected and **Ctrl+D**
+to mark the place.
+
 `girsa-link-types` reads the graph from the **segment's** side and has to run
 before the index if the link facet is to have anything to count — see below. It
 is a cache like the index, and an index built without it says so rather than
@@ -137,12 +157,13 @@ query bar.
 
 ## Status
 
-**Tier 0 through Tier 7 are done — the corpus is on the shelf, the graph is on
+**Tier 0 through Tier 8 are done — the corpus is on the shelf, the graph is on
 top of it, there is a window, all five ways of searching it, the Ksav loop in
-both directions, corrections as an overlay that never touches the text, and a
-link graph you can argue with. Tier 8 has started: a PDF you drop in is a second
-reading mode, and once you say which page is daf ב, every page of it is
-citable.** All four verify commands
+both directions, corrections as an overlay that never touches the text, a link
+graph you can argue with, and scans that are citable and readable. Tier 9 has
+started: what you write is a sefer on your own shelf, joined to the sugya by the
+same kind of edge as Rashi — so *what have I written about this* and *who quotes
+this* are one question asked from two ends.** All four verify commands
 green in all three repositories.
 
 | | What holds |
@@ -1815,6 +1836,213 @@ run against a real photographed sefer: every measurement above is against a
 born-digital PDF, which is the only kind on this shelf, so the numbers for
 tesseract are its numbers on **clean 300-dpi print** and a photograph of a Vilna
 Shas will do worse.
+
+## Your own layer
+
+### A note is not a row beside the graph
+
+`spec.md` §11's claim is one sentence and it is the whole work order:
+
+> **Your notes are nodes.** A note has the same typed edges as anything else, so
+> *"what have I already written that touches this sugya?"* is the same query as
+> *"who quotes this Rishon?"*
+
+The cheap way to build notes is a table of `(segment id, text)` and a panel that
+reads it. It works, it is a day, and it produces a library where your own
+writing is the one kind of material in it that cannot be linked to, cited,
+searched beside a Rishon, or asked about from the other end.
+
+So a note here is two things it did not have to be:
+
+- **a sefer on your shelf** — a `Work` with `Source::Mine`, whose paragraphs are
+  segments with permanent ids, catalogued in `personal/works/index.jsonl` by the
+  same code a dropped `.txt` goes through. It opens in a pane, it is citable,
+  and the next index build finds its words;
+- **joined to the corpus by a `girsa_link::Edge`** — the same directed, typed,
+  evidenced edge as the 4,182,344 W8 imported.
+
+Which means the claim is not a feature, it is an absence. There is no
+`notes_on(line)` command, no notes panel, no second sort. Standing on the first
+mishnah of Berakhot, **one call** answers both questions:
+
+```
+$ girsa-notes corpus personal on mishnah-berakhot 1:1
+girsa:mishnah-berakhot/1:1#1
+  שלי  comments-on  100%  מאימתי 1
+       comments-on   90%  בועז על משנה ברכות 1:1
+       comments-on   90%  ברטנורא על משנה ברכות 1:1:1
+       …
+334 links, 1 of them yours
+```
+
+333 of those rows are Sefaria's and one is mine, and the code that put them in
+one list does not know which is which — it sorted them by the same rule, and
+mine is first because a thing you wrote yourself is the strongest claim on the
+line there is. It goes through the repair layer like everything else, too: W23
+can retype or reject a note's edge, and W24's *Mine* lens was already the filter
+that finds it.
+
+Writing one is 3 ms, from the words to a sefer on the shelf. W20 put the
+three-second guardrail on the clock; this inherits it, because a note that takes
+a dialog and a *which notebook* is a note that does not get written.
+
+### The file is the truth, and each paragraph carries its own name
+
+A note is one plain text file. *Exportable as plain files* is not a feature on
+the side — it is where the note lives, and the export is a copy, which is the
+evidence rather than the shortcut: a format that needs an exporter is a format
+you do not have.
+
+```
+girsa note
+title: מאימתי
+who: shaul
+when: 1785334287
+next: 4
+tag: ברכות
+on: girsa:mishnah-berakhot/1:1#1
+
+girsa:note/מאימתי/2#2
+וצריך עיון מה שכתב הרמב"ם כאן, דמשמע דהוי חיוב גמור
+
+girsa:note/מאימתי/2.1#2.1
+ובאמת כבר עמדו בזה
+
+girsa:note/מאימתי/3#3
+ועוד יש לדקדק בלשונו
+```
+
+Delete `personal/links.jsonl` and every note is still anchored where you put it,
+because `on:` is in the note rather than only in the graph.
+
+**Each paragraph's id is a line of the file**, exactly as in a `segments.jsonl`
+and for exactly the same reason: a paragraph whose name was its position would
+move every anchor below it the first time you inserted a line. That is T1, in
+your own writing, where it would cost the thing the system exists to accumulate.
+
+Look at `#2.1` above. It was written *between* `#2` and `#3`, and it is a
+**child ordinal** — W6's trick reused rather than a second mechanism, because a
+child sorts after its parent and before the parent's next sibling. So:
+
+```
+$ girsa-notes corpus personal after "girsa:note/מאימתי/2#2" "ובאמת כבר עמדו בזה"
+girsa:note/מאימתי/2.1#2.1
+2 paragraphs were already named, and 0 of them changed
+```
+
+That second line is the measurement. Under a store that named a paragraph by its
+position, *the third paragraph* would now mean different words than it did a
+moment ago; here `#3` is the words it always was. A paragraph you delete does
+not give its ordinal back either — `next:` is on the file for that reason, and
+an ordinal handed out twice would point two things at one permanent name.
+
+The window edits a note **one box per paragraph, each carrying its id**, and
+that is not a UI preference: a single textarea over the whole note would hand
+back a wall of text to be re-split, and re-splitting is where ids get re-derived
+from where the newlines fell.
+
+### A highlight is an offset, and an offset is not a place
+
+A highlight is a character range, and a range is a fact about the text as it
+stood when you dragged over it. Correct a typo above it and the range names
+different letters — silently, because a highlight looks the same wherever it is.
+
+So a mark carries **the words as well as the offsets** and is placed through
+`girsa_corpus::span::locate`, which is now one function with one caller-set:
+corrections (W20) and highlights (W27). Offsets first, because that is where the
+mark was made; then the words, **and only if they are there exactly once**. When
+neither holds, the mark is reported stale rather than drawn:
+
+| | what the panel says |
+|---|---|
+| the offsets still hold the words | drawn, silently |
+| the line moved and the words are there once | drawn, and *השורה זזה, והסימון נמצא מחדש לפי המילים* |
+| the words are gone, or are there twice | **not drawn**, and *המילים שסומנו אינן בשורה* |
+
+The third row is BUILDER rule 6 in the one place a reader would never check. It
+is not deleted either — it is a thing you did, and only you can put it right.
+
+A highlight and a bookmark are one record with one difference: whether there is
+a span. Two tables would have meant two files, two panels and two answers to
+*what have I marked in this sefer*, for a distinction that is an `Option`.
+
+### Everything of yours survives the corpus moving under it
+
+Notes, marks and folders all anchor to permanent ids and all use `covers`, so a
+correction that **splits** the line they are on does not orphan any of them —
+the test in `crates/girsa-app/tests/a_note_is_a_node.rs` splits the first
+mishnah of Berakhot in two and asserts the note, the highlight and the chaburah
+folder are on both halves. That is W6's 501-link test, asked about the one kind
+of anchor that is yours rather than the corpus's.
+
+### A chaburah is a list, and the order is the chaburah
+
+A folder holds **members, not copies**, and a member is one of the three things
+the library already has names for — a place, a sefer, or a saved query:
+
+```
+thursday             חבורה יום ה              3
+    משנה ברכות girsa:mishnah-berakhot/1:1#1
+    מאימתי
+    ? מאימתי
+```
+
+One string each, so the file is greppable: searching `collections.jsonl` for a
+segment id finds the chaburos that line is in. There is deliberately **no note
+member** — a note is a sefer, and giving it a second kind of membership would be
+the first crack in the claim above.
+
+The list is never sorted. The sequence a shiur goes in is the content of the
+shiur.
+
+### A saved query keeps the asking, not the answer
+
+The corpus grows and your own seforim go on the shelf, so *every place the
+Rambam is called on in Hilchos Tefillah* is a different list next year. What is
+kept is the line you typed — sigils and all, since §9.5's sigils are half the
+search — plus the chips as the `chip → key` pairs the row itself sends, plus the
+seforim the scope came to. Recalling one sets the chips back through **the same
+function a click goes through**, so a recalled query and a clicked chip cannot
+come to mean different things.
+
+Two honest edges: a scope narrowed by three facet clicks comes back as one
+clause over the same seforim — it matches the same segments and no longer
+remembers the three clicks; and the link-type scope of W14 is not saved at all.
+
+### What this does not do
+
+- **No sync.** `spec.md` §11 offers *optional, off by default, encrypted sync of
+  the personal layer only*. Every word of that is a runtime network dependency,
+  and `BUILDER.md` §0.1 says that is not a decision a work order takes on its
+  own. **This one is for you to rule on.** What is built instead is the half
+  that needs no ruling and that §11 names first: it is all plain files, and
+  `girsa-notes export` puts them where you can copy them.
+- **A note is not searchable until the index is rebuilt.** Being a sefer is
+  enough for the indexer — pointed at a layer holding one note it reads it like
+  anything else, and the search finds the paragraph that was written *between*
+  two others:
+
+  ```
+  $ girsa-index find index personal "ובאמת כבר עמדו"
+  1 in 4 segments · showing 1
+
+  girsa:note/מאימתי/2.1#2.1  [text]
+    [ובאמת] [כבר] [עמדו] בזה
+
+  narrow by:
+    shelf      שלי 1        author  shaul 1        sefer  מאימתי 1
+  ```
+
+  But **nothing rebuilds the index when you write one**, and a 5,000,545-segment
+  rebuild is four minutes. Until tantivy is written to incrementally, your own
+  writing is on the shelf and in the search only as of the last build, and that
+  gap is real.
+- **Tags are not yet a way in.** They are counted across the whole layer and
+  shown, and clicking one does not narrow anything.
+- **A note's own words are not linkified.** W19's linkify runs over Ksav
+  documents; a citation typed into a note is text.
+- **Nothing merges two people's layers.** Corrections have `girsa-fix merge`;
+  notes, marks and folders do not, and two copies of `personal/` are two copies.
 
 ## Licence
 

@@ -18,6 +18,11 @@ girsa-link.workspace = true
 # the page, a quote, a citation regenerated from a ref — is the sefer as you
 # have it.
 girsa-fix.workspace = true
+# Your own layer (spec.md §11, W27): notes, marks, saved queries and chaburah
+# folders. It is a crate rather than a module here because a note is joined to
+# the corpus by a `girsa_link::Edge` and put on the shelf as a `Work` — the
+# workspace is the thing that *shows* your layer, not the thing that defines it.
+girsa-note.workspace = true
 # Scans you brought (spec.md §6.3, W25). Which page is which daf is arithmetic
 # on a declaration, and it is kept out of here so it can be tested without a
 # shelf — and so W26's OCR has somewhere to go that is not the workspace.

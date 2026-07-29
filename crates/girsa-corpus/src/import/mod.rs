@@ -313,6 +313,66 @@ pub fn write(root: &Path, imported: &ImportedWork) -> Result<(), ImportError> {
     Ok(())
 }
 
+/// Put one work in your own catalogue — `personal/works/index.jsonl`.
+///
+/// The whole file is rewritten rather than appended to. W8 shipped an importer
+/// that opened its shards in append mode and doubled the graph on a second run;
+/// the same mistake here would put a sefer on the shelf twice.
+///
+/// Two callers: a file you dropped on the window ([`mine::add`]) and a note you
+/// wrote (`girsa-note`, W27). One implementation, because the second copy of
+/// this is the one that appends.
+///
+/// # Errors
+///
+/// If the personal layer cannot be written.
+pub fn catalogue(personal: &Path, work: &Work) -> Result<(), ImportError> {
+    let path = personal.join("works/index.jsonl");
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(ImportError::io(dir))?;
+    }
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    let mut body = String::new();
+    for line in existing.lines().filter(|l| !l.trim().is_empty()) {
+        let same = serde_json::from_str::<Work>(line).is_ok_and(|w| w.slug == work.slug);
+        if !same {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    let line =
+        serde_json::to_string(work).map_err(|e| ImportError::malformed(&path, e.to_string()))?;
+    body.push_str(&line);
+    body.push('\n');
+    fs::write(&path, body).map_err(ImportError::io(&path))
+}
+
+/// Take one back out of your catalogue. `false` if it was not in it.
+///
+/// # Errors
+///
+/// If the personal layer cannot be written.
+pub fn uncatalogue(personal: &Path, slug: &str) -> Result<bool, ImportError> {
+    let path = personal.join("works/index.jsonl");
+    let Ok(existing) = fs::read_to_string(&path) else {
+        return Ok(false);
+    };
+    let mut body = String::new();
+    let mut gone = false;
+    for line in existing.lines().filter(|l| !l.trim().is_empty()) {
+        if serde_json::from_str::<Work>(line).is_ok_and(|w| w.slug == slug) {
+            gone = true;
+            continue;
+        }
+        body.push_str(line);
+        body.push('\n');
+    }
+    if gone {
+        fs::write(&path, body).map_err(ImportError::io(&path))?;
+    }
+    Ok(gone)
+}
+
 /// Read back what [`write`] wrote.
 ///
 /// # Errors

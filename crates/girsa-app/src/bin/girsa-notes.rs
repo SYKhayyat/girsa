@@ -1,0 +1,541 @@
+//! Your own layer, on a terminal — so that W27 can be seen without a window
+//! (BUILDER.md §0.3).
+//!
+//! ```sh
+//! # a place, some words, done — the three-second one
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal write mishnah-berakhot 1:1 \
+//!     "וצריך עיון מה שכתב הרמב\"ם כאן" --title מאימתי --tag ברכות
+//!
+//! # and then the claim: one call, and what I wrote is in the same list as the Rambam
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal on mishnah-berakhot 1:1
+//!
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal list
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal show מאימתי
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal add מאימתי "ועוד יש לדקדק"
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal after girsa:note/מאימתי/2#2 "ובאמת"
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal anchor מאימתי bavli/berakhot 2a:1
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal forget מאימתי
+//!
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal mark mishnah-berakhot 1:1 0 4
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal bookmark mishnah-berakhot 1:1 --label "להתחיל כאן"
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal keep מאימתי '"מאימתי קורין"'
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal folder thursday "חבורה יום ה" mishnah-berakhot 1:1
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal tags
+//! cargo run -p girsa-app --bin girsa-notes -- corpus personal export /tmp/my-layer
+//! ```
+//!
+//! A place is given as `<slug> <address>` — the way a person says it — and the
+//! permanent id is looked up rather than typed. Where a verb takes a paragraph
+//! of a note instead, that is a segment id, because a paragraph of a note has
+//! no other name.
+
+// A tool that prints a report. The library it calls does not print.
+#![allow(clippy::print_stderr, clippy::print_stdout)]
+
+use std::path::PathBuf;
+
+use girsa_app::shelf::Shelf;
+use girsa_app::Link;
+use girsa_corpus::segment::SegmentId;
+use girsa_note::mark::Placed;
+use girsa_note::{Mark, Member, SavedQuery};
+
+fn main() -> std::process::ExitCode {
+    let mut args = std::env::args().skip(1);
+    let corpus = PathBuf::from(args.next().unwrap_or_else(|| "corpus".into()));
+    let personal = PathBuf::from(args.next().unwrap_or_else(|| "personal".into()));
+
+    let mut shelf = match Shelf::open(&corpus, &personal) {
+        Ok(shelf) => shelf,
+        Err(e) => {
+            eprintln!("{e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    if let Some(trouble) = shelf.trouble() {
+        eprintln!("{trouble}");
+    }
+
+    let verb = args.next().unwrap_or_else(|| "list".into());
+    let rest: Vec<String> = args.collect();
+    let outcome = match verb.as_str() {
+        "list" => list(&shelf),
+        "show" => show(&shelf, &rest),
+        "on" => on(&shelf, &rest),
+        "write" => write(&mut shelf, &rest),
+        "add" => add(&mut shelf, &rest),
+        "after" => after(&mut shelf, &rest),
+        "tag" => tag(&mut shelf, &rest),
+        "anchor" => anchor(&mut shelf, &rest),
+        "forget" => forget(&mut shelf, &rest),
+        "mark" => mark(&mut shelf, &rest),
+        "bookmark" => bookmark(&mut shelf, &rest),
+        "marks" => marks(&shelf),
+        "keep" => keep(&mut shelf, &rest),
+        "queries" => queries(&shelf),
+        "folder" => folder(&mut shelf, &rest),
+        "folders" => folders(&shelf),
+        "tags" => tags(&shelf),
+        "export" => export(&shelf, &rest),
+        other => Err(format!(
+            "{other}: this reads `list`, `show <note>`, `on <slug> <address>`, \
+             `write <slug> <address> <text> [--title t] [--tag t]`, `add <note> <text>`, \
+             `after <paragraph id> <text>`, `tag <note> <tag>…`, \
+             `anchor <note> <slug> <address>`, `forget <note>`, \
+             `mark <slug> <address> <from> <to> [--label l]`, \
+             `bookmark <slug> <address> [--label l]`, `marks`, \
+             `keep <name> <query>`, `queries`, \
+             `folder <name> <title> <slug> <address>`, `folders`, `tags` and \
+             `export <directory>`"
+        )),
+    };
+    if let Err(e) = outcome {
+        eprintln!("{e}");
+        return std::process::ExitCode::FAILURE;
+    }
+    std::process::ExitCode::SUCCESS
+}
+
+/// Everything you have written.
+fn list(shelf: &Shelf) -> Result<(), String> {
+    if shelf.notes().is_empty() {
+        println!("nothing written yet");
+        return Ok(());
+    }
+    for note in shelf.notes().all() {
+        let about = note
+            .on
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!(
+            "{:<24} {:<3} {} {}",
+            note.name(),
+            note.paras().len(),
+            note.title,
+            if about.is_empty() {
+                "— on nothing".to_string()
+            } else {
+                format!("— on {about}")
+            }
+        );
+        if !note.tags.is_empty() {
+            println!("{:<24} {}", "", note.tags.join(" · "));
+        }
+    }
+    Ok(())
+}
+
+/// One note, paragraph by paragraph, with the names a citation would use.
+fn show(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
+    let name = rest.first().ok_or("show <note>")?;
+    let note = shelf
+        .notes()
+        .get(name)
+        .ok_or_else(|| format!("there is no note called {name}"))?;
+    println!("{}   {}", note.title, note.slug);
+    for at in &note.on {
+        println!("  on {at}");
+    }
+    for tag in &note.tags {
+        println!("  # {tag}");
+    }
+    for para in note.paras() {
+        println!("\n{}\n{}", para.id, para.text);
+    }
+    Ok(())
+}
+
+/// The links on a line — **including what you wrote**, from the one call.
+fn on(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
+    let at = place(shelf, rest)?;
+    let touching = girsa_app::touching(shelf, shelf.repairs(), &at);
+    println!("{at}");
+    if touching.incoming_unknown {
+        println!("  (no companions cache — the incoming half is missing)");
+    }
+    let mine = touching.links.iter().filter(|link| is_mine(link)).count();
+    for link in &touching.links {
+        println!(
+            "  {:<4} {:<12} {:>3}%  {}",
+            if is_mine(link) { "שלי" } else { "" },
+            link.repaired.edge.edge_type.as_str(),
+            (link.repaired.confidence() * 100.0).round(),
+            link.said()
+        );
+    }
+    println!("{} links, {mine} of them yours", touching.links.len());
+
+    let sefer = shelf.read(at.work()).map_err(|e| e.to_string())?;
+    let text = sefer.as_printed(&at);
+    let yours = girsa_app::yours(shelf, &at, text);
+    for marked in &yours.marks {
+        let where_it_is = match &marked.placed {
+            Placed::Whole => "the whole line".to_string(),
+            Placed::At { span, moved } => format!(
+                "{}..{}{}",
+                span.start,
+                span.end,
+                if *moved { " (moved)" } else { "" }
+            ),
+            // Never swallowed: a highlight whose words are gone is a thing you
+            // did, and the reader is the only one who can put it right.
+            Placed::Stale => "its words are gone — stale".to_string(),
+        };
+        println!(
+            "  {} {} {}",
+            marked.mark.kind.as_str(),
+            where_it_is,
+            marked.mark.label.as_deref().unwrap_or("")
+        );
+    }
+    for folder in &yours.folders {
+        println!("  in your folder {folder}");
+    }
+    Ok(())
+}
+
+fn is_mine(link: &Link) -> bool {
+    link.work.starts_with("note/")
+}
+
+/// Write a note about a place.
+fn write(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let (flags, plain) = split_flags(rest);
+    let at = place(shelf, &plain)?;
+    let text = plain.get(2).ok_or("write <slug> <address> <text>")?;
+    let title = flags
+        .iter()
+        .find(|(k, _)| k == "title")
+        .map(|(_, v)| v.clone());
+
+    let mut note = girsa_app::note_here(shelf, &at, title.as_deref(), text, &whoami())
+        .map_err(|e| e.to_string())?;
+    let wanted: Vec<&String> = flags
+        .iter()
+        .filter(|(k, _)| k == "tag")
+        .map(|(_, v)| v)
+        .collect();
+    if !wanted.is_empty() {
+        for value in wanted {
+            note.tag(value);
+        }
+        shelf.write_note(note.clone()).map_err(|e| e.to_string())?;
+    }
+    println!("{}   {}", note.slug, note.title);
+    for para in note.paras() {
+        println!("{}", para.id);
+    }
+    Ok(())
+}
+
+/// Another paragraph, at the end.
+fn add(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let name = rest.first().ok_or("add <note> <text>")?;
+    let text = rest.get(1).ok_or("add <note> <text>")?;
+    let mut note = shelf
+        .notes()
+        .get(name)
+        .cloned()
+        .ok_or_else(|| format!("there is no note called {name}"))?;
+    let id = note.append(text);
+    shelf.write_note(note).map_err(|e| e.to_string())?;
+    println!("{id}");
+    Ok(())
+}
+
+/// A paragraph in the middle — the one that would renumber everything under a
+/// design that named a paragraph by its position.
+fn after(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let id: SegmentId = rest
+        .first()
+        .ok_or("after <paragraph id> <text>")?
+        .parse()
+        .map_err(|e| format!("{e}"))?;
+    let text = rest.get(1).ok_or("after <paragraph id> <text>")?;
+    let mut note = shelf
+        .notes()
+        .get(id.work())
+        .cloned()
+        .ok_or_else(|| format!("{} is not a paragraph of a note", id))?;
+    let before: Vec<String> = note.paras().iter().map(|p| p.id.to_string()).collect();
+    let minted = note.insert_after(&id, text).map_err(|e| e.to_string())?;
+    let after: Vec<String> = note
+        .paras()
+        .iter()
+        .map(|p| p.id.to_string())
+        .filter(|kept| kept != &minted.to_string())
+        .collect();
+    shelf.write_note(note).map_err(|e| e.to_string())?;
+    println!("{minted}");
+    println!(
+        "{} paragraphs were already named, and {} of them changed",
+        before.len(),
+        before.iter().zip(&after).filter(|(a, b)| a != b).count()
+    );
+    Ok(())
+}
+
+fn tag(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let name = rest.first().ok_or("tag <note> <tag>…")?;
+    let mut note = shelf
+        .notes()
+        .get(name)
+        .cloned()
+        .ok_or_else(|| format!("there is no note called {name}"))?;
+    for value in rest.iter().skip(1) {
+        note.tag(value);
+    }
+    let said = note.tags.join(" · ");
+    shelf.write_note(note).map_err(|e| e.to_string())?;
+    println!("{said}");
+    Ok(())
+}
+
+fn anchor(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let name = rest.first().ok_or("anchor <note> <slug> <address>")?;
+    let at = place(shelf, &rest[1..])?;
+    let mut note = shelf
+        .notes()
+        .get(name)
+        .cloned()
+        .ok_or_else(|| format!("there is no note called {name}"))?;
+    note.anchor(at.clone());
+    shelf.write_note(note).map_err(|e| e.to_string())?;
+    println!("{at}");
+    Ok(())
+}
+
+fn forget(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let name = rest.first().ok_or("forget <note>")?;
+    if shelf.forget_note(name).map_err(|e| e.to_string())? {
+        println!("{name} is gone");
+    } else {
+        println!("there was no note called {name}");
+    }
+    Ok(())
+}
+
+fn mark(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let (flags, plain) = split_flags(rest);
+    let at = place(shelf, &plain)?;
+    let from: usize = plain
+        .get(2)
+        .ok_or("mark <slug> <address> <from> <to>")?
+        .parse()
+        .map_err(|_| "the offsets are numbers of characters")?;
+    let to: usize = plain
+        .get(3)
+        .ok_or("mark <slug> <address> <from> <to>")?
+        .parse()
+        .map_err(|_| "the offsets are numbers of characters")?;
+
+    let sefer = shelf.read(at.work()).map_err(|e| e.to_string())?;
+    let letters: Vec<char> = sefer.as_printed(&at).chars().collect();
+    let was: String = letters
+        .get(from..to)
+        .ok_or("those characters are not in the line")?
+        .iter()
+        .collect();
+
+    let mut made = Mark::highlight(at, from..to, &was, whoami());
+    if let Some((_, label)) = flags.iter().find(|(k, _)| k == "label") {
+        made = made.called(label);
+    }
+    let id = made.id.clone();
+    shelf
+        .marks_mut()
+        .add(made)
+        .map_err(|e| e.to_string())
+        .map(|_| ())?;
+    println!("{id}  {was}");
+    Ok(())
+}
+
+fn bookmark(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let (flags, plain) = split_flags(rest);
+    let at = place(shelf, &plain)?;
+    let mut made = Mark::bookmark(at.clone(), whoami());
+    if let Some((_, label)) = flags.iter().find(|(k, _)| k == "label") {
+        made = made.called(label);
+    }
+    let id = made.id.clone();
+    shelf
+        .marks_mut()
+        .add(made)
+        .map_err(|e| e.to_string())
+        .map(|_| ())?;
+    println!("{id}  {at}");
+    Ok(())
+}
+
+fn marks(shelf: &Shelf) -> Result<(), String> {
+    for mark in shelf.marks().all() {
+        println!(
+            "{:<18} {:<10} {}  {}",
+            mark.id.as_str(),
+            mark.kind.as_str(),
+            mark.at,
+            mark.label.as_deref().unwrap_or(&mark.was)
+        );
+    }
+    println!("{} marks", shelf.marks().count());
+    Ok(())
+}
+
+fn keep(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let name = rest.first().ok_or("keep <name> <query>")?;
+    let typed = rest.get(1).ok_or("keep <name> <query>")?;
+    shelf
+        .queries_mut()
+        .save(SavedQuery::new(name, typed))
+        .map_err(|e| e.to_string())?;
+    println!("{name}: {typed}");
+    Ok(())
+}
+
+fn queries(shelf: &Shelf) -> Result<(), String> {
+    for query in shelf.queries().all() {
+        println!("{:<24} {}", query.name, query.said());
+    }
+    println!("{} saved", shelf.queries().count());
+    Ok(())
+}
+
+fn folder(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let name = rest
+        .first()
+        .ok_or("folder <name> <title> <slug> <address>")?;
+    let title = rest
+        .get(1)
+        .ok_or("folder <name> <title> <slug> <address>")?;
+    let at = place(shelf, &rest[2..])?;
+    girsa_app::collect(shelf, name, title, &at).map_err(|e| e.to_string())?;
+    let held = shelf.collections().get(name).map_or(0, |f| f.members.len());
+    println!("{name}: {held}");
+    Ok(())
+}
+
+fn folders(shelf: &Shelf) -> Result<(), String> {
+    for held in shelf.collections().all() {
+        println!(
+            "{:<20} {:<24} {}",
+            held.name,
+            held.title,
+            held.members.len()
+        );
+        for member in &held.members {
+            let said = match member {
+                Member::Place(id) => shelf.work(id.work()).map_or_else(
+                    || id.to_string(),
+                    |work| format!("{} {}", work.he_title, id),
+                ),
+                Member::Work(slug) => shelf
+                    .work(slug)
+                    .map_or_else(|| slug.clone(), |work| work.he_title.clone()),
+                Member::Query(name) => format!("? {name}"),
+            };
+            println!("    {said}");
+        }
+    }
+    Ok(())
+}
+
+fn tags(shelf: &Shelf) -> Result<(), String> {
+    let tags = girsa_note::Tags::of(
+        shelf.notes(),
+        shelf.marks(),
+        shelf.queries(),
+        shelf.collections(),
+    );
+    for (tag, tally) in tags.iter() {
+        println!(
+            "{:<24} {:>3}   notes {} · marks {} · queries {} · folders {}",
+            tag,
+            tally.total(),
+            tally.notes,
+            tally.marks,
+            tally.queries,
+            tally.collections
+        );
+    }
+    println!("{} tags", tags.count());
+    Ok(())
+}
+
+fn export(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
+    let into = PathBuf::from(rest.first().ok_or("export <directory>")?);
+    let written = girsa_note::export(
+        shelf.notes(),
+        shelf.marks(),
+        shelf.queries(),
+        shelf.collections(),
+        &into,
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "{}: {} notes · {} marks · {} queries · {} folders",
+        into.display(),
+        written.notes,
+        written.marks,
+        written.queries,
+        written.collections
+    );
+    Ok(())
+}
+
+/// A place, said the way a person says it: `<slug> <address>`.
+///
+/// The permanent id is looked up rather than typed, which is the point of an
+/// address existing at all — and where the address names more than one segment
+/// the first is taken and the rest are printed, so nothing is silently chosen.
+fn place(shelf: &Shelf, rest: &[String]) -> Result<SegmentId, String> {
+    let slug = rest.first().ok_or("a place is <slug> <address>")?;
+    if let Ok(id) = slug.parse::<SegmentId>() {
+        return Ok(id);
+    }
+    let address = rest.get(1).ok_or("a place is <slug> <address>")?;
+    let sefer = shelf.read(slug).map_err(|e| e.to_string())?;
+    let parsed = girsa_ref::Address::parse(address)
+        .ok_or_else(|| format!("{address} is not a place in a sefer"))?;
+    let found = sefer.at(&parsed);
+    match found.split_first() {
+        Some((first, rest)) => {
+            if !rest.is_empty() {
+                println!("{address} names {} segments; taking {first}", found.len());
+            }
+            Ok(first.clone())
+        }
+        None => Err(format!("{slug} has nothing at {address}")),
+    }
+}
+
+/// `--key value` pairs, and everything else in order.
+fn split_flags(args: &[String]) -> (Vec<(String, String)>, Vec<String>) {
+    let mut flags = Vec::new();
+    let mut plain = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].strip_prefix("--") {
+            Some(key) => {
+                let value = args.get(i + 1).cloned().unwrap_or_default();
+                flags.push((key.to_string(), value));
+                i += 2;
+            }
+            None => {
+                plain.push(args[i].clone());
+                i += 1;
+            }
+        }
+    }
+    (flags, plain)
+}
+
+/// Who is writing. Free text — this is a personal layer, not a registry.
+fn whoami() -> String {
+    std::env::var("GIRSA_WHO")
+        .or_else(|_| std::env::var("USERNAME"))
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "me".to_string())
+}

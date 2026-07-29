@@ -185,7 +185,13 @@ impl Lenses {
         }
         let body = serde_json::to_vec_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, body)
+        // Beside and renamed over, like every other file in your layer: a
+        // machine that stops halfway through leaves the lenses it had rather
+        // than half of them, and a half-written `lenses.json` reads as *the
+        // shipped five* — a lens you built, silently gone.
+        let temp = path.with_extension("json.writing");
+        std::fs::write(&temp, body)?;
+        std::fs::rename(&temp, &path)
     }
 
     #[must_use]

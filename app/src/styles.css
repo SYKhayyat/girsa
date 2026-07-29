@@ -1603,3 +1603,178 @@ body {
   border-color: var(--mark-quiet);
   color: var(--mark);
 }
+
+/* ── Your own layer (spec.md §11, W27) ──────────────────────────────────────
+ *
+ * A drawer on the same side as the links, because it is the same kind of
+ * thing: what is attached to what you are reading. It is a different drawer
+ * only because a note is a thing you *edit*, and a text box in the links panel
+ * would make the links panel a text box.
+ */
+.yours {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  overflow: hidden;
+  z-index: 31;
+  background: var(--page-raised);
+  border-left: 1px solid var(--rule);
+  transition: width 0.12s ease-out;
+}
+
+.yours.is-open {
+  width: min(680px, 55vw);
+}
+
+.yours-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.yours-title {
+  font-family: var(--hebrew);
+  font-size: 17px;
+}
+
+.yours-note {
+  flex: 1;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.yours-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.yours-list {
+  height: calc(100% - 88px);
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.yours-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.yours-row.is-folder {
+  display: block;
+}
+
+/* A mark whose words have gone is shown greyed rather than hidden: it is a
+ * thing you did, and only you can put it right. */
+.yours-row.is-stale {
+  opacity: 0.6;
+}
+
+.yours-where {
+  font-family: var(--hebrew);
+  font-size: 15px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+}
+
+.yours-where:hover:not(:disabled) {
+  color: var(--mark);
+}
+
+.yours-where:disabled {
+  cursor: default;
+  color: var(--ink-quiet);
+}
+
+.yours-said {
+  flex: 1;
+  font-family: var(--hebrew);
+  font-size: 13px;
+  color: var(--ink-quiet);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yours-about {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.yours-tag {
+  font-family: var(--hebrew);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.yours-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0 3px 18px;
+}
+
+.yours-editor {
+  width: 100%;
+  padding: 6px 0 10px;
+}
+
+.yours-para {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+/* The paragraph's ordinal, shown. Not decoration: it is the name every note,
+ * link and citation pointing at this paragraph uses, and a reader who can see
+ * it can check that inserting a paragraph above did not change it. */
+.yours-id {
+  font-family: var(--plain);
+  font-size: 10px;
+  color: var(--ink-quiet);
+  min-width: 2.5em;
+  padding-top: 6px;
+}
+
+.yours-words {
+  flex: 1;
+  font-family: var(--hebrew);
+  font-size: 15px;
+  line-height: 1.8;
+  direction: rtl;
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 4px 8px;
+  resize: vertical;
+}
+
+/* A highlight of yours, on the words (spec.md §11). Where it goes was decided
+ * in Rust; this only says what it looks like. */
+.line-mark {
+  background: color-mix(in srgb, var(--mark) 22%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}

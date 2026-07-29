@@ -77,12 +77,22 @@ export class SearchView {
         void this.run();
       }
     });
+    // Keep the question, not the answer (spec.md §11, W27): the corpus grows
+    // and your own seforim go on the shelf, so what is worth keeping is the
+    // asking. The chips and the scope are read off the engine, not off this
+    // box — see `query_keep`.
+    const keep = document.createElement("button");
+    keep.className = "tool find-keep";
+    keep.textContent = "שמור";
+    keep.title = "keep this question";
+    keep.addEventListener("click", () => void this.keep?.(this.box.value.trim()));
+
     const close = document.createElement("button");
     close.className = "tool find-close";
     close.textContent = "סגור";
     close.title = "Esc";
     close.addEventListener("click", () => this.close());
-    bar.append(this.box, close);
+    bar.append(this.box, keep, close);
 
     this.chipRow = document.createElement("div");
     this.chipRow.className = "find-chips";
@@ -106,6 +116,26 @@ export class SearchView {
 
   get isOpen(): boolean {
     return this.open;
+  }
+
+  private keep: ((typed: string) => Promise<void>) | null = null;
+
+  /** The window says what *keep this question* does — asking a reader for a
+   * name is the window's business, not this view's. */
+  onKeep(keep: (typed: string) => Promise<void>): void {
+    this.keep = keep;
+  }
+
+  /** Ask something again, with the chips already set back by `query_recall`. */
+  async askAgain(opened: Opened, typed: string): Promise<void> {
+    this.opened = opened;
+    this.open = true;
+    this.element.hidden = false;
+    this.box.value = typed;
+    this.page = 1;
+    this.rung = null;
+    this.box.focus();
+    await this.run();
   }
 
   async show(opened: Opened): Promise<void> {

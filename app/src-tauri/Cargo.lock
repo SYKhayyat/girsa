@@ -1361,6 +1361,7 @@ dependencies = [
  "girsa-hebrew",
  "girsa-ksav",
  "girsa-link",
+ "girsa-note",
  "girsa-ref",
  "girsa-scan",
  "girsa-source",
@@ -1431,6 +1432,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "girsa-note"
+version = "0.1.0"
+dependencies = [
+ "girsa-corpus",
+ "girsa-hebrew",
+ "girsa-link",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "girsa-post"
 version = "0.3.0"
 dependencies = [
@@ -1489,6 +1502,7 @@ dependencies = [
  "girsa-fix",
  "girsa-ksav",
  "girsa-link",
+ "girsa-note",
  "girsa-post",
  "girsa-ref",
  "girsa-scan",

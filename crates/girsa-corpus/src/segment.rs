@@ -77,6 +77,20 @@ impl Ordinal {
         Self(vec![n])
     }
 
+    /// The `k`th ordinal *under* this one. `#7` → `#7.1`.
+    ///
+    /// Two callers, and they are the same fact from two directions: a split
+    /// mints children of the segment it splits, and a paragraph written between
+    /// two others mints a child of the one above it (W27). Both need an ordinal
+    /// that sorts **after `self` and before whatever came after `self`**, and
+    /// that is what extending the sequence buys — see [`Ordinal::covers`].
+    #[must_use]
+    pub fn child(&self, k: u32) -> Self {
+        let mut v = self.0.clone();
+        v.push(k);
+        Self(v)
+    }
+
     /// The ordinals a split mints, oldest sibling first.
     ///
     /// `#7` split three ways gives `#7.1 #7.2 #7.3`. The parent keeps existing —
@@ -85,10 +99,8 @@ impl Ordinal {
     pub fn children(&self, count: usize) -> Vec<Self> {
         (1..=count)
             .map(|i| {
-                let mut v = self.0.clone();
                 #[allow(clippy::cast_possible_truncation)]
-                v.push(i as u32);
-                Self(v)
+                self.child(i as u32)
             })
             .collect()
     }

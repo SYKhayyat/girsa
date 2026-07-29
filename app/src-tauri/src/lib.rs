@@ -686,10 +686,18 @@ fn find_rung(
 #[tauri::command]
 fn find_chip(shared: tauri::State<'_, Shared>, chip: String, key: String) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
-    let chips = &mut state.chips;
-    match chip.as_str() {
+    set_chip(&mut state.chips, &chip, &key)
+}
+
+/// One chip, set by the key the row itself sends.
+///
+/// Factored out because a saved query (W27) is replayed by setting the chips it
+/// was saved with, and a second copy of this mapping would let a recalled query
+/// and a clicked chip mean different things.
+fn set_chip(chips: &mut Chips, chip: &str, key: &str) -> Result<(), String> {
+    match chip {
         "mode" => {
-            chips.mode = match key.as_str() {
+            chips.mode = match key {
                 "Smart" => Mode::Smart,
                 "Regex" => Mode::Regex,
                 "Citation" => Mode::Citation,
@@ -698,14 +706,14 @@ fn find_chip(shared: tauri::State<'_, Shared>, chip: String, key: String) -> Res
             }
         }
         "the word" => {
-            chips.matching = match key.as_str() {
+            chips.matching = match key {
                 "Contains" => Match::Contains,
                 "Letters" => Match::Letters,
                 _ => Match::Word,
             }
         }
         "together" => {
-            chips.together = match key.as_str() {
+            chips.together = match key {
                 "Phrase" => Together::Phrase,
                 other => match other.strip_prefix("Near").and_then(|n| n.parse().ok()) {
                     Some(words) => Together::Near { words },
@@ -714,7 +722,7 @@ fn find_chip(shared: tauri::State<'_, Shared>, chip: String, key: String) -> Res
             }
         }
         "instrument" => {
-            chips.sounding = match key.as_str() {
+            chips.sounding = match key {
                 "Rashei" => Sounding::Rashei,
                 "Sofei" => Sounding::Sofei,
                 "Atbash" => Sounding::Atbash,
@@ -2864,9 +2872,722 @@ pub fn run() {
             link_reanchor,
             link_draw,
             link_pin,
+            yours,
+            notes,
+            note_write,
+            note_read,
+            note_edit,
+            note_forget,
+            mark_here,
+            mark_forget,
+            marks_in,
+            bookmarks,
+            query_keep,
+            queries,
+            query_recall,
+            query_forget,
+            folders,
+            folder_edit,
+            folder_forget,
+            tags,
+            export_layer,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");
+}
+
+// ── Your own layer (spec.md §11, BUILDER.md W27) ────────────────────────────
+//
+// Notes, highlights, bookmarks, tags, saved queries and chaburah folders.
+//
+// **What is not here is the interesting part.** There is no `notes_on` command
+// returning your notes about a line, because your notes about a line come back
+// from `links` — a note's edge is a `girsa_link::Edge` and the panel that draws
+// what the library says about a sugya draws what you said about it in the same
+// list, sorted by the same rule. Adding a second endpoint for it here is what
+// the whole crate exists to avoid.
+//
+// What is left is the two things that are not edges — marks and folders — and
+// the writing side.
+
+/// One of your notes, as a row.
+#[derive(Serialize)]
+struct NoteRow {
+    slug: String,
+    name: String,
+    title: String,
+    opening: String,
+    tags: Vec<String>,
+    paragraphs: usize,
+    edited: u64,
+    /// What it is about, as segment ids.
+    on: Vec<String>,
+}
+
+/// One paragraph of a note, for editing it.
+#[derive(Serialize)]
+struct ParaRow {
+    id: String,
+    text: String,
+}
+
+/// One mark, and where it lands in the line as it is drawn now.
+#[derive(Serialize)]
+struct MarkRow {
+    id: String,
+    kind: &'static str,
+    at: String,
+    label: Option<String>,
+    colour: Option<String>,
+    was: String,
+    tags: Vec<String>,
+    /// The characters it is on, in the text the pane drew — `None` for a
+    /// bookmark, and `None` with `stale` set when its words have gone.
+    span: Option<(usize, usize)>,
+    /// The words had to be looked for. Shown, because a highlight that moved
+    /// is a thing a reader is entitled to know about.
+    moved: bool,
+    /// Its words are gone, or are now there twice. **Not drawn and not
+    /// deleted** — reported, so it can be put right.
+    stale: bool,
+}
+
+/// Everything of yours on one line, less the notes — those are links.
+#[derive(Serialize)]
+struct Yours {
+    notes: Vec<NoteRow>,
+    marks: Vec<MarkRow>,
+    folders: Vec<String>,
+}
+
+impl NoteRow {
+    fn of(note: &girsa_note::Note) -> Self {
+        let opening = note
+            .paras()
+            .iter()
+            .map(|p| p.text.as_str())
+            .find(|text| !text.trim().is_empty())
+            .unwrap_or_default();
+        Self {
+            slug: note.slug.clone(),
+            name: note.name().to_string(),
+            title: note.title.clone(),
+            opening: opening.chars().take(120).collect(),
+            tags: note.tags.clone(),
+            paragraphs: note.paras().len(),
+            edited: note.edited,
+            on: note.on.iter().map(ToString::to_string).collect(),
+        }
+    }
+}
+
+impl MarkRow {
+    fn of(marked: &girsa_app::Marked) -> Self {
+        use girsa_note::mark::Placed;
+        let (span, moved, stale) = match &marked.placed {
+            Placed::Whole => (None, false, false),
+            Placed::At { span, moved } => (Some((span.start, span.end)), *moved, false),
+            Placed::Stale => (None, false, true),
+        };
+        Self {
+            id: marked.mark.id.as_str().to_string(),
+            kind: marked.mark.kind.as_str(),
+            at: marked.mark.at.to_string(),
+            label: marked.mark.label.clone(),
+            colour: marked.mark.colour.clone(),
+            was: marked.mark.was.clone(),
+            tags: marked.mark.tags.clone(),
+            span,
+            moved,
+            stale,
+        }
+    }
+}
+
+/// What you have on the line you are standing on.
+#[tauri::command]
+fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+
+    // The line as the pane drew it — corrected, and with the nikud the reader
+    // has on — because that is the string a highlight's offsets are against.
+    let base = {
+        let sefer = state.sefer(at.work())?;
+        sefer
+            .position_of(&at)
+            .and_then(|nth| sefer.segments.get(nth))
+            .map(|segment| segment.text.clone())
+            .unwrap_or_default()
+    };
+    let nikud = state.session.nikud;
+    let drawn = display::Shown::of(&base, nikud).text().to_string();
+
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let found = girsa_app::yours(shelf, &at, &drawn);
+    Ok(Yours {
+        notes: found
+            .notes
+            .iter()
+            .filter_map(|wrote| shelf.notes().get(&wrote.slug))
+            .map(NoteRow::of)
+            .collect(),
+        marks: found.marks.iter().map(MarkRow::of).collect(),
+        folders: found.folders,
+    })
+}
+
+/// Every note you have, most recently touched first.
+#[tauri::command]
+fn notes(shared: tauri::State<'_, Shared>) -> Result<Vec<NoteRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let mut rows: Vec<NoteRow> = shelf.notes().all().map(NoteRow::of).collect();
+    rows.sort_by(|a, b| b.edited.cmp(&a.edited).then_with(|| a.title.cmp(&b.title)));
+    Ok(rows)
+}
+
+/// Write a note about where you are standing. The three-second one.
+#[tauri::command]
+fn note_write(
+    shared: tauri::State<'_, Shared>,
+    at: String,
+    title: Option<String>,
+    text: String,
+) -> Result<NoteRow, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let who = who();
+    let note = girsa_app::note_here(shelf, &at, title.as_deref(), &text, &who)
+        .map_err(|e| e.to_string())?;
+    Ok(NoteRow::of(&note))
+}
+
+/// One note, paragraph by paragraph, for editing it.
+#[tauri::command]
+fn note_read(shared: tauri::State<'_, Shared>, note: String) -> Result<Vec<ParaRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let held = shelf
+        .notes()
+        .get(&note)
+        .ok_or_else(|| format!("there is no note called {note}"))?;
+    Ok(held
+        .paras()
+        .iter()
+        .map(|para| ParaRow {
+            id: para.id.to_string(),
+            text: para.text.clone(),
+        })
+        .collect())
+}
+
+/// Change a note: a paragraph's words, another paragraph, one taken out, a tag,
+/// an anchor.
+///
+/// One command, because they are one thing — an edit to a note in your own
+/// layer — and which edit is **named rather than free-form**, the same rule as
+/// `link_repair`.
+///
+/// Every one of these writes the whole note back, and none of them renumbers a
+/// paragraph: a paragraph put in the middle mints a child ordinal (spec.md §3),
+/// so an id the window is holding is still the id it was holding.
+#[tauri::command]
+fn note_edit(
+    shared: tauri::State<'_, Shared>,
+    note: String,
+    does: String,
+    value: Option<String>,
+    text: Option<String>,
+) -> Result<Vec<ParaRow>, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut held = shelf
+        .notes()
+        .get(&note)
+        .cloned()
+        .ok_or_else(|| format!("there is no note called {note}"))?;
+
+    let words = || text.clone().unwrap_or_default();
+    let paragraph = |value: &Option<String>| -> Result<SegmentId, String> {
+        value
+            .as_deref()
+            .ok_or("which paragraph?")?
+            .parse()
+            .map_err(|e| format!("{e}"))
+    };
+    match does.as_str() {
+        "append" => {
+            held.append(words());
+        }
+        "after" => {
+            held.insert_after(&paragraph(&value)?, words())
+                .map_err(|e| e.to_string())?;
+        }
+        "set" => {
+            if !held.set(&paragraph(&value)?, words()) {
+                return Err("that paragraph is not in this note".to_string());
+            }
+        }
+        "remove" => {
+            if !held.remove(&paragraph(&value)?) {
+                return Err("that paragraph is not in this note".to_string());
+            }
+        }
+        "title" => held.title = words(),
+        "tag" => {
+            held.tag(&words());
+        }
+        "untag" => {
+            held.untag(&words());
+        }
+        "anchor" => {
+            held.anchor(paragraph(&value)?);
+        }
+        "unanchor" => {
+            held.unanchor(&paragraph(&value)?);
+        }
+        other => return Err(format!("no such edit: {other}")),
+    }
+    let written = shelf.write_note(held).map_err(|e| e.to_string())?;
+    Ok(written
+        .paras()
+        .iter()
+        .map(|para| ParaRow {
+            id: para.id.to_string(),
+            text: para.text.clone(),
+        })
+        .collect())
+}
+
+/// Throw a note away — the file, the sefer and the catalogue line.
+#[tauri::command]
+fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    // A note is a sefer, and a sefer that has gone may not stay open in a pane
+    // holding text nothing on the shelf accounts for.
+    let slug = shelf.notes().get(&note).map(|held| held.slug.clone());
+    let gone = shelf.forget_note(&note).map_err(|e| e.to_string())?;
+    if let Some(slug) = slug {
+        state.open.remove(&slug);
+        state.order.retain(|kept| kept != &slug);
+    }
+    Ok(gone)
+}
+
+/// Highlight some words, or mark the place.
+///
+/// The words are read out of the line as the pane drew it and stored with the
+/// mark, because an offset is not a place (`girsa_corpus::span`).
+#[tauri::command]
+fn mark_here(
+    shared: tauri::State<'_, Shared>,
+    at: String,
+    from_char: Option<usize>,
+    to_char: Option<usize>,
+    label: Option<String>,
+    colour: Option<String>,
+) -> Result<MarkRow, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let base = {
+        let sefer = state.sefer(at.work())?;
+        sefer
+            .position_of(&at)
+            .and_then(|nth| sefer.segments.get(nth))
+            .map(|segment| segment.text.clone())
+            .unwrap_or_default()
+    };
+    let drawn = display::Shown::of(&base, nikud).text().to_string();
+
+    let who = who();
+    let mut made = match (from_char, to_char) {
+        (Some(from), Some(to)) if from < to => {
+            let letters: Vec<char> = drawn.chars().collect();
+            let was: String = letters
+                .get(from..to)
+                .ok_or("those characters are not in the line")?
+                .iter()
+                .collect();
+            girsa_note::Mark::highlight(at, from..to, was, &who)
+        }
+        _ => girsa_note::Mark::bookmark(at, &who),
+    };
+    if let Some(label) = label.filter(|l| !l.trim().is_empty()) {
+        made = made.called(label);
+    }
+    if let Some(colour) = colour.filter(|c| !c.trim().is_empty()) {
+        made = made.coloured(colour);
+    }
+
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let held = shelf
+        .marks_mut()
+        .add(made)
+        .map_err(|e| e.to_string())?
+        .clone();
+    let placed = held.place(&drawn);
+    Ok(MarkRow::of(&girsa_app::Marked { mark: held, placed }))
+}
+
+/// Take a mark back.
+#[tauri::command]
+fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    shelf
+        .marks_mut()
+        .remove(&girsa_note::MarkId::from(mark))
+        .map_err(|e| e.to_string())
+}
+
+/// Every mark in one sefer, placed against the lines as the pane draws them.
+///
+/// One call for a whole sefer rather than one per line: a highlight has to be
+/// **painted where it is**, and asking line by line would make that a hundred
+/// round trips a page. Where each one lands is still decided here — the window
+/// is handed offsets into the text it was already sent, and works nothing out.
+#[tauri::command]
+fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRow>, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let drawn: HashMap<String, String> = {
+        let sefer = state.sefer(&slug)?;
+        sefer
+            .segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.id.to_string(),
+                    display::Shown::of(&segment.text, nikud).text().to_string(),
+                )
+            })
+            .collect()
+    };
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(shelf
+        .marks()
+        .in_work(&slug)
+        .map(|mark| {
+            let text = drawn.get(&mark.at.to_string()).map_or("", String::as_str);
+            MarkRow::of(&girsa_app::Marked {
+                mark: mark.clone(),
+                placed: mark.place(text),
+            })
+        })
+        .collect())
+}
+
+/// Every bookmark, most recent first — the *take me back* list.
+#[tauri::command]
+fn bookmarks(shared: tauri::State<'_, Shared>) -> Result<Vec<MarkRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(shelf
+        .marks()
+        .bookmarks()
+        .into_iter()
+        .map(|mark| {
+            MarkRow::of(&girsa_app::Marked {
+                mark: mark.clone(),
+                placed: girsa_note::mark::Placed::Whole,
+            })
+        })
+        .collect())
+}
+
+/// One saved query, as a row.
+#[derive(Serialize)]
+struct QueryRow {
+    name: String,
+    typed: String,
+    said: String,
+    tags: Vec<String>,
+}
+
+/// Keep the question you just asked.
+///
+/// The chips are saved as the `chip → key` pairs the row itself sends, so
+/// recalling one goes through the same [`set_chip`] a click does. The scope is
+/// saved as the seforim it comes to — a scope narrowed by three clicks comes
+/// back as one clause over the same seforim, which matches the same segments
+/// and no longer remembers the three clicks. Said here rather than discovered.
+#[tauri::command]
+fn query_keep(
+    shared: tauri::State<'_, Shared>,
+    name: String,
+    typed: String,
+) -> Result<QueryRow, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut kept = girsa_note::SavedQuery::new(name, typed);
+    for chip in state.chips.row() {
+        if let Some(chosen) = chip.choices.iter().find(|choice| choice.chosen) {
+            // The scope chip's key is not an option among others — it is the
+            // whole scope — so it is saved as the slugs below instead.
+            if chip.name != "where" {
+                kept = kept.with_chip(chip.name, chosen.key.clone());
+            }
+        }
+    }
+    kept = kept
+        .within(state.chips.scope.works())
+        .excluding(state.chips.scope.excluded_works().iter().cloned());
+
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let held = shelf
+        .queries_mut()
+        .save(kept)
+        .map_err(|e| e.to_string())?
+        .clone();
+    Ok(QueryRow {
+        name: held.name.clone(),
+        typed: held.typed.clone(),
+        said: held.said(),
+        tags: held.tags.clone(),
+    })
+}
+
+/// The questions you have kept.
+#[tauri::command]
+fn queries(shared: tauri::State<'_, Shared>) -> Result<Vec<QueryRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(shelf
+        .queries()
+        .all()
+        .map(|query| QueryRow {
+            name: query.name.clone(),
+            typed: query.typed.clone(),
+            said: query.said(),
+            tags: query.tags.clone(),
+        })
+        .collect())
+}
+
+/// Ask one again: set the chips and the scope back, and hand over the line.
+///
+/// The line comes back rather than being searched here, because what goes in
+/// the box is the window's business and *what the chips are* is not.
+#[tauri::command]
+fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let held = shelf
+        .queries()
+        .get(&name)
+        .ok_or_else(|| format!("there is no saved query called {name}"))?
+        .clone();
+
+    state.chips = Chips::default();
+    for (chip, key) in &held.chips {
+        set_chip(&mut state.chips, chip, key)?;
+    }
+    let mut scope = girsa_search::scope::Scope::everything();
+    if !held.only.is_empty() {
+        scope = scope.only(held.only.clone(), &held.name);
+    }
+    if !held.without.is_empty() {
+        scope = scope.without(held.without.clone(), &held.name);
+    }
+    state.chips.scope = scope;
+    Ok(held.typed)
+}
+
+/// Forget a saved query.
+#[tauri::command]
+fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    shelf.queries_mut().remove(&name).map_err(|e| e.to_string())
+}
+
+/// One chaburah folder, as a row.
+#[derive(Serialize)]
+struct FolderRow {
+    name: String,
+    title: String,
+    /// Its members, in the order you put them in — which is the order a shiur
+    /// goes in, so it is never sorted.
+    members: Vec<FolderMember>,
+    tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct FolderMember {
+    /// The member as it is written down: a segment id, `work:…` or `query:…`.
+    key: String,
+    /// What to put on the row.
+    said: String,
+    /// Where clicking it goes, for the two kinds that are places.
+    work: Option<String>,
+    at: Option<String>,
+}
+
+/// Your chaburah folders.
+#[tauri::command]
+fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(shelf
+        .collections()
+        .all()
+        .map(|folder| FolderRow {
+            name: folder.name.clone(),
+            title: folder.title.clone(),
+            members: folder
+                .members
+                .iter()
+                .map(|member| match member {
+                    girsa_note::Member::Place(id) => FolderMember {
+                        key: member.to_string(),
+                        said: shelf.work(id.work()).map_or_else(
+                            || id.to_string(),
+                            |work| format!("{} {}", work.he_title, id.path().join(":")),
+                        ),
+                        work: Some(id.work().to_string()),
+                        at: Some(id.to_string()),
+                    },
+                    girsa_note::Member::Work(slug) => FolderMember {
+                        key: member.to_string(),
+                        said: shelf
+                            .work(slug)
+                            .map_or_else(|| slug.clone(), |work| work.he_title.clone()),
+                        work: Some(slug.clone()),
+                        at: None,
+                    },
+                    girsa_note::Member::Query(name) => FolderMember {
+                        key: member.to_string(),
+                        said: name.clone(),
+                        work: None,
+                        at: None,
+                    },
+                })
+                .collect(),
+            tags: folder.tags.clone(),
+        })
+        .collect())
+}
+
+/// Put something in a folder, or take it out. The folder is made if it is not
+/// there yet.
+#[tauri::command]
+fn folder_edit(
+    shared: tauri::State<'_, Shared>,
+    name: String,
+    title: Option<String>,
+    does: String,
+    member: String,
+) -> Result<usize, String> {
+    let member: girsa_note::Member = member.parse()?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut folder = shelf.collections().get(&name).cloned().unwrap_or_else(|| {
+        girsa_note::Collection::new(&name, title.unwrap_or_else(|| name.clone()))
+    });
+    match does.as_str() {
+        "put" => {
+            folder.put(member);
+        }
+        "take-out" => {
+            folder.take_out(&member);
+        }
+        other => return Err(format!("no such edit: {other}")),
+    }
+    let held = folder.members.len();
+    shelf
+        .collections_mut()
+        .save(folder)
+        .map_err(|e| e.to_string())?;
+    Ok(held)
+}
+
+/// Throw a folder away. What was in it is untouched — it held members, not
+/// copies.
+#[tauri::command]
+fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    shelf
+        .collections_mut()
+        .remove(&name)
+        .map_err(|e| e.to_string())
+}
+
+/// One tag, and how many things carry it.
+#[derive(Serialize)]
+struct TagRow {
+    tag: String,
+    total: usize,
+    notes: usize,
+    marks: usize,
+    queries: usize,
+    collections: usize,
+}
+
+/// Every tag across your whole layer.
+#[tauri::command]
+fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let counted = girsa_note::Tags::of(
+        shelf.notes(),
+        shelf.marks(),
+        shelf.queries(),
+        shelf.collections(),
+    );
+    Ok(counted
+        .iter()
+        .map(|(tag, tally)| TagRow {
+            tag: tag.to_string(),
+            total: tally.total(),
+            notes: tally.notes,
+            marks: tally.marks,
+            queries: tally.queries,
+            collections: tally.collections,
+        })
+        .collect())
+}
+
+/// Write your whole layer out somewhere, as plain files.
+///
+/// Into `personal/exports/` by default, the way a corrected sefer goes out
+/// (W22): the files are the point and where they land is not.
+#[tauri::command]
+fn export_layer(shared: tauri::State<'_, Shared>, into: Option<String>) -> Result<String, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let into = into.map_or_else(
+        || shelf.personal().join("exports").join("my-layer"),
+        PathBuf::from,
+    );
+    let written = girsa_note::export(
+        shelf.notes(),
+        shelf.marks(),
+        shelf.queries(),
+        shelf.collections(),
+        &into,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "{} · {} הערות · {} סימונים · {} שאילתות · {} תיקיות",
+        into.display(),
+        written.notes,
+        written.marks,
+        written.queries,
+        written.collections
+    ))
 }
 
 /// Kept honest: the workspace type the window draws is the one the tests are

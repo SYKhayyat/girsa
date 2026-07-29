@@ -418,6 +418,82 @@ let invoke: Invoke | null = null;
  * `personal/files`, which is the one directory the shell opens to it. */
 let asset: ((path: string) => string) | null = null;
 
+// --- your own layer (spec.md §11, W27) --------------------------------------
+
+/** One of your notes, as a row. */
+export interface NoteRow {
+  slug: string;
+  /** What it is asked for by — the slug without the `note/`. */
+  name: string;
+  title: string;
+  opening: string;
+  tags: string[];
+  paragraphs: number;
+  edited: number;
+  /** What it is about, as segment ids. */
+  on: string[];
+}
+
+/** One paragraph of a note, and its permanent name. */
+export interface ParaRow {
+  id: string;
+  text: string;
+}
+
+/** One highlight or bookmark, and where it lands in the line as it is drawn. */
+export interface MarkRow {
+  id: string;
+  kind: "highlight" | "bookmark";
+  at: string;
+  label: string | null;
+  colour: string | null;
+  was: string;
+  tags: string[];
+  /** The characters it is on — absent for a bookmark, and absent when stale. */
+  span: [number, number] | null;
+  /** Its words had to be looked for: the line moved under it. */
+  moved: boolean;
+  /** Its words are gone, or are there twice. Reported, never quietly dropped. */
+  stale: boolean;
+}
+
+/** What you have on one line, less the notes — those come back from `links`. */
+export interface Yours {
+  notes: NoteRow[];
+  marks: MarkRow[];
+  folders: string[];
+}
+
+export interface QueryRow {
+  name: string;
+  typed: string;
+  said: string;
+  tags: string[];
+}
+
+export interface FolderMember {
+  key: string;
+  said: string;
+  work: string | null;
+  at: string | null;
+}
+
+export interface FolderRow {
+  name: string;
+  title: string;
+  members: FolderMember[];
+  tags: string[];
+}
+
+export interface TagRow {
+  tag: string;
+  total: number;
+  notes: number;
+  marks: number;
+  queries: number;
+  collections: number;
+}
+
 /** Whether the real shell is behind us, or the browser fixtures are. */
 export function isShell(): boolean {
   return invoke !== null;
@@ -611,6 +687,52 @@ export const api = {
     call<void>("link_reanchor", { edge, end, to }),
   linkDraw: (from: string, to: string, kind: string) =>
     call<void>("link_draw", { from, to, kind }),
+
+  // --- your own layer (spec.md §11, W27) ----------------------------------
+  //
+  // There is no call here for *my notes on this line*, and that is the point:
+  // a note's connection to a sugya is a `girsa_link::Edge`, so it comes back
+  // from `links()` above, in the same list as Rashi and sorted by the same
+  // rule. What is left is the writing side, and the two kinds of thing that
+  // are not edges — marks and folders.
+  yours: (at: string) => call<Yours>("yours", { at }),
+  notes: () => call<NoteRow[]>("notes"),
+  noteWrite: (at: string, text: string, title?: string) =>
+    call<NoteRow>("note_write", { at, text, title: title ?? null }),
+  noteRead: (note: string) => call<ParaRow[]>("note_read", { note }),
+  noteEdit: (note: string, does: string, value?: string, text?: string) =>
+    call<ParaRow[]>("note_edit", {
+      note,
+      does,
+      value: value ?? null,
+      text: text ?? null,
+    }),
+  noteForget: (note: string) => call<boolean>("note_forget", { note }),
+
+  markHere: (at: string, span?: [number, number], label?: string, colour?: string) =>
+    call<MarkRow>("mark_here", {
+      at,
+      fromChar: span ? span[0] : null,
+      toChar: span ? span[1] : null,
+      label: label ?? null,
+      colour: colour ?? null,
+    }),
+  markForget: (mark: string) => call<boolean>("mark_forget", { mark }),
+  marksIn: (slug: string) => call<MarkRow[]>("marks_in", { slug }),
+  bookmarks: () => call<MarkRow[]>("bookmarks"),
+
+  queryKeep: (name: string, typed: string) => call<QueryRow>("query_keep", { name, typed }),
+  queries: () => call<QueryRow[]>("queries"),
+  queryRecall: (name: string) => call<string>("query_recall", { name }),
+  queryForget: (name: string) => call<boolean>("query_forget", { name }),
+
+  folders: () => call<FolderRow[]>("folders"),
+  folderEdit: (name: string, does: "put" | "take-out", member: string, title?: string) =>
+    call<number>("folder_edit", { name, does, member, title: title ?? null }),
+  folderForget: (name: string) => call<boolean>("folder_forget", { name }),
+
+  tags: () => call<TagRow[]>("tags"),
+  exportLayer: (into?: string) => call<string>("export_layer", { into: into ?? null }),
 };
 
 
@@ -854,6 +976,31 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return [] as T;
     case "links":
       return { links: [], incoming_unknown: false, types: [], lenses: [], lens: null } as T;
+    // Your own layer is the shell's, for the reason corrections are: it is
+    // written into `personal/`, and a browser has none. Reading it comes back
+    // empty; writing to it says so rather than looking as though it landed.
+    case "yours":
+      return { notes: [], marks: [], folders: [] } as T;
+    case "notes":
+    case "note_read":
+    case "marks_in":
+    case "bookmarks":
+    case "queries":
+    case "folders":
+    case "tags":
+      return [] as T;
+    case "note_write":
+    case "note_edit":
+    case "note_forget":
+    case "mark_here":
+    case "mark_forget":
+    case "query_keep":
+    case "query_recall":
+    case "query_forget":
+    case "folder_edit":
+    case "folder_forget":
+    case "export_layer":
+      throw new Error("השכבה שלך פועלת בחלון בלבד");
     case "buffer_open":
       return {
         name: String(args?.name ?? ""),

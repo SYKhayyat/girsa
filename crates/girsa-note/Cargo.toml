@@ -1,0 +1,27 @@
+[package]
+name = "girsa-note"
+description = "The personal layer — notes as nodes, highlights, tags, saved queries and chaburah folders"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+girsa-corpus.workspace = true
+# A note is a node (spec.md §11), which means the thing joining it to a sugya
+# is a `girsa_link::Edge` — the same type, with the same nine kinds of claim on
+# it, as the four million edges Sefaria seeded. A second kind of connection
+# here is exactly what would make *what have I written about this* a different
+# question from *who quotes this*.
+girsa-link.workspace = true
+# Tags and titles are Hebrew, and two Hebrew strings are compared in one place
+# in this codebase (W2). Nothing here folds a gershayim by hand.
+girsa-hebrew.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

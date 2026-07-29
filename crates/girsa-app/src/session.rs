@@ -107,7 +107,13 @@ impl Session {
         }
         let body = serde_json::to_vec_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, body)
+        // Beside and renamed over. This one is saved on every scroll, which is
+        // the file in the layer most likely to be being written when a machine
+        // stops — and losing it loses every pane, every tab and where the
+        // reader was in each of them.
+        let temp = path.with_extension("json.writing");
+        std::fs::write(&temp, body)?;
+        std::fs::rename(&temp, path)
     }
 
     /// Remember where a reader is in a sefer.

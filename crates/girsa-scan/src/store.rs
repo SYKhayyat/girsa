@@ -159,10 +159,20 @@ impl Scans {
         };
         let body = serde_json::to_string_pretty(&file)
             .map_err(|e| StoreError::Malformed(e.to_string()))?;
-        std::fs::write(&self.path, body).map_err(|source| StoreError::Io {
-            path: self.path.display().to_string(),
-            source,
-        })
+        // Written beside and renamed over, so a machine that stops halfway
+        // through leaves the mappings it had rather than half of one. The rule
+        // every file in the personal layer follows — see `girsa_fix::Layer`;
+        // this one was the odd file out until W27's sibling sweep.
+        let io = |path: &std::path::Path| {
+            let path = path.display().to_string();
+            move |source| StoreError::Io {
+                path: path.clone(),
+                source,
+            }
+        };
+        let temp = self.path.with_extension("json.writing");
+        std::fs::write(&temp, body).map_err(io(&temp))?;
+        std::fs::rename(&temp, &self.path).map_err(io(&self.path))
     }
 }
 

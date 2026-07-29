@@ -4,7 +4,7 @@
 // is. It does not decide where anything goes — it is told, by `main.ts`, which
 // asks Rust.
 
-import type { FixMark, Line, PaneId, Place, Relation, Run, Text } from "./api.ts";
+import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Text } from "./api.ts";
 
 /** How many lines are put on the page at once, and how many more at an edge. */
 const WINDOW = 400;
@@ -30,6 +30,9 @@ export class PaneView {
   private to = 0;
   private byId = new Map<string, number>();
   private highlighted: string[] = [];
+  /** Your highlights in this sefer, as Rust placed them (W27). Kept so the
+   * lines that scroll into view later get painted too. */
+  private marks: MarkRow[] = [];
   /** Set while a following pane is being moved, so its own scroll handler does
    * not report the move back and start the two panes chasing each other. */
   private quiet = false;
@@ -88,6 +91,46 @@ export class PaneView {
     this.from = Math.max(0, index - WINDOW / 2);
     this.to = Math.min(lines.length, this.from + WINDOW);
     this.body.replaceChildren(...lines.slice(this.from, this.to).map(lineElement));
+    this.paint();
+  }
+
+  /**
+   * Your highlights, drawn on the words (spec.md §11).
+   *
+   * **Where each one goes was decided in Rust** — `girsa_note::Mark::place`,
+   * against the same string this pane was sent. Nothing here re-finds a
+   * highlight's words, because that rule lives in one place
+   * (`girsa_corpus::span`) and a second copy of it in TypeScript would put a
+   * highlight in one place in the pane and another in the panel.
+   *
+   * A mark whose words have gone is **not drawn** and is not thrown away
+   * either: it comes back `stale` and the שלי panel says so.
+   */
+  setMarks(marks: MarkRow[]): void {
+    this.marks = marks;
+    this.paint();
+  }
+
+  private paint(): void {
+    for (const mark of this.marks) {
+      if (!mark.span) continue;
+      const line = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(mark.at)}"]`);
+      const words = line?.querySelector<HTMLElement>(".line-text");
+      if (!words || words.querySelector(`[data-mark="${cssEscape(mark.id)}"]`)) continue;
+      const range = charRange(words, mark.span[0], mark.span[1]);
+      if (!range) continue;
+      const painted = el("mark", "line-mark");
+      painted.dataset.mark = mark.id;
+      if (mark.colour) painted.style.setProperty("--mark", mark.colour);
+      painted.title = mark.label ?? mark.was;
+      try {
+        range.surroundContents(painted);
+      } catch {
+        // A highlight that runs across two runs of different styling cannot be
+        // wrapped in one element. Left unpainted rather than split into two
+        // marks that would look like two highlights.
+      }
+    }
   }
 
   private extend(where: "up" | "down"): void {
@@ -97,11 +140,13 @@ export class PaneView {
       const next = Math.min(lines.length, this.to + STEP);
       this.body.append(...lines.slice(this.to, next).map(lineElement));
       this.to = next;
+      this.paint();
     } else if (where === "up" && this.from > 0) {
       const next = Math.max(0, this.from - STEP);
       const before = this.body.scrollHeight;
       this.body.prepend(...lines.slice(next, this.from).map(lineElement));
       this.from = next;
+      this.paint();
       // Adding lines above moves everything down; put the reader back on the
       // words they were looking at.
       this.body.scrollTop += this.body.scrollHeight - before;
@@ -247,6 +292,10 @@ export class PaneView {
     this.text.lines[at] = line;
     const drawn = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(line.id)}"]`);
     drawn?.replaceWith(lineElement(line));
+    // The line was redrawn from scratch, so anything painted on it went with
+    // it. Where a highlight now lands is Rust's answer, not this one's — the
+    // caller asks again after a correction.
+    this.paint();
   }
 
   /**

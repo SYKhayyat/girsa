@@ -658,31 +658,13 @@ impl Layer {
 /// Where a patch lands in the text as it stands now, and whether it had to be
 /// re-found.
 ///
-/// The offsets first, because that is where it was made. If the words there are
-/// not the words the correction was made from, the words are looked for —
-/// **and taken only if they are there exactly once**. Twice is an ambiguity and
-/// the rule for those is to take neither (BUILDER.md rule 6); none is a
-/// correction that no longer has anything to correct.
+/// The rule is [`girsa_corpus::span::locate`]'s, and it is there rather than
+/// here because W27's highlights need the same one: an offset says *where* and
+/// the words say *what*, and when they disagree the words win — only if they
+/// are there exactly once.
 fn anchor(letters: &[char], patch: &Patch) -> Option<(Range<usize>, bool)> {
-    let was: Vec<char> = patch.was.chars().collect();
-    if patch.to_char <= letters.len()
-        && letters.get(patch.from_char..patch.to_char) == Some(was.as_slice())
-    {
-        return Some((patch.span(), false));
-    }
-    if was.is_empty() {
-        return None;
-    }
-    let mut found = None;
-    for start in 0..=letters.len().saturating_sub(was.len()) {
-        if letters.get(start..start + was.len()) == Some(was.as_slice()) {
-            if found.is_some() {
-                return None;
-            }
-            found = Some(start);
-        }
-    }
-    found.map(|start| (start..start + was.len(), true))
+    girsa_corpus::span::locate(letters, patch.span(), &patch.was)
+        .map(|found| (found.span, found.moved))
 }
 
 fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {

@@ -31,6 +31,7 @@ import { SearchView } from "./search.ts";
 import { ShelfView } from "./shelf.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
+import { YoursView } from "./yoursview.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
@@ -40,6 +41,7 @@ const writing = new WritingView();
 const fixbox = new FixBox();
 const suspects = new SuspectsView();
 const linksview = new LinksView();
+const yoursview = new YoursView();
 const views = new Map<PaneId, PaneView>();
 /** Panes holding a scan (W25). A second map rather than a union: a scan has no
  * lines, so none of the questions asked of a reading pane — what is
@@ -68,6 +70,7 @@ async function main(): Promise<void> {
     writing.element,
     suspects.element,
     linksview.element,
+    yoursview.element,
     fixbox.element,
   );
   suspects.onOpen(openSuspect);
@@ -77,6 +80,13 @@ async function main(): Promise<void> {
   // The drawer asks the window for a source, because which pane is focused is
   // the window's business and not the drawer's.
   writing.onSourceWanted(sourceForBuffer);
+  // Your own layer (W27). The drawer asks the window where to go and how to
+  // ask a question again, for the same reason the links panel does: which pane
+  // is focused is the window's business.
+  yoursview.onOpen(openFound);
+  yoursview.onAsk((typed) => find.askAgain(openFound, typed));
+  yoursview.onChanged(repaintMarks);
+  find.onKeep(keepQuery);
   document.addEventListener("keydown", shortcut);
   await whenFilesDropped(whenDropped);
   // Ksav, or a citation clicked in a document, asking for a page (§10.6).
@@ -169,6 +179,7 @@ async function draw(): Promise<void> {
       find.element,
       suspects.element,
       linksview.element,
+      yoursview.element,
       fixbox.element,
     );
     return;
@@ -186,6 +197,7 @@ async function draw(): Promise<void> {
     find.element,
     suspects.element,
     linksview.element,
+    yoursview.element,
     fixbox.element,
   );
 
@@ -237,6 +249,21 @@ async function draw(): Promise<void> {
     view.setFocused(open.focused === pane.id);
     view.setFollowing(followLabel(pane.follows));
     view.show(text, pane.at ?? null);
+    // Your highlights, where Rust placed them against the same lines this pane
+    // was just sent (W27). One call for the sefer rather than one a line.
+    view.setMarks(await api.marksIn(pane.slug));
+  }
+}
+
+/** Ask again where your highlights land, after your layer changed. */
+async function repaintMarks(): Promise<void> {
+  for (const view of views.values()) {
+    try {
+      view.setMarks(await api.marksIn(view.slug));
+    } catch {
+      // A pane whose sefer has gone — a note you just deleted — has no marks
+      // to draw and is about to be closed by the reload that follows.
+    }
   }
 }
 
@@ -722,6 +749,20 @@ function shortcut(event: KeyboardEvent): void {
     linksview.close();
     return;
   }
+  if (yoursview.isOpen && yoursview.element.contains(event.target as Node)) {
+    // A note is edited in a text box in this drawer; the reading shortcuts are
+    // not live inside one.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      yoursview.close();
+    }
+    return;
+  }
+  if (yoursview.isOpen && event.key === "Escape") {
+    event.preventDefault();
+    yoursview.close();
+    return;
+  }
   if (suspects.isOpen && event.key === "Escape") {
     event.preventDefault();
     suspects.close();
@@ -795,6 +836,18 @@ function shortcut(event: KeyboardEvent): void {
   } else if (control && event.key.toLowerCase() === "j") {
     event.preventDefault();
     void suspects.toggle();
+  } else if (control && event.key.toLowerCase() === "m") {
+    event.preventDefault();
+    void yoursview.toggle();
+  } else if (control && event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    void noteHere();
+  } else if (control && event.shiftKey && event.key.toLowerCase() === "h") {
+    event.preventDefault();
+    void markHere(false);
+  } else if (control && event.key.toLowerCase() === "d") {
+    event.preventDefault();
+    void markHere(true);
   } else if (control && event.shiftKey && event.key.toLowerCase() === "k") {
     event.preventDefault();
     void nextShowing();
@@ -912,6 +965,83 @@ async function sourceForBuffer(): Promise<string | null> {
   }
   const here = view.here();
   return here ? api.sourceMarkup(here, here, 0, null) : null;
+}
+
+// ── Your own layer (spec.md §11, BUILDER.md W27) ───────────────────────────
+//
+// Note what is **not** here: nothing asks for "my notes on this line". That
+// comes back from `showLinks` above, because a note's connection to a sugya is
+// a link. What these do is the writing.
+
+/**
+ * Write a note about where you are standing (spec.md §11).
+ *
+ * The three-second one (§7.5's guardrail, inherited): the place is where the
+ * reader already is, the title is the first words unless they give one, and
+ * there is no *which notebook* to answer. With something highlighted, the note
+ * is on that line and the highlight becomes a mark on the same words — which
+ * is what highlighting-then-writing means everywhere else.
+ */
+async function noteHere(): Promise<void> {
+  const open = tab();
+  if (!open) return;
+  const view = views.get(open.focused);
+  const at = view?.here();
+  if (!at) {
+    say("אין כאן שורה לכתוב עליה", true);
+    return;
+  }
+  const text = window.prompt("מה יש לך לומר?", "");
+  if (text === null || text.trim() === "") return;
+  try {
+    const note = await api.noteWrite(at, text);
+    say(`נכתב: ${note.title}`, false);
+    // The note is a sefer now, so the shelf and the tabs know one more thing.
+    await reload();
+    if (linksview.isOpen) await linksview.show(at);
+    await yoursview.refresh();
+  } catch (e) {
+    say(String(e), true);
+  }
+}
+
+/** Highlight the words that are selected, or mark the line you are on. */
+async function markHere(bookmark: boolean): Promise<void> {
+  const open = tab();
+  if (!open) return;
+  const view = views.get(open.focused);
+  if (!view) return;
+  const chosen = bookmark ? null : view.fixSelection();
+  const at = chosen?.at ?? view.here();
+  if (!at) return;
+  try {
+    const mark = await api.markHere(
+      at,
+      chosen ? [chosen.fromChar, chosen.toChar] : undefined,
+    );
+    say(mark.kind === "bookmark" ? "סימנייה" : `סומן: ${mark.was}`, false);
+    await repaintMarks();
+    await yoursview.refresh();
+  } catch (e) {
+    say(String(e), true);
+  }
+}
+
+/** Keep the question you just asked (spec.md §11). */
+async function keepQuery(typed: string): Promise<void> {
+  if (typed === "") {
+    say("אין מה לשמור — תיבת החיפוש ריקה", true);
+    return;
+  }
+  const name = window.prompt("איך לקרוא לשאילתה?", typed);
+  if (name === null || name.trim() === "") return;
+  try {
+    const kept = await api.queryKeep(name.trim(), typed);
+    say(`נשמר: ${kept.name}`, false);
+    await yoursview.refresh();
+  } catch (e) {
+    say(String(e), true);
+  }
 }
 
 /** A line the window says and then stops saying. */

@@ -11,6 +11,7 @@ pub mod fetch;
 pub mod import;
 pub mod index;
 pub mod segment;
+pub mod span;
 pub mod store;
 pub mod taxonomy;
 pub mod work;

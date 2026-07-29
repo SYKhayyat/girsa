@@ -171,7 +171,7 @@ pub fn add(personal: &Path, file: &Path, title: Option<&str>) -> Result<Imported
 
     let imported = ImportedWork::assemble(work, raw);
     import::write(personal, &imported)?;
-    catalogue(personal, &imported.work)?;
+    import::catalogue(personal, &imported.work)?;
     Ok(imported)
 }
 
@@ -274,32 +274,6 @@ fn copy_in(personal: &Path, slug: &str, file: &Path, kind: Kind) -> Result<PathB
     let into = import::slug_dir(&dir, &flat).with_extension(kind.extension());
     std::fs::copy(file, &into).map_err(io(file))?;
     Ok(into)
-}
-
-/// Add the work to your catalogue.
-///
-/// The whole file is rewritten rather than appended to. W8 shipped an importer
-/// that opened its shards in append mode and doubled the graph on a second run;
-/// the same mistake here would put a sefer on the shelf twice.
-fn catalogue(personal: &Path, work: &Work) -> Result<(), MineError> {
-    let path = personal.join("works/index.jsonl");
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(io(dir))?;
-    }
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut body = String::new();
-    for line in existing.lines().filter(|l| !l.trim().is_empty()) {
-        let same = serde_json::from_str::<Work>(line).is_ok_and(|w| w.slug == work.slug);
-        if !same {
-            body.push_str(line);
-            body.push('\n');
-        }
-    }
-    let line =
-        serde_json::to_string(work).map_err(|e| ImportError::malformed(&path, e.to_string()))?;
-    body.push_str(&line);
-    body.push('\n');
-    std::fs::write(&path, body).map_err(io(&path))
 }
 
 fn io(path: &Path) -> impl Fn(std::io::Error) -> MineError + '_ {

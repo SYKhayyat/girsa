@@ -64,6 +64,14 @@ pub struct Shelf {
     /// Which page of your scans is which daf (W25). In your layer for a third
     /// reason on top of the other two: it is about a file only you have.
     scans: girsa_scan::Scans,
+    /// What you wrote (W27). Notes are seforim of yours, so they are in
+    /// `works` as well — this is the writing side of the same thing, and it is
+    /// what makes a note editable rather than only readable.
+    notes: girsa_note::Notes,
+    /// What you marked, what you kept asking, and what you keep together.
+    marks: girsa_note::Marks,
+    queries: girsa_note::Queries,
+    collections: girsa_note::Collections,
     /// Something wrong with the personal layer that the reader should be told
     /// about — an arrangement file that would not read, so far.
     trouble: Option<String>,
@@ -120,6 +128,14 @@ impl Shelf {
         bad_lines.extend(bad_repairs);
         let (scans, bad_scans) = girsa_scan::Scans::open(personal);
         bad_lines.extend(bad_scans);
+        let (notes, bad_notes) = girsa_note::Notes::open(personal);
+        bad_lines.extend(bad_notes);
+        let (marks, bad_marks) = girsa_note::Marks::open(personal);
+        bad_lines.extend(bad_marks);
+        let (queries, bad_queries) = girsa_note::Queries::open(personal);
+        bad_lines.extend(bad_queries);
+        let (collections, bad_folders) = girsa_note::Collections::open(personal);
+        bad_lines.extend(bad_folders);
         for line in bad_lines {
             trouble = Some(match trouble {
                 Some(said) => format!("{said} · {line}"),
@@ -148,6 +164,10 @@ impl Shelf {
             showing: Showing::default(),
             repairs,
             scans,
+            notes,
+            marks,
+            queries,
+            collections,
             trouble,
             works,
             by_slug,
@@ -224,6 +244,112 @@ impl Shelf {
     #[must_use]
     pub fn scans(&self) -> &girsa_scan::Scans {
         &self.scans
+    }
+
+    /// What you wrote (W27).
+    #[must_use]
+    pub fn notes(&self) -> &girsa_note::Notes {
+        &self.notes
+    }
+
+    /// What you marked (W27).
+    #[must_use]
+    pub fn marks(&self) -> &girsa_note::Marks {
+        &self.marks
+    }
+
+    pub fn marks_mut(&mut self) -> &mut girsa_note::Marks {
+        &mut self.marks
+    }
+
+    /// The questions you kept (W27).
+    #[must_use]
+    pub fn queries(&self) -> &girsa_note::Queries {
+        &self.queries
+    }
+
+    pub fn queries_mut(&mut self) -> &mut girsa_note::Queries {
+        &mut self.queries
+    }
+
+    /// Your chaburah folders (W27).
+    #[must_use]
+    pub fn collections(&self) -> &girsa_note::Collections {
+        &self.collections
+    }
+
+    pub fn collections_mut(&mut self) -> &mut girsa_note::Collections {
+        &mut self.collections
+    }
+
+    /// Write a note down, and put it on the shelf as a sefer.
+    ///
+    /// The catalogue entry goes into `works` here as well as onto the disk, so
+    /// the note is openable, citable and namable in the link panel **in this
+    /// session** rather than after a restart. The same thing
+    /// [`Shelf::add_mine`] does for a file you dropped, and for the same
+    /// reason: a sefer that exists on disk and not in the window is a sefer the
+    /// reader was told about and cannot open.
+    ///
+    /// # Errors
+    ///
+    /// If the note says nothing, or your layer will not take it.
+    pub fn write_note(&mut self, note: girsa_note::Note) -> Result<girsa_note::Note, ShelfError> {
+        let work = note.work(&self.personal);
+        let written = self
+            .notes
+            .write(note)
+            .cloned()
+            .map_err(|e| ShelfError::Refused(e.to_string()))?;
+        match self.by_slug.get(&work.slug) {
+            Some(i) => {
+                if let Some(held) = self.works.get_mut(*i) {
+                    *held = work;
+                }
+            }
+            None => {
+                self.by_slug.insert(work.slug.clone(), self.works.len());
+                self.works.push(work);
+            }
+        }
+        Ok(written)
+    }
+
+    /// Throw a note away — the file, the sefer and the catalogue line.
+    ///
+    /// # Errors
+    ///
+    /// If your layer will not write.
+    pub fn forget_note(&mut self, name: &str) -> Result<bool, ShelfError> {
+        let Some(slug) = self.notes.get(name).map(|note| note.slug.clone()) else {
+            return Ok(false);
+        };
+        let gone = self
+            .notes
+            .remove(name)
+            .map_err(|e| ShelfError::Refused(e.to_string()))?;
+        if gone {
+            // The catalogue in memory is a `Vec` with an index over it, so a
+            // work is taken out by rebuilding the index rather than by leaving
+            // a hole every later slug would point past.
+            self.works.retain(|work| work.slug != slug);
+            self.by_slug = self
+                .works
+                .iter()
+                .enumerate()
+                .map(|(i, w)| (w.slug.clone(), i))
+                .collect();
+            self.commentaries = HashMap::new();
+            for (i, work) in self.works.iter().enumerate() {
+                for base in &work.commentary_on {
+                    self.commentaries
+                        .entry(base.slug.clone())
+                        .or_default()
+                        .push(i);
+                }
+            }
+        }
+        Ok(gone)
     }
 
     /// Say what a scan's pages are, and write it down.
@@ -784,6 +910,10 @@ pub(crate) mod tests {
         let (fixes, _) = girsa_fix::Layer::open(personal);
         let (repairs, _) = girsa_link::repair::Repairs::open(personal);
         let (scans, _) = girsa_scan::Scans::open(personal);
+        let (notes, _) = girsa_note::Notes::open(personal);
+        let (marks, _) = girsa_note::Marks::open(personal);
+        let (queries, _) = girsa_note::Queries::open(personal);
+        let (collections, _) = girsa_note::Collections::open(personal);
         Shelf {
             root: PathBuf::new(),
             personal: personal.to_path_buf(),
@@ -792,6 +922,10 @@ pub(crate) mod tests {
             showing: Showing::default(),
             repairs,
             scans,
+            notes,
+            marks,
+            queries,
+            collections,
             trouble,
             by_slug: works
                 .iter()
