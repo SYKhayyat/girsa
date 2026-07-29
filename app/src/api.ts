@@ -104,6 +104,16 @@ export interface PatchRow {
 /** How much of the correction layer is applied to what you read. */
 export type Showing = "as_printed" | "fixed" | "fixed_with_variants";
 
+/** A sefer written out with your corrections in it (spec.md §7.4, W22). */
+export interface Written {
+  path: string;
+  segments: number;
+  corrections: number;
+  stale: number;
+  noted: number;
+  said: string;
+}
+
 /** One candidate from the OCR queue (spec.md §7.3, W21). A question, not a
  * correction: it says which word, which word it looks like, how often each was
  * seen, and where to go and look. */
@@ -357,6 +367,14 @@ export const api = {
   suspectAt: (id: string, at: string) => call<Standing>("suspect_at", { id, at }),
   suspectDecide: (id: string, decision: "dismissed" | "fixed") =>
     call<void>("suspect_decide", { id, decision }),
+
+  // --- exporting a fixed sefer (W22) --------------------------------------
+  //
+  // Base text + your patches → a file. Nothing is applied here that is not
+  // already applied on the page: the export writes the sefer as it is being
+  // read.
+  exportSefer: (slug: string, format: "txt" | "docx") =>
+    call<Written>("export_sefer", { slug, format }),
 };
 
 
@@ -566,6 +584,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // a browser has none. Saying so beats a fix that looks like it landed.
     case "fix":
     case "unfix":
+    case "export_sefer":
       throw new Error("תיקונים פועלים בחלון בלבד");
     case "fixes":
     case "suspects":

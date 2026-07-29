@@ -1091,6 +1091,79 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
     Ok(rows)
 }
 
+// ── Exporting a fixed sefer (spec.md §7.4, BUILDER.md W22) ──────────────────
+
+/// What came out, and where it went.
+#[derive(Serialize)]
+struct Written {
+    path: String,
+    segments: usize,
+    corrections: usize,
+    stale: usize,
+    noted: usize,
+    /// What to say: the file, and what is in it.
+    said: String,
+}
+
+/// Write a sefer out with your corrections in it.
+///
+/// Into your own layer, at `personal/exports/`, rather than through a save
+/// dialog: the file is the point and where it goes is not, and a reader who
+/// wants it somewhere else has a file manager. The path comes back so the
+/// window can say it.
+#[tauri::command]
+fn export_sefer(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    format: String,
+) -> Result<Written, String> {
+    let format = girsa_app::export::Format::named(&format)
+        .ok_or_else(|| format!("no such format: {format}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let showing = state.session.showing;
+    let personal = state
+        .shelf
+        .as_ref()
+        .ok_or_else(|| state.trouble())?
+        .personal()
+        .to_path_buf();
+
+    // The sefer as it is being read — corrections already applied, because
+    // that is what `Open` is (W20). Nothing is applied here.
+    let sefer = state.sefer(&slug)?;
+    let to = personal
+        .join("exports")
+        .join(girsa_app::export::suggested_name(sefer, format));
+    let fixes = state
+        .shelf
+        .as_ref()
+        .ok_or("there is no shelf here")?
+        .fixes();
+    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let done = girsa_app::export(sefer, fixes, format, nikud, &to).map_err(|e| e.to_string())?;
+    Ok(Written {
+        said: format!(
+            "{} · {} · {}",
+            done.path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            girsa_app::export::showing_said(showing),
+            match done.corrections {
+                0 => "בלי תיקונים".to_string(),
+                1 => "תיקון אחד".to_string(),
+                n => format!("{n} תיקונים"),
+            }
+        ),
+        path: done.path.display().to_string(),
+        segments: done.segments,
+        corrections: done.corrections,
+        stale: done.stale,
+        noted: done.noted,
+    })
+}
+
 // ── The OCR queue (spec.md §7.3, BUILDER.md W21) ────────────────────────────
 
 /// One candidate, as the queue shows it.
@@ -1819,6 +1892,7 @@ pub fn run() {
             suspects,
             suspect_at,
             suspect_decide,
+            export_sefer,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

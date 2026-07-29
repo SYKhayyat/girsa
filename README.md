@@ -47,7 +47,7 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and forty-four commands, and **nothing
+`app/` is the Tauri shell: a window and forty-five commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -1125,6 +1125,37 @@ while reading does. Ctrl+J opens the queue; *לא טעות* takes a candidate of
 A decision survives the batch job running again, which is the difference between
 a tool and a list: without that, the second run hands you the four thousand you
 have already dismissed, and you stop running it.
+
+### Exporting a fixed sefer, which did fall out for free
+
+spec.md §7.4 says base text + applied patches → a clean `.txt`/`.docx`, and that
+it falls out of §4.1 for nothing. It does: the text is already text, the
+corrections are already an overlay, and a sefer read through `Shelf::read` is
+already corrected — what was left was writing it down.
+
+What "clean" means: the words as the page shows them, the corpus's inline markup
+gone, nikud as you are reading it, headings still headings — and **a header
+saying what this is**. Which sefer, from where, which edition and licence, and:
+
+```
+משנה ברורה
+Mishnah Berurah
+מקור: sefaria
+הוחלו שני תיקונים · גרסה אחת שנרשמה ולא הוחלה · תיקון אחד שלא חל, משום שהטקסט שתוקן אינו שם עוד
+```
+
+That last clause is the reason the header exists. A corrected sefer that does
+not say it was corrected is a text somebody will quote as the printed edition,
+and **exporting is the moment a stale correction would otherwise vanish**: it
+was not applied, the file is fine, and nobody would ever hear about it.
+
+The `.docx` is written by hand — a zip and two XML parts, which `girsa-corpus`
+already opens from the other side to read a Word file you dropped on the window.
+The paragraphs carry `w:bidi` and the runs carry `w:rtl`, without which Word lays
+a Hebrew line out left to right; headings declare `w:pStyle`, which is exactly
+what the importer reads. So the test is a **round trip**: export the sefer,
+re-import the file with the same reader a dropped Word file goes through, and
+the corrected words and both headings come back.
 
 ### What corrections do not reach yet
 

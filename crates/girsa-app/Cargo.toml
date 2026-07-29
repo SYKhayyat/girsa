@@ -29,5 +29,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+# Exporting a corrected sefer (spec.md §7.4, W22). A .docx is a zip with an XML
+# part in it, and `girsa-corpus` already opens them to read a Word file you
+# dropped on the window; writing one is the same two files backwards. MIT, and
+# with its default features off.
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+
 [lints]
 workspace = true

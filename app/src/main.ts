@@ -227,6 +227,12 @@ function addControls(view: PaneView, id: PaneId): void {
     await api.setFollows(id, leader);
     await reload();
   });
+  // W22: base text + your patches → a file. On the pane, because what is
+  // written out is the sefer this pane is reading, corrections and all.
+  const save = button("ייצא", "כתוב את הספר לקובץ, עם התיקונים שלך", () => {
+    const pane = tab()?.panes.find((p) => p.id === id);
+    if (pane) void exportSefer(pane.slug);
+  });
   const close = button("סגור", "סגור את הטור (Ctrl+W)", async () => {
     await api.closePane(id);
     views.delete(id);
@@ -234,6 +240,7 @@ function addControls(view: PaneView, id: PaneId): void {
   });
   view.addControl(beside);
   view.addControl(unfollow);
+  view.addControl(save);
   view.addControl(close);
 }
 
@@ -512,6 +519,20 @@ async function revertFix(view: PaneView, at: string, patch: string): Promise<voi
     view.replaceLine(fixed.line);
     say(fixed.said, false);
     if (state) state.fixes = Math.max(0, state.fixes - 1);
+  } catch (e) {
+    say(String(e), true);
+  }
+}
+
+/** Write the sefer out with your corrections in it (spec.md §7.4). */
+async function exportSefer(slug: string): Promise<void> {
+  try {
+    const written = await api.exportSefer(slug, "docx");
+    // The path, because the file is the point and a reader has to be able to
+    // find it — and what did *not* land, because exporting is the moment
+    // somebody would otherwise never hear about a stale correction.
+    const trouble = written.stale > 0 ? ` · ${written.stale} תיקונים לא חלו` : "";
+    say(`נכתב — ${written.said}${trouble} · ${written.path}`, written.stale > 0);
   } catch (e) {
     say(String(e), true);
   }
