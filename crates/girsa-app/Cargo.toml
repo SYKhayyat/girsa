@@ -13,6 +13,11 @@ girsa-corpus.workspace = true
 girsa-ref.workspace = true
 girsa-hebrew.workspace = true
 girsa-link.workspace = true
+# Corrections are an overlay and never an edit (spec.md §7, W20). The reading
+# pane applies them the moment a sefer is opened, so everything downstream —
+# the page, a quote, a citation regenerated from a ref — is the sefer as you
+# have it.
+girsa-fix.workspace = true
 # The Ksav loop (spec.md §10). The packet is the contract and the formatter is
 # the one both applications compile — neither is reimplemented here.
 girsa-cite.workspace = true

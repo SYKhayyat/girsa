@@ -46,6 +46,207 @@ pub struct Run {
     pub style: Style,
 }
 
+/// The text as the pane drew it, and where every character of it came from.
+///
+/// # Why this exists
+///
+/// A reader highlights four letters and asks for them to be corrected. The
+/// window counts that highlight in **characters of the text it drew** — markup
+/// already off, nikud already applied — and a patch has to name characters of
+/// the segment **as it stands on disk**, because that is the only text that is
+/// still there tomorrow (W20). The two disagree by however much markup and
+/// however many nikud points are in the line, which in Berakhot is most of it.
+///
+/// So the scan that takes the markup off records what it took, and this is that
+/// record. Nothing else in the project may work the offset out by arithmetic.
+#[derive(Debug, Clone)]
+pub struct Shown {
+    text: String,
+    /// Per character of `text`, the half-open span of base characters it came
+    /// from. An entity is several base characters and one shown one.
+    from: Vec<(usize, usize)>,
+}
+
+impl Shown {
+    /// Draw a segment the way the pane draws it.
+    #[must_use]
+    pub fn of(text: &str, nikud: bool) -> Self {
+        let mut shown = String::new();
+        let mut from = Vec::new();
+        for bit in bits(text) {
+            let Bit::Letter { ch, at, len, .. } = bit else {
+                continue;
+            };
+            if !nikud && girsa_hebrew::is_mark(ch) {
+                continue;
+            }
+            shown.push(ch);
+            from.push((at, at + len));
+        }
+        Self { text: shown, from }
+    }
+
+    /// The words, as drawn.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// How many characters the reader is looking at.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.from.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.from.is_empty()
+    }
+
+    /// The span of the segment on disk that a highlight names.
+    ///
+    /// `None` when the highlight is empty or off the end — never a nearby span:
+    /// a correction that lands on letters the reader did not select is the
+    /// failure this whole module exists to prevent.
+    ///
+    /// A highlight that runs across markup gives a span **containing** that
+    /// markup, which is the honest answer: the reader is asking for those words
+    /// to read differently, and the tags are between them.
+    #[must_use]
+    pub fn base_span(&self, from_char: usize, to_char: usize) -> Option<std::ops::Range<usize>> {
+        let to = to_char.min(self.from.len());
+        if from_char >= to {
+            return None;
+        }
+        let start = self.from.get(from_char)?.0;
+        let end = self.from.get(to - 1)?.1;
+        (start < end).then_some(start..end)
+    }
+}
+
+/// One character of the drawn text, or a line break, and where it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bit {
+    Letter {
+        ch: char,
+        style: Style,
+        /// Where in the base text, counted in characters.
+        at: usize,
+        /// How many base characters it took — one, or the length of an entity.
+        len: usize,
+    },
+    Break,
+}
+
+/// The one scan of a segment's markup.
+///
+/// [`runs`] groups these by style to draw a line; [`Shown`] keeps their
+/// positions so a highlight can be turned back into a span of the file. Two
+/// implementations of *what this markup says* is how a correction ends up four
+/// letters to the left of the typo it was made on.
+fn bits(text: &str) -> Vec<Bit> {
+    let letters: Vec<char> = text.chars().collect();
+    let mut out = Vec::with_capacity(letters.len());
+    let mut style = Style::Plain;
+    let mut depth = 0usize;
+    let mut i = 0usize;
+
+    let plain = |out: &mut Vec<Bit>, letters: &[char], from: usize, style| {
+        for (n, ch) in letters.iter().skip(from).enumerate() {
+            out.push(Bit::Letter {
+                ch: *ch,
+                style,
+                at: from + n,
+                len: 1,
+            });
+        }
+    };
+
+    while i < letters.len() {
+        let ch = letters[i];
+        if ch == '<' {
+            let Some(end) = (i..letters.len()).find(|j| letters[*j] == '>') else {
+                // An unclosed `<` is a `<`, not the start of markup.
+                plain(&mut out, &letters, i, style);
+                break;
+            };
+            let tag: String = letters[i + 1..end].iter().collect();
+            i = end + 1;
+
+            let closing = tag.starts_with('/');
+            let name = tag
+                .trim_start_matches('/')
+                .split([' ', '\t', '\n'])
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if name == "br" {
+                out.push(Bit::Break);
+                continue;
+            }
+            let Some(marks) = style_of(&name) else {
+                // Not one of ours. The tag goes, the words stay.
+                continue;
+            };
+            if closing {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    style = Style::Plain;
+                }
+            } else {
+                if depth == 0 {
+                    style = marks;
+                }
+                depth += 1;
+            }
+            continue;
+        }
+        if ch == '&' {
+            if let Some((decoded, len)) = entity_at(&letters, i) {
+                out.push(Bit::Letter {
+                    ch: decoded,
+                    style,
+                    at: i,
+                    len,
+                });
+                i += len;
+                continue;
+            }
+        }
+        out.push(Bit::Letter {
+            ch,
+            style,
+            at: i,
+            len: 1,
+        });
+        i += 1;
+    }
+    out
+}
+
+/// The two entities the corpus actually uses, and the three every HTML-ish
+/// string carries.
+fn entity_at(letters: &[char], at: usize) -> Option<(char, usize)> {
+    const ENTITIES: [(&str, char); 6] = [
+        ("&nbsp;", '\u{00A0}'),
+        ("&thinsp;", '\u{2009}'),
+        ("&quot;", '"'),
+        ("&lt;", '<'),
+        ("&gt;", '>'),
+        ("&amp;", '&'),
+    ];
+    for (spelling, decoded) in ENTITIES {
+        let len = spelling.chars().count();
+        if letters
+            .get(at..at + len)
+            .is_some_and(|found| found.iter().copied().eq(spelling.chars()))
+        {
+            return Some((decoded, len));
+        }
+    }
+    None
+}
+
 /// Split a segment into runs, reading the markup the corpus carries.
 ///
 /// # Why this is not a matter of taste
@@ -70,72 +271,21 @@ pub struct Run {
 #[must_use]
 pub fn runs(text: &str) -> Vec<Run> {
     let mut out: Vec<Run> = Vec::new();
-    let mut style = Style::Plain;
-    let mut depth = 0usize;
-    let mut buffer = String::new();
-    let mut rest = text;
-
-    let flush = |buffer: &mut String, style: Style, out: &mut Vec<Run>| {
-        if buffer.is_empty() {
-            return;
-        }
-        match out.last_mut() {
-            Some(last) if last.style == style => last.text.push_str(buffer),
-            _ => out.push(Run {
-                text: std::mem::take(buffer),
-                style,
-            }),
-        }
-        buffer.clear();
-    };
-
-    while let Some(at) = rest.find('<') {
-        buffer.push_str(&entities(&rest[..at]));
-        let Some(end) = rest[at..].find('>') else {
-            // An unclosed `<` is a `<`, not the start of markup.
-            buffer.push_str(&entities(&rest[at..]));
-            rest = "";
-            break;
-        };
-        let tag = &rest[at + 1..at + end];
-        rest = &rest[at + end + 1..];
-
-        let closing = tag.starts_with('/');
-        let name = tag
-            .trim_start_matches('/')
-            .split([' ', '\t', '\n'])
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase();
-
-        if name == "br" {
-            flush(&mut buffer, style, &mut out);
-            out.push(Run {
+    for bit in bits(text) {
+        match bit {
+            Bit::Letter { ch, style, .. } => match out.last_mut() {
+                Some(last) if last.style == style => last.text.push(ch),
+                _ => out.push(Run {
+                    text: ch.to_string(),
+                    style,
+                }),
+            },
+            Bit::Break => out.push(Run {
                 text: String::new(),
                 style: Style::Break,
-            });
-            continue;
-        }
-        let Some(marks) = style_of(&name) else {
-            // Not one of ours. The tag goes, the words stay.
-            continue;
-        };
-        if closing {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                flush(&mut buffer, style, &mut out);
-                style = Style::Plain;
-            }
-        } else {
-            if depth == 0 {
-                flush(&mut buffer, style, &mut out);
-                style = marks;
-            }
-            depth += 1;
+            }),
         }
     }
-    buffer.push_str(&entities(rest));
-    flush(&mut buffer, style, &mut out);
     out
 }
 
@@ -145,20 +295,6 @@ fn style_of(name: &str) -> Option<Style> {
         "i" | "em" | "small" | "sup" => Some(Style::Quiet),
         _ => None,
     }
-}
-
-/// The two entities the corpus actually uses, and the three every HTML-ish
-/// string carries.
-fn entities(text: &str) -> String {
-    if !text.contains('&') {
-        return text.to_string();
-    }
-    text.replace("&nbsp;", "\u{00A0}")
-        .replace("&thinsp;", "\u{2009}")
-        .replace("&quot;", "\"")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
 }
 
 /// The words of a segment with the markup taken out, for anything that wants
@@ -198,6 +334,9 @@ pub fn era_said(code: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    // A panic in a test is a failure report. The workspace denies these in
+    // library code, where a panic would take the reader's window with it.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]
@@ -318,6 +457,92 @@ mod tests {
     fn plain_text_comes_through_as_one_run() {
         assert_eq!(shown("בראשית ברא"), [("plain", "בראשית ברא".to_string())]);
         assert!(runs("").is_empty());
+    }
+
+    #[test]
+    fn what_was_drawn_is_what_the_pane_would_have_drawn() {
+        // The two consumers of the scan have to agree, or a correction lands
+        // beside the word it was made on. They agree by construction — `runs`
+        // and `Shown` are the same scan — and this is the assertion that keeps
+        // it that way if one of them is ever rewritten.
+        for line in [
+            "<big><strong>מאימתי</strong></big> קורין את שמע",
+            "<b>משעה שהכהנים נכנסים</b> – כהנים שנטמאו",
+            "בראשית <span class=\"mam-spi-pe\">פ</span> ברא",
+            "ראשון<br>שני",
+            "א&nbsp;ב&thinsp;ג &amp; ד",
+            "שווה < משהו",
+            "בְּרֵאשִׁית בָּרָא",
+            "",
+        ] {
+            for nikud in [true, false] {
+                let drawn = plain(line);
+                let drawn = if nikud { drawn } else { without_marks(&drawn) };
+                assert_eq!(
+                    Shown::of(line, nikud).text(),
+                    drawn,
+                    "{line} · nikud {nikud}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_highlight_names_the_letters_it_covers_in_the_file() {
+        // The reader has nikud off and is looking at `ובשבת`. The file has
+        // `<b>וּבַשַּׁבָּת</b>` — thirteen characters where the reader sees five, plus
+        // three of markup in front. Counting is not going to work; the scan
+        // has to say.
+        let base = "<b>וּבַשַּׁבָּת</b> הזה";
+        let shown = Shown::of(base, false);
+        assert_eq!(shown.text(), "ובשבת הזה");
+        let span = shown.base_span(0, 5).expect("a span");
+        let letters: Vec<char> = base.chars().collect();
+        let covered: String = letters[span.clone()].iter().collect();
+        assert_eq!(
+            covered, "וּבַשַּׁבָּת",
+            "the pointed word, and not the tags around it"
+        );
+
+        // And the word after it, which is where an off-by-the-nikud would show.
+        let span = shown.base_span(6, 9).expect("a span");
+        assert_eq!(letters[span].iter().collect::<String>(), "הזה");
+    }
+
+    #[test]
+    fn a_highlight_across_markup_covers_the_markup_between_the_words() {
+        // The honest answer: the reader is asking for those words to read
+        // differently, and the tags are in between them. A correction made
+        // here replaces the lot, which is visible in what it says it will do.
+        let base = "א<b>ב</b>ג";
+        let shown = Shown::of(base, true);
+        assert_eq!(shown.text(), "אבג");
+        assert_eq!(shown.base_span(0, 3), Some(0..base.chars().count()));
+        assert_eq!(
+            shown.base_span(1, 2),
+            Some(4..5),
+            "just the ב, inside its tag"
+        );
+    }
+
+    #[test]
+    fn a_highlight_of_nothing_is_not_a_span() {
+        let shown = Shown::of("אבג", true);
+        assert_eq!(shown.base_span(1, 1), None);
+        assert_eq!(shown.base_span(3, 9), None);
+        assert_eq!(
+            shown.base_span(0, 99),
+            Some(0..3),
+            "past the end is the end"
+        );
+        assert!(Shown::of("", true).is_empty());
+    }
+
+    #[test]
+    fn an_entity_is_one_character_to_the_reader_and_six_in_the_file() {
+        let shown = Shown::of("א&nbsp;ב", true);
+        assert_eq!(shown.len(), 3);
+        assert_eq!(shown.base_span(1, 2), Some(1..7));
     }
 
     #[test]

@@ -79,6 +79,10 @@ fn main() -> std::process::ExitCode {
         "positions": {},
         "works": shelf.works().len(),
         "trouble": serde_json::Value::Null,
+        // Corrections are the shell's — they are written into your own layer,
+        // and a page reading static files has none (W20).
+        "showing": "fixed",
+        "fixes": 0,
     });
     write(&out.join("state.json"), &state);
 

@@ -40,13 +40,14 @@ file in the app's data directory.
 | `girsa-corpus` | Storage, ingest, schemas, permanent segment IDs |
 | `girsa-search` | tantivy indices, the five modes, the ladder, the chips and the facets |
 | `girsa-link` | The typed link graph, repair, later mining |
+| `girsa-fix` | Corrections as an overlay: patches on permanent ids, never edits to the text |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
 
 plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and thirty-seven commands, and **nothing
+`app/` is the Tauri shell: a window and forty-one commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -981,6 +982,108 @@ it is found to be.
 What comes back is wrapped as `#מקור_חי(מקור: "girsa:…")[…]`: the words print
 exactly as they were typed, the ref rides underneath, and in a compiled PDF the
 citation is a **link that opens the page it names**.
+
+## Corrections
+
+### Never the text, and it is measurable what that buys
+
+spec.md §7.1 and decision 8: a correction is a **patch** — a permanent segment
+id, a span of characters, what was printed there, what it should read, who says
+so and when — kept in your own layer at `personal/corrections.jsonl`. The
+shipped corpus is never written to.
+
+The argument for that is usually made in a paragraph. Here it is four tests,
+each run twice: once against the overlay, once against the obvious alternative,
+which is to open the file and fix the word.
+
+| | overlay | fixing the file |
+|---|---|---|
+| show as printed | the printed words are still there | gone, and nothing knows they existed |
+| take it back | one line removed | you would have to remember what it said |
+| survive `girsa-import` running again | untouched | overwritten, silently |
+| hand your corrections to somebody | a file of lines | a 3 GB corpus |
+
+`crates/girsa-fix/tests/a_correction_is_not_an_edit.rs` is that table. The
+in-place version is nine lines of the same test file and it is correct as
+written; what it cannot do is any of the four.
+
+### The three seconds are measured, not hoped for
+
+spec.md §7.5 says that if correcting a typo is not a three-second interaction
+from where you are reading, nobody does it. `crates/girsa-app/tests/three_seconds.rs`
+measures the machine's share of that on a sefer the size of Mishnah Berurah —
+18,120 segments — from opening the shelf to the corrected words being back on
+the page, re-reading the whole sefer twice on the way:
+
+```
+18120 segments, no corrections yet:        75 ms
+18120 segments, 1000 corrections already: 217 ms
+```
+
+The second number is the one worth having. An overlay that is fast when it is
+empty and quadratic when it is not fails a year in, when nobody is looking.
+
+In the window it is: highlight the word, **Ctrl+K**, the box opens on the word
+with the word already in it, type it right, Enter. No dialog, no navigation, and
+the line is redrawn where it stands rather than the sefer being rebuilt under
+the reader.
+
+### An offset is not a place, so a patch carries the words too
+
+A patch stores the span **and** what was printed in it. That looks redundant and
+it is the whole verification: an offset says *where* and the words say *what*,
+and when upstream re-types the line they stop agreeing. Then:
+
+- the words are still there **exactly once** → the correction is re-anchored to
+  them and says that it moved;
+- they are there twice, or not at all → nothing is applied, and the patch is
+  reported stale.
+
+Never applied by offset alone. A correction that lands on letters nobody pointed
+at is BUILDER.md rule 6 in the place a reader would never think to check.
+
+### Two coordinate systems, and neither of them is the file
+
+The window counts a highlight in characters of **what it drew** — markup off,
+nikud applied, corrections already in place. A patch names characters of the
+segment on disk. In Berakhot those differ by most of the line.
+
+So `girsa_app::display::Shown` records what the markup scan took out, and
+`girsa_fix::Corrected::base_span` records what the corrections put in. The scan
+that draws a line and the scan that maps a highlight back to the file are now
+**one function** — `runs()` is built on it, and its existing tests are what
+proves the two agree.
+
+A highlight that runs across a correction already there has no answer in the
+file, so it is refused with what that correction says, rather than the system
+inventing a base text.
+
+### A typo and a girsa variant are one mechanism and two claims
+
+spec.md §7.2. The `kind` field distinguishes them, and it is what the reader
+sees:
+
+| | applied to the words | marked |
+|---|---|---|
+| `ocr` — the scanner misread a letter | yes | `✓` |
+| `girsa` — somebody reads it differently | **no**, noted beside them | `≠` |
+
+Silently replacing the text you are learning with somebody's emendation is a
+claim made on your behalf, so *show corrected* (the default) repairs scanning
+errors and only notes variants. **Ctrl+Shift+K** rounds the three settings —
+corrected, as printed, with variants — and it is remembered like the nikud
+toggle. A variant carries the ref of the sefer that says it, which is the
+`emends` edge of spec.md §8.2 written from the other end.
+
+### What corrections do not reach yet
+
+**The search index is built from the printed text.** A typo you fixed this
+morning is still findable by its typo and not yet by its correction, because
+`girsa-index` reads the corpus and knows nothing about your layer. The reading
+pane, a quote copied to Ksav and a citation regenerated from a ref all show the
+corrected words; a search result shows what was scanned. Rebuilding the index
+per correction is not the answer and neither is a second index — this wants the
+overlay taught to the indexer, and it is not built.
 
 ### What has not been checked
 

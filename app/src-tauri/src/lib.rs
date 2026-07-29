@@ -94,6 +94,20 @@ impl State {
         self.open.get(slug).ok_or_else(|| "not open".to_string())
     }
 
+    /// Forget a sefer we are holding, so the next read of it picks up a
+    /// correction. Cheaper than it looks — it is one work, and the reader is
+    /// standing in it.
+    fn reread(&mut self, slug: &str) {
+        self.open.remove(slug);
+        self.order.retain(|held| held != slug);
+    }
+
+    /// Forget all of them, which is what *show as printed* costs.
+    fn reread_everything(&mut self) {
+        self.open.clear();
+        self.order.clear();
+    }
+
     fn trouble(&self) -> String {
         self.trouble
             .clone()
@@ -175,6 +189,76 @@ struct Line {
     /// The words, split by how they are set. Not a string of HTML: see
     /// [`display::runs`].
     runs: Vec<display::Run>,
+    /// The corrections on this line (W20). Empty on all but a handful of lines
+    /// in a library, so it costs nothing to send.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fixed: Vec<FixMark>,
+    /// What the line says on disk, where a correction changed it. The reader
+    /// can see what was printed without turning the whole sefer back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    printed: Option<String>,
+}
+
+/// One correction, as the page shows it.
+#[derive(Serialize)]
+struct FixMark {
+    id: String,
+    /// `ocr` or `girsa` — a repair or a claim (spec.md §7.2).
+    kind: &'static str,
+    was: String,
+    now: String,
+    who: String,
+    /// Whether it is in the words on the page, or only noted beside them.
+    applied: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+}
+
+impl FixMark {
+    fn of(applied: &girsa_fix::Applied, is_applied: bool) -> Self {
+        Self {
+            id: applied.id.to_string(),
+            kind: applied.kind.as_str(),
+            was: applied.was.clone(),
+            now: applied.now.clone(),
+            who: applied.who.clone(),
+            applied: is_applied,
+            source: applied.source.clone(),
+            note: applied.note.clone(),
+        }
+    }
+}
+
+/// One line, drawn — corrections and all.
+///
+/// The one place a line is built, because a line built two ways is a line that
+/// is corrected in the pane and printed in the search result.
+fn line_of(sefer: &Open, segment: &girsa_corpus::import::Segment, nikud: bool) -> Line {
+    let corrected = sefer.correction(&segment.id);
+    Line {
+        id: segment.id.to_string(),
+        address: segment.id.path().join(":"),
+        kind: segment.kind.as_str(),
+        runs: display::runs(&if nikud {
+            segment.text.clone()
+        } else {
+            display::without_marks(&segment.text)
+        }),
+        fixed: corrected.map_or_else(Vec::new, |c| {
+            c.applied
+                .iter()
+                .map(|a| FixMark::of(a, true))
+                .chain(c.noted.iter().map(|a| FixMark::of(a, false)))
+                .collect()
+        }),
+        printed: corrected.map(|_| {
+            display::Shown::of(sefer.as_printed(&segment.id), nikud)
+                .text()
+                .to_string()
+        }),
+    }
 }
 
 /// A sefer opened into a pane.
@@ -209,6 +293,8 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> 
         "trouble": state.trouble,
         "cite": state.session.cite,
         "pairing": state.no_post,
+        "showing": state.session.showing,
+        "fixes": state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
     }))
 }
 
@@ -824,19 +910,183 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         lines: sefer
             .segments
             .iter()
-            .map(|s| Line {
-                id: s.id.to_string(),
-                address: s.id.path().join(":"),
-                kind: s.kind.as_str(),
-                runs: display::runs(&if nikud {
-                    s.text.clone()
-                } else {
-                    display::without_marks(&s.text)
-                }),
-            })
+            .map(|s| line_of(sefer, s, nikud))
             .collect(),
         has_nikud,
     })
+}
+
+// ── Corrections (spec.md §7, BUILDER.md W20) ────────────────────────────────
+
+/// A correction, and the line it landed on.
+#[derive(Serialize)]
+struct Fixed {
+    line: Line,
+    /// What to say: the words, and what they now read.
+    said: String,
+}
+
+/// Correct a typo from where you are reading (spec.md §7.5).
+///
+/// The offsets are the ones the pane reports for a highlight — the same call
+/// Ctrl+C makes — so there is nothing for the reader to look up and nothing to
+/// navigate to. What comes back is the one line, redrawn, so the window does
+/// not rebuild the sefer around them while they are reading it.
+#[tauri::command]
+fn fix(
+    shared: tauri::State<'_, Shared>,
+    at: String,
+    from_char: usize,
+    to_char: usize,
+    now: String,
+    kind: String,
+    note: Option<String>,
+) -> Result<Fixed, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let kind = girsa_fix::Kind::named(&kind).ok_or_else(|| format!("no such kind: {kind}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let slug = at.work().to_string();
+
+    let patch = {
+        let sefer = state.sefer(&slug)?;
+        let mut patch =
+            girsa_app::correction(sefer, &at, from_char..to_char, &now, kind, &who(), nikud)
+                .map_err(|e| e.to_string())?;
+        if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
+            patch = patch.with_note(note);
+        }
+        patch
+    };
+    let was = patch.was.clone();
+
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    shelf.fix(patch).map_err(|e| e.to_string())?;
+    state.reread(&slug);
+
+    let sefer = state.sefer(&slug)?;
+    let position = sefer
+        .position_of(&at)
+        .ok_or_else(|| format!("{at} is not in this sefer"))?;
+    let segment = sefer
+        .segments
+        .get(position)
+        .ok_or_else(|| format!("{at} is not in this sefer"))?;
+    Ok(Fixed {
+        line: line_of(sefer, segment, nikud),
+        said: format!("{was} → {now}"),
+    })
+}
+
+/// Take a correction back.
+#[tauri::command]
+fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<Fixed, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let slug = at.work().to_string();
+
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let gone = shelf
+        .unfix(&girsa_fix::PatchId::from(patch))
+        .map_err(|e| e.to_string())?;
+    if !gone {
+        return Err("there is no such correction".to_string());
+    }
+    state.reread(&slug);
+
+    let sefer = state.sefer(&slug)?;
+    let position = sefer
+        .position_of(&at)
+        .ok_or_else(|| format!("{at} is not in this sefer"))?;
+    let segment = sefer
+        .segments
+        .get(position)
+        .ok_or_else(|| format!("{at} is not in this sefer"))?;
+    Ok(Fixed {
+        line: line_of(sefer, segment, nikud),
+        said: "הוחזר כפי שנדפס".to_string(),
+    })
+}
+
+/// *Show as printed / show corrected* (spec.md §7.1).
+///
+/// Three states rather than two, because a scanning error and an emendation are
+/// different claims — see [`girsa_fix::Showing`]. Everything open is re-read,
+/// which the window does by drawing again.
+#[tauri::command]
+fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), String> {
+    let showing =
+        girsa_fix::Showing::named(&showing).ok_or_else(|| format!("no such setting: {showing}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.session.showing = showing;
+    let trouble = state.trouble();
+    state.shelf.as_mut().ok_or(trouble)?.set_showing(showing);
+    state.reread_everything();
+    state.save();
+    Ok(())
+}
+
+/// Your corrections — all of them, or one sefer's.
+#[derive(Serialize)]
+struct PatchRow {
+    id: String,
+    segment: String,
+    work: String,
+    he_title: String,
+    address: String,
+    kind: &'static str,
+    was: String,
+    now: String,
+    who: String,
+    when: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
+#[tauri::command]
+fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<PatchRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let mut rows: Vec<PatchRow> = shelf
+        .fixes()
+        .all()
+        .filter(|p| slug.as_ref().is_none_or(|s| p.segment.work() == s))
+        .map(|p| PatchRow {
+            id: p.id.to_string(),
+            segment: p.segment.to_string(),
+            work: p.segment.work().to_string(),
+            he_title: shelf
+                .work(p.segment.work())
+                .map_or_else(|| p.segment.work().to_string(), |w| w.he_title.clone()),
+            address: p.segment.path().join(":"),
+            kind: p.kind.as_str(),
+            was: p.was.clone(),
+            now: p.now.clone(),
+            who: p.who.clone(),
+            when: p.when,
+            note: p.note.clone(),
+            source: p.source.clone(),
+        })
+        .collect();
+    // Newest first: a correction queue is read from the top.
+    rows.sort_by_key(|row| std::cmp::Reverse(row.when));
+    Ok(rows)
+}
+
+/// Whose correction this is, for the provenance a patch carries.
+///
+/// The machine's idea of who is sitting at it. There is no account and no
+/// registry (spec.md §11); this is a name on a line in your own file, and it is
+/// what makes a patch file handed to somebody else say where it came from.
+fn who() -> String {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "me".to_string())
 }
 
 // ── The Ksav loop (spec.md §10, BUILDER.md W15) ─────────────────────────────
@@ -1298,8 +1548,11 @@ pub fn run() {
                 Ok(root) => match Shelf::open(&root, &personal) {
                     // An unreadable arrangement is the shelf's own trouble to
                     // report, and it is not a reason to open no shelf.
-                    Ok(shelf) => {
+                    Ok(mut shelf) => {
                         let trouble = shelf.trouble().map(ToString::to_string);
+                        // How much of the correction layer to apply, as it was
+                        // left last time (W20).
+                        shelf.set_showing(session.showing);
                         (Some(shelf), trouble)
                     }
                     Err(e) => (None, Some(e.to_string())),
@@ -1397,6 +1650,10 @@ pub fn run() {
             buffer_to_ksav,
             who_cites,
             linkify,
+            fix,
+            unfix,
+            set_showing,
+            fixes,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

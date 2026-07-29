@@ -53,12 +53,56 @@ export interface Run {
   style: "plain" | "opening" | "quiet" | "break";
 }
 
+/** One correction on a line, as the page shows it (spec.md §7, W20). */
+export interface FixMark {
+  id: string;
+  /** A repair or a claim: a scanning error, or somebody's emendation. */
+  kind: "ocr" | "girsa";
+  was: string;
+  now: string;
+  who: string;
+  /** Whether it is in the words on the page, or noted beside them. */
+  applied: boolean;
+  source?: string;
+  note?: string;
+}
+
 export interface Line {
   id: string;
   address: string;
   kind: "heading" | "text";
   runs: Run[];
+  /** The corrections on this line. Absent on nearly every line there is. */
+  fixed?: FixMark[];
+  /** What the line says on disk, where a correction changed it. */
+  printed?: string;
 }
+
+/** A correction, and the line it landed on — redrawn, so the window replaces
+ * one line rather than rebuilding the sefer under the reader. */
+export interface Fixed {
+  line: Line;
+  said: string;
+}
+
+/** One of your corrections, as the list shows it. */
+export interface PatchRow {
+  id: string;
+  segment: string;
+  work: string;
+  he_title: string;
+  address: string;
+  kind: "ocr" | "girsa";
+  was: string;
+  now: string;
+  who: string;
+  when: number;
+  note?: string;
+  source?: string;
+}
+
+/** How much of the correction layer is applied to what you read. */
+export type Showing = "as_printed" | "fixed" | "fixed_with_variants";
 
 export interface Text {
   work: Card;
@@ -157,6 +201,9 @@ export interface AppState {
   positions: Record<string, string>;
   works: number;
   trouble: string | null;
+  showing: Showing;
+  /** How many corrections you have made. */
+  fixes: number;
 }
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -252,6 +299,23 @@ export const api = {
    * presence says it would land. */
   sendToKsav: (from: string, to: string, fromChar: number, toChar: number | null, note?: string) =>
     call<Copied>("send_to_ksav", { from, to, fromChar, toChar, note: note ?? null }),
+
+  // --- corrections (W20) --------------------------------------------------
+  //
+  // The same offsets a copy uses, because it is the same highlight. Nothing
+  // here writes into the corpus: a correction is a patch in your own layer,
+  // and `unfix` takes it back (spec.md §7.1).
+  fix: (
+    at: string,
+    fromChar: number,
+    toChar: number,
+    now: string,
+    kind: "ocr" | "girsa",
+    note?: string,
+  ) => call<Fixed>("fix", { at, fromChar, toChar, now, kind, note: note ?? null }),
+  unfix: (at: string, patch: string) => call<Fixed>("unfix", { at, patch }),
+  setShowing: (showing: Showing) => call<void>("set_showing", { showing }),
+  fixes: (slug?: string) => call<PatchRow[]>("fixes", { slug: slug ?? null }),
 };
 
 
@@ -382,12 +446,14 @@ async function json<T>(path: string): Promise<T> {
 
 async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!fixtureState) {
-    fixtureState = await json<AppState>("/dev/state.json").catch(() => ({
+    fixtureState = await json<AppState>("/dev/state.json").catch((): AppState => ({
       workspace: { tabs: [], active: 0 },
       nikud: true,
       text_size: 100,
       positions: {},
       works: 0,
+      showing: "fixed",
+      fixes: 0,
       trouble:
         "running in a browser with no fixtures — build them with " +
         "`cargo run -p girsa-app --example dev-fixtures`",
@@ -453,6 +519,13 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         },
       } as T;
     case "buffers":
+      return [] as T;
+    // Corrections are the shell's: they are written into your own layer, and
+    // a browser has none. Saying so beats a fix that looks like it landed.
+    case "fix":
+    case "unfix":
+      throw new Error("תיקונים פועלים בחלון בלבד");
+    case "fixes":
       return [] as T;
     case "buffer_open":
       return {

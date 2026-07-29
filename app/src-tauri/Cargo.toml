@@ -24,6 +24,9 @@ serde_json = "1"
 # window is in there, where it can be tested without a webview.
 girsa-app = { path = "../../crates/girsa-app" }
 girsa-corpus = { path = "../../crates/girsa-corpus" }
+# Corrections: an overlay of patches on permanent ids, never an edit to the
+# shipped text (spec.md §7). The window shows what it says and decides nothing.
+girsa-fix = { path = "../../crates/girsa-fix" }
 # The search bar: five modes, three chips, five facets (spec.md §9). The window
 # draws what this crate decides and decides nothing itself.
 girsa-search = { path = "../../crates/girsa-search" }

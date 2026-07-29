@@ -1,0 +1,21 @@
+[package]
+name = "girsa-fix"
+description = "Corrections as an overlay — patches on permanent ids, never edits to the text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+girsa-corpus.workspace = true
+# The OCR queue is a question about words, and what a word is belongs to one
+# crate (W2). Nothing here splits Hebrew by hand.
+girsa-hebrew.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

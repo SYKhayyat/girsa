@@ -17,8 +17,10 @@ import {
   type Landing,
   type PaneId,
   type Presence,
+  type Showing,
   type Tab,
 } from "./api.ts";
+import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
 import { PaneView } from "./pane.ts";
 import { Picker } from "./picker.ts";
@@ -31,6 +33,7 @@ const picker = new Picker();
 const shelf = new ShelfView();
 const find = new SearchView();
 const writing = new WritingView();
+const fixbox = new FixBox();
 const views = new Map<PaneId, PaneView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
@@ -46,7 +49,7 @@ function titleOf(slug: string): string {
 async function main(): Promise<void> {
   if (!root) return;
   await connect();
-  root.append(picker.element, shelf.element, find.element, writing.element);
+  root.append(picker.element, shelf.element, find.element, writing.element, fixbox.element);
   // The drawer asks the window for a source, because which pane is focused is
   // the window's business and not the drawer's.
   writing.onSourceWanted(sourceForBuffer);
@@ -135,7 +138,7 @@ async function draw(): Promise<void> {
   const open = tab();
   if (!open) {
     chrome.append(nothingOpen());
-    root.replaceChildren(chrome, picker.element, shelf.element, find.element);
+    root.replaceChildren(chrome, picker.element, shelf.element, find.element, fixbox.element);
     return;
   }
 
@@ -144,7 +147,7 @@ async function draw(): Promise<void> {
   });
   boxes.classList.add("panes");
   chrome.append(boxes);
-  root.replaceChildren(chrome, picker.element, shelf.element, find.element);
+  root.replaceChildren(chrome, picker.element, shelf.element, find.element, fixbox.element);
 
   // Panes that are no longer open go, and the ones that stayed keep their
   // scroll position rather than being rebuilt underneath the reader.
@@ -286,6 +289,12 @@ function toolBar(): HTMLElement {
   });
   nikud.classList.add("tool-wide");
 
+  const showing = button(showingSaid(state?.showing ?? "fixed"), showingWhy(), () => {
+    void nextShowing();
+  });
+  showing.classList.add("tool-wide");
+  if ((state?.fixes ?? 0) === 0) showing.classList.add("is-quiet");
+
   const smaller = button("א−", "Ctrl+-", () => resize(-10));
   const bigger = button("א+", "Ctrl+=", () => resize(10));
 
@@ -299,7 +308,7 @@ function toolBar(): HTMLElement {
     if (!isShell()) where.textContent += " · דפדפן, נתוני דוגמה";
   }
 
-  bar.append(nikud, smaller, bigger, where);
+  bar.append(nikud, showing, smaller, bigger, where);
 
   // Presence (spec.md §10.6): the affordance is never offered when it would
   // fail. Live, it is a button; not live, it is a word saying which of the two
@@ -322,6 +331,113 @@ function toolBar(): HTMLElement {
   return bar;
 }
 
+/** What the three settings are called, and what each one promises. */
+function showingSaid(showing: Showing): string {
+  if (showing === "as_printed") return "כפי שנדפס";
+  if (showing === "fixed_with_variants") return "עם גרסאות";
+  return "מתוקן";
+}
+
+function showingWhy(): string {
+  return (
+    "מתוקן — טעויות דפוס מתוקנות, גרסאות נרשמות בלבד · " +
+    "כפי שנדפס — הטקסט המקורי · עם גרסאות — גם ההגהות מוחלות (Ctrl+Shift+K)"
+  );
+}
+
+/** Round the three states (spec.md §7.1, §7.2). Everything open is redrawn,
+ * because the words themselves changed. */
+async function nextShowing(): Promise<void> {
+  if (!state) return;
+  const order: Showing[] = ["fixed", "as_printed", "fixed_with_variants"];
+  const next = order[(order.indexOf(state.showing) + 1) % order.length];
+  await api.setShowing(next);
+  views.clear();
+  await reload();
+  say(showingSaid(next), false);
+}
+
+/**
+ * Correct a typo, from where you are reading (spec.md §7.5, W20).
+ *
+ * With something highlighted, that is what is corrected. With nothing
+ * highlighted, the box opens on the line the reader is standing on, showing
+ * what is already there — which is how a correction is taken back.
+ */
+function correct(): void {
+  const open = tab();
+  if (!open) return;
+  const view = views.get(open.focused);
+  if (!view) return;
+  if (fixbox.isOpen) {
+    fixbox.close();
+    return;
+  }
+
+  const chosen = view.fixSelection();
+  const where = window.getSelection();
+  const near =
+    where && where.rangeCount > 0 && !where.isCollapsed
+      ? where.getRangeAt(0).getBoundingClientRect()
+      : null;
+
+  if (chosen) {
+    fixbox.show(chosen, near, {
+      save: (now, kind) => applyFix(view, chosen.at, chosen.fromChar, chosen.toChar, now, kind),
+      revert: (patch) => revertFix(view, chosen.at, patch),
+    });
+    return;
+  }
+
+  // Nothing highlighted: the line the reader is on, and its corrections. There
+  // is nothing to correct without a highlight, so this is the way back — and
+  // it says so rather than opening an empty box.
+  const here = view.fixesHere();
+  if (!here || here.fixed.length === 0) {
+    say("סמן את המילה שצריכה תיקון", false);
+    return;
+  }
+  fixbox.show(
+    { at: here.at, fromChar: 0, toChar: 0, words: "", fixed: here.fixed, printed: here.printed },
+    null,
+    {
+      save: async () => say("סמן את המילה שצריכה תיקון", false),
+      revert: (patch) => revertFix(view, here.at, patch),
+    },
+  );
+}
+
+async function applyFix(
+  view: PaneView,
+  at: string,
+  fromChar: number,
+  toChar: number,
+  now: string,
+  kind: "ocr" | "girsa",
+): Promise<void> {
+  try {
+    const fixed = await api.fix(at, fromChar, toChar, now, kind);
+    view.replaceLine(fixed.line);
+    say(`${kind === "ocr" ? "תוקן" : "נרשמה גרסה"} — ${fixed.said}`, false);
+    if (state) state.fixes += 1;
+  } catch (e) {
+    // A refusal is shown as it came: "there is already a correction here" and
+    // "nothing is selected" are different things to a reader.
+    say(String(e), true);
+  }
+}
+
+async function revertFix(view: PaneView, at: string, patch: string): Promise<void> {
+  try {
+    const fixed = await api.unfix(at, patch);
+    view.replaceLine(fixed.line);
+    say(fixed.said, false);
+    if (state) state.fixes = Math.max(0, state.fixes - 1);
+  } catch (e) {
+    say(String(e), true);
+  }
+}
+
 async function resize(by: number): Promise<void> {
   if (!state) return;
   const next = Math.min(250, Math.max(60, state.text_size + by));
@@ -337,7 +453,7 @@ function nothingOpen(): HTMLElement {
   title.textContent = "גִּרְסָא";
   const hint = document.createElement("p");
   hint.className = "empty-hint";
-  hint.textContent = "Ctrl+O — פתח ספר · Ctrl+B — עיין במדף · Ctrl+F — חפש";
+  hint.textContent = "Ctrl+O — פתח ספר · Ctrl+B — עיין במדף · Ctrl+F — חפש · Ctrl+K — תקן";
   const open = button("פתח ספר", "Ctrl+O", openSomething);
   open.classList.add("empty-button");
   const browse = button("עיין במדף", "Ctrl+B", browseShelf);
@@ -355,6 +471,9 @@ function openSomething(): void {
 function shortcut(event: KeyboardEvent): void {
   if (picker.isOpen) return;
   const control = event.ctrlKey || event.metaKey;
+  // While the correction box is open the keyboard is its own — it is a text
+  // box, and Ctrl+C in it is copy.
+  if (fixbox.isOpen && fixbox.element.contains(event.target as Node)) return;
   // While the caret is in the buffer, the keyboard belongs to the buffer.
   // Ctrl+C there is *copy*, not copy-a-source, and Alt+N is a letter somebody
   // is typing — the reading shortcuts are not live inside a text box.
@@ -430,6 +549,12 @@ function shortcut(event: KeyboardEvent): void {
   } else if (writing.isOpen && event.key === "Escape") {
     event.preventDefault();
     writing.close();
+  } else if (control && event.shiftKey && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    void nextShowing();
+  } else if (control && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    correct();
   } else if (control && event.shiftKey && event.key.toLowerCase() === "c") {
     event.preventDefault();
     void sendToKsav();

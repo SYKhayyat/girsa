@@ -1357,6 +1357,7 @@ version = "0.1.0"
 dependencies = [
  "girsa-cite",
  "girsa-corpus",
+ "girsa-fix",
  "girsa-hebrew",
  "girsa-ksav",
  "girsa-link",
@@ -1389,6 +1390,17 @@ dependencies = [
  "thiserror 2.0.19",
  "ureq",
  "zip",
+]
+
+[[package]]
+name = "girsa-fix"
+version = "0.1.0"
+dependencies = [
+ "girsa-corpus",
+ "girsa-hebrew",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -1458,6 +1470,7 @@ dependencies = [
  "girsa-app",
  "girsa-cite",
  "girsa-corpus",
+ "girsa-fix",
  "girsa-ksav",
  "girsa-post",
  "girsa-ref",

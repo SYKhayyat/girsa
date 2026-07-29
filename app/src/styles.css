@@ -291,6 +291,143 @@ body {
   color: var(--mark);
 }
 
+/* --- corrections (W20) -------------------------------------------------
+ *
+ * A line that was corrected says so, quietly. Two marks and not one: a ✓ is a
+ * scanning error that has been repaired, and a ≠ is a variant that is noted
+ * and *not* in the words on the page (spec.md §7.2). A reader must be able to
+ * tell without asking whether they are looking at the printed text.
+ */
+.line-fix {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  font-family: var(--plain);
+  font-size: 11px;
+  line-height: 2.4;
+  color: var(--mark);
+  opacity: 0.7;
+  cursor: help;
+  user-select: none;
+}
+
+.line-fix.is-noted {
+  color: var(--ink-quiet);
+}
+
+.tool.is-quiet {
+  opacity: 0.55;
+}
+
+/* The correction box: it opens where the words are, with the words in it. */
+.fixbox {
+  position: fixed;
+  z-index: 40;
+  width: 300px;
+  padding: 12px 14px 10px;
+  background: var(--page-raised);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: 0 14px 40px rgb(0 0 0 / 45%);
+}
+
+.fixbox-head {
+  margin: 0 0 8px;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fixbox-printed {
+  font-family: var(--hebrew);
+  font-size: 15px;
+  color: var(--ink);
+  opacity: 0.75;
+}
+
+.fixbox-input {
+  width: 100%;
+  padding: 7px 9px;
+  font-family: var(--hebrew);
+  font-size: 19px;
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--mark-quiet);
+  border-radius: 5px;
+}
+
+.fixbox-input:focus {
+  outline: none;
+  border-color: var(--mark);
+}
+
+.fixbox-kinds {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.fixbox-kind {
+  flex: 1;
+  padding: 5px 8px;
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.fixbox-kind.is-on {
+  color: var(--ink);
+  border-color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 14%, transparent);
+}
+
+.fixbox-hint,
+.fixbox-was {
+  margin: 8px 0 0;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.fixbox-was {
+  font-family: var(--hebrew);
+  font-size: 13px;
+}
+
+.fixbox-existing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--hebrew);
+  font-size: 14px;
+}
+
+.fixbox-back {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+
+.fixbox-back:hover {
+  color: var(--ink);
+  border-color: var(--mark);
+}
+
 /* Where the pane was put, because the pane beside it moved. Two seconds of
  * colour and then out of the way — a permanent highlight would be read as a
  * selection. */

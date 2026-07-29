@@ -20,6 +20,7 @@ use girsa_corpus::import::{self, Segment};
 use girsa_corpus::index::{SegmentIndex, WorkSegments};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::work::{Source, Work};
+use girsa_fix::Showing;
 use girsa_ref::{Address, Ref};
 
 use crate::arrangement::{Arrangement, Refused};
@@ -52,6 +53,11 @@ pub struct Shelf {
     personal: PathBuf,
     /// How you have arranged the shelf. Empty until you move something.
     arrangement: Arrangement,
+    /// Your corrections (W20), and how much of them is being applied. They live
+    /// in the personal layer beside the arrangement, for the same reason: the
+    /// importer owns the corpus and truncates what it owns.
+    fixes: girsa_fix::Layer,
+    showing: Showing,
     /// Something wrong with the personal layer that the reader should be told
     /// about — an arrangement file that would not read, so far.
     trouble: Option<String>,
@@ -100,7 +106,16 @@ impl Shelf {
             works.extend(catalogue(&mine));
         }
 
-        let (arrangement, trouble) = Arrangement::load(&personal.join("shelf.json"));
+        let (arrangement, mut trouble) = Arrangement::load(&personal.join("shelf.json"));
+        // A correction that will not read is one correction, and it is said out
+        // loud — not a library that refuses to open.
+        let (fixes, bad_lines) = girsa_fix::Layer::open(personal);
+        for line in bad_lines {
+            trouble = Some(match trouble {
+                Some(said) => format!("{said} · {line}"),
+                None => line,
+            });
+        }
 
         let by_slug = works
             .iter()
@@ -119,6 +134,8 @@ impl Shelf {
             root: root.to_path_buf(),
             personal: personal.to_path_buf(),
             arrangement,
+            fixes,
+            showing: Showing::default(),
             trouble,
             works,
             by_slug,
@@ -153,7 +170,65 @@ impl Shelf {
         let root = self.root_of(&work);
         let read = import::read_back(root, slug)
             .map_err(|e| ShelfError::Unreadable(slug.to_string(), e.to_string()))?;
-        Ok(Open::new(work, read.segments))
+        Ok(Open::corrected(
+            work,
+            read.segments,
+            &self.fixes,
+            self.showing,
+        ))
+    }
+
+    /// Your corrections (W20).
+    #[must_use]
+    pub fn fixes(&self) -> &girsa_fix::Layer {
+        &self.fixes
+    }
+
+    /// How much of them is being applied to what you read.
+    #[must_use]
+    pub fn showing(&self) -> Showing {
+        self.showing
+    }
+
+    /// *Show as printed / show corrected* (spec.md §7.1). Costs a re-read of
+    /// whatever is open, which is the caller's to do: this holds no text.
+    pub fn set_showing(&mut self, showing: Showing) {
+        self.showing = showing;
+    }
+
+    /// Take a correction and write it into your layer.
+    ///
+    /// # Errors
+    ///
+    /// If it changes nothing, claims letters another correction already claims,
+    /// or the personal layer will not take it.
+    pub fn fix(&mut self, patch: girsa_fix::Patch) -> Result<girsa_fix::Patch, ShelfError> {
+        self.fixes
+            .add(patch)
+            .cloned()
+            .map_err(|e| ShelfError::Refused(e.to_string()))
+    }
+
+    /// Take one back.
+    ///
+    /// # Errors
+    ///
+    /// If the personal layer will not write.
+    pub fn unfix(&mut self, id: &girsa_fix::PatchId) -> Result<bool, ShelfError> {
+        self.fixes
+            .remove(id)
+            .map_err(|e| ShelfError::Refused(e.to_string()))
+    }
+
+    /// Take somebody else's corrections (spec.md §7.1).
+    ///
+    /// # Errors
+    ///
+    /// If the file will not read, or ours will not write.
+    pub fn take_fixes(&mut self, file: &Path) -> Result<girsa_fix::Merged, ShelfError> {
+        self.fixes
+            .merge(file)
+            .map_err(|e| ShelfError::Refused(e.to_string()))
     }
 
     /// Which root a work's files are under.
@@ -384,10 +459,22 @@ fn catalogue(body: &str) -> Vec<Work> {
 }
 
 /// A sefer with its text, ready to be read and to be lined up against another.
+///
+/// **The text here is corrected text** (W20). Your patches are applied when the
+/// sefer is opened, so everything downstream of a pane — the words on the page,
+/// a quote copied to Ksav, a citation regenerated from a ref — is the sefer as
+/// you have it rather than as it was scanned. What was printed is kept beside
+/// it for the segments that have a correction, because *show as printed* is
+/// half of what the overlay is for.
 #[derive(Debug, Clone)]
 pub struct Open {
     pub work: Work,
     pub segments: Vec<Segment>,
+    /// Segment → what it says on disk, for the segments a correction touched.
+    /// Empty for a sefer you have never corrected, which is nearly all of them.
+    printed: HashMap<SegmentId, String>,
+    /// Segment → what was done to it, for marking the page.
+    corrections: HashMap<SegmentId, girsa_fix::Corrected>,
     /// This work alone, addressed. Reused from the link importer rather than
     /// written again: a second implementation of "which segments does this
     /// address name" would drift from the one the graph was built with, and
@@ -399,6 +486,32 @@ pub struct Open {
 impl Open {
     #[must_use]
     pub fn new(work: Work, segments: Vec<Segment>) -> Self {
+        Self::corrected(work, segments, &girsa_fix::Layer::nowhere(), Showing::Fixed)
+    }
+
+    /// The same, with your corrections applied.
+    #[must_use]
+    pub fn corrected(
+        work: Work,
+        mut segments: Vec<Segment>,
+        fixes: &girsa_fix::Layer,
+        showing: Showing,
+    ) -> Self {
+        let mut printed = HashMap::new();
+        let mut corrections = HashMap::new();
+        if fixes.touches(&work.slug) {
+            for segment in &mut segments {
+                let corrected = fixes.apply(&segment.id, &segment.text, showing);
+                if corrected.is_untouched() {
+                    continue;
+                }
+                printed.insert(
+                    segment.id.clone(),
+                    std::mem::replace(&mut segment.text, corrected.text.clone()),
+                );
+                corrections.insert(segment.id.clone(), corrected);
+            }
+        }
         let mut index = SegmentIndex::default();
         index.insert(
             work.slug.clone(),
@@ -412,6 +525,8 @@ impl Open {
         Self {
             work,
             segments,
+            printed,
+            corrections,
             index,
             position,
         }
@@ -420,6 +535,30 @@ impl Open {
     #[must_use]
     pub fn slug(&self) -> &str {
         &self.work.slug
+    }
+
+    /// What a segment says on disk — which is what it says on the page, unless
+    /// a correction changed it.
+    #[must_use]
+    pub fn as_printed(&self, id: &SegmentId) -> &str {
+        if let Some(printed) = self.printed.get(id) {
+            return printed;
+        }
+        self.position_of(id)
+            .and_then(|at| self.segments.get(at))
+            .map_or("", |s| s.text.as_str())
+    }
+
+    /// What was done to a segment, for the window to mark.
+    #[must_use]
+    pub fn correction(&self, id: &SegmentId) -> Option<&girsa_fix::Corrected> {
+        self.corrections.get(id)
+    }
+
+    /// How many segments of this sefer a correction touched.
+    #[must_use]
+    pub fn corrections(&self) -> usize {
+        self.corrections.len()
     }
 
     /// Where a segment sits in reading order.
@@ -530,10 +669,13 @@ pub(crate) mod tests {
             }
         }
         let (arrangement, trouble) = Arrangement::load(&personal.join("shelf.json"));
+        let (fixes, _) = girsa_fix::Layer::open(personal);
         Shelf {
             root: PathBuf::new(),
             personal: personal.to_path_buf(),
             arrangement,
+            fixes,
+            showing: Showing::default(),
             trouble,
             by_slug: works
                 .iter()

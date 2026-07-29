@@ -4,7 +4,7 @@
 // is. It does not decide where anything goes — it is told, by `main.ts`, which
 // asks Rust.
 
-import type { Line, PaneId, Place, Relation, Run, Text } from "./api.ts";
+import type { FixMark, Line, PaneId, Place, Relation, Run, Text } from "./api.ts";
 
 /** How many lines are put on the page at once, and how many more at an edge. */
 const WINDOW = 400;
@@ -232,6 +232,67 @@ export class PaneView {
     return this.topLine()?.dataset.id ?? null;
   }
 
+  /**
+   * One line, redrawn — after a correction (W20).
+   *
+   * The line is replaced where it stands rather than the sefer being rebuilt:
+   * a reader who has just fixed a typo is looking at the word, and a rebuild
+   * would take the page out from under them. spec.md §7.5 is a requirement
+   * about how this feels, and this is most of what it costs here.
+   */
+  replaceLine(line: Line): void {
+    if (!this.text) return;
+    const at = this.byId.get(line.id);
+    if (at === undefined) return;
+    this.text.lines[at] = line;
+    const drawn = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(line.id)}"]`);
+    drawn?.replaceWith(lineElement(line));
+  }
+
+  /**
+   * What the reader has highlighted, for a correction.
+   *
+   * `null` unless the highlight is inside one line: a patch names one segment
+   * (spec.md §7.1), and a highlight running across three of them is not one
+   * correction — it is three, and which words in which of them is a question
+   * this window is not entitled to answer.
+   */
+  fixSelection(): {
+    at: string;
+    fromChar: number;
+    toChar: number;
+    words: string;
+    fixed: FixMark[];
+    printed: string | null;
+  } | null {
+    const chosen = this.selection();
+    if (!chosen || chosen.from !== chosen.to || !this.text) return null;
+    const at = this.byId.get(chosen.from);
+    if (at === undefined) return null;
+    const line = this.text.lines[at];
+    const letters = Array.from(line.runs.map((run) => run.text).join(""));
+    const words = letters.slice(chosen.fromChar, chosen.toChar).join("");
+    if (!words.trim()) return null;
+    return {
+      at: chosen.from,
+      fromChar: chosen.fromChar,
+      toChar: chosen.toChar,
+      words,
+      fixed: line.fixed ?? [],
+      printed: line.printed ?? null,
+    };
+  }
+
+  /** The corrections on the line the reader is standing on. */
+  fixesHere(): { at: string; fixed: FixMark[]; printed: string | null } | null {
+    const here = this.here();
+    if (!here || !this.text) return null;
+    const at = this.byId.get(here);
+    if (at === undefined) return null;
+    const line = this.text.lines[at];
+    return { at: here, fixed: line.fixed ?? [], printed: line.printed ?? null };
+  }
+
   /** A word about who this pane is following, in its header. */
   setFollowing(label: string): void {
     let chip = this.element.querySelector<HTMLElement>(".pane-follows");
@@ -252,7 +313,32 @@ function lineElement(line: Line): HTMLElement {
   const words = el("span", "line-text");
   words.append(...line.runs.map(runElement));
   row.append(label, words);
+  if (line.fixed?.length) row.append(fixMark(line));
   return row;
+}
+
+/**
+ * The mark on a line a correction touched (spec.md §7.1).
+ *
+ * Two shapes, because they are two different statements: a scanning error that
+ * has been repaired, and a variant that is only noted. A reader has to be able
+ * to tell at a glance whether the words in front of them are the printed ones.
+ */
+function fixMark(line: Line): HTMLElement {
+  const fixed = line.fixed ?? [];
+  const applied = fixed.filter((f) => f.applied);
+  const mark = el("span", applied.length > 0 ? "line-fix" : "line-fix is-noted");
+  mark.textContent = applied.length > 0 ? "✓" : "≠";
+  const said = fixed
+    .map((f) => {
+      const claim = f.kind === "ocr" ? "תוקן" : "גרסה";
+      const state = f.applied ? "" : " (לא הוחל)";
+      const who = f.source ? ` · ${f.source}` : f.who ? ` · ${f.who}` : "";
+      return `${claim}${state}: ${f.was} ← ${f.now}${who}`;
+    })
+    .join("\n");
+  mark.title = line.printed ? `${said}\nכפי שנדפס: ${line.printed}` : said;
+  return mark;
 }
 
 /** One run of words. Built as elements, never as a string of HTML — the text

@@ -515,6 +515,7 @@ version = "0.1.0"
 dependencies = [
  "girsa-cite",
  "girsa-corpus",
+ "girsa-fix",
  "girsa-hebrew",
  "girsa-ksav",
  "girsa-link",
@@ -547,6 +548,17 @@ dependencies = [
  "thiserror",
  "ureq",
  "zip",
+]
+
+[[package]]
+name = "girsa-fix"
+version = "0.1.0"
+dependencies = [
+ "girsa-corpus",
+ "girsa-hebrew",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

@@ -49,6 +49,13 @@ pub struct Session {
     /// nothing about where any of them point.
     #[serde(default = "full")]
     pub cite: girsa_cite::CiteStyle,
+    /// How much of your correction layer is applied to what you read (W20).
+    ///
+    /// Remembered like the nikud toggle, and for the same reason: a reader who
+    /// turned the corrections off to check what was printed wants them off
+    /// until they say otherwise.
+    #[serde(default)]
+    pub showing: girsa_fix::Showing,
 }
 
 const fn yes() -> bool {
@@ -72,6 +79,7 @@ impl Default for Session {
             nikud: yes(),
             text_size: hundred(),
             cite: full(),
+            showing: girsa_fix::Showing::default(),
         }
     }
 }
