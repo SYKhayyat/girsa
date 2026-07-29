@@ -10,9 +10,12 @@ import {
   api,
   connect,
   isShell,
+  whenAskedToOpen,
   whenFilesDropped,
   type AppState,
+  type Landing,
   type PaneId,
+  type Presence,
   type Tab,
 } from "./api.ts";
 import { build } from "./layout.ts";
@@ -43,7 +46,40 @@ async function main(): Promise<void> {
   root.append(picker.element, shelf.element, find.element);
   document.addEventListener("keydown", shortcut);
   await whenFilesDropped(whenDropped);
+  // Ksav, or a citation clicked in a document, asking for a page (§10.6).
+  await whenAskedToOpen(whenAskedFor);
+  await watchForKsav();
   await reload();
+}
+
+/** Something asked for a place: Ksav over the loopback, or a `girsa://` link
+ * clicked in a Word document or a compiled PDF. It arrives already turned into
+ * a segment id, so this is the same landing a search result gets. */
+async function whenAskedFor(landing: Landing): Promise<void> {
+  await openFound(landing.slug, landing.id);
+  say(`נפתח — ${landing.ref}`, false);
+}
+
+/** Whether Ksav is there. Polled while the window is open, because the answer
+ * changes without anything telling us: Ksav is a separate application and a
+ * reader starts and stops it whenever they like. */
+let ksav: Presence = { state: "not_running" };
+
+async function watchForKsav(): Promise<void> {
+  if (!isShell()) return;
+  const look = async (): Promise<void> => {
+    const now = await api.ksavPresence();
+    // Redrawn only when it changed: a toolbar that rebuilds every five seconds
+    // takes the reader's text selection with it.
+    if (now.state !== ksav.state) {
+      ksav = now;
+      document.querySelector(".tools")?.replaceWith(toolBar());
+    } else {
+      ksav = now;
+    }
+  };
+  await look();
+  window.setInterval(() => void look(), 5000);
 }
 
 /** Files dropped on the window become seforim (spec.md §5). */
@@ -255,6 +291,25 @@ function toolBar(): HTMLElement {
   }
 
   bar.append(nikud, smaller, bigger, where);
+
+  // Presence (spec.md §10.6): the affordance is never offered when it would
+  // fail. Live, it is a button; not live, it is a word saying which of the two
+  // reasons it is.
+  if (isShell()) {
+    if (ksav.state === "live") {
+      const send = button("שלח לכסב", "Ctrl+Shift+C — שלח את הבחירה למסמך הפתוח", () =>
+        void sendToKsav(),
+      );
+      send.classList.add("tool-wide");
+      bar.append(send);
+    } else {
+      const off = document.createElement("span");
+      off.className = "tools-note";
+      off.textContent = ksav.state === "stale" ? `כסב — ${ksav.why}` : "כסב אינו פועל";
+      if (ksav.state === "stale") off.classList.add("is-trouble");
+      bar.append(off);
+    }
+  }
   return bar;
 }
 
@@ -347,6 +402,9 @@ function shortcut(event: KeyboardEvent): void {
       views.clear();
       await reload();
     })();
+  } else if (control && event.shiftKey && event.key.toLowerCase() === "c") {
+    event.preventDefault();
+    void sendToKsav();
   } else if (control && event.key.toLowerCase() === "c") {
     // **The user does nothing different** (spec.md §10.2). Ctrl+C is Ctrl+C;
     // what changes is what lands on the clipboard beside the text. The default
@@ -392,6 +450,33 @@ async function copySource(): Promise<void> {
   // that they took the place they meant, without pasting it somewhere to look.
   const lines = copied.lines > 1 ? ` · ${copied.lines} שורות` : "";
   say(`הועתק — ${copied.display}${lines}`, false);
+}
+
+/**
+ * Straight into the open Ksav document (spec.md §10.2).
+ *
+ * The clipboard path works whether or not Ksav is running. This one is the
+ * AirDrop one, and it is only reachable when presence says it would land.
+ */
+async function sendToKsav(): Promise<void> {
+  const open = tab();
+  if (!open) return;
+  const view = views.get(open.focused);
+  if (!view) return;
+  const chosen = view.selection();
+  const here = chosen ? null : view.here();
+  if (!chosen && !here) return;
+
+  try {
+    const sent = chosen
+      ? await api.sendToKsav(chosen.from, chosen.to, chosen.fromChar, chosen.toChar)
+      : await api.sendToKsav(here!, here!, 0, null);
+    say(`נשלח לכסב — ${sent.display}`, false);
+  } catch (e) {
+    // A refusal from the other side is shown as it came: "Ksav is not running"
+    // and "Ksav refused it" are different things to a reader.
+    say(String(e), true);
+  }
 }
 
 /** A line the window says and then stops saying. */

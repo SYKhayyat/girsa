@@ -128,6 +128,21 @@ export interface Copied {
   put: { plain: boolean; html: boolean; packet: boolean; trouble: string | null };
 }
 
+/** Whether Ksav is there (spec.md §10.6). Asked of it, not assumed. */
+export type Presence =
+  | { state: "live"; version: string }
+  | { state: "not_running" }
+  | { state: "stale"; why: string };
+
+/** Where something asked Girsa to open — over the loopback, or a `girsa://`
+ * link clicked in a document. The ref is turned into a segment id in Rust,
+ * because which segments an address names is a question about the corpus. */
+export interface Landing {
+  ref: string;
+  slug: string;
+  id: string;
+}
+
 export interface AppState {
   workspace: Workspace;
   nikud: boolean;
@@ -211,6 +226,13 @@ export const api = {
     call<Copied>("copy", { from, to, fromChar, toChar, note: note ?? null }),
   setCiteStyle: (style: "hebrew-full" | "hebrew-short" | "english") =>
     call<void>("set_cite_style", { style }),
+
+  // --- the loopback (W16) -------------------------------------------------
+  ksavPresence: () => call<Presence>("ksav_presence"),
+  /** Straight into the open document, no clipboard. Only offered when
+   * presence says it would land. */
+  sendToKsav: (from: string, to: string, fromChar: number, toChar: number | null, note?: string) =>
+    call<Copied>("send_to_ksav", { from, to, fromChar, toChar, note: note ?? null }),
 };
 
 
@@ -299,6 +321,14 @@ export interface Found {
 }
 
 /** Files dropped on the window, as they arrive from the shell. */
+/** Something asked Girsa to show a place: Ksav over the loopback, or a
+ * `girsa://` citation clicked in a document or a compiled PDF. */
+export async function whenAskedToOpen(handler: (landing: Landing) => void): Promise<void> {
+  if (!invoke) return;
+  const { listen } = await import("@tauri-apps/api/event");
+  await listen<Landing>("girsa://open", (event) => handler(event.payload));
+}
+
 export async function whenFilesDropped(handler: (paths: string[]) => void): Promise<void> {
   if (!invoke) return;
   const { getCurrentWebview } = await import("@tauri-apps/api/webview");
@@ -395,6 +425,8 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
           trouble: "העתקת מקור פועלת בחלון בלבד",
         },
       } as T;
+    case "ksav_presence":
+      return { state: "not_running" } as T;
     case "set_nikud":
       fixtureState.nikud = Boolean(args?.on);
       return undefined as T;

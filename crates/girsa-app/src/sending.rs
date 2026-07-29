@@ -89,6 +89,11 @@ pub enum SendError {
     /// the paste, and the reader has no way to tell which end it happened at.
     #[error("nothing is selected")]
     Empty,
+    /// The sefer is here and the address is not in it. **Never rounded to the
+    /// nearest one**: a quote taken from the se'if next door is exactly the
+    /// silent wrongness this system exists to make impossible.
+    #[error("{work} is on the shelf and has no {address}")]
+    NoSuchPlace { work: String, address: String },
 }
 
 /// The three flavours, and the source they all say.
@@ -192,6 +197,41 @@ pub fn send(
         html: html_flavour(&lines, &display, &reference, note.as_deref()),
         packet,
     })
+}
+
+/// Everything a ref names, as a packet.
+///
+/// What the loopback's `/quote` answers (spec.md §10.6): Ksav has a ref in a
+/// document and asks the library for the words again — after a correction
+/// (§7), or into a fresh document. The address is turned into segments by the
+/// **same index the link graph was built with**, so a quote regenerated a year
+/// later is the same passage the citation always meant.
+///
+/// # Errors
+///
+/// If the sefer has no such address. Never the nearest thing: a quote silently
+/// taken from the se'if next door is the failure this whole system is built to
+/// make impossible.
+pub fn quote(
+    sefer: &Open,
+    reference: &Ref,
+    style: CiteStyle,
+    nikud: bool,
+) -> Result<Sent, SendError> {
+    let at = sefer.at(reference.from());
+    let (Some(from), Some(to)) = (at.first(), at.last()) else {
+        return Err(SendError::NoSuchPlace {
+            work: sefer.work.he_title.clone(),
+            address: reference.from().to_string(),
+        });
+    };
+    send(
+        sefer,
+        &Selection::run(from.clone(), to.clone()),
+        style,
+        nikud,
+        None,
+    )
 }
 
 /// A segment as it was shown: markup off, and nikud if the reader has it on.
@@ -572,6 +612,33 @@ mod tests {
             sent(&selection, false).packet.text,
             "יתגבר כארי לעמוד בבקר לעבודת בוראו"
         );
+    }
+
+    #[test]
+    fn a_ref_can_be_asked_for_again_and_comes_back_as_the_same_passage() {
+        // The loopback's `/quote`: Ksav has a ref in a document and asks the
+        // library for the words. This is what makes a citation alive — the
+        // quote can be regenerated against a corrected edition without
+        // touching the prose (spec.md §7).
+        let sefer = shulchan_arukh();
+        let reference: girsa_ref::Ref = "girsa:shulchan-arukh/orach-chayim/1:2"
+            .parse()
+            .expect("a ref");
+        let sent = quote(&sefer, &reference, CiteStyle::HebrewFull, false).expect("quotes");
+        assert_eq!(sent.packet.text, "שויתי ה' לנגדי תמיד");
+        assert_eq!(sent.display(), "שולחן ערוך, אורח חיים סימן א' סעיף ב'");
+    }
+
+    #[test]
+    fn an_address_the_sefer_does_not_have_is_refused_and_not_rounded() {
+        let sefer = shulchan_arukh();
+        let reference: girsa_ref::Ref = "girsa:shulchan-arukh/orach-chayim/1:99"
+            .parse()
+            .expect("a ref");
+        assert!(matches!(
+            quote(&sefer, &reference, CiteStyle::HebrewFull, false),
+            Err(SendError::NoSuchPlace { .. })
+        ));
     }
 
     #[test]

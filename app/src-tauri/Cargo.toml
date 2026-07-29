@@ -32,7 +32,10 @@ girsa-ref = { path = "../../../sefer-crates/crates/girsa-ref" }
 # (spec.md §10.1). Neither is reimplemented here.
 girsa-cite = { path = "../../../sefer-crates/crates/girsa-cite" }
 girsa-source = { path = "../../../sefer-crates/crates/girsa-source" }
+# The loopback: token-gated, localhost only, and the `girsa://` links.
+girsa-post = { path = "../../../sefer-crates/crates/girsa-post" }
 clipboard-rs = { version = "0.3.5", default-features = false }
+tauri-plugin-deep-link = "2.4.9"
 
 [lints.rust]
 unsafe_code = "forbid"

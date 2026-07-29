@@ -19,6 +19,7 @@
 //! this is not.
 
 mod clipboard;
+mod post;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -44,8 +45,8 @@ use serde::Serialize;
 /// not a library.
 const KEEP_OPEN: usize = 12;
 
-struct State {
-    shelf: Option<Shelf>,
+pub(crate) struct State {
+    pub(crate) shelf: Option<Shelf>,
     /// The search bar, if there is an index to search. Kept beside the shelf
     /// rather than inside it because an index is a rebuildable cache and a
     /// shelf is not: a window with no index still reads seforim, and says why
@@ -58,15 +59,23 @@ struct State {
     chips: Chips,
     /// Why the shelf is not there, if it is not. Shown in the window.
     trouble: Option<String>,
-    session: Session,
+    pub(crate) session: Session,
     session_path: PathBuf,
+    /// The loopback desk (W16). Held because dropping it withdraws the endpoint
+    /// file — which is exactly how presence stops being reported the moment
+    /// this application stops.
+    desk: Option<girsa_post::desk::Desk>,
+    /// Why there is no pairing, if there is none. Shown beside the presence
+    /// chip: a Ksav button that quietly does nothing is worse than one that
+    /// says what is wrong.
+    no_post: Option<String>,
     /// Slug → the sefer, read once. Cleared oldest-first.
     open: HashMap<String, Open>,
     order: Vec<String>,
 }
 
 impl State {
-    fn sefer(&mut self, slug: &str) -> Result<&Open, String> {
+    pub(crate) fn sefer(&mut self, slug: &str) -> Result<&Open, String> {
         if !self.open.contains_key(slug) {
             let shelf = self.shelf.as_ref().ok_or_else(|| self.trouble())?;
             let read = shelf.read(slug).map_err(|e| e.to_string())?;
@@ -103,7 +112,7 @@ impl State {
     }
 }
 
-type Shared = Mutex<State>;
+pub(crate) type Shared = Mutex<State>;
 
 /// A sefer, as the shelf lists it.
 #[derive(Serialize)]
@@ -195,6 +204,8 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> 
         "positions": state.session.positions,
         "works": state.shelf.as_ref().map_or(0, |s| s.works().len()),
         "trouble": state.trouble,
+        "cite": state.session.cite,
+        "pairing": state.no_post,
     }))
 }
 
@@ -866,6 +877,58 @@ fn copy(
     })
 }
 
+/// Whether Ksav is there (spec.md §10.6 — *presence*).
+///
+/// Asked of Ksav rather than assumed from a file: an endpoint left behind by a
+/// crash is not presence. The window uses this to decide whether to *offer*
+/// sending at all, which is the whole point — an affordance that would fail is
+/// never shown.
+#[tauri::command]
+fn ksav_presence() -> girsa_post::Presence {
+    girsa_post::presence(girsa_post::App::Ksav)
+}
+
+/// Send a selection straight into the open Ksav document.
+///
+/// The clipboard path (W15) works whether or not Ksav is running; this is the
+/// one that feels like AirDrop, and it is only offered when presence says it
+/// would land.
+#[tauri::command]
+fn send_to_ksav(
+    shared: tauri::State<'_, Shared>,
+    from: String,
+    to: Option<String>,
+    from_char: usize,
+    to_char: Option<usize>,
+    note: Option<String>,
+) -> Result<Copied, String> {
+    let from: SegmentId = from.parse().map_err(|e| format!("{e}"))?;
+    let to: SegmentId = match to {
+        Some(to) => to.parse().map_err(|e| format!("{e}"))?,
+        None => from.clone(),
+    };
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let style = state.session.cite;
+    let sefer = state.sefer(from.work())?;
+    let selection = girsa_app::Selection {
+        from,
+        to,
+        from_char,
+        to_char,
+    };
+    let sent = girsa_app::send(sefer, &selection, style, nikud, note).map_err(|e| e.to_string())?;
+    let packet = sent.packet.to_json().map_err(|e| e.to_string())?;
+    girsa_post::send(girsa_post::App::Ksav, "/insert", Some(&packet)).map_err(|e| e.to_string())?;
+    Ok(Copied {
+        display: sent.display().to_string(),
+        reference: sent.packet.reference.clone(),
+        lines: sent.packet.text.lines().count(),
+        // Nothing was put on the clipboard: this went the other way.
+        put: clipboard::Put::default(),
+    })
+}
+
 /// How citations print. A preference, and it moves nothing: the document
 /// stores the ref.
 #[tauri::command]
@@ -1068,6 +1131,10 @@ fn find_personal(data: &std::path::Path) -> PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // `girsa://…` — and a ref, which is already a `girsa:` URI, so the
+        // citation a Word document or a compiled PDF has been carrying all
+        // along is a link that lands on the page it names (spec.md §10.6).
+        .plugin(tauri_plugin_deep_link::init())
         .setup(move |app| {
             let data = tauri::Manager::path(app)
                 .app_data_dir()
@@ -1099,10 +1166,42 @@ pub fn run() {
                     trouble,
                     session,
                     session_path,
+                    desk: None,
+                    no_post: None,
                     open: HashMap::new(),
                     order: Vec::new(),
                 }),
             );
+
+            // The loopback, after the state it answers out of exists. A
+            // failure here costs the pairing and not the library: the window
+            // still reads seforim and the presence chip says why.
+            let handle = tauri::Manager::app_handle(app).clone();
+            let (desk, no_post) = match post::open(&handle) {
+                Ok(desk) => (Some(desk), None),
+                Err(e) => (None, Some(e.to_string())),
+            };
+            if let Ok(mut state) = tauri::Manager::state::<Shared>(app).lock() {
+                state.desk = desk;
+                state.no_post = no_post;
+            }
+
+            // A citation clicked anywhere on the machine. On Windows and Linux
+            // the scheme is registered by the installer; in a dev build it is
+            // registered here, which is why this is not only a listener.
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(e) = app.deep_link().register_all() {
+                    eprintln!("could not register girsa:// with the system: {e}");
+                }
+            }
+            let opener = handle.clone();
+            tauri_plugin_deep_link::DeepLinkExt::deep_link(app).on_open_url(move |event| {
+                for url in event.urls() {
+                    post::opened_url(&opener, url.as_str());
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1136,6 +1235,8 @@ pub fn run() {
             find_whole_shelf,
             copy,
             set_cite_style,
+            ksav_presence,
+            send_to_ksav,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

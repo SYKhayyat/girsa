@@ -33,7 +33,7 @@ pub mod workspace;
 
 pub use arrangement::Arrangement;
 pub use beside::{Beside, Place, Relation};
-pub use sending::{send, Selection, SendError, Sent};
+pub use sending::{quote, send, Selection, SendError, Sent};
 pub use session::Session;
 pub use shelf::{Companion, Open, Shelf, ShelfError};
 pub use taxonomy::Branch;
