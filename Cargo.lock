@@ -513,13 +513,24 @@ dependencies = [
 name = "girsa-app"
 version = "0.1.0"
 dependencies = [
+ "girsa-cite",
  "girsa-corpus",
  "girsa-hebrew",
  "girsa-link",
  "girsa-ref",
+ "girsa-source",
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "girsa-cite"
+version = "0.3.0"
+dependencies = [
+ "girsa-hebrew",
+ "girsa-ref",
+ "serde",
 ]
 
 [[package]]
@@ -538,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "girsa-hebrew"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
 ]
@@ -557,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "girsa-ref"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "girsa-hebrew",
  "serde",
@@ -575,6 +586,16 @@ dependencies = [
  "serde",
  "serde_json",
  "tantivy",
+ "thiserror",
+]
+
+[[package]]
+name = "girsa-source"
+version = "0.3.0"
+dependencies = [
+ "girsa-ref",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

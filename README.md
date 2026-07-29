@@ -46,7 +46,7 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and twenty-eight commands, and **nothing
+`app/` is the Tauri shell: a window and thirty commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -124,8 +124,10 @@ query bar.
 
 **Tier 0 through Tier 4 are done — the corpus is on the shelf, the graph is on
 top of it, there is a window, the shelf is one you can rearrange, and all five
-ways of searching it are in that window with the counts to narrow by.** All four
-verify commands green in all three repositories.
+ways of searching it are in that window with the counts to narrow by. Tier 5,
+the Ksav loop, has started: one Ctrl+C puts down three flavours and the third
+one is a source packet a real Ksav really renders.** All four verify commands
+green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -142,6 +144,7 @@ verify commands green in all three repositories.
 | **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
 | **W12** · Torat Emet | The literal mode, and the default. The three operators that get used — the word, the letters it **contains**, those letters **in order** with others between — plus **within X words of each other, in either order**. Every query carries a plan saying exactly what was asked of the index, and a test asserts that plan is the typed words with their nikud off and nothing else. On the shelf: `קדש` is 31,483 segments, `--contains קדש` is 301,910, and the difference is a thing the reader asked for. |
 | **W13** · the ladder | Two columns of one table (§9.6), and the difference between them is the work order: the default mode **offers** the rungs with their counts and applies nothing; Smart climbs them and says so. The counts are computed from the query the click would run, so the promise and the result cannot disagree — checked both ways. Two rungs are named and not offered, because a missing chip reads as *there is nothing down that road*: nikud is already off in every mode, and the root rung is what §9.4 rejected every analyser for. |
+| **W15** · the clipboard | One Ctrl+C, three flavours — and the third is written natively, because a webview's custom format is a private encoding no other application can read. Only the highlighted part travels; the ref is a span when the quote is. The citation is `girsa-cite`, compiled into both apps, and **the test is that Girsa reads back what Girsa printed** — which found two defects in `girsa-ref` and fixed them there. Checked in Ksav against a packet Girsa really sent, asserted **on the laid-out page**. |
 | **W14** · the rest of §9 | The other three modes, the chip row, and the five facets. **A facet row's count is the number clicking it gives you** — the ladder's promise, one section on, asserted for every row of every dimension. On the shelf: `יתגבר כארי` is 79 segments; the rail says `חסידות 26`, and clicking it gives 26. The two instruments the index cannot answer say so by name instead of approximating: a dilug reads letters and a notarikon is four patterns each matching half the vocabulary. |
 
 The segments file is the load-bearing part and it is worth one line: each record
@@ -723,6 +726,90 @@ for: the old index was refused rather than read, and rebuilt. It cost time —
 alongside the text — and 3.5 GB on disk, and both are the price of a facet that
 is a count rather than an estimate.
 
+## The Ksav loop
+
+*Moving a source into a document should feel like AirDrop between two of your
+own devices* (spec.md §10). No export dialog, no file, no format decision, no
+cleanup — and **the user does nothing different**: Ctrl+C is Ctrl+C.
+
+### One Ctrl+C, three flavours
+
+What changes is what lands on the clipboard beside the text:
+
+| flavour | who takes it | what it has to survive |
+|---|---|---|
+| `text/plain` | WhatsApp, a terminal, anything | being read with no formatting at all |
+| `text/html` | Word, an email, a browser | keeping its shape **and its direction** |
+| `application/x-girsa-source+json` | Ksav | carrying the **ref**, so the citation stays alive |
+
+```
+$ cargo run -p girsa-app --example send -- corpus "שולחן ערוך, אורח חיים סימן א' סעיף ג'"
+── the ref the document stores ──────────────────────────────
+girsa:shulchan-arukh/orach-chayim/1:3
+
+── text/plain — WhatsApp, a terminal, anything ──────────────
+ראוי לכל ירא שמים שיהא מיצר ודואג על חורבן בית המקדש:
+(שולחן ערוך, אורח חיים סימן א' סעיף ג')
+
+── application/x-girsa-source+json — Ksav ───────────────────
+{"schema":1,"ref":"girsa:shulchan-arukh/orach-chayim/1:3","display":"שולחן ערוך,
+ אורח חיים סימן א' סעיף ג'","text":"ראוי לכל ירא שמים…","nikud":false,"lang":"he",
+ "version":{"edition":"Maginei Eretz: Shulchan Aruch Orach Chaim, Lemberg, 1893",
+ "provenance":"https://www.sefaria.org/Shulchan_Arukh,_Orach_Chayim"}}
+```
+
+The third flavour is **written natively, not from the webview**, and that is not
+a detail. `navigator.clipboard.write` will take a custom type, but Chromium puts
+it down as a *web custom format* — a private encoding another browser tab can
+read and a native application cannot. Written from the window, Ksav would see
+the plain text and nothing else, and the pairing would look like it worked.
+
+That the packet is real is checked **in Ksav, against a packet Girsa really
+sent**: `ksav/engine/tests/from_girsa.rs` reads the literal output of the command
+above and asserts the words of the se'if and the mekor are *on the laid-out
+page*, not merely that the document compiled.
+
+### Only the highlighted part goes
+
+`girsa_app::sending` is handed segment ids and **character offsets into the text
+the window drew** — markup already turned into runs, nikud already applied. So
+both ends slice the same string and neither has to describe a selection to the
+other. Highlight four words of a se'if and four words travel; highlight nothing
+and the line you are standing on travels, which is what Ctrl+C does everywhere
+else.
+
+A selection across three se'ifim keeps the head of the first and the tail of the
+last, and its ref is a **span** — `girsa:…/1:1-1:3` — because a quote is a range
+(§4.2). Dragged upwards, it is put back into reading order before anything else
+looks at it.
+
+### The citation is not the string
+
+What the document stores is `girsa:shulchan-arukh/orach-chayim/1:3`. The printed
+form is `girsa-cite`, the formatter **both applications compile**, and it can be
+asked for another one at any time:
+
+| style | |
+|---|---|
+| `HebrewFull` | `שולחן ערוך, אורח חיים סימן א' סעיף א'` |
+| `HebrewShort` | `שולחן ערוך, אורח חיים א', א'` |
+| `English` | `Shulchan Arukh, Orach Chayim 1:1` |
+
+`סימן` and `סעיף` are not words this app chose. They are the schema's
+`heSectionNames`, carried onto every work by `girsa-import --metadata-only`, and
+where a schema does not say — 1,101 branch schemas, and all 978 Otzaria-only
+works — a sefer is cited by number, which is an ordinary way to write a mekor.
+Nothing is invented: **no abbreviation of a title is guessed at**, because
+nothing in the data says which of a work's 44 title variants a citation should
+use.
+
+The rule the formatter is held to is that Girsa can read back what Girsa
+printed. Writing that test found two real defects, both fixed in `sefer-crates`
+0.3.0 rather than worked around here: the resolver knew nine of the corpus's 42
+section words, so `ברכות דף ב. שורה א'` resolved to `2a:שורה:1` without
+complaint; and a whole sefer could not be written down as a ref at all, because
+`girsa:bavli/berakhot` means the work `bavli` at a section called `berakhot`.
+
 ### What has not been checked
 
 **The shelf panel has been driven in a browser, not in the shell.**
@@ -758,8 +845,18 @@ in a browser says so instead of showing an empty result list — which would rea
 as a corpus with nothing in it. The consequence is that the W9 trap stands for
 this panel: its Hebrew has been looked at on one engine only.
 
-The Ksav loop (W15–W19) is the milestone that makes the project itself —
-`BUILDER.md` says to pull it as early as Tier 2 allows.
+**The clipboard has not been driven with a mouse.** W15's three flavours are
+decided in `girsa-app`, tested there, and the packet is checked from the far
+side by a test in Ksav that reads a packet this corpus really produced. What
+has not happened is a person pressing Ctrl+C in the window and pasting into
+Word: `clipboard-rs` puts the three formats down inside one clipboard open, and
+that call has been compiled and not watched. The same goes for the selection —
+the offsets are computed in the page from a real `Selection` and handed to Rust,
+which is tested, but nobody has dragged a mouse across a se'if.
+
+The rest of the Ksav loop (W16–W19) is still to come: the loopback transport,
+the buffer, cite-on-selection, and sending your own writing back into the
+library.
 
 Two things W10 leaves for the orders that own them. A sefer of yours is **not in
 the resolver's lexicon**, so it is opened and filed by title and not yet cited

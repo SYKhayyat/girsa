@@ -189,6 +189,49 @@ export class PaneView {
     this.element.classList.toggle("is-focused", on);
   }
 
+  /**
+   * What the reader has highlighted, as segment ids and character offsets
+   * (spec.md §10.2 — *highlight part of a passage; only that goes*).
+   *
+   * The offsets are counted over the **text of the line as it stands in the
+   * document**, which is the text Rust sent: markup already turned into runs,
+   * nikud already applied. So `girsa_app::sending` can slice its own copy of
+   * the same string and get the same words, without either side having to
+   * describe a selection to the other.
+   *
+   * The address label in the margin is not part of the line's text, and is
+   * deliberately excluded — a reader dragging across a se'if is not asking to
+   * quote its number.
+   *
+   * `null` when nothing here is selected: that is the whole-line case, and it
+   * is the caller's to decide, because "what is the reader standing on" is a
+   * different question.
+   */
+  selection(): { from: string; to: string; fromChar: number; toChar: number } | null {
+    const chosen = window.getSelection();
+    if (!chosen || chosen.isCollapsed || chosen.rangeCount === 0) return null;
+    const range = chosen.getRangeAt(0);
+    const from = lineOf(range.startContainer);
+    const to = lineOf(range.endContainer);
+    if (!from || !to) return null;
+    if (!this.body.contains(from) || !this.body.contains(to)) return null;
+
+    const fromChar = offsetIn(from, range.startContainer, range.startOffset);
+    const toChar = offsetIn(to, range.endContainer, range.endOffset);
+    if (fromChar === null || toChar === null) return null;
+    return {
+      from: from.dataset.id ?? "",
+      to: to.dataset.id ?? "",
+      fromChar,
+      toChar,
+    };
+  }
+
+  /** The line the reader is standing on — the whole-line case for a copy. */
+  here(): string | null {
+    return this.topLine()?.dataset.id ?? null;
+  }
+
   /** A word about who this pane is following, in its header. */
   setFollowing(label: string): void {
     let chip = this.element.querySelector<HTMLElement>(".pane-follows");
@@ -226,6 +269,35 @@ function runElement(run: Run): Node {
 
 function addressOf(line: HTMLElement): string {
   return line.dataset.address ?? "";
+}
+
+/** The `.line` a node sits inside, if it is inside one. */
+function lineOf(node: Node): HTMLElement | null {
+  const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+  return element?.closest<HTMLElement>(".line") ?? null;
+}
+
+/**
+ * How many characters into a line's words a selection boundary is.
+ *
+ * Measured by asking the document, rather than by walking the runs and adding
+ * up lengths: a range from the start of `.line-text` to the boundary knows
+ * about every node between them, including the `<br>` a break run draws, and
+ * cannot drift from what is on the screen.
+ */
+function offsetIn(line: HTMLElement, container: Node, offset: number): number | null {
+  const words = line.querySelector<HTMLElement>(".line-text");
+  if (!words) return null;
+  if (!words.contains(container)) {
+    // The boundary is in the margin label, or on the line element itself —
+    // which is what a triple-click gives. Either way it means *this end of the
+    // line*, and which end is told by where the other one is.
+    return container === line && offset > 0 ? (words.textContent?.length ?? 0) : 0;
+  }
+  const upTo = document.createRange();
+  upTo.setStart(words, 0);
+  upTo.setEnd(container, offset);
+  return upTo.toString().length;
 }
 
 function el(tag: string, className: string): HTMLElement {

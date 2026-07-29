@@ -46,6 +46,7 @@ fn work(slug: &str, title: &str, categories: &[&str], era: &str, author: &str) -
         era: (!era.is_empty()).then(|| era.to_string()),
         comp_date: None,
         version: None,
+        he_sections: Vec::new(),
         commentary_on: Vec::new(),
     }
 }

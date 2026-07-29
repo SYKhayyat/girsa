@@ -118,6 +118,16 @@ export interface Workspace {
   active: number;
 }
 
+/** What one Ctrl+C put down, and where it points (spec.md §10.2, W15). */
+export interface Copied {
+  /** The citation as printed, so the confirmation names the place. */
+  display: string;
+  /** The ref the document will store — not the printed string. */
+  reference: string;
+  lines: number;
+  put: { plain: boolean; html: boolean; packet: boolean; trouble: string | null };
+}
+
 export interface AppState {
   workspace: Workspace;
   nikud: boolean;
@@ -190,6 +200,17 @@ export const api = {
   findNarrow: (dimension: Dimension, row: FacetRow, exclude: boolean) =>
     call<void>("find_narrow", { dimension, row, exclude }),
   findWholeShelf: () => call<void>("find_whole_shelf"),
+
+  // --- the Ksav loop (W15) ------------------------------------------------
+  //
+  // One call, three flavours. The offsets are characters of the text this
+  // window was *given* — markup already off, nikud already applied — which is
+  // the only way the two ends can agree where a highlight starts without the
+  // webview knowing what a mark is.
+  copy: (from: string, to: string, fromChar: number, toChar: number | null, note?: string) =>
+    call<Copied>("copy", { from, to, fromChar, toChar, note: note ?? null }),
+  setCiteStyle: (style: "hebrew-full" | "hebrew-short" | "english") =>
+    call<void>("set_cite_style", { style }),
 };
 
 
@@ -359,6 +380,21 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       );
       return (places[String(args?.at)] ?? []) as T;
     }
+    // The clipboard is the shell's: a browser can put text down, and it
+    // cannot register `application/x-girsa-source+json` as a format a native
+    // Ksav would find. Saying so beats a copy that looks like it worked.
+    case "copy":
+      return {
+        display: "",
+        reference: "",
+        lines: 0,
+        put: {
+          plain: false,
+          html: false,
+          packet: false,
+          trouble: "העתקת מקור פועלת בחלון בלבד",
+        },
+      } as T;
     case "set_nikud":
       fixtureState.nikud = Boolean(args?.on);
       return undefined as T;

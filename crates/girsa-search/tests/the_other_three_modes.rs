@@ -136,6 +136,7 @@ fn work(slug: &str, title: &str, categories: &[&str]) -> Work {
         era: None,
         comp_date: None,
         version: None,
+        he_sections: Vec::new(),
         commentary_on: Vec::new(),
     }
 }

@@ -922,3 +922,36 @@ body {
   font-size: 12px;
   color: var(--ink-quiet);
 }
+
+/* What the window says after something happened — a copy, mostly (W15).
+   Fixed to the foot of the window rather than in the flow, so a confirmation
+   never moves the words a reader is in the middle of. */
+.said {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 14px;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: 80%;
+  padding: 6px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--page-raised);
+  color: var(--ink);
+  font-size: 13px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  pointer-events: none;
+}
+
+.said.is-on {
+  opacity: 1;
+  transform: none;
+}
+
+.said.is-trouble {
+  border-color: var(--mark);
+  color: var(--mark);
+}

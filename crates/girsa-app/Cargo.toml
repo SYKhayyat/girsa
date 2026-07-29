@@ -13,6 +13,10 @@ girsa-corpus.workspace = true
 girsa-ref.workspace = true
 girsa-hebrew.workspace = true
 girsa-link.workspace = true
+# The Ksav loop (spec.md §10). The packet is the contract and the formatter is
+# the one both applications compile — neither is reimplemented here.
+girsa-cite.workspace = true
+girsa-source.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

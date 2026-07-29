@@ -42,6 +42,13 @@ pub struct Session {
     /// unreadable in a way Latin text at the same size is not.
     #[serde(default = "hundred")]
     pub text_size: u16,
+    /// How a citation is printed when a source is sent (spec.md §10.2, W15).
+    ///
+    /// A preference and not a fact about the quote: what the document stores
+    /// is the ref, so changing this changes how every citation *prints* and
+    /// nothing about where any of them point.
+    #[serde(default = "full")]
+    pub cite: girsa_cite::CiteStyle,
 }
 
 const fn yes() -> bool {
@@ -52,6 +59,11 @@ const fn hundred() -> u16 {
     100
 }
 
+/// How a sefer prints a mekor, which is what a reader expects to see.
+const fn full() -> girsa_cite::CiteStyle {
+    girsa_cite::CiteStyle::HebrewFull
+}
+
 impl Default for Session {
     fn default() -> Self {
         Self {
@@ -59,6 +71,7 @@ impl Default for Session {
             positions: BTreeMap::new(),
             nikud: yes(),
             text_size: hundred(),
+            cite: full(),
         }
     }
 }

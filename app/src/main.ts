@@ -347,6 +347,11 @@ function shortcut(event: KeyboardEvent): void {
       views.clear();
       await reload();
     })();
+  } else if (control && event.key.toLowerCase() === "c") {
+    // **The user does nothing different** (spec.md §10.2). Ctrl+C is Ctrl+C;
+    // what changes is what lands on the clipboard beside the text. The default
+    // is not prevented — if this fails, the webview's own copy still happens.
+    void copySource();
   } else if (control && (event.key === "=" || event.key === "+")) {
     event.preventDefault();
     void resize(10);
@@ -354,6 +359,57 @@ function shortcut(event: KeyboardEvent): void {
     event.preventDefault();
     void resize(-10);
   }
+}
+
+/**
+ * Ctrl+C: the quote, the citation, and the source packet (BUILDER.md W15).
+ *
+ * With something highlighted, only that goes. With nothing highlighted, the
+ * line the reader is standing on goes — which is what Ctrl+C does in every
+ * list of things ever written, and is the same call with the offsets left off.
+ */
+async function copySource(): Promise<void> {
+  const open = tab();
+  if (!open) return;
+  const view = views.get(open.focused);
+  if (!view) return;
+
+  const chosen = view.selection();
+  let copied;
+  if (chosen) {
+    copied = await api.copy(chosen.from, chosen.to, chosen.fromChar, chosen.toChar);
+  } else {
+    const here = view.here();
+    if (!here) return;
+    copied = await api.copy(here, here, 0, null);
+  }
+
+  if (copied.put.trouble) {
+    say(copied.put.trouble, true);
+    return;
+  }
+  // Named, not "copied": a reader should be able to see from the confirmation
+  // that they took the place they meant, without pasting it somewhere to look.
+  const lines = copied.lines > 1 ? ` · ${copied.lines} שורות` : "";
+  say(`הועתק — ${copied.display}${lines}`, false);
+}
+
+/** A line the window says and then stops saying. */
+function say(words: string, trouble: boolean): void {
+  if (!root) return;
+  let toast = root.querySelector<HTMLElement>(".said");
+  if (!toast) {
+    toast = document.createElement("p");
+    toast.className = "said";
+    root.append(toast);
+  }
+  toast.textContent = words;
+  toast.classList.toggle("is-trouble", trouble);
+  toast.classList.add("is-on");
+  window.clearTimeout(Number(toast.dataset.timer ?? 0));
+  toast.dataset.timer = String(
+    window.setTimeout(() => toast?.classList.remove("is-on"), 4000),
+  );
 }
 
 function button(label: string, title: string, click: () => void): HTMLElement {

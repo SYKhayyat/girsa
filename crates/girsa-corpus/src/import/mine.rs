@@ -159,6 +159,7 @@ pub fn add(personal: &Path, file: &Path, title: Option<&str>) -> Result<Imported
             provenance: Some(file.display().to_string()),
             license: None,
         }),
+        he_sections: Vec::new(),
         commentary_on: Vec::new(),
     };
 

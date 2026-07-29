@@ -84,6 +84,18 @@ pub struct Work {
     /// back out of the text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<PathBuf>,
+    /// What the schema calls the levels of an address, outermost first —
+    /// `["סימן", "סעיף"]`.
+    ///
+    /// The same field the importer reads structure from (`heSectionNames`),
+    /// kept because a citation is printed with it: `girsa-cite` writes
+    /// `שולחן ערוך, אורח חיים סימן א' סעיף א'` and has no other way to know
+    /// that the first number is a siman. Empty where the schema does not say —
+    /// 1,101 of Sefaria's 6,595 are branch schemas and no Otzaria work has a
+    /// schema at all — and a sefer with no words is cited by number, which is
+    /// an ordinary way to write a mekor.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub he_sections: Vec<String>,
     /// Author, era and place, where the corpus knows them. spec.md §5 —
     /// these drive the era filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -536,6 +548,7 @@ fn read_sefaria(root: &Path) -> Result<(Vec<Work>, usize, Vec<Declared>), Catalo
             source: Source::Sefaria,
             origin: origin.clone(),
             schema: Some(path.clone()),
+            he_sections: schema.get("schema").map(section_names).unwrap_or_default(),
             author: schema
                 .pointer("/authors/0/he")
                 .or_else(|| schema.pointer("/authors/0/en"))
@@ -570,6 +583,48 @@ fn read_sefaria(root: &Path) -> Result<(Vec<Work>, usize, Vec<Declared>), Catalo
         ));
     }
     Ok((works, skipped, declared))
+}
+
+/// What a schema calls the levels of an address, outermost first.
+///
+/// A **jagged** node says so itself. A **branch** says it on each child, and
+/// the one that matters is the *default* child — the body of the work, keyed
+/// by the empty string and contributing no level of its own, which is what an
+/// address like `121:3` names. The named children are its introductions and
+/// appendices, and they are addressed by their own name first, so a citation
+/// into one is recognisable without the words.
+///
+/// Blank names are dropped rather than kept: 2,271 nodes carry an empty
+/// string, and a citation reading `שולחן ערוך  קכ"א` with a hole in it is
+/// worse than one with no words at all.
+#[must_use]
+pub fn section_names(schema: &Value) -> Vec<String> {
+    if let Some(names) = schema.get("heSectionNames").and_then(Value::as_array) {
+        return names
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+    schema
+        .get("nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|child| {
+            child
+                .get("default")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || child
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .is_empty()
+        })
+        .map(section_names)
+        .unwrap_or_default()
 }
 
 /// `[{"en": "Berakhot", "he": "ברכות"}, …]` → the values under one key.
@@ -671,6 +726,9 @@ fn read_otzaria(root: &Path) -> Result<Vec<Work>, CatalogueError> {
                 source: Source::Otzaria,
                 origin: path,
                 schema: None,
+                // No schema, so nothing says what a level of this sefer is
+                // called. Cited by number.
+                he_sections: Vec::new(),
                 author: meta.and_then(|m| m.author.clone()),
                 era: None,
                 comp_date: meta.and_then(|m| m.comp_date.clone()),
@@ -749,6 +807,33 @@ mod tests {
     // library code, where a panic would take the reader's window with it.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn the_schema_says_what_the_levels_of_an_address_are_called() {
+        // Verbatim shapes from `corpus/sefaria/schemas/`. A citation is
+        // printed with these words and there is nowhere else to learn them.
+        let jagged = serde_json::json!({
+            "nodeType": "JaggedArrayNode", "depth": 2,
+            "addressTypes": ["Siman", "Seif"],
+            "heSectionNames": ["סימן", "סעיף"]});
+        assert_eq!(section_names(&jagged), ["סימן", "סעיף"]);
+
+        // Mishnah Berurah: a branch whose *body* is the default child, and
+        // whose named children are its two introductions. The body is what
+        // `121:3` addresses.
+        let branch = serde_json::json!({
+            "nodeType": "SchemaNode",
+            "nodes": [
+                {"title": "Introduction", "depth": 1, "heSectionNames": ["פסקה"]},
+                {"title": "", "default": true, "depth": 2,
+                 "heSectionNames": ["סימן", "סעיף קטן"]}]});
+        assert_eq!(section_names(&branch), ["סימן", "סעיף קטן"]);
+
+        // A schema that does not say, and one whose names are blank — 2,271
+        // nodes carry an empty string. Neither invents a word.
+        assert!(section_names(&serde_json::json!({"depth": 1})).is_empty());
+        assert!(section_names(&serde_json::json!({"heSectionNames": ["", " "]})).is_empty());
+    }
 
     #[test]
     fn a_volume_title_becomes_a_work_path() {

@@ -419,6 +419,7 @@ mod tests {
             era: era.map(str::to_string),
             comp_date: None,
             version: None,
+            he_sections: Vec::new(),
             commentary_on: Vec::new(),
         }
     }

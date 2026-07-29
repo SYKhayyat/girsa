@@ -265,6 +265,7 @@ mod tests {
             era: None,
             comp_date: None,
             version: None,
+            he_sections: Vec::new(),
             commentary_on: Vec::new(),
         };
         shelf_of(&work).join("/")

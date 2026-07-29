@@ -18,6 +18,8 @@
 //! It is **never** under the corpus root: the corpus is re-downloadable and
 //! this is not.
 
+mod clipboard;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -290,11 +292,7 @@ struct PlaceRow {
 /// The chips are read from what was typed first (a sigil flips a chip — §9.5),
 /// so the row that comes back is the row the search actually ran under.
 #[tauri::command]
-fn find(
-    shared: tauri::State<'_, Shared>,
-    query: String,
-    page: usize,
-) -> Result<FoundPage, String> {
+fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<FoundPage, String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
     let size = PAGE;
     let paging = Paging {
@@ -312,7 +310,12 @@ fn find(
         return Ok(FoundPage::refused(&chips, why));
     };
 
-    let answer = bar.ask(&query, &chips, paging, &girsa_ref::resolve::Context::default());
+    let answer = bar.ask(
+        &query,
+        &chips,
+        paging,
+        &girsa_ref::resolve::Context::default(),
+    );
     Ok(match answer {
         Answer::Segments {
             results,
@@ -610,7 +613,7 @@ fn open_bar_for(shelf: &Option<Shelf>) -> (Option<Bar>, Option<String>) {
     let Some(shelf) = shelf.as_ref() else {
         return (None, Some("there is no shelf to search".to_string()));
     };
-    open_bar(&shelf.root().to_path_buf(), Some(shelf))
+    open_bar(shelf.root(), Some(shelf))
 }
 
 fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Option<String>) {
@@ -681,7 +684,11 @@ fn shelf_put_shelf(
 }
 
 #[tauri::command]
-fn shelf_rename(shared: tauri::State<'_, Shared>, key: String, title: String) -> Result<(), String> {
+fn shelf_rename(
+    shared: tauri::State<'_, Shared>,
+    key: String,
+    title: String,
+) -> Result<(), String> {
     edit_shelf(&shared, move |a| {
         a.rename(&key, &title);
         Ok(())
@@ -803,6 +810,71 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
             .collect(),
         has_nikud,
     })
+}
+
+// ── The Ksav loop (spec.md §10, BUILDER.md W15) ─────────────────────────────
+
+/// What one Ctrl+C put down, and where it points.
+#[derive(Serialize)]
+struct Copied {
+    /// The citation as printed — what the window shows in its confirmation, so
+    /// a reader can see they copied the place they meant.
+    display: String,
+    /// The ref the document will store.
+    reference: String,
+    /// How many segments went.
+    lines: usize,
+    put: clipboard::Put,
+}
+
+/// Copy a selection: the quote, the citation, and the source packet.
+///
+/// The window sends **character offsets into the text it drew**, which is the
+/// text this crate handed it — markup already off, nikud already applied. That
+/// is the only way the two ends can agree about where a highlight starts
+/// without the webview knowing what a mark is.
+#[tauri::command]
+fn copy(
+    shared: tauri::State<'_, Shared>,
+    from: String,
+    to: Option<String>,
+    from_char: usize,
+    to_char: Option<usize>,
+    note: Option<String>,
+) -> Result<Copied, String> {
+    let from: SegmentId = from.parse().map_err(|e| format!("{e}"))?;
+    let to: SegmentId = match to {
+        Some(to) => to.parse().map_err(|e| format!("{e}"))?,
+        None => from.clone(),
+    };
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let style = state.session.cite;
+    let sefer = state.sefer(from.work())?;
+    let selection = girsa_app::Selection {
+        from,
+        to,
+        from_char,
+        to_char,
+    };
+    let sent = girsa_app::send(sefer, &selection, style, nikud, note).map_err(|e| e.to_string())?;
+    Ok(Copied {
+        display: sent.display().to_string(),
+        reference: sent.packet.reference.clone(),
+        lines: sent.packet.text.lines().count(),
+        put: clipboard::put(&sent),
+    })
+}
+
+/// How citations print. A preference, and it moves nothing: the document
+/// stores the ref.
+#[tauri::command]
+fn set_cite_style(shared: tauri::State<'_, Shared>, style: String) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.session.cite =
+        girsa_cite::CiteStyle::named(&style).ok_or_else(|| format!("no such style: {style}"))?;
+    state.save();
+    Ok(())
 }
 
 #[tauri::command]
@@ -986,8 +1058,7 @@ fn find_corpus() -> Result<PathBuf, String> {
 /// Beside the session file, in the app's data directory — not under the corpus
 /// root, which a re-download is entitled to replace wholesale.
 fn find_personal(data: &std::path::Path) -> PathBuf {
-    std::env::var("GIRSA_PERSONAL")
-        .map_or_else(|_| data.join("personal"), PathBuf::from)
+    std::env::var("GIRSA_PERSONAL").map_or_else(|_| data.join("personal"), PathBuf::from)
 }
 
 /// # Panics
@@ -1063,6 +1134,8 @@ pub fn run() {
             find_rung,
             find_narrow,
             find_whole_shelf,
+            copy,
+            set_cite_style,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");
