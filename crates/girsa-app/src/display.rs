@@ -319,16 +319,15 @@ pub fn has_marks(text: &str) -> bool {
 /// works carry one — and a shelf row that says `A` beside `ברכות` is telling
 /// the reader nothing. A code nobody here has a word for is **shown as it is**,
 /// not dropped and not guessed at: an unknown era is a thing to notice.
+///
+/// The table is [`girsa_corpus::era`]'s, because W28 made the same six codes
+/// load-bearing: they are the axis a transmission chain runs along, and a
+/// second copy of them here could disagree with the one doing the ordering.
 #[must_use]
 pub fn era_said(code: &str) -> &str {
-    match code {
-        "T" => "תנאים",
-        "A" => "אמוראים",
-        "GN" => "גאונים",
-        "RI" => "ראשונים",
-        "AH" => "אחרונים",
-        "CO" => "מחברי זמננו",
-        other => other,
+    match girsa_corpus::era::Era::from_code(code) {
+        Some(era) => era.he(),
+        None => code,
     }
 }
 

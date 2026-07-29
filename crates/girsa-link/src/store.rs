@@ -155,11 +155,24 @@ impl Writer {
 /// outgoing edges, which is not an error — most works are cited more than they
 /// cite.
 pub fn read_back(root: &Path, slug: &str) -> Result<Vec<Edge>, std::io::Error> {
-    let path = edges_path(root, slug);
+    read_edges(&edges_path(root, slug))
+}
+
+/// One file of edge rows, whichever file it is.
+///
+/// The outgoing shard and W28's inbound cache hold the same rows in the same
+/// shape, and two readers that drifted would give one answer for the half of a
+/// segment's links stored here and another for the half stored elsewhere.
+///
+/// # Errors
+///
+/// If the file exists and cannot be read. A file that is not there is no edges,
+/// which is not an error.
+pub fn read_edges(path: &Path) -> Result<Vec<Edge>, std::io::Error> {
     if !path.is_file() {
         return Ok(Vec::new());
     }
-    let body = fs::read_to_string(&path)?;
+    let body = fs::read_to_string(path)?;
     let mut out = Vec::new();
     for line in body.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(row) = serde_json::from_str::<Row>(line) else {
@@ -184,7 +197,7 @@ pub fn read_back(root: &Path, slug: &str) -> Result<Vec<Edge>, std::io::Error> {
 }
 
 /// `girsa:x/1:1#1-girsa:x/1:3#3` → a run; a single id → a point.
-fn parse_anchor(text: &str) -> Option<Anchor> {
+pub(crate) fn parse_anchor(text: &str) -> Option<Anchor> {
     match text.split_once("-girsa:") {
         Some((from, to)) => Some(Anchor::span(
             from.parse().ok()?,

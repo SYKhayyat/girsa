@@ -90,20 +90,6 @@ pub struct Facts {
     pub author: Option<String>,
 }
 
-/// Sefaria's era codes, in the words a reader uses.
-///
-/// A code not in this table is **carried through as written** — the same rule
-/// the shelf taxonomy uses for a category nobody has translated. A guess at
-/// what an unknown code means would be a label a reader cannot check.
-const ERAS: [(&str, &str); 6] = [
-    ("T", "תנאים"),
-    ("A", "אמוראים"),
-    ("GN", "גאונים"),
-    ("RI", "ראשונים"),
-    ("AH", "אחרונים"),
-    ("CO", "מחברי זמננו"),
-];
-
 /// The key of the row for a work whose era nobody recorded.
 pub const NO_ERA: &str = "";
 
@@ -378,14 +364,18 @@ pub fn exclude(scope: &Scope, catalogue: &Catalogue, dimension: Dimension, row: 
 }
 
 /// An era code in the words a reader uses, or as written when nobody knows it.
+///
+/// A code not in [`girsa_corpus::era`]'s table is **carried through as
+/// written** — the same rule the shelf taxonomy uses for a category nobody has
+/// translated. A guess at what an unknown code means would be a label a reader
+/// cannot check.
 #[must_use]
 pub fn era_label(code: &str) -> String {
     if code.is_empty() {
         return "no era recorded".to_string();
     }
-    ERAS.iter()
-        .find(|(en, _)| *en == code)
-        .map_or_else(|| code.to_string(), |(_, he)| (*he).to_string())
+    girsa_corpus::era::Era::from_code(code)
+        .map_or_else(|| code.to_string(), |era| era.he().to_string())
 }
 
 /// Biggest first, and ties broken by name so two runs agree.

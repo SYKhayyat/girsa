@@ -7,6 +7,7 @@
 //! Filled in by W5–W8.
 
 pub mod csv;
+pub mod era;
 pub mod fetch;
 pub mod import;
 pub mod index;

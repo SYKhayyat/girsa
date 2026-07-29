@@ -12,10 +12,15 @@
 //! reverse direction, and answering it honestly would mean opening seven
 //! thousand shards.
 //!
-//! It does not, because `girsa-companions` already wrote down which works share
-//! edges with which. So the incoming half reads **only the shards of works that
-//! are known to link here** — a handful to a few dozen — and that cache is the
-//! difference between a sidebar and a spinner.
+//! It does not, because W28's `inbound.jsonl` holds every edge that lands on a
+//! work, filed under that work. So the incoming half is **one more file**, and
+//! that cache is the difference between a sidebar and a spinner.
+//!
+//! Until W28 the incoming half read the shards of every work the companions
+//! cache listed as joined to this one — which was a handful to a few dozen
+//! files, and was capped: `girsa-companions` keeps the top 200 works per sefer,
+//! so a line in Berakhot, which is joined to 1,600 works, could have its rarer
+//! commentaries silently missing. One file has no cap.
 //!
 //! When the cache is not there, the incoming half is **empty and says so**
 //! rather than being quietly short: a link sidebar missing half its links is
@@ -25,7 +30,7 @@ use std::path::Path;
 
 use girsa_corpus::segment::SegmentId;
 use girsa_link::repair::{Repaired, Repairs};
-use girsa_link::{store, Anchor};
+use girsa_link::{inbound, store, Anchor};
 
 use crate::shelf::Shelf;
 
@@ -90,21 +95,20 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
         links.push(link(shelf, repaired, true));
     }
 
-    // Incoming: only the works the companions cache says link here.
+    // Incoming: the edges that land on this sefer, from the cache that holds
+    // them under it.
     //
     // Whether the cache exists at all is a different question from whether it
     // lists anything for this sefer, and answering the first with the second
     // would tell a reader "nothing links here" when the truth is "I have not
     // been told what does".
-    let incoming_unknown = !shelf.has_companions();
-    let companions = shelf.companions(at.work());
-    for companion in &companions {
-        for repaired in repairs.apply(read_shard(root, &companion.slug)) {
-            if !repaired.edge.to.covers(at) {
-                continue;
-            }
-            links.push(link(shelf, repaired, false));
+    let incoming_unknown = !inbound::built(root);
+    let onto = inbound::read_back(root, at.work()).unwrap_or_default();
+    for repaired in repairs.apply(onto) {
+        if !repaired.edge.to.covers(at) {
+            continue;
         }
+        links.push(link(shelf, repaired, false));
     }
 
     // …the ones you drew, which are in no shard at all…

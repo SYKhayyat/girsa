@@ -1739,7 +1739,7 @@ struct LinkRow {
 #[derive(Serialize)]
 struct Links {
     links: Vec<LinkRow>,
-    /// No companions cache, so the incoming half is missing. Said out loud: a
+    /// No inbound cache, so the incoming half is missing. Said out loud: a
     /// sidebar quietly short of half its links reads as a sefer nobody comments
     /// on.
     incoming_unknown: bool,

@@ -219,15 +219,6 @@ impl Shelf {
         &self.fixes
     }
 
-    /// Whether `girsa-companions` has been run.
-    ///
-    /// The links panel needs this to tell *nothing links here* from *I cannot
-    /// see what links here* (W23), and those are different sentences.
-    #[must_use]
-    pub fn has_companions(&self) -> bool {
-        !self.linked.is_empty()
-    }
-
     /// What you have said about the link graph (W23).
     #[must_use]
     pub fn repairs(&self) -> &girsa_link::repair::Repairs {

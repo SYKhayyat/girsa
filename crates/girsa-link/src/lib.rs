@@ -21,6 +21,8 @@
 //! an endpoint is a range — a point being the case where it happens to be one
 //! segment long, not a different type.
 
+pub mod chain;
+pub mod inbound;
 pub mod otzaria;
 pub mod repair;
 pub mod sefaria;
@@ -150,6 +152,25 @@ impl Anchor {
             Some(to) => self.from <= *id && *id <= *to,
             None => self.from.covers(id),
         }
+    }
+
+    /// Whether two anchors have any text in common.
+    ///
+    /// A chain (W28) stands on an anchor and asks what else touches it, and
+    /// most of Sefaria's citations are coarser than a segment — `Rashi on
+    /// Berakhot 2a` covers a daf. Asking with [`Anchor::covers`] on the near
+    /// end alone would find only the links that happen to start where this one
+    /// starts, and a hop would be missed for no reason a reader could see.
+    ///
+    /// Built out of `covers` rather than beside it: two ranges that overlap
+    /// always have one's start inside the other, so this is the same coverage
+    /// rule asked four ways and cannot drift from it.
+    #[must_use]
+    pub fn overlaps(&self, other: &Self) -> bool {
+        self.covers(&other.from)
+            || other.covers(&self.from)
+            || other.to.as_ref().is_some_and(|end| self.covers(end))
+            || self.to.as_ref().is_some_and(|end| other.covers(end))
     }
 }
 
