@@ -1474,6 +1474,7 @@ dependencies = [
  "girsa-corpus",
  "girsa-fix",
  "girsa-ksav",
+ "girsa-link",
  "girsa-post",
  "girsa-ref",
  "girsa-search",

@@ -318,6 +318,136 @@ body {
   opacity: 0.55;
 }
 
+/* --- links, and repairing them (W23) -----------------------------------
+ *
+ * A drawer down the side, like the queue. Two things are load-bearing rather
+ * than decorative: an uncurated type is grey (spec.md §8.3 — a blank-typed link
+ * is never presented as curated fact), and a rejected row stays on the page,
+ * struck through, because a rejection is yours to take back.
+ */
+.links {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  overflow: hidden;
+  z-index: 30;
+  background: var(--page-raised);
+  border-left: 1px solid var(--rule);
+  transition: width 0.12s ease-out;
+}
+
+.links.is-open {
+  width: min(620px, 50vw);
+}
+
+.links-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.links-title {
+  font-family: var(--hebrew);
+  font-size: 17px;
+}
+
+.links-note {
+  flex: 1;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.links-list {
+  height: calc(100% - 44px);
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.links-warn {
+  margin: 10px 14px;
+  font-family: var(--plain);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--mark);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 60%, transparent);
+}
+
+.link.is-rejected {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.link.is-mine .link-kind {
+  color: var(--mark);
+}
+
+.link-kind {
+  flex: 0 0 auto;
+  min-width: 3.6em;
+  font-family: var(--hebrew);
+  font-size: 15px;
+}
+
+/* The corpus did not say what the connection is. Shown, and not dressed up. */
+.link-kind.is-uncurated {
+  color: var(--ink-quiet);
+  font-style: italic;
+}
+
+.link-where {
+  flex: 1;
+  text-align: right;
+  font-family: var(--hebrew);
+  font-size: 15px;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-where:hover {
+  color: var(--mark);
+}
+
+.link-work {
+  flex: 0 0 auto;
+  font-family: var(--plain);
+  font-size: 10px;
+  color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+.link-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.link-retype {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
 /* --- the OCR queue (W21) -----------------------------------------------
  *
  * A drawer down the side rather than a dialog: the reader works down it with

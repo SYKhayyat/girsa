@@ -1091,6 +1091,218 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
     Ok(rows)
 }
 
+// ── The links on a line, and repairing them (spec.md §8.3, W23) ─────────────
+
+/// One link, as the panel shows it.
+///
+/// Everything §8.3 asks a repair UI to show its work with: which end, what the
+/// corpus said, what it says now, how it was found, how much to believe it, and
+/// which of those were you.
+#[derive(Serialize)]
+struct LinkRow {
+    /// What names this edge in your layer — handed back to repair it.
+    edge: String,
+    /// `comments-on`, `quotes`, … as it stands now.
+    kind: &'static str,
+    /// What the corpus shipped, where your layer changed it.
+    was: Option<&'static str>,
+    outgoing: bool,
+    at: String,
+    work: String,
+    he_title: String,
+    address: String,
+    said: String,
+    /// `sefaria-seed`, `otzaria-seed`, `by-hand`.
+    method: &'static str,
+    confidence: f32,
+    /// The label the corpus used, verbatim — blank for 40% of them (T5).
+    label: String,
+    confirmed: bool,
+    rejected: bool,
+    mine: bool,
+    /// Which of the four repairs have been applied to it.
+    changed: Vec<&'static str>,
+    who: Option<String>,
+    /// Whether this may be shown as a statement about the texts, rather than
+    /// as *these two are connected somehow*.
+    curated: bool,
+}
+
+/// What the links panel needs to draw itself.
+#[derive(Serialize)]
+struct Links {
+    links: Vec<LinkRow>,
+    /// No companions cache, so the incoming half is missing. Said out loud: a
+    /// sidebar quietly short of half its links reads as a sefer nobody comments
+    /// on.
+    incoming_unknown: bool,
+    /// The types a link may be retyped to, in the order they are offered.
+    types: Vec<&'static str>,
+}
+
+#[tauri::command]
+fn links(shared: tauri::State<'_, Shared>, at: String) -> Result<Links, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let touching = girsa_app::touching(shelf, shelf.repairs(), &at);
+    Ok(Links {
+        links: touching.links.iter().map(LinkRow::of).collect(),
+        incoming_unknown: touching.incoming_unknown,
+        types: EDGE_TYPES.iter().map(|t| t.as_str()).collect(),
+    })
+}
+
+/// The types a reader may set, strongest claim first — the order `EdgeType` is
+/// declared in, which is the order the facets list them in too.
+const EDGE_TYPES: [girsa_link::EdgeType; 9] = [
+    girsa_link::EdgeType::CommentsOn,
+    girsa_link::EdgeType::Quotes,
+    girsa_link::EdgeType::Paraphrases,
+    girsa_link::EdgeType::Codifies,
+    girsa_link::EdgeType::Disputes,
+    girsa_link::EdgeType::Emends,
+    girsa_link::EdgeType::ParallelTo,
+    girsa_link::EdgeType::Translates,
+    girsa_link::EdgeType::References,
+];
+
+impl LinkRow {
+    fn of(link: &girsa_app::Link) -> Self {
+        Self {
+            edge: girsa_link::repair::name_of(
+                link.repaired
+                    .shipped
+                    .as_ref()
+                    .unwrap_or(&link.repaired.edge),
+            ),
+            kind: link.repaired.edge.edge_type.as_str(),
+            was: link.repaired.shipped.as_ref().map(|e| e.edge_type.as_str()),
+            outgoing: link.outgoing,
+            at: link.other.from.to_string(),
+            work: link.work.clone(),
+            he_title: link.he_title.clone(),
+            address: link.address.clone(),
+            said: link.said(),
+            method: link.repaired.edge.method.as_str(),
+            confidence: link.repaired.confidence(),
+            label: link.repaired.edge.source_label.clone(),
+            confirmed: link.repaired.confirmed,
+            rejected: link.repaired.rejected,
+            mine: link.repaired.mine,
+            changed: link.repaired.changed.clone(),
+            who: link.repaired.who.clone(),
+            curated: link.repaired.is_curated(),
+        }
+    }
+}
+
+/// Confirm, reject, retype, reanchor, or take it all back.
+///
+/// One command, because they are one thing: a statement about an edge, written
+/// into your layer. Which statement is named rather than free-form — the window
+/// may choose among what the engine offered and may not invent one.
+#[tauri::command]
+fn link_repair(
+    shared: tauri::State<'_, Shared>,
+    edge: String,
+    does: String,
+    value: Option<String>,
+) -> Result<(), String> {
+    use girsa_link::repair::Verdict;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let who = who();
+    let repairs = shelf.repairs_mut();
+    match does.as_str() {
+        "confirm" => repairs.judge_named(&edge, Verdict::Confirmed, &who),
+        "reject" => repairs.judge_named(&edge, Verdict::Rejected, &who),
+        "retype" => {
+            let name = value.ok_or("which type?")?;
+            let edge_type = girsa_link::touching::type_named(&name)
+                .ok_or_else(|| format!("no such link type: {name}"))?;
+            repairs.retype_named(&edge, edge_type, &who)
+        }
+        "undo" => {
+            return repairs
+                .undo_named(&edge)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        other => return Err(format!("no such repair: {other}")),
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// Move a link onto the segment you are standing on.
+///
+/// The end being moved is named, because a link has two and moving the wrong
+/// one silently is exactly the class of guess rule 6 forbids.
+#[tauri::command]
+fn link_reanchor(
+    shared: tauri::State<'_, Shared>,
+    edge: String,
+    end: String,
+    to: String,
+) -> Result<(), String> {
+    let to: SegmentId = to.parse().map_err(|e| format!("{e}"))?;
+    let (from_text, to_text) = edge.split_once(" → ").ok_or("that is not an edge")?;
+    let (from_anchor, to_anchor) = (parse_anchor(from_text)?, parse_anchor(to_text)?);
+    let (from_anchor, to_anchor) = match end.as_str() {
+        "from" => (girsa_link::Anchor::point(to), to_anchor),
+        "to" => (from_anchor, girsa_link::Anchor::point(to)),
+        other => return Err(format!("no such end: {other}")),
+    };
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let who = who();
+    shelf
+        .repairs_mut()
+        .reanchor_named(&edge, from_anchor, to_anchor, &who)
+        .map_err(|e| e.to_string())
+}
+
+/// Draw a link by hand, from one place to another.
+#[tauri::command]
+fn link_draw(
+    shared: tauri::State<'_, Shared>,
+    from: String,
+    to: String,
+    kind: String,
+) -> Result<(), String> {
+    let from: SegmentId = from.parse().map_err(|e| format!("{e}"))?;
+    let to: SegmentId = to.parse().map_err(|e| format!("{e}"))?;
+    let edge_type = girsa_link::touching::type_named(&kind)
+        .ok_or_else(|| format!("no such link type: {kind}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let who = who();
+    shelf
+        .repairs_mut()
+        .draw(
+            girsa_link::Anchor::point(from),
+            girsa_link::Anchor::point(to),
+            edge_type,
+            &who,
+        )
+        .map_err(|e| e.to_string())
+}
+
+fn parse_anchor(text: &str) -> Result<girsa_link::Anchor, String> {
+    match text.split_once("-girsa:") {
+        Some((from, to)) => Ok(girsa_link::Anchor::span(
+            from.parse().map_err(|e| format!("{e}"))?,
+            format!("girsa:{to}").parse().map_err(|e| format!("{e}"))?,
+        )),
+        None => Ok(girsa_link::Anchor::point(
+            text.parse().map_err(|e| format!("{e}"))?,
+        )),
+    }
+}
+
 // ── Exporting a fixed sefer (spec.md §7.4, BUILDER.md W22) ──────────────────
 
 /// What came out, and where it went.
@@ -1893,6 +2105,10 @@ pub fn run() {
             suspect_at,
             suspect_decide,
             export_sefer,
+            links,
+            link_repair,
+            link_reanchor,
+            link_draw,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

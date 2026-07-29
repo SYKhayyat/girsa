@@ -58,6 +58,9 @@ pub struct Shelf {
     /// importer owns the corpus and truncates what it owns.
     fixes: girsa_fix::Layer,
     showing: Showing,
+    /// What you have said about the link graph (W23). Beside the corrections,
+    /// under the same rule: the importer owns the shards and replaces them.
+    repairs: girsa_link::repair::Repairs,
     /// Something wrong with the personal layer that the reader should be told
     /// about — an arrangement file that would not read, so far.
     trouble: Option<String>,
@@ -109,7 +112,9 @@ impl Shelf {
         let (arrangement, mut trouble) = Arrangement::load(&personal.join("shelf.json"));
         // A correction that will not read is one correction, and it is said out
         // loud — not a library that refuses to open.
-        let (fixes, bad_lines) = girsa_fix::Layer::open(personal);
+        let (fixes, mut bad_lines) = girsa_fix::Layer::open(personal);
+        let (repairs, bad_repairs) = girsa_link::repair::Repairs::open(personal);
+        bad_lines.extend(bad_repairs);
         for line in bad_lines {
             trouble = Some(match trouble {
                 Some(said) => format!("{said} · {line}"),
@@ -136,6 +141,7 @@ impl Shelf {
             arrangement,
             fixes,
             showing: Showing::default(),
+            repairs,
             trouble,
             works,
             by_slug,
@@ -182,6 +188,27 @@ impl Shelf {
     #[must_use]
     pub fn fixes(&self) -> &girsa_fix::Layer {
         &self.fixes
+    }
+
+    /// Whether `girsa-companions` has been run.
+    ///
+    /// The links panel needs this to tell *nothing links here* from *I cannot
+    /// see what links here* (W23), and those are different sentences.
+    #[must_use]
+    pub fn has_companions(&self) -> bool {
+        !self.linked.is_empty()
+    }
+
+    /// What you have said about the link graph (W23).
+    #[must_use]
+    pub fn repairs(&self) -> &girsa_link::repair::Repairs {
+        &self.repairs
+    }
+
+    /// The same, to say something new. Every edit writes into the personal
+    /// layer, and nothing here may write into `corpus/links/`.
+    pub fn repairs_mut(&mut self) -> &mut girsa_link::repair::Repairs {
+        &mut self.repairs
     }
 
     /// How much of them is being applied to what you read.
@@ -670,12 +697,14 @@ pub(crate) mod tests {
         }
         let (arrangement, trouble) = Arrangement::load(&personal.join("shelf.json"));
         let (fixes, _) = girsa_fix::Layer::open(personal);
+        let (repairs, _) = girsa_link::repair::Repairs::open(personal);
         Shelf {
             root: PathBuf::new(),
             personal: personal.to_path_buf(),
             arrangement,
             fixes,
             showing: Showing::default(),
+            repairs,
             trouble,
             by_slug: works
                 .iter()

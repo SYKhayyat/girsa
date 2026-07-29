@@ -27,6 +27,9 @@ girsa-corpus = { path = "../../crates/girsa-corpus" }
 # Corrections: an overlay of patches on permanent ids, never an edit to the
 # shipped text (spec.md §7). The window shows what it says and decides nothing.
 girsa-fix = { path = "../../crates/girsa-fix" }
+# The link graph and your repairs to it (spec.md §8.3). The window shows what
+# this crate says about an edge and judges nothing itself.
+girsa-link = { path = "../../crates/girsa-link" }
 # The search bar: five modes, three chips, five facets (spec.md §9). The window
 # draws what this crate decides and decides nothing itself.
 girsa-search = { path = "../../crates/girsa-search" }

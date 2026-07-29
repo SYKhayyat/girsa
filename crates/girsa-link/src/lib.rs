@@ -22,6 +22,7 @@
 //! segment long, not a different type.
 
 pub mod otzaria;
+pub mod repair;
 pub mod sefaria;
 pub mod store;
 pub mod touching;
@@ -134,6 +135,22 @@ impl Anchor {
     pub fn is_span(&self) -> bool {
         self.to.is_some()
     }
+
+    /// Whether this anchor lands on a segment.
+    ///
+    /// A run covers everything between its ends in **reading order**, which is
+    /// ordinal order and so includes the children a split minted (§3) — an edge
+    /// onto `#7` still lands after `#7` becomes `#7.1` and `#7.2`.
+    #[must_use]
+    pub fn covers(&self, id: &SegmentId) -> bool {
+        if self.from.work() != id.work() {
+            return false;
+        }
+        match &self.to {
+            Some(to) => self.from <= *id && *id <= *to,
+            None => self.from.covers(id),
+        }
+    }
 }
 
 impl std::fmt::Display for Anchor {
@@ -156,6 +173,9 @@ pub enum Method {
     /// Sefaria does not have. Line-indexed at the source, so it carries the
     /// weaker confidence of the two.
     OtzariaSeed,
+    /// You drew it (W23). It is in your layer and in no shard, and it is the
+    /// only method whose confidence is not a guess about somebody else's data.
+    ByHand,
 }
 
 impl Method {
@@ -164,6 +184,7 @@ impl Method {
         match self {
             Self::SefariaSeed => "sefaria-seed",
             Self::OtzariaSeed => "otzaria-seed",
+            Self::ByHand => "by-hand",
         }
     }
 
@@ -176,6 +197,7 @@ impl Method {
         match self {
             Self::SefariaSeed => 0.9,
             Self::OtzariaSeed => 0.7,
+            Self::ByHand => 1.0,
         }
     }
 }

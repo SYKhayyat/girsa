@@ -23,6 +23,7 @@ import {
 } from "./api.ts";
 import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
+import { LinksView } from "./linksview.ts";
 import { PaneView } from "./pane.ts";
 import { Picker } from "./picker.ts";
 import { SearchView } from "./search.ts";
@@ -37,6 +38,7 @@ const find = new SearchView();
 const writing = new WritingView();
 const fixbox = new FixBox();
 const suspects = new SuspectsView();
+const linksview = new LinksView();
 const views = new Map<PaneId, PaneView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
@@ -58,9 +60,12 @@ async function main(): Promise<void> {
     find.element,
     writing.element,
     suspects.element,
+    linksview.element,
     fixbox.element,
   );
   suspects.onOpen(openSuspect);
+  linksview.onOpen(openFound);
+  linksview.onHere(whereIAm);
   // The drawer asks the window for a source, because which pane is focused is
   // the window's business and not the drawer's.
   writing.onSourceWanted(sourceForBuffer);
@@ -155,6 +160,7 @@ async function draw(): Promise<void> {
       shelf.element,
       find.element,
       suspects.element,
+      linksview.element,
       fixbox.element,
     );
     return;
@@ -171,6 +177,7 @@ async function draw(): Promise<void> {
     shelf.element,
     find.element,
     suspects.element,
+    linksview.element,
     fixbox.element,
   );
 
@@ -227,6 +234,9 @@ function addControls(view: PaneView, id: PaneId): void {
     await api.setFollows(id, leader);
     await reload();
   });
+  const links = button("קישורים", "מה מקושר לשורה הזאת (Ctrl+L)", () => {
+    void showLinks();
+  });
   // W22: base text + your patches → a file. On the pane, because what is
   // written out is the sefer this pane is reading, corrections and all.
   const save = button("ייצא", "כתוב את הספר לקובץ, עם התיקונים שלך", () => {
@@ -240,6 +250,7 @@ function addControls(view: PaneView, id: PaneId): void {
   });
   view.addControl(beside);
   view.addControl(unfollow);
+  view.addControl(links);
   view.addControl(save);
   view.addControl(close);
 }
@@ -524,6 +535,25 @@ async function revertFix(view: PaneView, at: string, patch: string): Promise<voi
   }
 }
 
+/** The segment the focused pane is standing on. */
+function whereIAm(): string | null {
+  const open = tab();
+  if (!open) return null;
+  return views.get(open.focused)?.here() ?? null;
+}
+
+/**
+ * What is linked to the line you are on (spec.md §8.3, W23).
+ *
+ * The line the reader is standing on, not a selection: a link is on a segment,
+ * and asking about "the highlighted part" would be W24's question.
+ */
+async function showLinks(): Promise<void> {
+  const here = whereIAm();
+  if (!here) return;
+  await linksview.toggle(here);
+}
+
 /** Write the sefer out with your corrections in it (spec.md §7.4). */
 async function exportSefer(slug: string): Promise<void> {
   try {
@@ -585,6 +615,11 @@ function shortcut(event: KeyboardEvent): void {
       event.preventDefault();
       writing.close();
     }
+    return;
+  }
+  if (linksview.isOpen && event.key === "Escape") {
+    event.preventDefault();
+    linksview.close();
     return;
   }
   if (suspects.isOpen && event.key === "Escape") {
@@ -654,6 +689,9 @@ function shortcut(event: KeyboardEvent): void {
   } else if (writing.isOpen && event.key === "Escape") {
     event.preventDefault();
     writing.close();
+  } else if (control && event.key.toLowerCase() === "l") {
+    event.preventDefault();
+    void showLinks();
   } else if (control && event.key.toLowerCase() === "j") {
     event.preventDefault();
     void suspects.toggle();

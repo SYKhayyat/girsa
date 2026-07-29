@@ -104,6 +104,43 @@ export interface PatchRow {
 /** How much of the correction layer is applied to what you read. */
 export type Showing = "as_printed" | "fixed" | "fixed_with_variants";
 
+/** One link on a line, with your repairs over it (spec.md §8.3, W23).
+ *
+ * Everything a repair UI has to show its work with: which end, what the corpus
+ * said, how it was found, how much to believe it, and which of that was you. */
+export interface LinkRow {
+  /** What names this edge in your layer — handed back to repair it. */
+  edge: string;
+  kind: string;
+  /** What the corpus shipped, where your layer changed it. */
+  was: string | null;
+  outgoing: boolean;
+  at: string;
+  work: string;
+  he_title: string;
+  address: string;
+  said: string;
+  method: string;
+  confidence: number;
+  /** The label the corpus used, verbatim — blank for 40% of them. */
+  label: string;
+  confirmed: boolean;
+  rejected: boolean;
+  mine: boolean;
+  changed: string[];
+  who: string | null;
+  /** Whether it may be shown as a statement about the texts. */
+  curated: boolean;
+}
+
+export interface Links {
+  links: LinkRow[];
+  /** No companions cache, so the incoming half is missing — said, never
+   * swallowed. */
+  incoming_unknown: boolean;
+  types: string[];
+}
+
 /** A sefer written out with your corrections in it (spec.md §7.4, W22). */
 export interface Written {
   path: string;
@@ -375,6 +412,19 @@ export const api = {
   // read.
   exportSefer: (slug: string, format: "txt" | "docx") =>
     call<Written>("export_sefer", { slug, format }),
+
+  // --- links, and repairing them (W23) ------------------------------------
+  //
+  // Repairs are overrides in your own layer; nothing here writes into the
+  // shipped graph. Which link may be shown as curated fact is answered in
+  // Rust, because it is a rule about evidence.
+  links: (at: string) => call<Links>("links", { at }),
+  linkRepair: (edge: string, does: string, value?: string) =>
+    call<void>("link_repair", { edge, does, value: value ?? null }),
+  linkReanchor: (edge: string, end: "from" | "to", to: string) =>
+    call<void>("link_reanchor", { edge, end, to }),
+  linkDraw: (from: string, to: string, kind: string) =>
+    call<void>("link_draw", { from, to, kind }),
 };
 
 
@@ -589,6 +639,8 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "fixes":
     case "suspects":
       return [] as T;
+    case "links":
+      return { links: [], incoming_unknown: false, types: [] } as T;
     case "buffer_open":
       return {
         name: String(args?.name ?? ""),

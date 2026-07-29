@@ -39,7 +39,7 @@ file in the app's data directory.
 |---|---|
 | `girsa-corpus` | Storage, ingest, schemas, permanent segment IDs |
 | `girsa-search` | tantivy indices, the five modes, the ladder, the chips and the facets |
-| `girsa-link` | The typed link graph, repair, later mining |
+| `girsa-link` | The typed link graph, your repairs to it, later mining |
 | `girsa-fix` | Corrections as an overlay, and the ranked OCR queue |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
 
@@ -47,7 +47,7 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and forty-five commands, and **nothing
+`app/` is the Tauri shell: a window and forty-nine commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -1231,6 +1231,62 @@ is searchable like anything else and it is not citable by name. And a PDF has pa
 which is W26's to change; the index already carries them as `page` segments so
 that §9.7's *"4 PDFs on this shelf aren't searchable yet"* is a count somebody
 can take, rather than a silent gap.
+
+## Links, and repairing them
+
+### The data is wrong, and you can say so — without editing it
+
+spec.md §8.3, decision 9. 40% of the link graph carries no type at all and it
+originates upstream (T5), so a re-import does not fix it. The four things a
+reader can do — **reanchor, retype, reject or confirm, draw one by hand** — are
+stored as overrides in `personal/links.jsonl`, and the shipped shards are never
+written to. Same rule as corrections, same three reasons: the importer replaces
+every shard it owns on every run, your judgement and the corpus's must stay
+distinguishable, and a thing you said should be undoable.
+
+**Everything shows its work**, because that is the difference between a repair
+tool and a rumour. Each row carries what it is, what it *was*, how it was found,
+how much to believe it, which of the four actions changed it, and who said so:
+
+```
+מפרש   ← רמב"ם על משנה ברכות 1:1:1    90% · sefaria-seed · "commentary"
+קשור   ← ספר האסופות סימן כב           90% · sefaria-seed · ""      ← not curated
+פוסק   ← שולחן ערוך, אורח חיים נח:א    100% · by-hand · drawn · you
+```
+
+The second row is the point of §8.3's last sentence: **a blank-typed link is
+never presented as curated fact.** It is shown, greyed, and it stays that way
+until somebody looks at it — confirming is a claim a person made, and it is
+worth nothing if an unconfirmed link looks the same.
+
+### Who comments on this line, without opening seven thousand files
+
+An edge is stored once, in the shard of the work it points *from* (§8.2), so the
+outgoing half of the question is one file. The incoming half — *who comments on
+this se'if* — is the reverse direction, and the honest way to answer it would be
+to open every shard in the corpus.
+
+It doesn't, because `girsa-companions` already recorded which works share edges
+with which. The panel reads **only the shards of works known to link here** — a
+few dozen for the first mishnah of Berakhot, which has 333 links on it, in 2.5
+seconds on a debug build. When that cache has never been built the panel says
+so, rather than showing the outgoing half and letting a reader believe that is
+all there is.
+
+That number is also the honest limit of this design: a reverse index would make
+it instant, and there isn't one. The tripwire in
+`crates/girsa-app/tests/the_links_on_this_line.rs` exists to catch the day
+somebody makes it read the whole graph instead.
+
+### A repair follows the edge, not the row
+
+Found by the real corpus, in the test: there are several links between the first
+mishnah of Berakhot and the Rambam on it, and the panel sorts by confidence — so
+confirming one moves it to the top and rejecting it moves it to the bottom. A
+test that re-found "the first Rambam row" after each action was confirming one
+link and rejecting another while believing it did both to one. Every repair is
+keyed to the edge's **shipped name** — its two segment ids — which is also why a
+reanchored edge is still found by the record that moved it.
 
 ### Measured against `spec.md` §2
 
