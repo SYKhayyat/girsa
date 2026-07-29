@@ -539,6 +539,7 @@ name = "girsa-corpus"
 version = "0.1.0"
 dependencies = [
  "girsa-hebrew",
+ "girsa-ksav",
  "girsa-ref",
  "lopdf",
  "serde",

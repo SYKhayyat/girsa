@@ -47,7 +47,7 @@ use crate::import::{self, ImportError, ImportedWork, RawSegment, SegmentKind};
 use crate::work::{self, Source, Version, Work};
 
 /// The extensions this can read.
-pub const ACCEPTS: [&str; 3] = ["txt", "docx", "pdf"];
+pub const ACCEPTS: [&str; 4] = ["txt", "docx", "pdf", "ksav"];
 
 /// Why a file did not become a sefer.
 #[derive(Debug, thiserror::Error)]
@@ -78,6 +78,10 @@ pub enum Kind {
     Docx,
     /// A scan, or anything else a PDF is. Pages, no words.
     Pdf,
+    /// **Your own writing** (spec.md §10.4). A Ksav document goes on the shelf
+    /// like anything else: searchable, citable, and linkable — which is what
+    /// makes the system compound over years instead of being a lookup tool.
+    Ksav,
 }
 
 impl Kind {
@@ -96,6 +100,7 @@ impl Kind {
             "txt" => Ok(Self::Text),
             "docx" => Ok(Self::Docx),
             "pdf" => Ok(Self::Pdf),
+            "ksav" => Ok(Self::Ksav),
             _ => Err(MineError::NotAKind(file.display().to_string())),
         }
     }
@@ -106,6 +111,7 @@ impl Kind {
             Self::Text => "txt",
             Self::Docx => "docx",
             Self::Pdf => "pdf",
+            Self::Ksav => "ksav",
         }
     }
 }
@@ -196,6 +202,18 @@ fn parse(file: &Path, kind: Kind) -> Result<(Vec<RawSegment>, String), MineError
         Kind::Docx => {
             let raw = from_docx(file)?;
             Ok((raw, "your own copy, from a Word document".to_string()))
+        }
+        Kind::Ksav => {
+            let bytes = std::fs::read(file).map_err(io(file))?;
+            let (markup, _) = decode(&bytes);
+            // Read rather than compiled: Typst is the only thing that can say
+            // what a document *renders* as, and the shelf does not need that —
+            // it needs the words. `girsa-ksav` is the same crate that wrote
+            // them, so what is indexed is what was written.
+            Ok((
+                paragraphs(&girsa_ksav::to_text(&markup)),
+                "your own writing".to_string(),
+            ))
         }
         Kind::Pdf => {
             let pages = pages_in(file)?;

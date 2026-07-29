@@ -11,6 +11,9 @@ authors.workspace = true
 [dependencies]
 girsa-ref.workspace = true
 girsa-hebrew.workspace = true
+# Your own writing goes on the shelf (spec.md §10.4), and reading a `.ksav`
+# document is the same crate that wrote it.
+girsa-ksav.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

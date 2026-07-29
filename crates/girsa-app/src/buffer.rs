@@ -281,7 +281,9 @@ mod tests {
             girsa_ksav::to_ksav(&sent.packet, CitationPlacement::Mekor)
         );
         assert!(buffer.text.contains("#ציטוט["));
-        assert!(buffer.text.contains("#מראה_מקום["));
+        // With the ref in it (W19): a document that keeps only the printed
+        // string cannot answer *where did I use this*.
+        assert!(buffer.text.contains("#מראה_מקום(מקור: \"girsa:"));
         assert!(buffer.text.contains("יתגבר כארי"));
     }
 

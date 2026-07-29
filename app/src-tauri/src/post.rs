@@ -10,6 +10,7 @@
 //! | `POST /quote` | *give me this source again* — the words, from the corpus as it stands now |
 //! | `POST /where-from` | *where is this phrase from?* — cite-on-selection (W18) |
 //! | `POST /search` | *nothing fitted* — put the phrase in the search and open it |
+//! | `POST /linkify` | *which of these are citations?* — the certain ones (W19) |
 //!
 //! # Why `/cite` and `/quote` exist at all
 //!
@@ -73,6 +74,7 @@ fn answer(handle: &tauri::AppHandle, path: &str, body: &str) -> Reply {
     match path {
         "/where-from" => return where_from(handle, body),
         "/search" => return search(handle, body),
+        "/linkify" => return linkify(handle, body),
         _ => {}
     }
 
@@ -278,6 +280,31 @@ fn show_phrase(handle: &tauri::AppHandle, phrase: &str) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+/// *Which of these are citations?* (spec.md §10.5).
+///
+/// Answered here because the lexicon is here — 24,731 spellings of 6,594
+/// works, written by the import. What comes back is only what is certain; the
+/// rules are in `girsa_app::citing` and every one of them refuses more than it
+/// accepts, because a wrong link in a printed sefer is invisible.
+fn linkify(handle: &tauri::AppHandle, body: &str) -> Reply {
+    #[derive(Deserialize)]
+    struct Prose {
+        text: String,
+    }
+    let Ok(prose) = serde_json::from_str::<Prose>(body) else {
+        return Reply::refused(400, "that is not prose");
+    };
+    let shared = handle.state::<Shared>();
+    let Ok(state) = shared.lock() else {
+        return Reply::refused(500, "the library is busy");
+    };
+    let Some(lexicon) = state.lexicon.as_ref() else {
+        return Reply::refused(503, "there is no lexicon here");
+    };
+    let found = girsa_app::linkify(lexicon, &prose.text);
+    Reply::ok(serde_json::json!({ "found": found }).to_string())
 }
 
 /// A `girsa://` URL the operating system handed us.

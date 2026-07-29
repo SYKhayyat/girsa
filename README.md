@@ -144,6 +144,7 @@ green in all three repositories.
 | **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
 | **W12** · Torat Emet | The literal mode, and the default. The three operators that get used — the word, the letters it **contains**, those letters **in order** with others between — plus **within X words of each other, in either order**. Every query carries a plan saying exactly what was asked of the index, and a test asserts that plan is the typed words with their nikud off and nothing else. On the shelf: `קדש` is 31,483 segments, `--contains קדש` is 301,910, and the difference is a thing the reader asked for. |
 | **W13** · the ladder | Two columns of one table (§9.6), and the difference between them is the work order: the default mode **offers** the rungs with their counts and applies nothing; Smart climbs them and says so. The counts are computed from the query the click would run, so the promise and the result cannot disagree — checked both ways. Two rungs are named and not offered, because a missing chip reads as *there is nothing down that road*: nikud is already off in every mode, and the root rung is what §9.4 rejected every analyser for. |
+| **W19** · closing the loop | The ref is **in the document** — it was not, for three orders, and §10.2's promise was quietly false until now. Out of that one change: `#מראה_מקומות()` prints the sources at the back, *where did I use this* is a scan of your own layer, and a `.ksav` file is a sefer on the shelf whose words are read by the crate that wrote them. Linkify wraps only what is certain, and says so when nothing is. |
 | **W18** · cite on selection | *Where is this from* and *who quotes this* are **one call** — 61 places for the Mishnah's own line, 59 when Berakhot is left out. Ctrl+Shift+M in Ksav; Tab cycles; no fit opens Girsa's search with the phrase in it. `אמר רבי יוחנן` is 12,347 places and is reported as a turn of speech rather than offered as a source. |
 | **W17** · the buffer | Ctrl+E, a drawer at the foot of the window, and **real Ksav markup from the first keystroke** — `girsa-ksav`, the writer Ksav compiles, not a second one in TypeScript. A buffer is a `.ksav` file in your own layer, and Ksav's suite compiles one this window wrote and reads the mekor off the page, below its quote. |
 | **W16** · the pairing | A desk on loopback in each application, token-gated, presence asked rather than assumed — `Live`, `NotRunning` and `Stale` are three different things and the window says which. Ctrl+Shift+C sends into the open document with no clipboard at all; `/cite` and `/quote` let Ksav re-print a citation or re-read a quote from the corpus as it stands. Tested through a real socket, including the 401. And `girsa:…` **is** the deep link — the ref the document already stores. |
@@ -933,6 +934,53 @@ reader may recognise one — but **nothing is preselected and nothing is called
 the mekor**. And a quotation that is not letter for letter says so: the literal
 search runs first, the ladder is climbed only on a zero, and what comes back
 carries the rung that was used, so a near match is never shown as an exact one.
+
+### Closing the loop
+
+Three things fall out of one fact, and the fact had to be fixed first.
+
+**The ref is in the document now.** For three work orders it was not: the markup
+carried `#מראה_מקום[שו"ע או"ח סימן א' סעיף ג']` and the ref went nowhere, which
+made §10.2's promise quietly false. It is now
+
+```
+#מראה_מקום(מקור: "girsa:shulchan-arukh/orach-chayim/1:3")[שולחן ערוך, אורח חיים סימן א' סעיף ג']
+```
+
+— printed exactly as before, and **storing the place**. Everything below is
+that one change, seen from three sides:
+
+- **Auto mareh mekomos.** `#מראה_מקומות()` collects every citation that carried
+  a ref into a list at the back. Cheap by construction: the refs are already
+  there, so it is a sort and a print. Checked by the real Typst engine.
+- **Where did I use this.** Standing on a passage, Girsa scans your own layer
+  for refs that *cover* it — a citation of `2a:1-2a:4` answers a question about
+  `2a:3`, and a citation of siman 1 answers one about se'if 3 of it. A scan,
+  not a guess.
+- **Your writing is a sefer.** A `.ksav` file goes on the shelf like anything
+  else: the words are read out of the markup by the same crate that wrote it,
+  so `#כותרת1[` is never indexed and never shown, and the segments carry
+  permanent ids like every other sefer.
+
+### Linkify, and how much it refuses
+
+spec.md §10.5 and decision 12: **high-confidence patterns only, anything
+ambiguous stays plain text.** Three rules, and each refuses more than it
+accepts:
+
+| | |
+|---|---|
+| the resolver must say **Exact** | `או"ח` is the Shulchan Arukh's volume *and* the Tur's; a citation naming two seforim is left alone |
+| there must be an **address** | *the Shulchan Arukh writes at length* is a subject, not a mekor |
+| every level of it is a **number or a daf** | else `ברכות ב. ועיין שו"ע` reads as Berakhot at a section called *ועיין שו"ע*, and swallows the next citation whole |
+
+A leading prefix letter is peeled — `וכתב בשו"ע או"ח סימן א' סעיף ג'` is how a
+citation is actually written — and that widens *where* one is found, never what
+it is found to be.
+
+What comes back is wrapped as `#מקור_חי(מקור: "girsa:…")[…]`: the words print
+exactly as they were typed, the ref rides underneath, and in a compiled PDF the
+citation is a **link that opens the page it names**.
 
 ### What has not been checked
 

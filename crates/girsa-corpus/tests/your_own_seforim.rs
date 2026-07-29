@@ -99,6 +99,46 @@ fn a_docx_keeps_the_headings_word_declared_and_does_not_invent_any() {
 }
 
 #[test]
+fn your_own_writing_goes_on_the_shelf_as_the_words_and_not_as_the_markup() {
+    // spec.md §10.4 — *send text into the library: your writing becomes a
+    // sefer on the shelf, searchable and citable.* A `.ksav` file is a Typst
+    // document, and what a reader wants on the shelf is what they wrote, not
+    // `#כותרת1[`.
+    let dir = scratch("girsa-mine-ksav");
+    let personal = dir.join("personal");
+    let markup = "#כותרת1[סוגיית מאימתי]
+
+                  #ציטוט[מאימתי קורין את שמע]#מראה_מקום(מקור: \"girsa:bavli/berakhot/2a:1\")[ברכות ב.]
+
+                  ונראה לי דהכי פירושו.
+";
+    let file = write(&dir, "חבורה.ksav", markup.as_bytes());
+
+    let added = import::mine::add(&personal, &file, None).expect("it is added");
+    let text: Vec<&str> = added.segments.iter().map(|s| s.text.as_str()).collect();
+    assert!(text.iter().any(|t| t.contains("סוגיית מאימתי")), "{text:?}");
+    assert!(
+        text.iter().any(|t| t.contains("מאימתי קורין את שמע")),
+        "{text:?}"
+    );
+    assert!(
+        text.iter().any(|t| t.contains("ונראה לי דהכי פירושו")),
+        "{text:?}"
+    );
+
+    // The commands and the ref are not words anybody wrote, and would be
+    // found by a search for them if they were indexed.
+    assert!(!text.iter().any(|t| t.contains("כותרת1")), "{text:?}");
+    assert!(!text.iter().any(|t| t.contains("girsa:bavli")), "{text:?}");
+
+    // And it is a sefer like any other: permanent ids, on your own shelf.
+    assert_eq!(added.work.source, Source::Mine);
+    assert!(added.segments.iter().all(|s| s.id.is_well_formed()));
+    let back = import::read_back(&personal, &added.work.slug).expect("it reads back");
+    assert_eq!(back.segments, added.segments);
+}
+
+#[test]
 fn a_pdf_is_on_the_shelf_with_its_pages_and_says_it_has_no_words_yet() {
     let dir = scratch("girsa-mine-pdf");
     let personal = dir.join("personal");

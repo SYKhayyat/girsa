@@ -69,6 +69,9 @@ pub(crate) struct State {
     /// chip: a Ksav button that quietly does nothing is worse than one that
     /// says what is wrong.
     no_post: Option<String>,
+    /// The resolver's lexicon, for linkify (W19). Read once: it is 24,731
+    /// spellings and a citation is looked up per word of prose.
+    pub(crate) lexicon: Option<girsa_ref::Lexicon>,
     /// Slug → the sefer, read once. Cleared oldest-first.
     open: HashMap<String, Open>,
     order: Vec<String>,
@@ -587,6 +590,19 @@ fn find_whole_shelf(shared: tauri::State<'_, Shared>) -> Result<(), String> {
 /// How many results to a page.
 const PAGE: usize = 25;
 
+/// The lexicon `girsa-import` wrote, both halves of it.
+///
+/// Without it linkify finds nothing — which is the right failure: a citation
+/// this build cannot resolve is a citation it must not link.
+fn read_lexicon(corpus: &std::path::Path) -> Option<girsa_ref::Lexicon> {
+    let mut body = std::fs::read_to_string(corpus.join("lexicon.tsv")).ok()?;
+    if let Ok(more) = std::fs::read_to_string(corpus.join("lexicon-otzaria.tsv")) {
+        body.push('\n');
+        body.push_str(&more);
+    }
+    Some(girsa_ref::Lexicon::from_tsv(&body))
+}
+
 /// Where the index is, if it is anywhere.
 ///
 /// `GIRSA_INDEX`, else beside the corpus. An index is a rebuildable cache
@@ -980,6 +996,38 @@ fn buffer_to_ksav(
         .map_err(|e| e.to_string())
 }
 
+/// Which of your own documents cite this place (spec.md §10.4).
+///
+/// Only possible because the documents store **refs**: this is a scan, not a
+/// guess, and it is why `מקור:` exists.
+#[tauri::command]
+fn who_cites(
+    shared: tauri::State<'_, Shared>,
+    reference: String,
+) -> Result<Vec<girsa_app::Citing>, String> {
+    let place: girsa_ref::Ref = reference.parse().map_err(|e| format!("{e}"))?;
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(girsa_app::who_cites(shelf.personal(), &place))
+}
+
+/// The citations in a piece of prose — **the certain ones** (spec.md §10.5).
+///
+/// Everything ambiguous stays plain text. See `girsa_app::citing` for the three
+/// rules and why each of them refuses more than it accepts.
+#[tauri::command]
+fn linkify(
+    shared: tauri::State<'_, Shared>,
+    text: String,
+) -> Result<Vec<girsa_app::Linked>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let lexicon = state
+        .lexicon
+        .as_ref()
+        .ok_or("there is no lexicon here — has girsa-import run?")?;
+    Ok(girsa_app::linkify(lexicon, &text))
+}
+
 /// Whether Ksav is there (spec.md §10.6 — *presence*).
 ///
 /// Asked of Ksav rather than assumed from a file: an endpoint left behind by a
@@ -1259,6 +1307,7 @@ pub fn run() {
                 Err(e) => (None, Some(e)),
             };
             let (bar, no_search) = open_bar_for(&shelf);
+            let lexicon = shelf.as_ref().and_then(|shelf| read_lexicon(shelf.root()));
             tauri::Manager::manage(
                 app,
                 Mutex::new(State {
@@ -1271,6 +1320,7 @@ pub fn run() {
                     session_path,
                     desk: None,
                     no_post: None,
+                    lexicon,
                     open: HashMap::new(),
                     order: Vec::new(),
                 }),
@@ -1345,6 +1395,8 @@ pub fn run() {
             buffer_save,
             source_markup,
             buffer_to_ksav,
+            who_cites,
+            linkify,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");
