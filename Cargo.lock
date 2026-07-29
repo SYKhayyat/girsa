@@ -604,6 +604,7 @@ name = "girsa-scan"
 version = "0.1.0"
 dependencies = [
  "girsa-cite",
+ "girsa-corpus",
  "girsa-ref",
  "serde",
  "serde_json",
@@ -619,6 +620,7 @@ dependencies = [
  "girsa-hebrew",
  "girsa-link",
  "girsa-ref",
+ "girsa-scan",
  "serde",
  "serde_json",
  "tantivy",

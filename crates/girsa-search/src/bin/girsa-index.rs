@@ -116,6 +116,15 @@ struct Tally {
     /// (spec.md §9.7). Counted rather than dropped silently: the second kind is
     /// *"not searchable yet"* and the reader has to be able to be told so.
     wordless: usize,
+    /// Pages of a scan with words on them, and pages nobody has read.
+    ///
+    /// Both, because spec.md §9.7 forbids the second from being silent: a scan
+    /// in the index as three hundred blank pages is *absent from the results
+    /// and present in the count*, and the count is what the results header is
+    /// allowed to say.
+    pages_read: usize,
+    pages_unread: usize,
+    scanned_words: usize,
     /// Works listed on the shelf whose segments would not read.
     unreadable: Vec<String>,
     /// Works the link-type cache had something to say about. Zero over the
@@ -189,17 +198,49 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
                 imported.segments.iter().map(|s| s.id.clone()).collect();
             let by_segment = girsa_link::touching::by_segment(&touching, &ids);
 
+            // What somebody has read off the pages of this sefer, if it is a
+            // scan (W26). Read once per work rather than once per page, and
+            // **corrections applied**, because a reader who fixed a misread
+            // word and then cannot find it has been given a correction that
+            // only corrects the display.
+            let (words, trouble) = girsa_scan::Words::open(&root, &work.slug);
+            for line in trouble {
+                eprintln!("  {}: {line}", work.slug);
+            }
+            let mut page = 0;
+
             for (at, segment) in imported.segments.iter().enumerate() {
                 let kinds: Vec<girsa_link::EdgeType> = by_segment
                     .get(at)
                     .map(|set| set.iter().copied().collect())
                     .unwrap_or_default();
-                if let Err(e) = writer.add(segment, &kinds) {
+                // A page of a scan is counted through the pages, never read
+                // off the segment's ordinal — splitting one mints `#47.1` and
+                // the arithmetic would quietly slip by one from there
+                // (`girsa_app::scanning::page_of_id`, and W6 underneath it).
+                let read = if segment.kind == girsa_corpus::import::SegmentKind::Page {
+                    page += 1;
+                    words.page(page)
+                } else {
+                    None
+                };
+                let outcome = match &read {
+                    Some(read) => writer.add_page(segment, &kinds, read),
+                    None => writer.add(segment, &kinds),
+                };
+                if let Err(e) = outcome {
                     eprintln!("cannot index {}: {e}", segment.id);
                     return std::process::ExitCode::FAILURE;
                 }
-                if girsa_hebrew::normalize(&segment.text).is_empty() {
+                if let Some(read) = &read {
+                    tally.pages_read += 1;
+                    tally.scanned_words += read.words.len();
+                }
+                if read.is_none() && girsa_hebrew::normalize(&segment.text).is_empty() {
                     tally.wordless += 1;
+                }
+                if segment.kind == girsa_corpus::import::SegmentKind::Page && read.is_none() {
+                    tally.pages_unread += 1;
                 }
                 if segment.kind == girsa_corpus::import::SegmentKind::Heading {
                     tally.headings += 1;
@@ -249,6 +290,12 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
     println!("\nindexed:");
     println!("  works              {}", tally.works);
     println!("  segments           {}", tally.segments);
+    if tally.pages_read + tally.pages_unread > 0 {
+        println!(
+            "  scanned pages      {} read ({} words), {} not searchable yet",
+            tally.pages_read, tally.scanned_words, tally.pages_unread
+        );
+    }
     println!("  of which headings  {}", tally.headings);
     println!(
         "  wordless           {}   (empty headings, and scans not yet OCR'd)",
@@ -371,6 +418,21 @@ fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
 fn first_words(text: &str, how_many: usize) -> String {
     let words: Vec<&str> = text.split_whitespace().take(how_many).collect();
     words.join(" ")
+}
+
+/// spec.md §9.7's badge, on a terminal.
+///
+/// Nothing for a line of the corpus, which was not read off anything. Two
+/// different words for the two readers, because *the file said so* and *a
+/// machine guessed at a photograph* are forty points of precision apart
+/// (`girsa_scan::engine`) and a reader is entitled to know which is in front of
+/// them. **Badge them, don't demote them**: the row is where the score put it.
+fn badge(hit: &girsa_search::index::Hit) -> String {
+    match &hit.by {
+        None => String::new(),
+        Some(by) if by.is_ocr() => format!("  [OCR — {}]", by.name()),
+        Some(_) => "  [read off the file]".to_string(),
+    }
 }
 
 fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
@@ -552,7 +614,7 @@ fn clicked(
         found.hits.len()
     );
     for hit in &found.hits {
-        println!("{}  [{}]", hit.id, hit.kind.as_str());
+        println!("{}  [{}]{}", hit.id, hit.kind.as_str(), badge(hit));
         println!("  {}", excerpt(hit, &found.marks(hit)));
     }
     std::process::ExitCode::SUCCESS
@@ -583,7 +645,7 @@ fn show(bar: &Bar, results: &Results, paging: Paging) {
         }
     );
     for hit in &results.hits {
-        println!("{}  [{}]", hit.id, hit.kind.as_str());
+        println!("{}  [{}]{}", hit.id, hit.kind.as_str(), badge(hit));
         println!("  {}", excerpt(hit, &results.marker.marks(hit)));
     }
     if results.total > 0 {

@@ -37,14 +37,20 @@
 //! about the file is how many pages it has, and the importer counted those when
 //! the sefer was put on the shelf.
 
+pub mod engine;
 pub mod paging;
+pub mod reading;
 pub mod store;
+pub mod words;
 
 use girsa_cite::{cite, CiteStyle, Sefer};
 use girsa_ref::{Address, Ref};
 
+pub use engine::{Engine, EngineError, Image, Tesseract};
 pub use paging::{Anchor, Paging, Placed, Refused, Scheme};
+pub use reading::{corrected, group, Area, Fix, Glyph, Read, Reader, Word};
 pub use store::{Scans, StoreError};
+pub use words::{Job, Words, WordsError};
 
 /// A scan on the shelf: a slug, a page count, and what the reader has said
 /// about which page is which daf.

@@ -20,6 +20,10 @@ girsa-link.workspace = true
 # and `girsa-suspects` is the thin batch job between them.
 girsa-fix.workspace = true
 girsa-ref.workspace = true
+# Scans (spec.md §9.7, W26). One index, two location types: what is on a page
+# of a PDF is read in `girsa-scan` and indexed here, and a result row says which
+# of the two it is.
+girsa-scan.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -14,6 +14,8 @@
 // installer, which trap W9 in BUILDER.md asks for and a screenshot from one OS
 // does not answer.
 
+import type { Glyph } from "./glyphs.ts";
+
 export type PaneId = number;
 
 export interface Card {
@@ -344,6 +346,71 @@ export interface PageSaid {
   id: string | null;
 }
 
+/**
+ * How far a scan has been read (spec.md §6.3, W26).
+ *
+ * A scan arrives on the shelf with pages and **no words** — the importer will
+ * not invent Hebrew it cannot read — and this is what says how much of that has
+ * been repaired and by what.
+ */
+export interface Reading {
+  slug: string;
+  pages: number;
+  read: number;
+  /** The next page to read, or null when there is none. */
+  next: number | null;
+  /** The readers that have been over it. More than one is normal: a PDF can
+   * carry its own text for the pages that were typeset and none for the
+   * plates. */
+  by: string[];
+  /** The OCR engine installed, if one is. Null means *there is nothing here to
+   * read a picture with* — a state with a name, not a button that does
+   * nothing. */
+  engine: string | null;
+  /** Corrections whose ink the current reading has no word under. */
+  stranded: number;
+}
+
+/** One word on a page, and the rectangle of the page its ink is on — in
+ * fractions, never pixels, because pixels are a fact about the zoom. */
+export interface WordBox {
+  text: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  confidence: number;
+}
+
+/** What is on one page of a scan. */
+export interface PageWords {
+  page: number;
+  by: string | null;
+  guessed: boolean;
+  words: WordBox[];
+}
+
+/** One scan, and how much of it a search cannot see. */
+export interface Scanned {
+  slug: string;
+  title: string;
+  pages: number;
+  read: number;
+}
+
+/**
+ * What a search over this shelf cannot see — spec.md §9.7's results header.
+ *
+ * *"4 PDFs on this shelf aren't searchable yet — [OCR now]"*. Null is nothing
+ * to say. The sentence is composed in Rust so that the header, the CLI and the
+ * test cannot drift apart.
+ */
+export interface Gap {
+  said: string;
+  pages: number;
+  scans: Scanned[];
+}
+
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 let invoke: Invoke | null = null;
@@ -423,6 +490,30 @@ export const api = {
     call<number | null>("scan_page_of", { slug, written }),
   /** Ctrl+C on a page: the mareh makom, with no quote behind it. */
   scanCopy: (slug: string, page: number) => call<Copied>("scan_copy", { slug, page }),
+
+  // --- reading a scan (W26) -----------------------------------------------
+  /** How far this scan has been read, and what with. */
+  scanReading: (slug: string) => call<Reading>("scan_reading", { slug }),
+  /** Hand over the glyphs of one page; the words are worked out in Rust. */
+  scanReadPage: (
+    slug: string,
+    page: number,
+    width: number,
+    height: number,
+    glyphs: Glyph[],
+  ) => call<Reading>("scan_read_page", { slug, page, width, height, glyphs }),
+  /** Hand over a picture of one page, for a page that carries no text. */
+  scanOcrPage: (slug: string, page: number, width: number, height: number, png: number[]) =>
+    call<Reading>("scan_ocr_page", { slug, page, width, height, png }),
+  /** What is on a page, for drawing a highlight over the photograph. */
+  scanWords: (slug: string, page: number) =>
+    call<PageWords | null>("scan_words", { slug, page }),
+  /** Correct a word by its ink, so the fix survives the page being read
+   * again by something better. */
+  scanFix: (slug: string, page: number, word: number, says: string) =>
+    call<PageWords | null>("scan_fix", { slug, page, word, says }),
+  /** The results header's *not searchable yet* line. */
+  scanGap: () => call<Gap | null>("scan_gap"),
 
   // --- searching (W14) ----------------------------------------------------
   find: (query: string, page: number) => call<Found>("find", { query, page }),
@@ -576,6 +667,21 @@ export interface Hit {
   work: string;
   he_title: string;
   runs: Run[];
+  /** Which page of a scan this is, where it is one — so the row opens the
+   * viewer at it rather than a reading pane at a line with no words in it. */
+  page: number | null;
+  /** Who read the words (spec.md §9.7's badge, W26): `null` for the corpus,
+   * which was not read off anything; `embedded` where the file said what its
+   * own words are; the engine's name where a machine guessed. */
+  by: string | null;
+  /** Whether that reader was an OCR engine. **Badge them, don't demote
+   * them** — the row is where the score put it and this is printed beside it,
+   * because OCR text is dirtier and a reader should know which kind of result
+   * is in front of them. */
+  guessed: boolean;
+  /** The words of this hit that answered the query, as the search itself
+   * worked them out — what a scan's page is highlighted by. */
+  marked: string[];
 }
 
 /** A rung of the relaxation ladder, priced before the click (spec.md §9.6). */

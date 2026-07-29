@@ -21,7 +21,12 @@
 
 import { api, type Chip, type Dimension, type FacetRow, type Found, type Run } from "./api.ts";
 
-type Opened = (slug: string, id: string) => void;
+/** Open a sefer at a segment — or, with no id, at wherever it was left.
+ *
+ * The second is W26's *read them*: a scan with no words has no segment worth
+ * landing on, and the pane it opens is the one carrying the control that reads
+ * it. */
+type Opened = (slug: string, id: string | null, marked?: string[]) => void;
 
 /** The facets, in the order spec.md §9.8 lists them. */
 const FACETS: { dimension: Dimension; label: string }[] = [
@@ -254,6 +259,13 @@ export class SearchView {
         ? `${found.total} · עמוד ${found.page} מתוך ${found.pages}`
         : `${found.total}`;
     this.head.append(said, count);
+    // What this search could not see (spec.md §9.7, W26). Drawn on every
+    // result page, above the note and the offers, because it is a statement
+    // about the answer and not a suggestion about the query: a reader given
+    // forty hits over a shelf holding four unread scans has been told *these
+    // are the forty places this appears*, and the forty-first is on a page
+    // nobody has read.
+    this.head.append(this.gapLine());
     if (found.note) {
       const note = document.createElement("p");
       note.className = "find-note";
@@ -288,6 +300,41 @@ export class SearchView {
     }
   }
 
+  /**
+   * *4 PDFs on this shelf aren't searchable yet — [קרא אותם]*.
+   *
+   * The sentence is composed in Rust (`girsa_app::reading::Gap::said`) so the
+   * header, the CLI and the test cannot drift; the button opens the first of
+   * the scans, where the *read* control on its pane is. Empty until the answer
+   * arrives, and empty forever when there is nothing to say — which is a
+   * different silence from the one this exists to prevent.
+   */
+  private gapLine(): HTMLElement {
+    const line = document.createElement("p");
+    line.className = "find-gap";
+    void api
+      .scanGap()
+      .then((gap) => {
+        if (!gap) return;
+        const said = document.createElement("span");
+        said.textContent = gap.said;
+        line.append(said);
+        const open = document.createElement("button");
+        open.className = "find-offer";
+        open.textContent = "קרא אותם";
+        open.title = gap.scans.map((s) => `${s.title} — ${s.read}/${s.pages}`).join("\n");
+        open.addEventListener("click", () => {
+          const first = gap.scans[0];
+          if (!first) return;
+          this.close();
+          this.opened(first.slug, null);
+        });
+        line.append(open);
+      })
+      .catch(() => undefined);
+    return line;
+  }
+
   private drawHits(found: Found): void {
     this.list.replaceChildren();
     if (found.landing) {
@@ -299,14 +346,31 @@ export class SearchView {
       row.className = "find-hit";
       const where = document.createElement("span");
       where.className = "find-where";
-      where.textContent = `${hit.he_title} ${hit.address}`;
+      where.textContent =
+        hit.page === null ? `${hit.he_title} ${hit.address}` : `${hit.he_title} — עמוד ${hit.page}`;
       const text = document.createElement("p");
       text.className = "find-text";
       text.append(...runs(hit.runs));
-      row.append(where, text);
+      row.append(where);
+      // The badge (spec.md §9.7). **Badge them, don't demote them**: the row is
+      // where the score put it, and this says what kind of reading it is. The
+      // two badges are not the same claim — a file that carries its own text
+      // said what its words are, and an engine guessed at a photograph, and the
+      // measurement in `girsa-scan/src/engine.rs` puts those forty points of
+      // precision apart.
+      if (hit.by !== null) {
+        const badge = document.createElement("span");
+        badge.className = hit.guessed ? "find-badge is-guessed" : "find-badge";
+        badge.textContent = hit.guessed ? "OCR" : "סריקה";
+        badge.title = hit.guessed
+          ? `נקרא במכונה (${hit.by}) — יש לבדוק מול הצילום`
+          : "המילים מתוך הקובץ עצמו";
+        row.append(badge);
+      }
+      row.append(text);
       row.addEventListener("click", () => {
         this.close();
-        this.opened(hit.work, hit.id);
+        this.opened(hit.work, hit.id, hit.marked);
       });
       this.list.append(row);
     }

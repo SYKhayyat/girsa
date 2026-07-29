@@ -413,6 +413,12 @@ impl Bar {
                         // Not scored. It is there or it is not, and a relevance
                         // number on it would be decoration.
                         score: 0.0,
+                        // The instruments walk the segments on disk rather
+                        // than the index, and the words of a scan are not
+                        // there. A page of a scan reaches an instrument with
+                        // no words, which is the honest answer: nobody has
+                        // counted the gematria of a photograph.
+                        by: None,
                     });
                 }
             }

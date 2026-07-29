@@ -38,6 +38,7 @@ use girsa_corpus::import::{Segment, SegmentKind};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::CacheProvenance;
 use girsa_link::EdgeType;
+use girsa_scan::reading::Reader;
 use serde::{Deserialize, Serialize};
 use tantivy::collector::{Collector, Count, SegmentCollector, TopDocs};
 use tantivy::columnar::StrColumn;
@@ -85,7 +86,13 @@ pub const BUILD_REPORT: &str = "girsa-build.json";
 /// **2** — W14 added the `link` column, which is what makes §9.8's link-type
 /// facet a count rather than a guess. An index built at 1 has every other field
 /// right and would show that facet as empty, so it is refused and rebuilt.
-pub const SCHEMA_VERSION: u32 = 2;
+///
+/// **3** — W26 added the `by` column and the words of a scan's pages, which is
+/// §9.7's second location type. This is exactly the case the paragraph above
+/// anticipated: an index built at 2 is not *wrong*, it is **incomplete** — it
+/// has every scan in the library as a row of blank pages — and reading it as
+/// though it were complete is the silent gap §9.7 forbids. So it is refused.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// How many hits the index's own probes return.
 ///
@@ -543,6 +550,15 @@ struct Fields {
     /// The words, as printed. Indexed through the normalizer, stored as they
     /// stand — the reader is looking at the page, not at the index.
     text: tantivy::schema::Field,
+    /// Who worked out the words of this segment, where anybody had to
+    /// (W26) — `embedded` for a PDF that carries its own text, the engine's
+    /// name and version for a page somebody OCR'd, and **empty for the corpus**,
+    /// which was not read off anything.
+    ///
+    /// spec.md §9.7's badge, and a facet in its own right: *only what was
+    /// typeset* is one click. Stored so a row can say it, fast so it can be
+    /// counted and filtered without touching the document store.
+    by: tantivy::schema::Field,
 }
 
 impl Fields {
@@ -551,6 +567,7 @@ impl Fields {
     const KIND: &'static str = "kind";
     const LINK: &'static str = "link";
     const TEXT: &'static str = "text";
+    const BY: &'static str = "by";
 
     fn schema() -> Schema {
         let mut builder = Schema::builder();
@@ -572,6 +589,7 @@ impl Fields {
         // (the column) and a filter the reader clicks (the term). §9.8's
         // *"one click to narrow or exclude"* is the second half.
         builder.add_text_field(Self::LINK, STRING | FAST);
+        builder.add_text_field(Self::BY, STRING | STORED | FAST);
         builder.add_text_field(Self::TEXT, text);
         builder.build()
     }
@@ -593,6 +611,9 @@ impl Fields {
             text: schema
                 .get_field(Self::TEXT)
                 .map_err(|_| IndexError::Field(Self::TEXT))?,
+            by: schema
+                .get_field(Self::BY)
+                .map_err(|_| IndexError::Field(Self::BY))?,
         })
     }
 }
@@ -624,6 +645,29 @@ pub struct Hit {
     /// the corpus has them.
     pub text: String,
     pub score: f32,
+    /// Who read the words, where anybody had to (W26).
+    ///
+    /// `None` for the corpus, which is a text file and was not read off
+    /// anything. `Some(Reader::Ocr { .. })` is spec.md §9.7's badge: the row
+    /// ranks where it ranks and **says where it came from**, because OCR text
+    /// is dirtier and a reader is entitled to know which kind of result is in
+    /// front of them.
+    pub by: Option<Reader>,
+}
+
+impl Hit {
+    /// Whether this row is a machine's opinion about a photograph.
+    #[must_use]
+    pub fn is_scanned(&self) -> bool {
+        self.by.as_ref().is_some_and(Reader::is_ocr)
+    }
+
+    /// Whether this row is a page of a scan at all — OCR'd or read off the
+    /// file's own text.
+    #[must_use]
+    pub fn is_a_page(&self) -> bool {
+        self.kind == SegmentKind::Page
+    }
 }
 
 impl Hit {
@@ -1614,11 +1658,20 @@ impl SearchIndex {
         let id: SegmentId = doc.get_first(self.fields.id)?.as_str()?.parse().ok()?;
         let kind = SegmentKind::parse(doc.get_first(self.fields.kind)?.as_str()?)?;
         let text = doc.get_first(self.fields.text)?.as_str()?.to_string();
+        // Empty is *nobody read it* — the corpus, which is a text file — and
+        // is a different statement from `embedded`, which is the file itself
+        // having said so.
+        let by = doc
+            .get_first(self.fields.by)
+            .and_then(|value| value.as_str())
+            .filter(|name| !name.is_empty())
+            .map(Reader::named);
         Some(Hit {
             id,
             kind,
             text,
             score,
+            by,
         })
     }
 }
@@ -1666,6 +1719,51 @@ impl Writer {
             doc.add_text(self.fields.link, kind.as_str());
         }
         doc.add_text(self.fields.text, &segment.text);
+        doc.add_text(self.fields.by, "");
+        self.writer.add_document(doc)?;
+        Ok(())
+    }
+
+    /// Index a page of a scan, with the words somebody read off it (W26).
+    ///
+    /// The same document as any other segment, with two differences that are
+    /// the whole of spec.md §9.7's *one index, two location types*: the text is
+    /// the reading rather than the corpus, and the `by` column says who read
+    /// it. Where the words came off the page is **not** in here — that is the
+    /// [`girsa_scan::Read`] in the personal layer, looked up when a row is
+    /// opened, because a rectangle is not something a query can be asked about
+    /// and duplicating it into five million documents would buy nothing.
+    ///
+    /// A page nobody has read goes in through [`Writer::add`] like anything
+    /// else, with no words and no reader — which is what makes it *absent from
+    /// the results and present in the count*, so [`girsa_scan::Job`] and the
+    /// header can tell the reader what they are not seeing.
+    ///
+    /// # Errors
+    ///
+    /// If tantivy will not take the document.
+    pub fn add_page(
+        &mut self,
+        segment: &Segment,
+        touching: &[EdgeType],
+        read: &girsa_scan::Read,
+    ) -> Result<(), IndexError> {
+        let work = segment.id.work();
+        if !self.replaced.contains(work) {
+            self.writer
+                .delete_term(Term::from_field_text(self.fields.work, work));
+            self.replaced.insert(work.to_string());
+        }
+
+        let mut doc = TantivyDocument::new();
+        doc.add_text(self.fields.id, segment.id.to_string());
+        doc.add_text(self.fields.work, work);
+        doc.add_text(self.fields.kind, segment.kind.as_str());
+        for kind in touching {
+            doc.add_text(self.fields.link, kind.as_str());
+        }
+        doc.add_text(self.fields.text, read.text());
+        doc.add_text(self.fields.by, read.by.name());
         self.writer.add_document(doc)?;
         Ok(())
     }

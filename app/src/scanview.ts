@@ -21,7 +21,8 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import worker from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 import { api, assetUrl } from "./api.ts";
-import type { Anchor, PageSaid, PaneId, ScanOpen, Scheme } from "./api.ts";
+import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } from "./api.ts";
+import { glyphsOf } from "./glyphs.ts";
 
 /**
  * pdf.js, loaded the first time a scan is opened and not before.
@@ -45,6 +46,19 @@ function pdf(): Promise<typeof import("pdfjs-dist")> {
 /** How wide a page is drawn, in device pixels, before the browser scales it. */
 const RENDER_WIDTH = 1400;
 
+/** 300 dpi against a 72-dpi PDF page: what an OCR engine is trained near, and
+ * what `girsa-scan/src/engine.rs` measured tesseract at. */
+const OCR_SCALE = 300 / 72;
+
+/** A word without its nikud, for comparing with what a search asked for.
+ *
+ * The one piece of Hebrew handling in this file, and it is here only because a
+ * mark is drawn thirty times a page — the normalizer that matters is
+ * `girsa-hebrew`, compiled into both halves of this application. */
+function bare(word: string): string {
+  return word.replace(/[\u0591-\u05C7]/gu, "");
+}
+
 export class ScanView {
   readonly id: PaneId;
   readonly slug: string;
@@ -61,6 +75,14 @@ export class ScanView {
   private doc: PDFDocumentProxy | null = null;
   private page = 1;
   private said: PageSaid | null = null;
+  /** The words of the page on the screen, for drawing over it (W26). */
+  private words: PageWords | null = null;
+  /** What is marked: the normalized words a search asked for. */
+  private marked: string[] = [];
+  private readonly marks: HTMLElement;
+  private readonly reading: HTMLElement;
+  /** Set while the read-the-scan job is running; cleared to stop it. */
+  private job = false;
   /** The render in flight, so a reader holding the arrow key down does not
    * queue thirty of them onto one canvas. */
   private drawing: Promise<void> = Promise.resolve();
@@ -113,14 +135,23 @@ export class ScanView {
     // In right-to-left, the *next* page is to the left. The order here is the
     // order they appear on the screen, and `dir="rtl"` on the pane turns it
     // round — so `‹` sits where a reader's hand expects the next daf.
-    bar.append(on, this.pageBox, back, this.goBox, this.mapButton());
+    this.reading = el("span", "scan-reading");
+    bar.append(on, this.pageBox, back, this.goBox, this.mapButton(), this.readButton(), this.reading);
     this.element.append(bar);
 
     this.body = el("div", "pane-body scan-body");
     this.body.tabIndex = 0;
+    // The canvas and the marks are stacked inside one box that is exactly the
+    // size of the drawn page, so a rectangle given in fractions of the page can
+    // be positioned in percentages and stay right at every zoom. A mark
+    // positioned in pixels of the render would sit in the margin the moment the
+    // window is resized.
+    const sheet = el("div", "scan-sheet");
     this.canvas = document.createElement("canvas");
     this.canvas.className = "scan-canvas";
-    this.body.append(this.canvas);
+    this.marks = el("div", "scan-marks");
+    sheet.append(this.canvas, this.marks);
+    this.body.append(sheet);
     this.element.append(this.body);
 
     this.body.addEventListener("pointerdown", () => this.onFocus(this.id));
@@ -252,9 +283,15 @@ export class ScanView {
     this.drawing = mine.catch(() => undefined);
     // The header is asked for in parallel: it is one small call, and a reader
     // turning pages should not wait for the render to find out where they are.
-    const [said] = await Promise.all([api.scanAt(this.slug, this.page), mine]);
+    const [said, words] = await Promise.all([
+      api.scanAt(this.slug, this.page),
+      api.scanWords(this.slug, this.page).catch(() => null),
+      mine,
+    ]);
     this.said = said;
+    this.words = words;
     this.paint();
+    this.drawMarks();
     // Where the reader is, so the scan reopens on the page they left it on and
     // so a pane following this one is told. The id is the page's permanent id,
     // which is what every other pane in this window reports.
@@ -288,6 +325,146 @@ export class ScanView {
       this.note.title = "אמור איזה עמוד הוא איזה דף, פעם אחת";
     }
     this.note.classList.add("is-empty");
+  }
+
+  /**
+   * Mark the words a search asked for, on the photograph (spec.md §6.3).
+   *
+   * The words are handed in already normalized by Rust, and matched against a
+   * page's words the same way — a mark worked out here by searching the
+   * rendered text for the typed string would find nothing on a menukad page,
+   * which is most of them.
+   */
+  markWords(words: string[]): void {
+    this.marked = words;
+    this.drawMarks();
+  }
+
+  /**
+   * The rectangles, in percentages of the page.
+   *
+   * Nothing is drawn for a page nobody has read — an empty overlay, not a
+   * guess at where the word would be if it were there.
+   */
+  private drawMarks(): void {
+    this.marks.replaceChildren();
+    this.marks.classList.toggle("is-guessed", this.words?.guessed === true);
+    if (!this.words || this.marked.length === 0) return;
+    const wanted = new Set(this.marked);
+    for (const word of this.words.words) {
+      if (!wanted.has(bare(word.text))) continue;
+      const box = el("div", "scan-mark");
+      box.style.insetInlineStart = "";
+      box.style.left = `${word.left * 100}%`;
+      box.style.top = `${word.top * 100}%`;
+      box.style.width = `${(word.right - word.left) * 100}%`;
+      box.style.height = `${(word.bottom - word.top) * 100}%`;
+      box.title = word.text;
+      this.marks.append(box);
+    }
+  }
+
+  /**
+   * *Read this scan* — spec.md §6.3's optional, background, resumable job.
+   *
+   * Off until it is asked for, one page at a time, and it stops the moment it
+   * is pressed again. Between pages it yields to the window, so a reader can
+   * turn the page, search, and copy a mekor while it runs: **never blocking
+   * reading** is a shape, not a promise, and the shape is a loop that owns
+   * nothing between iterations.
+   *
+   * What is left to do is not tracked here. It is the pages already written
+   * down, asked of Rust each time round — so closing the window mid-job costs
+   * the page it was on and nothing else.
+   */
+  private readButton(): HTMLElement {
+    return button("קרא", "קרא את המילים שבסריקה — אפשר להפסיק בכל רגע", () => {
+      if (this.job) {
+        this.job = false;
+        return;
+      }
+      void this.read();
+    });
+  }
+
+  private async read(): Promise<void> {
+    if (!this.doc) return;
+    this.job = true;
+    try {
+      for (;;) {
+        if (!this.job) break;
+        const where = await api.scanReading(this.slug);
+        this.sayReading(where);
+        if (where.next === null) break;
+        const done = await this.readOne(where.next, where.engine !== null);
+        if (!done) break;
+        // Back to the window between pages. Without this the loop holds the
+        // one thread the webview has and the reader cannot turn a page.
+        await new Promise((wake) => setTimeout(wake, 0));
+      }
+      this.sayReading(await api.scanReading(this.slug));
+    } catch (e) {
+      this.reading.textContent = String(e);
+    } finally {
+      this.job = false;
+    }
+  }
+
+  /** One page: what the file says, or failing that what the picture shows. */
+  private async readOne(page: number, hasEngine: boolean): Promise<boolean> {
+    if (!this.doc) return false;
+    const glyphs = await glyphsOf(this.doc, page);
+    if (glyphs) {
+      await api.scanReadPage(this.slug, page, glyphs.width, glyphs.height, glyphs.glyphs);
+      return true;
+    }
+    // No text of its own. That is a page for an engine — and if there is none
+    // installed the job stops here and says so, rather than marking the page
+    // read and leaving a hole nothing will ever come back to.
+    if (!hasEngine) {
+      this.reading.textContent = `עמוד ${page} — אין בו טקסט, ואין מנוע OCR מותקן`;
+      return false;
+    }
+    const png = await this.rasterize(page);
+    if (!png) return false;
+    await api.scanOcrPage(this.slug, page, png.width, png.height, png.bytes);
+    return true;
+  }
+
+  /** A picture of a page, for an engine to look at. */
+  private async rasterize(
+    page: number,
+  ): Promise<{ bytes: number[]; width: number; height: number } | null> {
+    if (!this.doc) return null;
+    const it = await this.doc.getPage(page);
+    // 300 dpi against a 72-dpi page, which is what the evaluation in
+    // `girsa-scan/src/engine.rs` measured at and what every OCR engine is
+    // trained near. Rendering at what the screen happens to be would make the
+    // reading depend on the window size.
+    const viewport = it.getViewport({ scale: OCR_SCALE });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    await it.render({ canvas, canvasContext: context, viewport }).promise;
+    const blob = await new Promise<Blob | null>((give) => canvas.toBlob(give, "image/png"));
+    if (!blob) return null;
+    return {
+      bytes: [...new Uint8Array(await blob.arrayBuffer())],
+      width: canvas.width,
+      height: canvas.height,
+    };
+  }
+
+  private sayReading(where: Reading): void {
+    if (where.read >= where.pages) {
+      this.reading.textContent = where.by.length ? `נקרא — ${where.by.join(", ")}` : "";
+      this.reading.classList.remove("is-empty");
+      return;
+    }
+    this.reading.textContent = `${where.read} מתוך ${where.pages} עמודים נקראו`;
+    this.reading.classList.add("is-empty");
   }
 
   /** *Say which page is which daf* — the once-per-sefer chore. */

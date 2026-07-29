@@ -361,6 +361,51 @@ struct HitRow {
     /// draws, so a result reads like the page it came from and inline markup
     /// never reaches the window as markup.
     runs: Vec<display::Run>,
+    /// Which page of a scan this is, where it is one. The row opens the viewer
+    /// at it rather than a reading pane at a line that has no words in it.
+    page: Option<usize>,
+    /// Who read the words (spec.md §9.7's badge, W26). Absent for the corpus,
+    /// which was not read off anything; `embedded` where the file said what its
+    /// own words are; the engine's name and version where a machine guessed.
+    ///
+    /// **Badge them, don't demote them** — the row is where the score put it
+    /// and this is printed beside it, because OCR text is dirtier and a reader
+    /// is entitled to know which kind of result is in front of them.
+    by: Option<String>,
+    /// Whether that reader was an OCR engine, worked out here so the window
+    /// does not parse the name.
+    guessed: bool,
+    /// The words of this hit that answered the query.
+    ///
+    /// Worked out by the search's own `Marker` — a literal search marks the
+    /// words it asked for, a widened one marks the word that actually answered.
+    /// Carried on the row because a page of a scan is highlighted with a
+    /// **rectangle on the photograph** rather than a span of text, and the
+    /// window cannot work out which words those are: searching the drawn text
+    /// for what the reader typed finds nothing on a menukad page, which is most
+    /// of them (spec.md §9.7 — *only the highlight differs*).
+    marked: Vec<String>,
+}
+
+/// The words a hit matched, sliced out of its own text.
+fn marked(marker: &girsa_search::bar::Marker, hit: &girsa_search::index::Hit) -> Vec<String> {
+    marker
+        .marks(hit)
+        .into_iter()
+        .filter_map(|(from, to)| hit.text.get(from..to).map(ToString::to_string))
+        .collect()
+}
+
+/// The badge and the page number of a hit, in one place — the two rows of
+/// `HitRow` that are about scans.
+fn scanned(hit: &girsa_search::index::Hit) -> (Option<usize>, Option<String>, bool) {
+    (
+        hit.is_a_page()
+            .then(|| hit.id.path().last().and_then(|p| p.parse().ok()))
+            .flatten(),
+        hit.by.as_ref().map(|by| by.name().to_string()),
+        hit.is_scanned(),
+    )
 }
 
 /// What one search has to say.
@@ -466,6 +511,10 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                         } else {
                             display::without_marks(&hit.text)
                         }),
+                        page: scanned(hit).0,
+                        by: scanned(hit).1,
+                        guessed: scanned(hit).2,
+                        marked: marked(&results.marker, hit),
                     })
                     .collect(),
                 total: results.total,
@@ -588,6 +637,12 @@ fn find_rung(
         .widening
         .as_ref()
         .map_or_else(|| found.asked.describe(), |w| w.describe());
+    // What actually answered: the widened form where a rung was applied, and
+    // the words as typed where the search ran as it stood.
+    let marker = found.widening.clone().map_or_else(
+        || girsa_search::bar::Marker::Literal(found.asked.clone()),
+        |widening| girsa_search::bar::Marker::Widened(Box::new(widening)),
+    );
     Ok(FoundPage {
         header,
         note: Some("החל — לחזרה, חפש שוב בלי הצעה".to_string()),
@@ -607,6 +662,10 @@ fn find_rung(
                 } else {
                     display::without_marks(&hit.text)
                 }),
+                page: scanned(hit).0,
+                by: scanned(hit).1,
+                guessed: scanned(hit).2,
+                marked: marked(&marker, hit),
             })
             .collect(),
         total: found.total,
@@ -1006,6 +1065,308 @@ fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, Stri
         .and_then(|id| girsa_app::scanning::page_of_id(sefer, &id))
         .unwrap_or(1);
     Ok(view_of(shelf, sefer, &scan, at))
+}
+
+// ---------------------------------------------------------------------------
+// Reading a scan — spec.md §6.3 and §9.7, W26
+//
+// The division of labour is W25's, applied to words instead of pixels: the
+// window is the only thing here that opens a PDF, because pdf.js is one
+// renderer on all three platforms and a second PDF stack in Rust would be a
+// second opinion about the same file. So the window hands over **glyphs**, or a
+// **picture**, and everything after that — where the words are, what is left to
+// read, which pages nobody can search yet — is decided in `girsa-scan`, where
+// it can be tested without a webview.
+//
+// And it hands them over **one page at a time**. spec.md §6.3 asks for a job
+// that is *background, resumable, never blocking reading*, and the shape of
+// that promise is a call that returns after one page: the reader can turn to
+// the sugya they were on, and the only cost of stopping is the page it was on.
+// ---------------------------------------------------------------------------
+
+/// One glyph the window read off a page, in pixels of the page at scale 1.
+#[derive(Deserialize)]
+struct DrawnRow {
+    text: String,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+}
+
+/// Where a scan has got to, and what it is being read by.
+#[derive(Serialize)]
+struct ReadingRow {
+    slug: String,
+    pages: usize,
+    read: usize,
+    /// The next page to read, or `null` when there is none left.
+    next: Option<usize>,
+    /// The engines that have been over it. More than one is normal: a PDF can
+    /// carry its own text for the pages that were typeset and none for the
+    /// plates.
+    by: Vec<String>,
+    /// Whether an OCR engine is installed at all. The window offers *read the
+    /// pictures* only when there is something to read them with — an offer that
+    /// cannot be taken is worse than no offer (spec.md §6.3: OCR is optional).
+    engine: Option<String>,
+    /// Corrections whose ink the current reading has no word under.
+    stranded: usize,
+}
+
+/// One word on a page, and the rectangle of the page its ink is on.
+#[derive(Serialize)]
+struct WordRow {
+    text: String,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    confidence: f32,
+}
+
+impl WordRow {
+    fn of(word: &girsa_scan::Word) -> Self {
+        Self {
+            text: word.text.clone(),
+            left: word.at.left,
+            top: word.at.top,
+            right: word.at.right,
+            bottom: word.at.bottom,
+            confidence: word.confidence,
+        }
+    }
+}
+
+/// What is on one page, for drawing over it.
+#[derive(Serialize)]
+struct PageWordsRow {
+    page: usize,
+    by: Option<String>,
+    guessed: bool,
+    words: Vec<WordRow>,
+}
+
+/// *4 PDFs on this shelf aren't searchable yet*, and what it is about.
+#[derive(Serialize)]
+struct GapRow {
+    said: String,
+    pages: usize,
+    scans: Vec<ScannedRow>,
+}
+
+#[derive(Serialize)]
+struct ScannedRow {
+    slug: String,
+    title: String,
+    pages: usize,
+    read: usize,
+}
+
+/// How far a scan has been read.
+#[tauri::command]
+fn scan_reading(shared: tauri::State<'_, Shared>, slug: String) -> Result<ReadingRow, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.sefer(&slug)?;
+    let personal = state
+        .shelf
+        .as_ref()
+        .ok_or("there is no shelf here")?
+        .personal()
+        .to_path_buf();
+    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let pages = girsa_app::scanning::pages_of(sefer);
+    let (words, trouble) = girsa_scan::Words::open(&personal, &slug);
+    for line in trouble {
+        eprintln!("{line}");
+    }
+    let job = girsa_scan::Job::of(&slug, pages, &words);
+    Ok(ReadingRow {
+        slug,
+        pages,
+        read: job.done(),
+        next: job.next(),
+        by: words.read_by(),
+        engine: girsa_scan::Tesseract::found(Some(&personal)).map(|t| girsa_scan::Engine::name(&t)),
+        stranded: words.stranded().len(),
+    })
+}
+
+/// Take the glyphs the window read off one page of a PDF and make words of them.
+#[tauri::command]
+fn scan_read_page(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+    width: f32,
+    height: f32,
+    glyphs: Vec<DrawnRow>,
+) -> Result<ReadingRow, String> {
+    let personal = {
+        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        state
+            .shelf
+            .as_ref()
+            .ok_or("there is no shelf here")?
+            .personal()
+            .to_path_buf()
+    };
+    if width <= 0.0 || height <= 0.0 {
+        return Err("a page with no size on it".to_string());
+    }
+    // Pixels in, fractions of the page out, converted here and once: a
+    // rectangle in pixels is a fact about the size somebody rendered at, and a
+    // highlight stored in one lands in the margin the first time a reader
+    // zooms.
+    let glyphs: Vec<girsa_scan::Glyph> = glyphs
+        .into_iter()
+        .map(|g| girsa_scan::Glyph {
+            text: g.text,
+            at: girsa_scan::Area::new(
+                g.left / width,
+                g.top / height,
+                g.right / width,
+                g.bottom / height,
+            ),
+        })
+        .collect();
+    let grouped = girsa_scan::group(&glyphs);
+    if grouped.refused > 0 {
+        eprintln!(
+            "{slug} page {page}: {} words the file would not spell",
+            grouped.refused
+        );
+    }
+    let (mut words, _) = girsa_scan::Words::open(&personal, &slug);
+    words
+        .record(girsa_scan::Read::new(
+            page,
+            girsa_scan::Reader::Embedded,
+            grouped.words,
+        ))
+        .map_err(|e| e.to_string())?;
+    scan_reading(shared, slug)
+}
+
+/// Look at the picture instead, for a page that carries no text of its own.
+#[tauri::command]
+fn scan_ocr_page(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+    width: u32,
+    height: u32,
+    png: Vec<u8>,
+) -> Result<ReadingRow, String> {
+    let personal = {
+        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        state
+            .shelf
+            .as_ref()
+            .ok_or("there is no shelf here")?
+            .personal()
+            .to_path_buf()
+    };
+    let engine = girsa_scan::Tesseract::found(Some(&personal))
+        .ok_or_else(|| girsa_scan::EngineError::NoEngine.to_string())?;
+    let read = girsa_scan::Engine::read(&engine, page, &girsa_scan::Image { png, width, height })
+        .map_err(|e| e.to_string())?;
+    let (mut words, _) = girsa_scan::Words::open(&personal, &slug);
+    words.record(read).map_err(|e| e.to_string())?;
+    scan_reading(shared, slug)
+}
+
+/// What is on a page, for drawing a highlight over the photograph.
+#[tauri::command]
+fn scan_words(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+) -> Result<Option<PageWordsRow>, String> {
+    let personal = {
+        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        state
+            .shelf
+            .as_ref()
+            .ok_or("there is no shelf here")?
+            .personal()
+            .to_path_buf()
+    };
+    let (words, _) = girsa_scan::Words::open(&personal, &slug);
+    Ok(words.page(page).map(|read| PageWordsRow {
+        page: read.page,
+        by: Some(read.by.name().to_string()),
+        guessed: read.by.is_ocr(),
+        words: read.words.iter().map(WordRow::of).collect(),
+    }))
+}
+
+/// Correct a word on a page, by its ink rather than by where it is in the text.
+///
+/// The whole of W26 in one call: what is written down is the rectangle, so the
+/// correction is still on the same word after the page has been read again by
+/// something better (`girsa-scan/tests/the_image_is_ground_truth.rs`).
+#[tauri::command]
+fn scan_fix(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+    word: usize,
+    says: String,
+) -> Result<Option<PageWordsRow>, String> {
+    let personal = {
+        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        state
+            .shelf
+            .as_ref()
+            .ok_or("there is no shelf here")?
+            .personal()
+            .to_path_buf()
+    };
+    let (mut words, _) = girsa_scan::Words::open(&personal, &slug);
+    let was = words
+        .as_read(page)
+        .ok_or_else(|| format!("nobody has read page {page} of {slug}"))?
+        .words
+        .get(word)
+        .ok_or_else(|| format!("page {page} has no word {word} on it"))?
+        .clone();
+    words
+        .fix(
+            page,
+            girsa_scan::Fix {
+                at: was.at,
+                was: was.text,
+                says,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    scan_words(shared, slug, page)
+}
+
+/// What a search over this shelf cannot see — spec.md §9.7's results header.
+#[tauri::command]
+fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let personal = shelf.personal().to_path_buf();
+    let gap = girsa_app::reading::gap(shelf, &personal);
+    let girsa_app::Gap::Some { scans, pages } = &gap else {
+        return Ok(None);
+    };
+    Ok(gap.said().map(|said| GapRow {
+        said,
+        pages: *pages,
+        scans: scans
+            .iter()
+            .map(|scan| ScannedRow {
+                slug: scan.slug.clone(),
+                title: scan.title.clone(),
+                pages: scan.pages,
+                read: scan.read,
+            })
+            .collect(),
+    }))
 }
 
 fn view_of(shelf: &Shelf, sefer: &Open, scan: &girsa_scan::Scan, at: usize) -> ScanView {
@@ -2448,6 +2809,12 @@ pub fn run() {
             scan,
             scan_at,
             scan_map,
+            scan_reading,
+            scan_read_page,
+            scan_ocr_page,
+            scan_words,
+            scan_fix,
+            scan_gap,
             scan_forget,
             scan_page_of,
             scan_copy,

@@ -883,9 +883,18 @@ document is worth more than another month of ingest.
 
 Not blocking; each is decidable inside its milestone.
 
-1. **OCR engine** (M7). Hebrew OCR on old print is genuinely hard and Tesseract is
-   mediocre at it. An afternoon of evaluation decides whether "optional OCR" is a
-   good feature or a disappointing one.
+1. ~~**OCR engine** (M7). Hebrew OCR on old print is genuinely hard and Tesseract
+   is mediocre at it. An afternoon of evaluation decides whether "optional OCR"
+   is a good feature or a disappointing one.~~ **Measured in W26 and answered:**
+   tesseract 5.4 with `tessdata_best` scores 99% of the words on modern square
+   print and **27% at 23% precision on Rashi script with nikud**, and a
+   confidence floor does not separate the two — it is confidently wrong. So the
+   default reader for a PDF is the file's own text layer (87%/94% on the same
+   pages), tesseract is *found rather than bundled* for pages that have none,
+   and the decision is made reversible instead of permanent: a reading is an
+   overlay in the personal layer and a correction is anchored to the ink, so
+   re-reading a scan with something better is one pass with nothing to migrate.
+   See the README's *Reading a scan* and `crates/girsa-scan/src/engine.rs`.
 2. **Root table scope** (M3). How many words earn a hand-written entry before the
    effort stops paying.
 

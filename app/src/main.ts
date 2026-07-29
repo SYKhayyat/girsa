@@ -395,12 +395,27 @@ function search(): void {
 /// The scroll goes through the same `goTo` the commentary column uses, so a hit
 /// lands on the line by its **permanent id** and not by counting lines — which
 /// is the whole of W6 showing up in a place nobody would think to look.
-async function openFound(slug: string, id: string): Promise<void> {
+async function openFound(slug: string, id: string | null, marked?: string[]): Promise<void> {
   await api.openTab(slug);
   await reload();
+  // No id is *open it where it was left*: a scan whose pages nobody has read
+  // has no segment worth landing on, and the pane it opens is the one carrying
+  // the control that reads it (W26).
+  if (id === null) return;
   const open = tab();
   const pane = open?.panes.find((p) => p.slug === slug);
-  if (pane) views.get(pane.id)?.goTo({ kind: "at", ids: [id] }, "linked");
+  if (!pane) return;
+  views.get(pane.id)?.goTo({ kind: "at", ids: [id] }, "linked");
+  // A hit on a page of a scan is highlighted with a rectangle on the
+  // photograph rather than a span of text — spec.md §9.7's *only the highlight
+  // differs*. The words come from the search that ran, not from what was typed.
+  const scan = scans.get(pane.id);
+  if (scan && marked?.length) scan.markWords(marked.map(bareWord));
+}
+
+/** A word without its marks, for comparing with what is drawn on a page. */
+function bareWord(word: string): string {
+  return word.replace(/[\u0591-\u05C7]/gu, "");
 }
 
 function toolBar(): HTMLElement {

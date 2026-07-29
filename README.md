@@ -1532,11 +1532,289 @@ The file itself is read off the disk through Tauri's asset protocol, scoped at
 startup to `personal/files` and nothing else. A scan is hundreds of megabytes
 and cannot travel over the IPC channel a page at a time.
 
-**What this does not yet do:** OCR (W26). A scan is not searchable, and the
-results header does not yet say that four PDFs on a shelf are missing from the
-index. Nothing on a page can be highlighted, corrected or linked to at a finer
-grain than the page itself — all of which want coordinates on the image, which
-is what W26 is for.
+## Reading a scan
+
+### The engine question, answered by measuring it
+
+`spec.md` §17 left one thing open here: *Hebrew OCR on old print is genuinely
+hard and Tesseract is mediocre at it. An afternoon of evaluation decides whether
+"optional OCR" is a good feature or a disappointing one.*
+
+The afternoon happened. Five pages of a real sefer on this shelf — a Berachos
+with the mishnah in square script under full nikud and the commentary beneath it
+in **Rashi script** — rendered at 300 dpi and given to tesseract 5.4.0 with the
+`tessdata_best` Hebrew model. The file carries its own text layer, so every word
+on every page has a known right answer to score against, which is a luxury this
+evaluation had and a Vilna Shas would not.
+
+| page | what is on it | recall | precision |
+|---|---|---|---|
+| 151 | square script, unvocalized | **99%** | **99%** |
+| 301 | square script, unvocalized, heavily abbreviated | 83% | 76% |
+| 7 | square + nikud, Rashi script, footnote figures | **27%** | **23%** |
+| 8 | the same | 28% | 23% |
+| 51 | the same | 18% | 15% |
+| | **all five** | 50% | 44% |
+
+Tesseract can read a modern Hebrew paperback and cannot read a mefaresh. Which
+is the answer §17 was worried about, and it decided three things — none of them
+"find a better engine".
+
+**The precision column is the one that matters.** On the Rashi-script pages
+tesseract produced roughly four words that are not on the page for every one
+that is. A word that is not there is not a gap in the index; it is a **hit that
+does not exist**, and a reader sent to a daf that does not contain what they
+searched for has been lied to by the search box in the one place they cannot
+check without reading the whole page.
+
+**And you cannot threshold your way out of it**, which is the finding that
+surprised. The obvious repair is to throw away the low-confidence words. It does
+not work, because tesseract is *confidently* wrong on a script it has never
+seen — on page 7, raising the floor from 0 to 90 costs three quarters of the
+recall and buys fifteen points of precision:
+
+```
+min conf   recall  precision
+       0     27%       23%
+      50     18%       25%
+      70     11%       25%
+      90      7%       38%
+```
+
+So no confidence knob ships. Every word's confidence is recorded, for the repair
+screen; nothing is silently dropped on the strength of it, and the honest signal
+to the reader is the badge and the photograph beside it.
+
+### The engine that works is the one that does not run
+
+**A PDF that was typeset rather than photographed carries its own text.** The
+831 words this evaluation scored *against* came out of it — exact, instant, no
+model, and incapable of inventing a word. So the default for any PDF is to ask
+the file, and OCR is what happens to the pages that have nothing to ask.
+
+On the same five pages, the same score, the same way:
+
+| | recall | precision |
+|---|---|---|
+| the file's own text | **87%** | **94%** |
+| tesseract | 50% | 44% |
+
+Which sounds obvious and is not, because a PDF does not have words. It has
+drawing instructions, and a Hebrew sefer typeset properly positions **every
+letter and every nikud mark separately** so the marks sit where the typesetter
+wanted them. Ask such a file what its text is and it answers
+
+```
+ֵמ ֵא יָמ ַת י
+```
+
+— a space between the halves of every letter, because the extractor puts one
+wherever the pen jumped, and half of those jumps are inside a word.
+
+So the words are worked out from the geometry: glyphs sorted onto lines, right
+to left, cut wherever the gap between two of them is wider than **0.28 of their
+height**. That number is measured rather than chosen. Over five pages of this
+sefer there are 5,500 gaps between adjacent glyphs, and they fall into two piles
+with a valley between them:
+
+```
+gap ÷ glyph height
++0.05..+0.10 ############################################ 1795   inside a word
++0.10..+0.15 ########################################     1620
++0.15..+0.20 ###                                           124
++0.20..+0.25                                                 8   ← the valley
++0.25..+0.30                                                19
++0.30..+0.35                                                12
++0.35..+0.40 ######                                        267   between words
++0.40..+0.45 ##                                             81
+```
+
+Thirty-nine gaps out of 5,500 land in the ambiguous band. The spaces the file
+itself supplies are ignored entirely — which is what makes this the same code
+for a text layer and for an engine that hands back loose glyphs.
+
+### What the file will not spell is left out, not guessed at
+
+The other half of that page is the encoding trap `girsa-corpus`'s importer
+refused to walk into when it declined to read a PDF's text into a sefer. A font
+that positions its own nikud very often has **no `ToUnicode` entry for the mark
+glyphs**, and sometimes none for the pre-composed letter-plus-mark glyphs
+either, so they come back as control codes: `U+000E`, `U+0010`.
+
+A mark drawn on its own that the file will not name is dropped and costs
+nothing — it is the nikud, and the index strips nikud in every mode (`spec.md`
+§9.1). But a *letter* the file will not name is different, and the line it is on
+comes out like this:
+
+```
+יַת5? ים דִס ֹוף   ‹— fragments of four real words
+```
+
+Those are not slightly-wrong words. They are strings that will be found by a
+search for something that is not printed on the page, which is rule 6 again. So
+**a line holding a letter the file would not name is refused whole** and
+counted. On this sefer that is 3,605 words of 60,455 — the vocalized mishnah
+lines — and the commentary beneath them, which is most of the page, reads
+perfectly.
+
+```
+$ node app/tools/glyphs.mjs personal/files/user-berachos-combined.pdf \
+    | girsa-read corpus personal words user/berachos-combined
+273 of 302 pages carry their own text; 29 have none and want OCR
+273 pages, 56850 words
+4296 code points the file would not name; 3605 words left out for it
+```
+
+The 29 pages with no text turned out to be genuinely blank — this sefer needs no
+OCR at all. A page that is read and found blank is written down as such, so it
+does not come round the queue again forever.
+
+### A correction is anchored to the ink
+
+This is the load-bearing decision, and it is `spec.md` §6.3 taken literally:
+*the image stays ground truth, which makes fixing OCR errors safe by
+construction.*
+
+W20 stores a correction to a text sefer as `segment id + character span`, and
+that is right there: the base text is a file on disk that does not change under
+it. It is **wrong here**, because a page's words are an engine's current opinion
+and the whole premise of this work order is that a better engine replaces them.
+Re-read a page and there are more words, or fewer, spelled differently — so
+every offset now points somewhere else, silently, which is `BUILDER.md` T1 for
+the third time.
+
+So what is written down is a **rectangle on the photograph**, in fractions of
+the page rather than pixels of whatever anybody rendered at. On the real sefer,
+with the page OCR'd from a 300-dpi raster, corrected, and then OCR'd again from
+a 200-dpi one — different pixels, different boxes, and a different reading of
+the first word on the page:
+
+```
+$ girsa-read … ocr user/berachos-combined /tmp/pages300 151
+page 151: 267 words
+$ girsa-read … fix user/berachos-combined 151 20 מצווה
+page 151, word 20: אפשר → מצווה
+anchored to the ink at 0.551,0.196–0.611,0.206 of the page
+$ girsa-read … ocr user/berachos-combined /tmp/pages200 151
+page 151: 267 words
+$ girsa-read … show user/berachos-combined 151
+פרק ראשון ב. יש להעיר … (בהקטרה ובאכילה). מצווה לבאר שההיתר תלוי במצווה
+```
+
+The correction is on the same word. `girsa-scan/tests/the_image_is_ground_truth.rs`
+is that property against every way a re-read can move an offset in one page — a
+word split, two words merged, one misread, a speck of dust read as a letter that
+is not there — and it fails on the offset-anchored implementation, which is kept
+in the same file as a test rather than as a paragraph.
+
+And a correction whose ink the new reading has no word under is **handed back**,
+not dropped. The reader marked something and this engine found nothing there;
+losing it quietly means they make the same correction again next year and never
+know why the first one went.
+
+### Two words with one rectangle are refused rather than resolved
+
+An honest complication. The same PDF gives a vocalized page as 707 separately
+positioned glyphs and an unvocalized one as **35 items, each a whole line with
+its spaces in it**. On that page the file has said *which* words are on the line
+and not *where* they are.
+
+So the line is split into its words — the index needs that — and every one of
+them carries the **line's** rectangle, which is what is actually known.
+Apportioning the box across the letters would put a word break wherever the
+arithmetic fell, and Hebrew letters run from a yud to a shin in width. A
+highlight two letters off looks exactly like one that landed right, which is the
+refusal W24 made about a dibur hamatchil made again about a rectangle. A
+correction pointed at ink that two words share is refused, naming neither.
+
+### One index, two location types
+
+`spec.md` §9.7. A page with words on it is a row of the same result list as a
+line of the corpus, found by the same query, ranked by the same rule:
+
+```
+$ girsa-index find index personal קפנדריא
+searched for: the words קפנדריא, anywhere in a segment
+3 in 302 segments · showing 3
+
+girsa:user/berachos-combined/301#301  [page]  [read off the file]
+  … מסתבר שגם [קפנדריא] אסור בהר הבית בזמן הזה, שהוא אף אסור בבית הכנסת …
+```
+
+**Badge them, don't demote them.** Nothing anywhere subtracts from a row's score
+for having come off a photograph; what the row carries is a word for where its
+words came from. Two badges and not one, because *the file said so* and *a
+machine guessed at a picture* are the two rows of the table at the top of this
+section and they are forty points of precision apart.
+
+The rectangle is **not** in the index. A query cannot be asked about a
+rectangle, and copying one into five million documents would buy nothing — so
+the box is looked up from the reading when a row is opened, and the words to
+mark come from the search's own marker rather than from what the reader typed.
+Searching the drawn text for the typed string would find nothing on a menukad
+page, which is most of them.
+
+### Never a silent gap
+
+Since OCR is off at onboarding, a shelf with scans on it has holes in its index
+by design. The one thing that may not happen is for those holes to be silent:
+
+```
+$ girsa-read corpus personal status
+1 PDF on this shelf isn't searchable yet — 23 pages
+  user/berachos-combined — 279 of 302 pages read
+```
+
+That sentence is composed once, in `girsa_app::reading::Gap::said`, so the
+results header, this command and the test cannot drift into disagreeing about a
+count. A reader given forty hits over a shelf holding four unread scans has been
+told *these are the forty places this appears*, and the forty-first is on a page
+nobody has read. Search that quietly omits a shelf is worse than search that has
+not been run, because it looks like an answer.
+
+A scan half read is neither searchable nor absent, and both numbers are
+reported. *"3 PDFs aren't searchable yet"* over a sefer that is two-thirds done
+would send a reader to run a job that is nearly finished; *"searchable"* over
+the same sefer would be a lie about a hundred pages.
+
+### The job is one page at a time, and that is the promise
+
+`spec.md` §6.3 asks for OCR that is *optional, off during onboarding,
+background, resumable, never blocking reading.* Four of those are shape rather
+than intention:
+
+- **Resumable** with nothing to keep in step, because **the work product is the
+  progress record**. The pages written down are the pages that are done; there
+  is no separate counter that can survive a crash while disagreeing with what
+  was actually read. Stopped at page 40 of 302, it starts again at 41.
+- **Never blocking**, because the loop owns nothing between iterations: one
+  page, then back to the window. The reader can turn the page, search, and copy
+  a mekor while it runs.
+- **Optional**, and *no engine installed* is a state with a name rather than a
+  button that does nothing. Tesseract is **found, not bundled and not fetched** —
+  nothing here downloads a model, because offline is the product (`spec.md` §14)
+  and a runtime network dependency is not a decision this work order gets to
+  take (`BUILDER.md` §0.1).
+- And it looks for the Hebrew model in `personal/tessdata` as well as
+  tesseract's own directory. That is not a convenience: tesseract installs into
+  `C:\Program Files`, which takes an administrator to write to, and the Hebrew
+  model is a separate download that does not come with it. This work order found
+  that out by hitting it.
+
+The window is the only thing here that opens a PDF — pdf.js, the same renderer
+W25 chose for the same reason. It hands over glyphs, or a picture, and
+everything after that is decided in `girsa-scan`, where it can be tested without
+a webview.
+
+**What this does not yet do.** OCR text does not reach the OCR-error queue of
+W21, so a word tesseract got wrong is not ranked beside a word Otzaria's
+scanner got wrong — the machinery is the same shape and the two have not been
+joined. A page's words cannot be linked to at a finer grain than the page; W24's
+span anchoring is about segments and a page is one segment. And nothing has been
+run against a real photographed sefer: every measurement above is against a
+born-digital PDF, which is the only kind on this shelf, so the numbers for
+tesseract are its numbers on **clean 300-dpi print** and a photograph of a Vilna
+Shas will do worse.
 
 ## Licence
 
@@ -1546,6 +1824,9 @@ each carries its own source and licence.
 
 What is bundled *into* the installer and is not ours is listed in
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) — today that is pdf.js, which
-draws a page of a scan. No AGPL or GPL code is used anywhere here: Zayit,
-HebMorph and Sefaria-ElasticSearch were read as prior art and copied from
-nowhere (`BUILDER.md` T7).
+draws a page of a scan and reads the words off one. Tesseract is **not** in that
+list on purpose: it is found on the machine if it is installed and run as a
+separate process, so nothing of it is linked into this program or shipped with
+it. No AGPL or GPL code is used anywhere here: Zayit, HebMorph and
+Sefaria-ElasticSearch were read as prior art and copied from nowhere
+(`BUILDER.md` T7).

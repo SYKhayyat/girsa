@@ -16,6 +16,11 @@ girsa-ref.workspace = true
 # (spec.md §12). A scan that printed its own mareh makom would be the second
 # implementation that crate exists to prevent.
 girsa-cite.workspace = true
+# One sanitizer for a slug that has to survive being a Windows path. A scan's
+# readings live at `personal/words/<slug>/` mirroring `personal/works/<slug>/`,
+# and a second copy of that rule would drift and put the two halves of a sefer
+# in different places.
+girsa-corpus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
