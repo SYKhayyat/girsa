@@ -55,6 +55,19 @@ pub enum SegmentKind {
     /// to tell them apart so that a PDF is *"not searchable yet"* rather than
     /// silently absent (§9.7).
     Page,
+    /// A footnote, lifted out of the sentence that carried it (W29).
+    ///
+    /// Its own segment on purpose. A note spliced into the words around it
+    /// corrupts them — the sentence reads as though the author wrote the note
+    /// into it — and a note that is its own segment is searchable, citable and
+    /// correctable like any other line.
+    Note,
+    /// One item of a list.
+    Item,
+    /// One row of a table, its cells kept apart.
+    Row,
+    /// A block quote — text this sefer is quoting rather than saying.
+    Quote,
 }
 
 impl SegmentKind {
@@ -67,7 +80,36 @@ impl SegmentKind {
             Self::Text => "text",
             Self::Heading => "heading",
             Self::Page => "page",
+            Self::Note => "note",
+            Self::Item => "item",
+            Self::Row => "row",
+            Self::Quote => "quote",
         }
+    }
+
+    /// Every kind, in the order they are written above.
+    #[must_use]
+    pub const fn all() -> [Self; 7] {
+        [
+            Self::Text,
+            Self::Heading,
+            Self::Page,
+            Self::Note,
+            Self::Item,
+            Self::Row,
+            Self::Quote,
+        ]
+    }
+
+    /// Whether this segment is the sefer's own running text.
+    ///
+    /// False for a heading, which names a section rather than holding one, and
+    /// for a page with no words in it yet. **True for a note, an item, a row
+    /// and a quote**: those are words somebody wrote and are read, searched and
+    /// corrected like any other line — they are only drawn differently.
+    #[must_use]
+    pub const fn has_words(self) -> bool {
+        !matches!(self, Self::Page)
     }
 
     /// Read back what [`SegmentKind::as_str`] wrote.
@@ -78,9 +120,7 @@ impl SegmentKind {
     /// second implementation of the same fact.
     #[must_use]
     pub fn parse(word: &str) -> Option<Self> {
-        [Self::Text, Self::Heading, Self::Page]
-            .into_iter()
-            .find(|kind| kind.as_str() == word)
+        Self::all().into_iter().find(|kind| kind.as_str() == word)
     }
 }
 

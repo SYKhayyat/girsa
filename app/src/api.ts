@@ -75,7 +75,9 @@ export interface FixMark {
 export interface Line {
   id: string;
   address: string;
-  kind: "heading" | "text";
+  /** What kind of line this is. `note`, `item`, `row` and `quote` come from a
+   * .ksav of your own (W29) and are drawn as themselves rather than as prose. */
+  kind: "heading" | "text" | "note" | "item" | "row" | "quote" | "page";
   runs: Run[];
   /** The corrections on this line. Absent on nearly every line there is. */
   fixed?: FixMark[];

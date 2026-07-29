@@ -139,6 +139,91 @@ fn your_own_writing_goes_on_the_shelf_as_the_words_and_not_as_the_markup() {
 }
 
 #[test]
+fn your_own_writing_keeps_its_shape_and_not_only_its_words() {
+    // W29. Reading a `.ksav` for its words alone lost more than the shape:
+    // a list's items and a table's cells live in the command's *arguments*,
+    // and a reader that skipped the arguments dropped both **entirely** —
+    // which does not look like a loss, it looks like a document that never had
+    // a table in it. And a footnote read in place was spliced into the middle
+    // of the sentence that carried it.
+    let dir = scratch("girsa-mine-ksav-shape");
+    let personal = dir.join("personal");
+    let markup = "#כותרת1[פרק א]
+
+הקדמה קצרה#הערה[וזו הערת שוליים].
+
+#כותרת2[ראיות]
+
+#ממוספרת(
+  פריט[ראיה ראשונה],
+  פריט[ראיה שנייה],
+)
+
+#טבלה(עמודות: 2, כותרת_תא[מקור], כותרת_תא[דעה], תא[רש\"י], תא[מחמיר],)
+
+#ציטוט[ותנא מייתי לה מהכא]
+
+#הערת_עורך[לבדוק את זה שוב]
+";
+    let file = write(&dir, "חבורה.ksav", markup.as_bytes());
+    let added = import::mine::add(&personal, &file, None).expect("it is added");
+
+    let by_kind = |kind: SegmentKind| -> Vec<&str> {
+        added
+            .segments
+            .iter()
+            .filter(|s| s.kind == kind)
+            .map(|s| s.text.as_str())
+            .collect()
+    };
+
+    // A heading is a heading, and it is a level of the address — so a chaburah
+    // with chapters is cited by chapter rather than by line number.
+    assert_eq!(by_kind(SegmentKind::Heading), vec!["פרק א", "ראיות"]);
+    let ראיות = added
+        .segments
+        .iter()
+        .find(|s| s.text.contains("ראיה ראשונה"))
+        .expect("the first item is on the shelf");
+    assert_eq!(
+        ראיות.id.path(),
+        ["פרק_א", "ראיות", "1"],
+        "the item is addressed inside the section it was written in"
+    );
+
+    // The two that used to vanish without a word.
+    let items = by_kind(SegmentKind::Item);
+    assert_eq!(items.len(), 2, "the list is on the shelf: {items:?}");
+    assert!(items[0].contains("1. ראיה ראשונה"), "{items:?}");
+    let rows = by_kind(SegmentKind::Row);
+    assert_eq!(rows.len(), 2, "the table is on the shelf: {rows:?}");
+    assert!(rows[0].contains("מקור	דעה"), "{rows:?}");
+    assert!(rows[1].contains("מחמיר"), "{rows:?}");
+
+    // The footnote is its own line, and the sentence that carried it is intact
+    // with only the marker left in it.
+    assert_eq!(by_kind(SegmentKind::Note), vec!["1. וזו הערת שוליים"]);
+    assert!(
+        by_kind(SegmentKind::Text).contains(&"הקדמה קצרה1."),
+        "{:?}",
+        by_kind(SegmentKind::Text)
+    );
+
+    assert_eq!(by_kind(SegmentKind::Quote), vec!["ותנא מייתי לה מהכא"]);
+
+    // And an editor's note is a remark *about* the text, so it is not a line
+    // of the sefer at all — the same distinction W20 draws between a
+    // correction and a girsa variant.
+    assert!(
+        !added
+            .segments
+            .iter()
+            .any(|s| s.text.contains("לבדוק את זה")),
+        "an editor's note is not part of the sefer"
+    );
+}
+
+#[test]
 fn a_pdf_is_on_the_shelf_with_its_pages_and_says_it_has_no_words_yet() {
     let dir = scratch("girsa-mine-pdf");
     let personal = dir.join("personal");

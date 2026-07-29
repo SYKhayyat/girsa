@@ -208,12 +208,19 @@ fn parse(file: &Path, kind: Kind) -> Result<(Vec<RawSegment>, String), MineError
             let (markup, _) = decode(&bytes);
             // Read rather than compiled: Typst is the only thing that can say
             // what a document *renders* as, and the shelf does not need that —
-            // it needs the words. `girsa-ksav` is the same crate that wrote
-            // them, so what is indexed is what was written.
-            Ok((
-                paragraphs(&girsa_ksav::to_text(&markup)),
-                "your own writing".to_string(),
-            ))
+            // it needs the words and their shape. `girsa-ksav` is the same
+            // crate that wrote them, so what is indexed is what was written.
+            let blocks = girsa_ksav::read(&markup);
+            let raw = from_ksav(&blocks);
+            let notes = blocks
+                .iter()
+                .filter(|b| matches!(b, girsa_ksav::Block::Note { .. }))
+                .count();
+            let rows = blocks
+                .iter()
+                .filter(|b| matches!(b, girsa_ksav::Block::Row { .. }))
+                .count();
+            Ok((raw, said(blocks.len(), notes, rows)))
         }
         Kind::Pdf => {
             let pages = pages_in(file)?;
@@ -281,6 +288,139 @@ fn io(path: &Path) -> impl Fn(std::io::Error) -> MineError + '_ {
         path: path.display().to_string(),
         source,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Your own writing
+// ---------------------------------------------------------------------------
+
+/// A document of yours as segments — headings as levels of the address, and
+/// everything else as a line under them (W29).
+///
+/// # The headings are the address
+///
+/// Otzaria's `<h1>/<h2>/<h3>` become a work's structure in
+/// [`crate::import::otzaria`], and a `.ksav` is read the same way and for the
+/// same reason: a chaburah with three chapters should be cited as
+/// `girsa:note/חבורה/מבוא:2#4` and not as line 47. A heading closes every
+/// section at its level or deeper and opens its own; the lines after it are
+/// numbered within it.
+///
+/// # A note is not part of the sentence it hangs off
+///
+/// It gets its own segment, right after the paragraph that carried it, with the
+/// marker still in that paragraph's words to say something hangs there. That is
+/// the difference between a footnote and an interruption, and it is what makes
+/// a note searchable, citable and correctable on its own.
+///
+/// **An editor's note is left out of the sefer entirely.** `#הערת_עורך` is a
+/// remark *about* the text and was never part of it (the same distinction W20
+/// draws between a correction and a girsa variant), and importing one as a line
+/// of the sefer would put a note-to-self into the corpus as though the author
+/// had written it.
+#[must_use]
+pub fn from_ksav(blocks: &[girsa_ksav::Block]) -> Vec<RawSegment> {
+    use girsa_ksav::Block;
+
+    let mut out: Vec<RawSegment> = Vec::new();
+    // The open sections, outermost first: their level and the label they are
+    // addressed by.
+    let mut open: Vec<(u8, String)> = Vec::new();
+    // How many lines each section has had, so a line's number is its number
+    // *within* its section.
+    let mut lines: Vec<usize> = vec![0];
+
+    for block in blocks {
+        if let Block::Heading { level, text } = block {
+            let level = (*level).max(1);
+            while open.last().is_some_and(|(open, _)| *open >= level) {
+                open.pop();
+                lines.pop();
+            }
+            let taken: Vec<&str> = open.iter().map(|(_, label)| label.as_str()).collect();
+            let label = unique(&crate::work::section_label_of(text), &taken);
+            open.push((level, label));
+            lines.push(0);
+            out.push(RawSegment {
+                path: open.iter().map(|(_, label)| label.clone()).collect(),
+                kind: SegmentKind::Heading,
+                text: text.clone(),
+            });
+            continue;
+        }
+
+        let (kind, text) = match block {
+            Block::Paragraph(text) => (SegmentKind::Text, text.clone()),
+            Block::Quote(text) => (SegmentKind::Quote, text.clone()),
+            Block::Item {
+                ordinal,
+                text,
+                depth,
+            } => (
+                SegmentKind::Item,
+                match ordinal {
+                    // The marker as the document numbers it, and the depth as a
+                    // margin — so a list that was nested still reads as nested
+                    // in a pane that draws lines rather than lists.
+                    Some(n) => format!("{}{n}. {text}", "\u{2003}".repeat(*depth as usize)),
+                    None => format!("{}{text}", "\u{2003}".repeat(*depth as usize)),
+                },
+            ),
+            // Tab between cells, which is what a column boundary is in every
+            // plain rendering of a table and is one character a reader can see
+            // columns in.
+            Block::Row { cells, .. } => (SegmentKind::Row, cells.join("\t")),
+            Block::Note { kind, marker, text } => {
+                if !kind.is_the_text() {
+                    continue;
+                }
+                (SegmentKind::Note, format!("{marker}. {text}"))
+            }
+            Block::Heading { .. } => continue,
+        };
+        if text.trim().is_empty() {
+            continue;
+        }
+        let nth = lines.last_mut().map_or(1, |n| {
+            *n += 1;
+            *n
+        });
+        let mut path: Vec<String> = open.iter().map(|(_, label)| label.clone()).collect();
+        path.push(nth.to_string());
+        out.push(RawSegment { path, kind, text });
+    }
+    out
+}
+
+/// A label no sibling section is already using.
+///
+/// `_` and not `-`, for the reason [`crate::work::section_label_of`] gives: a
+/// hyphen in an address level is how `girsa-ref` writes a span. A silent
+/// collision would make one of two chapters unreachable.
+fn unique(label: &str, taken: &[&str]) -> String {
+    let label = if label.is_empty() { "_" } else { label };
+    if !taken.contains(&label) {
+        return label.to_string();
+    }
+    for n in 2..=u32::MAX {
+        let candidate = format!("{label}_{n}");
+        if !taken.contains(&candidate.as_str()) {
+            return candidate;
+        }
+    }
+    label.to_string()
+}
+
+/// The one line the shelf shows about how a document was read.
+fn said(blocks: usize, notes: usize, rows: usize) -> String {
+    let mut out = format!("your own writing, {blocks} blocks");
+    if notes > 0 {
+        out.push_str(&format!(", {notes} notes"));
+    }
+    if rows > 0 {
+        out.push_str(&format!(", {rows} table rows"));
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------

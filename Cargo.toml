@@ -39,19 +39,19 @@ girsa-mcp = { version = "=0.1.0", path = "crates/girsa-mcp" }
 # Pinned to an EXACT version on purpose. sefer-crates is a separate repository,
 # so a breaking change there is no longer one atomic commit that compile-checks
 # both applications — which is the drift the shared-crate design exists to
-# prevent. `=0.3.0` makes taking a new version a deliberate act on this side,
+# prevent. `=0.4.0` makes taking a new version a deliberate act on this side,
 # and sefer-crates CI builds both dependents before a change can land there.
 #
 # `path` points at the sibling checkout so day-to-day work across all three
 # repositories feels like one workspace without them being one. When these are
 # published, the `path` key is what cargo ignores and `version` is what it uses;
 # until then the checkout must be present.
-girsa-source = { version = "=0.3.0", path = "../sefer-crates/crates/girsa-source" }
-girsa-ref = { version = "=0.3.0", path = "../sefer-crates/crates/girsa-ref" }
-girsa-hebrew = { version = "=0.3.0", path = "../sefer-crates/crates/girsa-hebrew" }
-girsa-cite = { version = "=0.3.0", path = "../sefer-crates/crates/girsa-cite" }
-girsa-ksav = { version = "=0.3.0", path = "../sefer-crates/crates/girsa-ksav" }
-girsa-post = { version = "=0.3.0", path = "../sefer-crates/crates/girsa-post" }
+girsa-source = { version = "=0.4.0", path = "../sefer-crates/crates/girsa-source" }
+girsa-ref = { version = "=0.4.0", path = "../sefer-crates/crates/girsa-ref" }
+girsa-hebrew = { version = "=0.4.0", path = "../sefer-crates/crates/girsa-hebrew" }
+girsa-cite = { version = "=0.4.0", path = "../sefer-crates/crates/girsa-cite" }
+girsa-ksav = { version = "=0.4.0", path = "../sefer-crates/crates/girsa-ksav" }
+girsa-post = { version = "=0.4.0", path = "../sefer-crates/crates/girsa-post" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

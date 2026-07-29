@@ -386,13 +386,33 @@ export class PaneView {
 }
 
 function lineElement(line: Line): HTMLElement {
-  const row = el("p", line.kind === "heading" ? "line is-heading" : "line");
+  // A line of your own .ksav knows what it is — a footnote, a list item, a row
+  // of a table, a block quote — and is drawn as that rather than as one more
+  // paragraph. Nothing else in the corpus has these kinds, so nothing else
+  // changes shape (W29).
+  const row = el("p", line.kind === "text" ? "line" : `line is-${line.kind}`);
   row.dataset.id = line.id;
   row.dataset.address = line.address;
   const label = el("span", "line-address");
   label.textContent = line.address;
   const words = el("span", "line-text");
-  words.append(...line.runs.map(runElement));
+  if (line.kind === "row") {
+    // The cells arrive tab-separated, which is what a column boundary is in
+    // every plain rendering of a table. Split here rather than on the Rust
+    // side: the boundary is a fact about the text and the columns are a fact
+    // about the page.
+    const cells = line.runs
+      .map((r) => r.text)
+      .join("")
+      .split("	");
+    for (const cell of cells) {
+      const box = el("span", "line-cell");
+      box.textContent = cell;
+      words.append(box);
+    }
+  } else {
+    words.append(...line.runs.map(runElement));
+  }
   row.append(label, words);
   if (line.fixed?.length) row.append(fixMark(line));
   return row;

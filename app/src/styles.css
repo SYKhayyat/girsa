@@ -1778,3 +1778,39 @@ body {
   border-radius: 2px;
   padding: 0 1px;
 }
+
+/* --- a sefer of your own, with its shape (W29) ---------------------------
+ *
+ * A .ksav on the shelf carries its headings, footnotes, list items, table rows
+ * and block quotes as segment kinds of their own, so the page can draw each as
+ * what it is. Nothing in the corpus has these kinds — Sefaria and Otzaria give
+ * text and headings and nothing else — so no sefer but yours changes shape.
+ */
+.line.is-note .line-text {
+  font-size: 0.9em;
+  color: var(--ink-quiet);
+}
+
+.line.is-item .line-text {
+  padding-inline-start: 1.2em;
+}
+
+.line.is-quote .line-text {
+  padding-inline: 1.4em;
+  border-inline-start: 2px solid var(--rule);
+  color: var(--ink-quiet);
+  font-style: italic;
+}
+
+.line.is-row .line-text {
+  display: flex;
+  gap: 1.5em;
+}
+
+/* A cell keeps its own column rather than running into the next one, and the
+ * widest cell in the table is what sets the width — which is a table, and is
+ * why the row is not simply a line with tabs in it. */
+.line-cell {
+  flex: 1 1 0;
+  min-width: 0;
+}
