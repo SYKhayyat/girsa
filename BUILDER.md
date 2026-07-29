@@ -537,6 +537,74 @@ into incompatible halachos, which is usually the chiddush. Then the BEREL
 embedding lane, **always visually separated** from literal results. Then MCP on
 both ends.
 
+*Chain tracing and MCP shipped in W28. The lane was held for a ruling and is now
+W30.*
+
+---
+
+### W30 · The semantic lane — **shipped**
+
+**Ruled in `spec.md` §16 #20 — build to it, not around it.**
+
+*Built. `girsa-lane`, `girsa_app::adjacent`, the `adjacent` MCP tool, and the
+panel behind `לשון סמוכה` in the window. Two things changed on the way and both
+are recorded rather than quietly absorbed:*
+
+*· **BEREL's licence is `apache-2.0`**, checked three ways on 29 July 2026 — the
+model card, its frontmatter and the Hub API. §9.4's "unrestricted" and the
+README's warning disagreed; the API settles it, and Apache-2.0 is one of this
+repo's own two licences, so side-loading it is clean.*
+
+*· **A fetch button was ruled in, mid-order.** §16 #20 as first written said
+Girsa fetches no model at all. It now says Girsa never *needs* the network: the
+folder picker is the default path, and a `bring it in` button sits behind a
+setting that is off in a fresh install. `spec.md` §9.9, §14 and §16 #20 were
+amended to say so.*
+
+*· **And the model was measured rather than assumed.** A half-remembered
+statement finds its se'if in the top 16 of 240 every time, eight of ten at rank
+1. A question about a se'if finds it one time in five. Mean-centring made it
+worse and was not built. The lane is shaped around the first number, and the
+side-loading is what makes a better model a setting rather than a release
+(`girsa_lane::model`).*
+
+**Goal.** "I remember a Rishon who says something like this but not the words"
+gets an answer, without Girsa ever reaching the network and without a licence
+that is not ours landing in the repo.
+
+**Build.**
+
+- **The model is side-loaded.** A setting takes a path to a model directory the
+  user already has. Girsa downloads nothing, bundles nothing, and vendors no
+  weights — §14 stays true and T7 stays clean. **Verify BEREL's actual licence
+  before writing a line**: `spec.md` §9.4's candidate table calls it
+  "unrestricted" and
+  `README.md` warns it carries its own terms. Those disagree. Read the model
+  card, and if it is not compatible with a side-loaded-by-the-user arrangement,
+  stop and say so rather than shipping around it.
+- **Off by default**, and off means literal search is byte-identical to what it
+  was. No model configured is a stated absence in the search header, never a
+  mode that returns nothing and looks like it worked.
+- **You choose the corpus, at any granularity** — shelf, sefer, section, the
+  personal layer, or all 5,000,545 — added to at any time. Background,
+  resumable, never blocks reading (W26's rule, same reason).
+- **The lane states its own coverage.** Every semantic result set says what is in
+  the index and what is not, with a way to add the rest. A partial lane is
+  expected; a partial lane that reads as complete is the §9 defect this project
+  exists to not repeat.
+- **Drawn as adjacent, always.** §14 — the lane assists retrieval, it does not
+  pasken, and the UI may never blur that.
+
+**Siblings.** Every search entry point: the five modes in `girsa-search`, the
+zero-results relaxation ladder (§9.6 — the lane is *not* a rung on it; the ladder
+must not silently widen into embeddings), facets, saved queries (W27), and the
+MCP surface (W28), which must refuse and disclose partial coverage exactly as the
+UI does.
+
+**Done when.** A query that shares no words with its target finds it; the same
+query with the lane off finds nothing and says why; coverage is stated in every
+surface; and there is an independent reproduction someone else can run.
+
 ---
 
 ## Appendix A — Environment

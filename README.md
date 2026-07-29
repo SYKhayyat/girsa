@@ -184,10 +184,10 @@ nearly done: what you write is a sefer on your own shelf joined to the sugya by
 the same kind of edge as Rashi; the transmission chain runs forward from a
 Gemara to how it became halacha and back from a ruling to where it came from,
 along the axis of *when the seforim were written* rather than which way the
-corpus happened to store an edge; and the whole library answers a program over
-MCP with the same refusals it gives a person. One thing in the spec is unbuilt
-and is waiting on a ruling rather than on work: the semantic lane (§9.9).** All
-four verify commands green in all three repositories.
+corpus happened to store an edge; the whole library answers a program over MCP
+with the same refusals it gives a person; and the semantic lane is in, off until
+you turn it on, over a model you side-load and a corpus you choose. **The spec is
+built.** All four verify commands green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -209,6 +209,7 @@ four verify commands green in all three repositories.
 | **W17** · the buffer | Ctrl+E, a drawer at the foot of the window, and **real Ksav markup from the first keystroke** — `girsa-ksav`, the writer Ksav compiles, not a second one in TypeScript. A buffer is a `.ksav` file in your own layer, and Ksav's suite compiles one this window wrote and reads the mekor off the page, below its quote. |
 | **W16** · the pairing | A desk on loopback in each application, token-gated, presence asked rather than assumed — `Live`, `NotRunning` and `Stale` are three different things and the window says which. Ctrl+Shift+C sends into the open document with no clipboard at all; `/cite` and `/quote` let Ksav re-print a citation or re-read a quote from the corpus as it stands. Tested through a real socket, including the 401. And `girsa:…` **is** the deep link — the ref the document already stores. |
 | **W15** · the clipboard | One Ctrl+C, three flavours — and the third is written natively, because a webview's custom format is a private encoding no other application can read. Only the highlighted part travels; the ref is a span when the quote is. The citation is `girsa-cite`, compiled into both apps, and **the test is that Girsa reads back what Girsa printed** — which found two defects in `girsa-ref` and fixed them there. Checked in Ksav against a packet Girsa really sent, asserted **on the laid-out page**. |
+| **W30** · the semantic lane | *I remember a Rishon who says something like this but not the words* — **measured, not hoped.** A half-remembered line finds its se'if **in the top 16 of 240 every time, and first 8 times in 10**; a *question* about a se'if finds it once in five, so the box asks for a line rather than a question. Mean-centring, the standard repair, made it worse and was not built. The model is side-loaded — a picker by default, a fetch button behind a setting that ships off — so the day a better encoder exists it is a setting and not a release. Off is off: the corpus tree is byte-identical before and after, and every answer carries *adjacent — found by meaning rather than by these words* and a sentence saying what is **not** in the index. 4.5 segments/second, resumable, and it never blocks reading. |
 | **W14** · the rest of §9 | The other three modes, the chip row, and the five facets. **A facet row's count is the number clicking it gives you** — the ladder's promise, one section on, asserted for every row of every dimension. On the shelf: `יתגבר כארי` is 79 segments; the rail says `חסידות 26`, and clicking it gives 26. The two instruments the index cannot answer say so by name instead of approximating: a dilug reads letters and a notarikon is four patterns each matching half the vocabulary. |
 
 The segments file is the load-bearing part and it is worth one line: each record
@@ -2228,13 +2229,111 @@ answering the other, which is a different thing.
 - **Nothing walks into your own layer's dates.** A note has no `comp_date`, so it
   is `Unknown` against everything and is never a hop — which is the truthful
   answer, and not a useful one.
-- **The semantic lane is not built, and it is not an oversight.** `spec.md` §9.9
-  wants a local BEREL index for *I remember a Rishon who says something like
-  this*. Every way of getting one crosses a line `BUILDER.md` §0.1 says a work
-  order may not cross on its own: a model has to be fetched at runtime (§14 says
-  offline is the product), it carries its own licence into a repo that is
-  MIT/Apache by obligation (T7), and 5,000,545 segments is days of embedding
-  before it answers anything. **That one is for you to rule on.**
+## Something like this, but not the words
+
+`spec.md` §9.9 asks for one thing the literal index cannot do: *I remember a
+Rishon who says something like this but not the words.* It was the last thing in
+the spec still unbuilt, and it was unbuilt because every route to it crossed a
+line `BUILDER.md` §0.1 says a work order may not cross alone — a model fetched at
+runtime, a licence that is not this repository's, and 5,000,545 segments to
+embed before it answers anything. **Ruled** (§16 #20) and now built.
+
+### The licence disagreed with itself, so it was checked
+
+§9.4's candidate table called BEREL *unrestricted*. This README warned it carries
+its own terms. Those are not the same claim, and W30's first instruction was to
+settle it before writing a line. Checked three ways on 29 July 2026 — the model
+card, its YAML frontmatter, and the Hub API's metadata for `dicta-il/BEREL_2.0`,
+which redirects to **BEREL 3.0**: **`apache-2.0`**, with a request to cite the
+paper. That is one of this repository's own two licences.
+
+### What it does, and what it does not
+
+This is the part worth reading, because the honest answer is narrower than the
+feature sounds. BEREL is a **masked-language model, not a sentence encoder** —
+nothing in its training gave it a similarity objective — and it shows. 240
+se'ifim of Hilchos Tefillah, embedded, asked 22 questions with a known right
+answer, scored by where the right se'if landed:
+
+| asked as | rank 1 | top 5 | top 10 | worst |
+|---|---|---|---|---|
+| **a half-remembered statement** (10 pairs) | 8 | 9 | 10 | **16 of 240** |
+| **a question about the se'if** (12 pairs, 5 sharing no word) | 1 | 1 | 1 | 97 of 240 |
+
+*I think it says the drunk may not daven because he has no kavanah* — none of
+`נשתכר`, `ביין`, `יעמוד` or `דעתו` is in the se'if — comes back **first**, out of
+240. *How late may one daven shacharis?* comes back twenty-fourth.
+
+So the lane's box asks for **a line as you remember it**, which is §9.9's own
+sentence, and does not pretend to answer questions. And the standard repair for
+a raw BERT — subtract the mean of the space, since every sentence sits in a
+narrow cone — was **tried and made it worse** (24→40, 97→123, 9→24). It is
+measured in `examples/measure.rs` and it is not built. A plausible improvement
+that does not survive measurement is exactly what §9 exists to refuse.
+
+The measurement is why the side-loading matters more than it looks. Nothing in
+`girsa-lane` is BEREL-specific: it reads a `config.json`, a `tokenizer.json` and
+a `model.safetensors`, runs the forward pass in Rust on the CPU, and stamps the
+store with a fingerprint of what made it. The day a contrastively trained
+rabbinic-Hebrew encoder exists, that is **a setting and not a release** — point
+the lane at it, re-embed, nothing to migrate. The same *make it reversible rather
+than permanent* move W26 made for OCR.
+
+### Off is off, and the numbers say what is missing
+
+Four things hold, and each has a test that fails against a deliberately naive
+version of it:
+
+- **Off means off.** Not *a mode that returns nothing*: with the lane off no
+  model is loaded, no vector is read, and the whole corpus tree is
+  **byte-for-byte identical** before and after a run — asserted by comparing
+  every file under `corpus/`. Everything the lane writes is in your own layer.
+- **The absence has words.** The lane turned on with nothing to run says
+  *"the semantic lane is on but cannot run: no semantic model is configured…"* in
+  the search header. A reader who turned it on and got nothing is owed the reason
+  rather than left to conclude the corpus has nothing like their query in it.
+- **Every answer states its own coverage.** *"this lane covers משנה תורה, הלכות
+  תפילה — 240 segments; 7,190 other seforim on this shelf aren't in it."* Found,
+  empty, refused or off, the sentence is drawn — composed once in Rust so the
+  window, the CLI, the MCP tool and the test cannot drift. A sefer half-embedded
+  reports **both** numbers, for the reason a scan stopped at page 40 of 302 does.
+- **It is never a rung on the ladder.** `girsa-search` does not depend on
+  `girsa-lane`, so no relaxation rung can reach a vector even by accident — and
+  adding a `Rung::Meaning` variant does not compile, which is the proof. Every
+  rung is priced before the click; an embedding neighbourhood cannot be, and a
+  chip with a made-up number on it is the one thing §9 forbids.
+
+And two vectors from two models rank against each other perfectly happily, which
+is the failure mode a reader could never spot from the results — so the store's
+header records **which model made it** and a different one opens it empty, says
+whose it was, and refuses to add to it until you ask for a restart.
+
+### 4.5 segments a second, which is why you choose
+
+Release build, one CPU, batches of sixteen: **54 seconds** for Hilchos Tefillah,
+about **thirteen days** for all 5,000,545 segments. That is the whole argument for
+§16 #20's *the corpus is yours to choose* — a lane that insisted on the library
+before it answered anything would be a feature nobody ever switched on. So: a
+sefer, a section, a shelf, your own notes, or all of it; added to whenever;
+resumable, because the vectors on disk **are** the progress record; and on its own
+thread sharing the one loaded model, so reading never waits on it.
+
+### The button, and what it cost
+
+The first form of §16 #20 said Girsa fetches no model at all — you point it at
+one. Mid-order that was amended: the folder picker stays the default path, and a
+**bring in BEREL** button sits behind a setting that is off in a fresh install.
+With it off there is no code path from anywhere in the application to the
+network, and `bring()` refuses even if something calls it. What §14 now promises
+is *Girsa never **needs** the network*, which is the sentence that was worth
+keeping; nothing is vendored either way, because the weights land in your own
+layer beside your notes rather than in this repository (T7).
+
+The download is resumable **inside** one file — `Range: bytes=N-`, appended to a
+`.part`, length-checked at the end, renamed into place only when whole. The
+corpus fetcher gets away with per-file atomicity because its files are a few
+hundred kilobytes; one of these is 738 MB over a domestic line, and a fetcher
+that started again from zero on every dropped connection would never finish.
 
 ## A document of yours, with its shape
 

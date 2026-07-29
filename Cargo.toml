@@ -7,6 +7,7 @@ members = [
     "crates/girsa-fix",
     "crates/girsa-note",
     "crates/girsa-scan",
+    "crates/girsa-lane",
     "crates/girsa-app",
     "crates/girsa-mcp",
 ]
@@ -31,6 +32,7 @@ girsa-link = { version = "=0.1.0", path = "crates/girsa-link" }
 girsa-fix = { version = "=0.1.0", path = "crates/girsa-fix" }
 girsa-note = { version = "=0.1.0", path = "crates/girsa-note" }
 girsa-scan = { version = "=0.1.0", path = "crates/girsa-scan" }
+girsa-lane = { version = "=0.1.0", path = "crates/girsa-lane" }
 girsa-app = { version = "=0.1.0", path = "crates/girsa-app" }
 girsa-mcp = { version = "=0.1.0", path = "crates/girsa-mcp" }
 

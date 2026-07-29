@@ -27,6 +27,12 @@ girsa-note.workspace = true
 # on a declaration, and it is kept out of here so it can be tested without a
 # shelf — and so W26's OCR has somewhere to go that is not the workspace.
 girsa-scan.workspace = true
+# The semantic lane (spec.md §9.9, W30). A crate rather than a module for the
+# reason the lane exists at all: the model is side-loaded, so everything about
+# it — the vectors, the selection, the resumable job, the coverage sentence —
+# has to be testable without 738 MB of weights on the machine running the
+# tests, and a crate with an `Embedder` trait at its edge is how.
+girsa-lane.workspace = true
 # The Ksav loop (spec.md §10). The packet is the contract and the formatter is
 # the one both applications compile — neither is reimplemented here.
 girsa-cite.workspace = true

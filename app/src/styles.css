@@ -1814,3 +1814,207 @@ body {
   flex: 1 1 0;
   min-width: 0;
 }
+
+/* ── The semantic lane (spec.md §9.9, W30) ───────────────────────────────────
+ *
+ * Everything below exists to make one thing visible: **these results were not
+ * found by matching your words.** §9.9 says the lane is *always visually
+ * separated from literal results, never blended* — and the separation is not
+ * decoration, it is the claim. A reader who cannot tell at a glance which list
+ * they are looking at has been handed an adjacent result as a literal one.
+ *
+ * So: a rule above it, a different background, a dashed border, the label in
+ * italic at the top, and the cosine on every row. Nothing here shares a class
+ * with `.find-hit`, so a stylesheet change to one cannot quietly make the other
+ * look like it.
+ */
+.lane {
+  border-top: 2px solid var(--rule);
+  background: var(--page);
+}
+
+.lane[hidden] {
+  display: none;
+}
+
+.lane-box {
+  padding: 10px 14px 14px;
+  border-inline-start: 3px dashed var(--mark-quiet);
+}
+
+/* The label. Italic and quiet on purpose — it is a caveat, not a heading. */
+.lane-label {
+  margin: 0 0 2px;
+  font-family: var(--plain);
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: var(--mark);
+}
+
+/* What is in the index and what is not. Never hidden, never collapsed: a
+ * partial lane that reads as a complete one is the defect this whole section
+ * exists to avoid, and `:empty { display: none }` would be how it happened. */
+.lane-coverage {
+  margin: 0 0 8px;
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.lane-refused,
+.lane-adrift {
+  margin: 0 0 8px;
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--mark);
+}
+
+.lane-hit {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-bottom: 1px dashed var(--rule);
+  color: var(--ink);
+  text-align: start;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.lane-hit:hover {
+  background: var(--paper);
+}
+
+.lane-where {
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+/* The cosine, shown on every row. The numbers cluster — an un-finetuned encoder
+ * puts everything between about 0.6 and 0.85 — so hiding them would make a 0.64
+ * read like a 0.83, and a reader deciding whether to follow one of these is
+ * entitled to the number. */
+.lane-near {
+  font-family: var(--plain);
+  font-size: 10px;
+  color: var(--mark);
+  margin-inline-start: 8px;
+}
+
+.lane-text {
+  margin: 2px 0 0;
+  font-family: var(--reading);
+  font-size: 0.95em;
+  line-height: 1.6;
+}
+
+/* The panel where the lane is turned on, pointed at a model, and told what to
+ * embed. A sheet like the search box, because it is a decision and not a
+ * drawer. */
+.lane-panel {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 35%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 8vh;
+  z-index: 40;
+}
+
+.lane-panel[hidden] {
+  display: none;
+}
+
+.lane-sheet {
+  width: min(560px, 92vw);
+  max-height: 78vh;
+  overflow-y: auto;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 28%);
+}
+
+.lane-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.lane-title {
+  margin: 0;
+  font-family: var(--plain);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lane-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lane-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.lane-what,
+.lane-said,
+.lane-terms,
+.lane-covered {
+  margin: 0;
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  line-height: 1.5;
+}
+
+.lane-said {
+  color: var(--ink);
+}
+
+/* The licence and the size, before the button does anything. */
+.lane-terms {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.lane-about {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--mark);
+  word-break: break-all;
+}
+
+.lane-allow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.lane-progress {
+  margin: 0;
+  padding: 8px 14px 12px;
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  border-top: 1px solid var(--rule);
+  white-space: pre-wrap;
+}
+
+.lane-progress[hidden] {
+  display: none;
+}

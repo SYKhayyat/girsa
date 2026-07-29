@@ -413,6 +413,77 @@ export interface Gap {
   scans: Scanned[];
 }
 
+// --- the semantic lane (spec.md §9.9, W30) -----------------------------------
+
+/** One sefer's standing in the lane. */
+export interface LaneCovered {
+  slug: string;
+  title: string;
+  wanted: number;
+  embedded: number;
+}
+
+/** What `laneBring` would fetch, with its terms.
+ *
+ * Shown **before** the button does anything: the licence on a model that is
+ * about to land on the reader's disk is not Girsa's to grant on their behalf. */
+export interface ModelOffer {
+  name: string;
+  by: string;
+  licence: string;
+  about: string;
+  what: string;
+  bytes: number;
+}
+
+/** Where the lane stands. Three states, drawn as three states. */
+export interface LaneState {
+  state: "off" | "adrift" | "on";
+  /** The header line. Null when the lane is off — there is no lane to be
+   * partial about, so there is nothing to say. */
+  said: string | null;
+  /** What it covers and what it does not. **Always a sentence.** */
+  coverage: string;
+  model: string | null;
+  /** Whether Girsa may go and get a model. False in a fresh install. */
+  may_fetch: boolean;
+  everything: boolean;
+  chosen: LaneCovered[];
+  outside: number;
+  other_model: string[];
+  offer: ModelOffer;
+}
+
+/** One adjacent result. Deliberately not a `Hit`: nothing in this file can
+ * turn one into the other, and nothing draws them in the same list. */
+export interface Near {
+  id: string;
+  work: string;
+  title: string;
+  address: string;
+  text: string;
+  nearness: number;
+}
+
+/** What the lane answered. All four fields are drawn. */
+export interface LaneAnswer {
+  /** The label these must be drawn under, worded once in Rust. */
+  label: string;
+  near: Near[];
+  coverage: string;
+  /** Why there is nothing. Never an empty list with no reason attached. */
+  refused: string | null;
+}
+
+/** How far a background job has got — bringing a model, or embedding. */
+export interface LaneProgress {
+  doing: "bring" | "embed" | "done";
+  what: string;
+  done: number;
+  of: number;
+  trouble: string | null;
+}
+
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 let invoke: Invoke | null = null;
@@ -603,6 +674,24 @@ export const api = {
   findNarrow: (dimension: Dimension, row: FacetRow, exclude: boolean) =>
     call<void>("find_narrow", { dimension, row, exclude }),
   findWholeShelf: () => call<void>("find_whole_shelf"),
+
+  // --- the semantic lane (spec.md §9.9, W30) ------------------------------
+  //
+  // A separate set of calls, on purpose. There is no argument to `find` that
+  // turns on the lane and no field of `Found` that carries an adjacent result:
+  // the one thing §9.9 asks for above everything else is that the two kinds of
+  // answer never arrive in the same shape.
+  laneState: () => call<LaneState>("lane_state"),
+  laneAsk: (text: string, limit?: number) => call<LaneAnswer>("lane_ask", { text, limit }),
+  laneSet: (on: boolean, model?: string) => call<LaneState>("lane_set", { on, model }),
+  /** Let Girsa go and get a model — off in a fresh install, and its own
+   * decision rather than a field on `laneSet`. */
+  laneAllowFetch: (allow: boolean) => call<LaneState>("lane_allow_fetch", { allow }),
+  laneBring: () => call<void>("lane_bring"),
+  laneChoose: (slug: string | null, add: boolean, all = false) =>
+    call<LaneState>("lane_choose", { slug, add, all }),
+  laneEmbed: () => call<void>("lane_embed"),
+  laneStop: () => call<void>("lane_stop"),
 
   // --- the Ksav loop (W15) ------------------------------------------------
   //
@@ -854,6 +943,29 @@ export async function whenAskedToSearch(handler: (phrase: string) => void): Prom
   await listen<string>("girsa://search", (event) => handler(event.payload));
 }
 
+/** Progress from a lane job — bringing a model in, or embedding (W30).
+ *
+ * Both jobs run on their own thread in the shell and report here, because §9.9
+ * says embedding never blocks reading and a panel that froze while it worked
+ * would be a strange way to keep that promise. */
+export async function whenLaneWorks(
+  handler: (progress: LaneProgress) => void,
+): Promise<void> {
+  if (!invoke) return;
+  const { listen } = await import("@tauri-apps/api/event");
+  await listen<LaneProgress>("lane-bring", (event) => handler(event.payload));
+  await listen<LaneProgress>("lane-embed", (event) => handler(event.payload));
+}
+
+/** *Choose the directory your model is in.* Null if the reader cancelled, and
+ * null outside the shell, where there is no dialog to open. */
+export async function pickFolder(title: string): Promise<string | null> {
+  if (!invoke) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({ directory: true, multiple: false, title });
+  return typeof picked === "string" ? picked : null;
+}
+
 export async function whenFilesDropped(handler: (paths: string[]) => void): Promise<void> {
   if (!invoke) return;
   const { getCurrentWebview } = await import("@tauri-apps/api/webview");
@@ -1032,6 +1144,36 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         refused:
           "החיפוש פועל בחלון בלבד — הדפדפן קורא קבצי דוגמה סטטיים, ואין בהם אינדקס",
         landing: null,
+      } as T;
+    // The semantic lane in a browser build: **off, and saying so.** It cannot
+    // be anything else — there is no model and no personal layer out here — and
+    // the one wrong answer that would matter is a lane that looked available.
+    case "lane_state":
+      return {
+        state: "off",
+        said: null,
+        coverage: "nothing is in the semantic lane yet",
+        model: null,
+        may_fetch: false,
+        everything: false,
+        chosen: [],
+        outside: 0,
+        other_model: [],
+        offer: {
+          name: "BEREL 3.0",
+          by: "dicta-il",
+          licence: "Apache-2.0",
+          about: "https://huggingface.co/dicta-il/BEREL_2.0",
+          what: "BERT Embeddings for Rabbinic-Encoded Language",
+          bytes: 742_923_190,
+        },
+      } as T;
+    case "lane_ask":
+      return {
+        label: "adjacent — found by meaning rather than by these words",
+        near: [],
+        coverage: "nothing is in the semantic lane yet",
+        refused: "הלשון הסמוכה פועלת בחלון בלבד — הדפדפן קורא קבצי דוגמה סטטיים",
       } as T;
     default:
       return undefined as T;

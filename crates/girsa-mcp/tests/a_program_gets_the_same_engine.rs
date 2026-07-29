@@ -272,3 +272,69 @@ fn a_link_that_only_says_connected_somehow_says_so_on_the_row() {
         "the inbound cache is built, so the incoming half is an answer and not a silence"
     );
 }
+
+#[test]
+fn the_semantic_lane_is_its_own_tool_and_discloses_its_coverage() {
+    // BUILDER.md W30's sibling clause: *the MCP surface must refuse and disclose
+    // partial coverage exactly as the UI does.* An agent is the caller least able
+    // to notice that a list of three Rishonim was drawn from eleven per cent of a
+    // shelf, and most likely to write it up as though it were all of them.
+    let mut server = server_or_skip!();
+    handshake(&mut server);
+
+    // It is listed, and it is listed as adjacent rather than as a search.
+    let listed = ask(&mut server, 2, "tools/list", json!({}));
+    let tools = listed["result"]["tools"].as_array().expect("tools");
+    let lane = tools
+        .iter()
+        .find(|tool| tool["name"] == json!("adjacent"))
+        .expect("the lane is offered as its own tool");
+    let told = lane["description"].as_str().unwrap_or_default();
+    assert!(told.contains("ADJACENT"), "{told}");
+    assert!(told.contains("coverage"), "{told}");
+    assert!(told.contains("does not pasken"), "{told}");
+    // And `search` is still the literal one. A caller must not be able to reach
+    // the lane through it.
+    let search = tools
+        .iter()
+        .find(|tool| tool["name"] == json!("search"))
+        .expect("search");
+    let modes = search["inputSchema"]["properties"]["mode"]["enum"]
+        .as_array()
+        .expect("the modes")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(modes, ["torat-emet", "smart", "regex"]);
+
+    // Called, it answers with the label, the state and the coverage sentence —
+    // whether or not it found anything. On a shelf where nobody turned the lane
+    // on, that is a refusal with a reason and never an empty list.
+    let answer = tool(
+        &mut server,
+        "adjacent",
+        json!({"text": "מי שנשתכר ביין לא יעמוד", "limit": 5}),
+    );
+    assert!(answer["these_are"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("rather than by these words"));
+    assert!(
+        answer["coverage"].is_string()
+            && !answer["coverage"].as_str().unwrap_or_default().is_empty(),
+        "coverage is said in every answer: {answer}"
+    );
+    match answer["lane"].as_str() {
+        Some("off") | Some("on, but no model will run") => {
+            assert!(
+                answer["refused"].is_string(),
+                "nothing, with no reason attached: {answer}"
+            );
+            assert_eq!(answer["showing"], json!(0));
+        }
+        Some("on") => {
+            assert!(answer["model"].is_string());
+        }
+        other => panic!("the lane has no state: {other:?}"),
+    }
+}

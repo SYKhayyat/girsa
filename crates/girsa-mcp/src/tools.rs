@@ -181,6 +181,28 @@ pub fn catalogue() -> Value {
             }
         },
         {
+            "name": "adjacent",
+            "title": "Adjacent by meaning, not by these words",
+            "description": "\
+    A separate lane, and it must be reported as one. Give it a line as you half \
+    remember it and it returns passages that are ADJACENT — found by an embedding \
+    model rather than by matching any word you passed. It is off unless the reader \
+    turned it on and side-loaded a model, and it only covers what the reader chose \
+    to embed: every answer carries a `coverage` sentence saying what is in the \
+    index and what is not, and you must not present these results as the places a \
+    phrase appears, or as complete. Measured to work on a half-remembered \
+    statement and to work poorly on a question. It does not pasken.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "A line as you remember it — not a question."},
+                    "sefer": {"type": "string", "description": "A work slug, to look in one sefer."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT}
+                },
+                "required": ["text"]
+            }
+        },
+        {
             "name": "seforim",
             "title": "Find a sefer",
             "description": "\
@@ -217,6 +239,7 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "path" => path(server, &args),
         "fork" => fork(server, &args),
         "seforim" => seforim(server, &args),
+        "adjacent" => adjacent(server, &args),
         other => Err(format!("no such tool: {other}")),
     };
     Response::ok(match answered {
@@ -591,6 +614,58 @@ fn fork(server: &mut Server, args: &Value) -> Result<Value, String> {
         })).collect::<Vec<Value>>(),
         "total": forks.len(),
         "not_followed": refused(&left_out),
+    }))
+}
+
+/// The semantic lane (spec.md §9.9, W30).
+///
+/// Three things this answer does that `search`'s does not, and all three are the
+/// point: it names itself **adjacent** in every reply, it carries the coverage
+/// sentence whether or not it found anything, and a lane that is off or adrift
+/// comes back as a refusal with the reason rather than as an empty list. An
+/// agent that got `{"hits": []}` from this would reasonably write *the corpus
+/// contains nothing like it*, which is the §9 defect one layer further out than
+/// a person can check.
+fn adjacent(server: &Server, args: &Value) -> Result<Value, String> {
+    let text = text_arg(args, "text")?;
+    let limit = limit_of(args);
+    let scoped: Vec<String> = args
+        .get("sefer")
+        .and_then(Value::as_str)
+        .map(|slug| vec![slug.to_string()])
+        .unwrap_or_default();
+
+    let answer = server.lane.ask(&server.shelf, &text, &scoped, limit);
+    let state = server.lane.state();
+    let found: Vec<Value> = answer
+        .near
+        .iter()
+        .map(|near| {
+            let mut row = named(server, &near.id);
+            row["text"] = json!(near.text);
+            row["nearness"] = json!(near.nearness);
+            row
+        })
+        .collect();
+    Ok(json!({
+        // First key, and the same wording the window draws.
+        "these_are": answer.label,
+        "lane": match &state {
+            girsa_lane::State::Off => "off",
+            girsa_lane::State::Adrift(_) => "on, but no model will run",
+            girsa_lane::State::On { .. } => "on",
+        },
+        "model": match &state {
+            girsa_lane::State::On { model, .. } => json!(model),
+            _ => Value::Null,
+        },
+        // Said whether or not anything was found. A partial lane that reads as a
+        // complete one is what §9.9 exists to prevent.
+        "coverage": answer.coverage,
+        "refused": answer.refused,
+        "showing": found.len(),
+        "adjacent": found,
+        "not_the_places_these_words_appear": "for that, call `search` — it is literal",
     }))
 }
 

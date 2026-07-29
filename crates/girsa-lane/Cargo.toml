@@ -1,0 +1,63 @@
+[package]
+name = "girsa-lane"
+description = "The semantic lane: a side-loaded embedding model, over a corpus you choose"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+girsa-corpus.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+# The forward pass, in Rust, on the CPU. Chosen for what spec.md §9.9 needs and
+# nothing more: read a BERT out of a directory of safetensors the reader already
+# has, and run it. No CUDA feature, no MKL, no Accelerate — a reader's laptop is
+# the target and a build that needed a toolkit installed would make the lane
+# something you have to earn rather than something you turn on.
+#
+# MIT OR Apache-2.0, which is this repository's own licence (BUILDER.md T7).
+candle-core = "0.11"
+candle-nn = "0.11"
+
+# The model's own tokenizer, read from its `tokenizer.json`, rather than a
+# WordPiece written here from the description of one. That is deliberate and it
+# is the opposite of the usual rule in this project: the normalizer and the
+# pre-tokenizer in that file are **part of the model** — they are what its
+# vocabulary was trained against — and a second implementation of them would be
+# wrong in a way nothing downstream could see. A word split differently from how
+# it was trained does not fail; it embeds, into the wrong place.
+#
+# Apache-2.0. Pinned to the version `candle-core` already pulls in — it depends
+# on `tokenizers` unconditionally and with default features, so asking for a
+# newer one here bought a second copy of a large crate and nothing else.
+tokenizers = "0.22"
+
+# The *bring it in for me* button, and nothing else (`bring.rs`).
+#
+# This is the second network dependency in the project and it was ruled in
+# rather than assumed: spec.md §16 #20 as first written said Girsa fetches no
+# model at all. It now says Girsa never *needs* the network — the fetch is a
+# button, the button is hidden behind a setting that is off, and the setting is
+# off in a fresh install. Nothing here runs unless a reader turns that on and
+# then presses it.
+#
+# Same crate and same settings as the corpus fetcher, so there is one TLS stack
+# in the tree and no build needs OpenSSL. MIT OR Apache-2.0.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+# The measurement in `examples/measure.rs` checks that a question shares no word
+# with the se'if that answers it, and it checks that through the **literal**
+# normalizer — because a pair that shares a word after nikud and prefixes come
+# off is a pair the literal index would have answered, and crediting the lane
+# for it would be measuring the wrong thing. Note that the crate itself does not
+# depend on this: the model's own tokenizer is part of the model (see `model`).
+girsa-hebrew.workspace = true
+
+[lints]
+workspace = true

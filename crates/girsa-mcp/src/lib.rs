@@ -68,6 +68,12 @@ pub struct Server {
     shelf: Shelf,
     bar: Bar,
     timeline: Timeline,
+    /// The semantic lane (spec.md §9.9, W30) — off unless the reader turned it
+    /// on, and never merged into `search`. It is a **separate tool** here for
+    /// exactly the reason it is a separate column in the window: a program that
+    /// could get adjacent-by-meaning results out of `search` would have no way
+    /// to tell its own caller which kind of answer it had.
+    lane: girsa_app::Adjacency,
     /// Set once the client has sent `initialize`. A tool call before that is
     /// refused rather than served, because a client that has not handshaken has
     /// not agreed a protocol version and cannot be assumed to read the answer.
@@ -89,13 +95,27 @@ impl Server {
         let search = SearchIndex::open(index)
             .map_err(|e| OpenError::Index(index.to_path_buf(), e.to_string()))?;
         let catalogue = Catalogue::of(shelf.works());
+        // Loads a side-loaded model when the lane is on, which is why it is done
+        // once here and not per call. With the lane off — the default — this
+        // costs nothing at all.
+        let (lane, trouble) = girsa_app::Adjacency::open(root, personal, &shelf);
+        for line in trouble {
+            eprintln!("{line}");
+        }
         Ok(Self {
             root: root.to_path_buf(),
             bar: Bar::new(search, catalogue, root),
             shelf,
             timeline,
+            lane,
             ready: false,
         })
+    }
+
+    /// The semantic lane, as the `adjacent` tool sees it.
+    #[must_use]
+    pub fn lane(&self) -> &girsa_app::Adjacency {
+        &self.lane
     }
 
     #[must_use]

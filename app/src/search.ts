@@ -20,6 +20,7 @@
 //     list of results.
 
 import { api, type Chip, type Dimension, type FacetRow, type Found, type Run } from "./api.ts";
+import { LaneColumn } from "./laneview.ts";
 
 /** Open a sefer at a segment — or, with no id, at wherever it was left.
  *
@@ -47,6 +48,10 @@ export class SearchView {
   private readonly head: HTMLElement;
   private readonly list: HTMLElement;
   private readonly rail: HTMLElement;
+  /** The semantic lane (spec.md §9.9, W30) — **beside** the literal results and
+   * never among them. It is asked after they are drawn, so a literal search
+   * never waits on a model, and it draws nothing at all when the lane is off. */
+  private readonly lane = new LaneColumn();
   private open = false;
   private page = 1;
   /** The rung the reader clicked, if any. Cleared by anything that makes it a
@@ -107,7 +112,7 @@ export class SearchView {
     this.rail.className = "find-rail";
     body.append(this.list, this.rail);
 
-    sheet.append(bar, this.chipRow, this.head, body);
+    sheet.append(bar, this.chipRow, this.head, body, this.lane.element);
     this.element.append(sheet);
     this.element.addEventListener("pointerdown", (event) => {
       if (event.target === this.element) this.close();
@@ -185,6 +190,7 @@ export class SearchView {
       this.head.textContent = "";
       this.list.replaceChildren();
       this.rail.replaceChildren();
+      this.lane.hide();
       return;
     }
     if (typed === "") return;
@@ -197,6 +203,12 @@ export class SearchView {
     this.drawHead(found);
     this.drawHits(found);
     this.drawRail(found);
+    // The lane, **after** — a separate call, a separate list, and a separate
+    // claim (spec.md §9.9). It is not awaited: the literal answer is already on
+    // screen and running a model over the query must not hold it there. And it
+    // is asked whatever the literal search found, because *these words are
+    // nowhere and something like them is here* is the interesting case.
+    void this.lane.show(typed, this.opened);
   }
 
   private drawChips(chips: Chip[]): void {

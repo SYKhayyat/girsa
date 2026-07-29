@@ -29,6 +29,7 @@ import { ScanView } from "./scanview.ts";
 import { Picker } from "./picker.ts";
 import { SearchView } from "./search.ts";
 import { ShelfView } from "./shelf.ts";
+import { LanePanel } from "./laneview.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
@@ -42,6 +43,9 @@ const fixbox = new FixBox();
 const suspects = new SuspectsView();
 const linksview = new LinksView();
 const yoursview = new YoursView();
+/** The semantic lane's settings (spec.md §9.9, W30). Off in a fresh install,
+ * and off costs nothing — so the panel is always reachable and never nags. */
+const lanepanel = new LanePanel();
 const views = new Map<PaneId, PaneView>();
 /** Panes holding a scan (W25). A second map rather than a union: a scan has no
  * lines, so none of the questions asked of a reading pane — what is
@@ -71,6 +75,7 @@ async function main(): Promise<void> {
     suspects.element,
     linksview.element,
     yoursview.element,
+    lanepanel.element,
     fixbox.element,
   );
   suspects.onOpen(openSuspect);
@@ -198,6 +203,7 @@ async function draw(): Promise<void> {
     suspects.element,
     linksview.element,
     yoursview.element,
+    lanepanel.element,
     fixbox.element,
   );
 
@@ -394,6 +400,18 @@ function tabBar(): HTMLElement {
   bar.append(button("מדף", "עיין במדף (Ctrl+B)", browseShelf));
   bar.append(button("חפש", "חפש בכל המדף (Ctrl+F)", search));
   bar.append(button("כתוב", "פתח את הכתיבה (Ctrl+E)", () => void writing.toggle()));
+  // The semantic lane (spec.md §9.9, W30). Always here, whether or not it is
+  // on: it is a setting rather than a queue, and a reader who has never met it
+  // needs somewhere to meet it. Standing beside it is the sefer in the focused
+  // pane, so *put this one in the lane* has something to name.
+  bar.append(
+    button("לשון סמוכה", "הלשון הסמוכה — מציאה לפי עניין (Ctrl+L)", () => {
+      const open = tab();
+      const here = open?.panes.find((pane) => pane.id === open.focused)?.slug ?? null;
+      lanepanel.standing(here ? { slug: here, title: titleOf(here) } : null);
+      void lanepanel.toggle();
+    }),
+  );
   // The queue, where there is one. Not shown at all when the batch job has
   // never been run: a button that opens an empty list teaches the reader that
   // the feature does nothing.

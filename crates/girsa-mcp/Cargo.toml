@@ -18,6 +18,10 @@ girsa-corpus.workspace = true
 girsa-search.workspace = true
 # The graph, and W28's chain tracing over it.
 girsa-link.workspace = true
+# The semantic lane (spec.md §9.9, W30), for its `State` — the `adjacent` tool
+# has to tell a caller whether the lane is off, adrift or running, in the same
+# words the window uses.
+girsa-lane.workspace = true
 girsa-ref.workspace = true
 # Two Hebrew strings are compared in `seforim`, and W2's sibling rule is that
 # every such comparison in this codebase goes through the shared normalizer.

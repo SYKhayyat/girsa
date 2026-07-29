@@ -22,6 +22,7 @@
 //! showing a reader one sefer while the header names another — BUILDER.md rule
 //! 6, in the one place a reader would never think to check.
 
+pub mod adjacent;
 pub mod arrangement;
 pub mod beside;
 pub mod buffer;
@@ -41,6 +42,7 @@ pub mod spans;
 pub mod taxonomy;
 pub mod workspace;
 
+pub use adjacent::{Adjacency, Near};
 pub use arrangement::Arrangement;
 pub use beside::{Beside, Place, Relation};
 pub use buffer::{Buffer, BufferError};

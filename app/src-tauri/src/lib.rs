@@ -76,6 +76,13 @@ pub(crate) struct State {
     /// `girsa-suspects`, which is a batch job outside this window, so it is
     /// re-read whenever the drawer is opened rather than held as truth.
     queue: Option<girsa_fix::suspect::Queue>,
+    /// The semantic lane (spec.md §9.9, W30). Held open like the index, because
+    /// turning it on loads a model — and **off costs nothing**, which is what
+    /// makes off-by-default a real default rather than a checkbox with a price.
+    lane: Option<girsa_app::Adjacency>,
+    /// Set to stop the embedding job. It is checked between batches, so
+    /// stopping costs the batch in flight and nothing else.
+    stop_embedding: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Slug → the sefer, read once. Cleared oldest-first.
     open: HashMap<String, Open>,
     order: Vec<String>,
@@ -2576,6 +2583,456 @@ fn set_text_size(shared: tauri::State<'_, Shared>, percent: u16) -> Result<(), S
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// The semantic lane (spec.md §9.9, W30)
+// ---------------------------------------------------------------------------
+//
+// Eight commands, and the shape of them is the ruling. **Nothing here runs
+// unless the reader turned the lane on**: `lane_state` over an off lane opens
+// no model and reads no vector, and every other command refuses. The two long
+// jobs — bringing a model in and embedding — run on their own thread and emit
+// progress, because §9.9 says embedding never blocks reading and a command that
+// held the state lock for thirteen days would be a novel way to disagree.
+
+/// Where the lane stands, as the settings panel and the search header show it.
+#[derive(Serialize)]
+struct LaneRow {
+    /// `off`, `adrift` or `on`. Three states, drawn as three states.
+    state: &'static str,
+    /// The sentence for the header. `None` when the lane is off, which is not a
+    /// line — there is no lane to be partial about.
+    said: Option<String>,
+    /// What the lane covers and what it does not. **Always present**, because a
+    /// partial lane that reads as a complete one is what §9.9 exists to prevent.
+    coverage: String,
+    /// The model directory, as the reader set it.
+    model: Option<String>,
+    /// Whether Girsa may go and get one. False in a fresh install.
+    may_fetch: bool,
+    /// The whole library, rather than a list.
+    everything: bool,
+    /// The seforim chosen, with what is embedded of each.
+    chosen: Vec<CoveredRow>,
+    /// How many seforim on the shelf are not in the lane at all.
+    outside: usize,
+    /// Seforim whose vectors were made by another model and are not being read.
+    other_model: Vec<String>,
+    /// What `lane_bring` would fetch, with its licence — shown before the
+    /// button does anything, because the terms are not Girsa's to grant.
+    offer: ModelOffer,
+}
+
+#[derive(Serialize)]
+struct CoveredRow {
+    slug: String,
+    title: String,
+    wanted: usize,
+    embedded: usize,
+}
+
+#[derive(Serialize)]
+struct ModelOffer {
+    name: &'static str,
+    by: &'static str,
+    licence: &'static str,
+    about: &'static str,
+    what: &'static str,
+    bytes: u64,
+}
+
+/// One adjacent result.
+#[derive(Serialize)]
+struct NearRow {
+    id: String,
+    work: String,
+    title: String,
+    address: String,
+    text: String,
+    nearness: f32,
+}
+
+/// What the lane answered. Four fields and all four are drawn.
+#[derive(Serialize)]
+struct LaneAnswer {
+    /// The label these must be drawn under. From `girsa-lane`, worded once.
+    label: &'static str,
+    near: Vec<NearRow>,
+    coverage: String,
+    /// Why there is nothing. Never an empty list with no reason attached.
+    refused: Option<String>,
+}
+
+/// How far a background job has got. One shape for both jobs.
+#[derive(Serialize, Clone)]
+struct LaneProgress {
+    /// `bring`, `embed` or `done`.
+    doing: &'static str,
+    /// What it is working on — a file name, or a sefer's title.
+    what: String,
+    done: u64,
+    of: u64,
+    /// Set when the job stopped for a reason worth showing.
+    trouble: Option<String>,
+}
+
+const BRING_EVENT: &str = "lane-bring";
+const EMBED_EVENT: &str = "lane-embed";
+
+fn lane_row(state: &State) -> Result<LaneRow, String> {
+    let lane = state.lane.as_ref().ok_or_else(|| state.trouble())?;
+    let settings = lane.lane().settings();
+    let coverage = lane.coverage();
+    let lane_state = lane.state();
+    Ok(LaneRow {
+        state: match &lane_state {
+            girsa_lane::State::Off => "off",
+            girsa_lane::State::Adrift(_) => "adrift",
+            girsa_lane::State::On { .. } => "on",
+        },
+        said: lane_state.said(),
+        coverage: coverage.said(),
+        model: settings.model.as_ref().map(|dir| dir.display().to_string()),
+        may_fetch: settings.may_fetch,
+        everything: lane.lane().chosen().is_everything(),
+        chosen: coverage
+            .chosen
+            .iter()
+            .map(|covered| CoveredRow {
+                slug: covered.slug.clone(),
+                title: covered.title.clone(),
+                wanted: covered.wanted,
+                embedded: covered.embedded,
+            })
+            .collect(),
+        outside: coverage.outside.len(),
+        other_model: coverage.other_model.clone(),
+        offer: ModelOffer {
+            name: girsa_lane::BEREL.name,
+            by: girsa_lane::BEREL.by,
+            licence: girsa_lane::BEREL.licence,
+            about: girsa_lane::BEREL.about,
+            what: girsa_lane::BEREL.what,
+            bytes: girsa_lane::BEREL.bytes,
+        },
+    })
+}
+
+#[tauri::command]
+fn lane_state(shared: tauri::State<'_, Shared>) -> Result<LaneRow, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    lane_row(&state)
+}
+
+/// Ask the lane. Never an error — a lane that is off, adrift or empty comes
+/// back with `refused` set and the coverage sentence said.
+#[tauri::command]
+fn lane_ask(
+    shared: tauri::State<'_, Shared>,
+    text: String,
+    limit: Option<usize>,
+) -> Result<LaneAnswer, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let lane = state.lane.as_ref().ok_or_else(|| state.trouble())?;
+    // Scoped by the same chip the literal search is scoped by, so *the whole
+    // shelf* and *this sefer* mean the same thing in both columns.
+    let scoped: Vec<String> = state.chips.scope.works().into_iter().collect();
+    let answer = lane.ask(shelf, &text, &scoped, limit.unwrap_or(girsa_lane::MOST));
+    Ok(LaneAnswer {
+        label: answer.label,
+        near: answer
+            .near
+            .iter()
+            .map(|near| NearRow {
+                id: near.id.to_string(),
+                address: near.id.path().join(":"),
+                work: near.work.clone(),
+                title: near.title.clone(),
+                text: near.text.clone(),
+                nearness: near.nearness,
+            })
+            .collect(),
+        coverage: answer.coverage,
+        refused: answer.refused,
+    })
+}
+
+/// Turn the lane on or off, and point it at a model.
+///
+/// Turning it on loads the model, which is hundreds of megabytes — so this can
+/// take a moment, and a model that will not load is **not** an error here. It is
+/// [`girsa_lane::State::Adrift`], which the header says out loud rather than a
+/// click that failed silently.
+#[tauri::command]
+fn lane_set(
+    shared: tauri::State<'_, Shared>,
+    on: bool,
+    model: Option<String>,
+) -> Result<LaneRow, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let no_shelf = state.trouble();
+    // Two disjoint fields: the shelf read, the lane written. Taken apart by
+    // hand because a method on `State` would borrow the whole of it.
+    let State { shelf, lane, .. } = &mut *state;
+    let shelf = shelf.as_ref().ok_or(no_shelf)?;
+    let lane = lane.as_mut().ok_or("there is no lane here")?;
+    let was = lane.lane().settings().clone();
+    let settings = girsa_lane::Settings {
+        on,
+        model: model.map(PathBuf::from).or(was.model),
+        may_fetch: was.may_fetch,
+    };
+    lane.set(settings, shelf).map_err(|e| e.to_string())?;
+    lane_row(&state)
+}
+
+/// Let Girsa go and get a model, or stop it being able to.
+///
+/// Its own command rather than a field on `lane_set`, because it is its own
+/// decision: spec.md §14 says Girsa never *needs* the network, and this is the
+/// switch that makes that sentence true in a fresh install.
+#[tauri::command]
+fn lane_allow_fetch(shared: tauri::State<'_, Shared>, allow: bool) -> Result<LaneRow, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let no_shelf = state.trouble();
+    // Two disjoint fields: the shelf read, the lane written. Taken apart by
+    // hand because a method on `State` would borrow the whole of it.
+    let State { shelf, lane, .. } = &mut *state;
+    let shelf = shelf.as_ref().ok_or(no_shelf)?;
+    let lane = lane.as_mut().ok_or("there is no lane here")?;
+    let settings = girsa_lane::Settings {
+        may_fetch: allow,
+        ..lane.lane().settings().clone()
+    };
+    lane.set(settings, shelf).map_err(|e| e.to_string())?;
+    lane_row(&state)
+}
+
+/// Bring a model in. Needs `lane_allow_fetch` first.
+///
+/// Runs on its own thread and emits [`BRING_EVENT`], so the panel draws a bar
+/// and the reader can carry on learning. Stopping is closing the panel: the
+/// `.part` file stays and the next press resumes where it left off.
+#[tauri::command]
+fn lane_bring(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result<(), String> {
+    use tauri::Emitter;
+    let (personal, may_fetch) = {
+        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        let lane = state.lane.as_ref().ok_or("there is no lane here")?;
+        (
+            lane.lane().personal().to_path_buf(),
+            lane.lane().settings().may_fetch,
+        )
+    };
+    if !may_fetch {
+        return Err(girsa_lane::BringError::NotAllowed.to_string());
+    }
+    std::thread::spawn(move || {
+        let mut last = 0u64;
+        let brought = girsa_lane::bring(&personal, true, &mut |progress| {
+            let mb = progress.bytes / 1_048_576;
+            if mb != last {
+                last = mb;
+                let _ = app.emit(
+                    BRING_EVENT,
+                    LaneProgress {
+                        doing: "bring",
+                        what: progress.file.clone(),
+                        done: progress.bytes,
+                        of: progress.want.unwrap_or(0),
+                        trouble: None,
+                    },
+                );
+            }
+            true
+        });
+        let trouble = match &brought {
+            Ok(dir) => {
+                // Point the lane at what just landed, and turn it on. The reader
+                // pressed a button that says *bring it in*; making them then find
+                // the directory they never chose would be a joke.
+                if let Ok(mut state) = tauri::Manager::state::<Shared>(&app).lock() {
+                    let State { shelf, lane, .. } = &mut *state;
+                    if let (Some(shelf), Some(lane)) = (shelf.as_ref(), lane.as_mut()) {
+                        let settings = girsa_lane::Settings {
+                            on: true,
+                            model: Some(dir.clone()),
+                            may_fetch: true,
+                        };
+                        if let Err(e) = lane.set(settings, shelf) {
+                            eprintln!("the model came in but the setting would not save: {e}");
+                        }
+                    }
+                }
+                None
+            }
+            Err(e) => Some(e.to_string()),
+        };
+        let _ = app.emit(
+            BRING_EVENT,
+            LaneProgress {
+                doing: "done",
+                what: girsa_lane::BEREL.name.to_string(),
+                done: 0,
+                of: 0,
+                trouble,
+            },
+        );
+    });
+    Ok(())
+}
+
+/// Put a sefer in the lane, or take it out. `all` chooses the whole library.
+#[tauri::command]
+fn lane_choose(
+    shared: tauri::State<'_, Shared>,
+    slug: Option<String>,
+    add: bool,
+    all: bool,
+) -> Result<LaneRow, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let no_shelf = state.trouble();
+    // Two disjoint fields: the shelf read, the lane written. Taken apart by
+    // hand because a method on `State` would borrow the whole of it.
+    let State { shelf, lane, .. } = &mut *state;
+    let shelf = shelf.as_ref().ok_or(no_shelf)?;
+    let lane = lane.as_mut().ok_or("there is no lane here")?;
+    let mut chosen = lane.lane().chosen().clone();
+    if all {
+        chosen = if add {
+            girsa_lane::Chosen::everything()
+        } else {
+            girsa_lane::Chosen::nothing()
+        };
+    } else if let Some(slug) = slug {
+        if add {
+            chosen = chosen.with_work(&slug);
+        } else if chosen.is_everything() {
+            return Err(
+                "the whole library is in the lane — turn that off first, then choose seforim"
+                    .to_string(),
+            );
+        } else if !chosen.without_work(&slug) {
+            return Err(format!("{slug} was not in the lane"));
+        }
+    }
+    lane.choose(chosen, shelf).map_err(|e| e.to_string())?;
+    lane_row(&state)
+}
+
+/// Embed what is chosen, on its own thread, emitting [`EMBED_EVENT`].
+///
+/// The lane is **cloned** for the thread, which shares the one loaded model
+/// rather than loading a second — see `girsa_lane::Lane`. The state lock is held
+/// only long enough to take that clone, so nothing about reading a sefer waits
+/// on this.
+#[tauri::command]
+fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result<(), String> {
+    use tauri::Emitter;
+    let (lane, root, slugs, titles, stop) = {
+        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+        let held = state.lane.as_ref().ok_or("there is no lane here")?;
+        if !held.state().is_on() {
+            return Err(girsa_lane::LaneError::Off.to_string());
+        }
+        let slugs = girsa_app::adjacent::in_the_lane(shelf, held.lane().chosen());
+        let titles: HashMap<String, String> = slugs
+            .iter()
+            .map(|slug| {
+                (
+                    slug.clone(),
+                    shelf
+                        .work(slug)
+                        .map_or_else(|| slug.clone(), |work| work.he_title.clone()),
+                )
+            })
+            .collect();
+        (
+            held.for_thread(),
+            shelf.root().to_path_buf(),
+            slugs,
+            titles,
+            state.stop_embedding.clone(),
+        )
+    };
+    stop.store(false, std::sync::atomic::Ordering::Relaxed);
+
+    std::thread::spawn(move || {
+        let mut trouble: Vec<String> = Vec::new();
+        'seforim: for slug in slugs {
+            let title = titles.get(&slug).cloned().unwrap_or_else(|| slug.clone());
+            let mut run = match lane.run(&root, &slug) {
+                Ok(run) => run,
+                Err(e) => {
+                    trouble.push(format!("{title}: {e}"));
+                    continue;
+                }
+            };
+            trouble.extend(run.trouble().iter().cloned());
+            if let Some(made_by) = run.made_by_something_else() {
+                trouble.push(format!(
+                    "{title}: its vectors were made by {made_by} and are not being added to"
+                ));
+                continue;
+            }
+            loop {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break 'seforim;
+                }
+                match run.step() {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let _ = app.emit(
+                            EMBED_EVENT,
+                            LaneProgress {
+                                doing: "embed",
+                                what: title.clone(),
+                                done: run.job().done() as u64,
+                                of: run.job().wanted() as u64,
+                                trouble: None,
+                            },
+                        );
+                    }
+                    Err(e) => {
+                        trouble.push(format!("{title}: {e}"));
+                        break;
+                    }
+                }
+            }
+        }
+        // The coverage sentence is recomputed once, at the end, off the disk —
+        // never cached and never guessed at from the counters above.
+        if let Ok(mut state) = tauri::Manager::state::<Shared>(&app).lock() {
+            let State { shelf, lane, .. } = &mut *state;
+            if let (Some(shelf), Some(held)) = (shelf.as_ref(), lane.as_mut()) {
+                held.refresh(shelf);
+            }
+        }
+        let _ = app.emit(
+            EMBED_EVENT,
+            LaneProgress {
+                doing: "done",
+                what: String::new(),
+                done: 0,
+                of: 0,
+                trouble: (!trouble.is_empty()).then(|| trouble.join("\n")),
+            },
+        );
+    });
+    Ok(())
+}
+
+/// Stop the embedding job. Costs the batch it is on and nothing else.
+#[tauri::command]
+fn lane_stop(shared: tauri::State<'_, Shared>) -> Result<(), String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    state
+        .stop_embedding
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
 /// A pane moved. Record it, and say where the panes following it have to go.
 ///
 /// This is W9's acceptance in one function. The answer for each follower is a
@@ -2720,6 +3177,11 @@ pub fn run() {
         // citation a Word document or a compiled PDF has been carrying all
         // along is a link that lands on the page it names (spec.md §10.6).
         .plugin(tauri_plugin_deep_link::init())
+        // One dialog: *choose the directory your model is in* (W30). The default
+        // way to use the semantic lane is to point it at weights the reader
+        // already has, and a native picker is the difference between that being
+        // the default and being the fallback.
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let data = tauri::Manager::path(app)
                 .app_data_dir()
@@ -2757,6 +3219,16 @@ pub fn run() {
             };
             let (bar, no_search) = open_bar_for(&shelf);
             let lexicon = shelf.as_ref().and_then(|shelf| read_lexicon(shelf.root()));
+            // The lane, once. With it off — the default — this opens nothing and
+            // reads nothing; with it on it loads the side-loaded model, which is
+            // why it happens here and not on the first query.
+            let lane = shelf.as_ref().map(|shelf| {
+                let (lane, trouble) = girsa_app::Adjacency::open(shelf.root(), &personal, shelf);
+                for line in trouble {
+                    eprintln!("the semantic lane: {line}");
+                }
+                lane
+            });
             tauri::Manager::manage(
                 app,
                 Mutex::new(State {
@@ -2771,6 +3243,8 @@ pub fn run() {
                     no_post: None,
                     lexicon,
                     queue: None,
+                    lane,
+                    stop_embedding: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     open: HashMap::new(),
                     order: Vec::new(),
                 }),
@@ -2823,6 +3297,14 @@ pub fn run() {
             scan_words,
             scan_fix,
             scan_gap,
+            lane_state,
+            lane_ask,
+            lane_set,
+            lane_allow_fetch,
+            lane_bring,
+            lane_choose,
+            lane_embed,
+            lane_stop,
             scan_forget,
             scan_page_of,
             scan_copy,

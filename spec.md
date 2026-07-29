@@ -596,12 +596,46 @@ Results carry live facets — shelf section, era, author, sefer, link type — e
 with counts, each one click to narrow or exclude. You get it right on the second
 try instead of being punished for the first.
 
-### 9.9 Later: the semantic lane
+### 9.9 The semantic lane
 
 A local embedding index (BEREL) for "I remember a Rishon who says something like
 this but not the words." **Always visually separated** from literal results, never
 blended — you need to know whether the engine found the words or something
 adjacent. Trivially disableable.
+
+**Ruled (§16 #20). The model is side-loaded, and the corpus is yours to choose.**
+
+- **Girsa never *needs* the network.** The default path is a folder picker: you
+  point the setting at a model directory you obtained yourself, and that always
+  works. **Amended during W30** — the first form of this rule said Girsa fetches
+  no model at all, and it now says Girsa fetches none unless you switch that on
+  and press a button. The switch is off in a fresh install, and with it off there
+  is no code path in the application that reaches the network for a model. Either
+  way nothing is vendored: the weights land in your own layer beside your notes,
+  so the model's licence stays outside a repo that is MIT/Apache by obligation
+  (§13, T7). No model present means no lane, **said out loud in the search
+  header** rather than a mode that quietly returns nothing.
+- **What it is for, measured rather than hoped.** BEREL is a masked-language
+  model, not a sentence encoder, and it shows: over Hilchos Tefillah, a
+  **half-remembered statement** finds its se'if in the top 16 of 240 every time
+  and first eight times in ten, and a **question about** a se'if finds it once in
+  five. So the box asks for a line as you remember it — which is §9.9's own
+  sentence — and does not pretend to answer questions. Mean-centring was tried
+  and made it worse. The numbers are in `girsa_lane::model` and rerunnable with
+  `girsa-lane --example measure`. Throughput is 4.5 segments a second on one
+  CPU: fifty-four seconds for a Rambam's hilchos, about thirteen days for all
+  5,000,545, which is why the corpus is a choice.
+- **Off by default.** One setting turns it on. Turning it off leaves literal
+  search bit-for-bit what it was.
+- **You choose what is embedded, and it embeds in the background.** A shelf, a
+  sefer, a section, your own layer, or the whole 5,000,545 — any selection, added
+  to at any time, resumable, and never blocking reading (the W26 rule for OCR,
+  for the same reason). The lane answers over what is embedded and **states what
+  is not**: *"this lane covers Rishonim and your notes; 4 other shelves aren't in
+  it — [add them]"*. A partial lane is fine. A partial lane that looks complete
+  is the §9 defect this whole section exists to avoid.
+- **It never looks like an answer.** §14: the lane assists retrieval and does not
+  pasken. Adjacent results are labelled adjacent, wherever they are drawn.
 
 ---
 
@@ -801,7 +835,11 @@ anyway because they are nearly free:
 
 ## 14. Non-goals
 
-- **Not a web app.** Offline desktop is the product.
+- **Not a web app.** Offline desktop is the product. Network use is sanctioned in
+  exactly two places and both are a button somebody presses: a corpus update, and
+  bringing in a semantic-lane model (§9.9) — the second behind a setting that is
+  off in a fresh install. Nothing Girsa does to read, search, cite or write needs
+  the network at any point.
 - **Not a social network.** No public sheets, no feeds, no profiles.
 - **Not a translation project.** Ship what exists.
 - **Not a paskening machine.** The semantic lane assists retrieval. It does not
@@ -878,6 +916,7 @@ document is worth more than another month of ingest.
 | 17 | **Full union ships** — all ~7,576 works, no reduced v1 corpus (§5) |
 | 18 | **Build the whole spec**, not a spike or an MVP. Milestones are a build *order*, not a scope cut (§15) |
 | 19 | The org tree (`otzaria-library`) is **not** ingested — 41 real new titles, 8,106 artifacts (§2.3a) |
+| 20 | **The semantic lane is side-loaded and opt-in.** You point it at a model; Girsa fetches none unless you turn fetching on and press the button, which is off in a fresh install — so §14 becomes *never needs the network* and T7's licence line holds either way, because nothing is vendored. What gets embedded is your choice, at any granularity, in the background, and the lane always states its own coverage (§9.9) |
 
 ## 17. Still to determine
 
