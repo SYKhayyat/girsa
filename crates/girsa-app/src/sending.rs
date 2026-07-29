@@ -266,7 +266,7 @@ fn slice(text: &str, from_char: usize, to_char: Option<usize>) -> String {
 /// spec.md §13: it costs nothing now and it is the only thing preserving the
 /// option to distribute publicly later. A quote whose provenance was dropped
 /// cannot be un-dropped.
-fn provenance(work: &Work) -> Version {
+pub(crate) fn provenance(work: &Work) -> Version {
     work.version
         .as_ref()
         .map_or_else(Version::default, |v| Version {

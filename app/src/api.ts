@@ -24,6 +24,9 @@ export interface Card {
   author: string | null;
   era: string | null;
   source: "sefaria" | "otzaria" | "mine";
+  /** Whether this sefer is a scan (W25) — which of the two reading modes it
+   * opens into, and a thing a shelf row should say. */
+  scan: boolean;
 }
 
 /** One shelf, and everything under it — see `girsa_app::taxonomy`. */
@@ -215,6 +218,10 @@ export interface Move {
   pane: PaneId;
   place: Place;
   relation: Relation;
+  /** For a pane holding a scan, the page to turn to (W25). Counted in Rust,
+   * because a page number worked out here from a segment id would be the
+   * window deriving an address from an ordinal. */
+  page?: number;
 }
 
 export type Layout =
@@ -291,9 +298,58 @@ export interface AppState {
   suspects: number;
 }
 
+/**
+ * A scan opened into a pane (spec.md §6.3, W25).
+ *
+ * The window is given the file and the mapping and draws the page itself — the
+ * scan *is* the daf, so there is nothing to typeset. Which daf a page is comes
+ * one page at a time from `scanAt`, because that is arithmetic on a
+ * declaration and it is not done here.
+ */
+export interface ScanOpen {
+  work: Card;
+  pages: number;
+  /** The page to open on: where it was left last time, or its first. */
+  at: number;
+  /** The PDF on disk, for `assetUrl`. */
+  file: string;
+  /** Whether the once-per-sefer chore has been done. */
+  paged: boolean;
+  /** The sefer this is a scan of, where the reader has said. */
+  of: string | null;
+  scheme: Scheme;
+  anchors: Anchor[];
+  /** Why nothing here can be cited, where that is so. */
+  trouble: string | null;
+}
+
+export type Scheme = "amud" | "daf" | "numbered";
+
+export interface Anchor {
+  page: number;
+  /** Absent where the anchor says *these are not pages of the sefer*. */
+  at?: string;
+}
+
+/** What one page of a scan is. */
+export interface PageSaid {
+  page: number;
+  /** The whole mareh makom — `ברכות כג.`. Null for a page with nothing printed
+   * on it that a mekor could name, where the window says *page 3 of the file*
+   * rather than inventing a daf. */
+  display: string | null;
+  reference: string | null;
+  /** The permanent id of the page — what a note anchors to, and what no
+   * mapping ever moves. */
+  id: string | null;
+}
+
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 let invoke: Invoke | null = null;
+/** Turns a path on disk into a URL the webview may load. Only ever used on
+ * `personal/files`, which is the one directory the shell opens to it. */
+let asset: ((path: string) => string) | null = null;
 
 /** Whether the real shell is behind us, or the browser fixtures are. */
 export function isShell(): boolean {
@@ -304,7 +360,14 @@ export async function connect(): Promise<void> {
   if ("__TAURI_INTERNALS__" in window) {
     const api = await import("@tauri-apps/api/core");
     invoke = api.invoke as Invoke;
+    asset = api.convertFileSrc;
   }
+}
+
+/** The URL a scan is drawn from. Empty outside the shell, where there is no
+ * asset protocol and a scan cannot be opened at all. */
+export function assetUrl(path: string): string {
+  return asset ? asset(path) : "";
 }
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -343,6 +406,23 @@ export const api = {
   shelfMake: (parent: string, title: string) => call<string>("shelf_make", { parent, title }),
   shelfReset: () => call<void>("shelf_reset"),
   addMine: (paths: string[]) => call<Dropped>("add_mine", { paths }),
+
+  // --- scans (W25) --------------------------------------------------------
+  //
+  // The page→daf mapping is a declaration, and everything asked of it —
+  // what is on this page, which page is that daf, what does this page cite as
+  // — is answered in `girsa-scan`. The window turns pages and draws them.
+  scan: (slug: string) => call<ScanOpen>("scan", { slug }),
+  scanAt: (slug: string, page: number) => call<PageSaid>("scan_at", { slug, page }),
+  scanMap: (slug: string, scheme: Scheme, anchors: Anchor[], of: string | null) =>
+    call<ScanOpen>("scan_map", { slug, scheme, anchors, of }),
+  scanForget: (slug: string) => call<ScanOpen>("scan_forget", { slug }),
+  /** The *go to daf* box. `null` where the scan does not carry it — never the
+   * nearest page it does. */
+  scanPageOf: (slug: string, written: string) =>
+    call<number | null>("scan_page_of", { slug, written }),
+  /** Ctrl+C on a page: the mareh makom, with no quote behind it. */
+  scanCopy: (slug: string, page: number) => call<Copied>("scan_copy", { slug, page }),
 
   // --- searching (W14) ----------------------------------------------------
   find: (query: string, page: number) => call<Found>("find", { query, page }),
@@ -645,6 +725,18 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       } as T;
     case "buffers":
       return [] as T;
+    // A scan is a file on the reader's own disk, reached through the shell's
+    // asset protocol. A browser has neither the file nor the protocol, and
+    // saying so beats an empty viewer that reads as a corrupt PDF.
+    case "scan":
+    case "scan_map":
+    case "scan_forget":
+    case "scan_copy":
+      throw new Error("סריקות נפתחות בחלון בלבד");
+    case "scan_at":
+      return { page: Number(args?.page ?? 1), display: null, reference: null, id: null } as T;
+    case "scan_page_of":
+      return null as T;
     // Corrections are the shell's: they are written into your own layer, and
     // a browser has none. Saying so beats a fix that looks like it landed.
     case "fix":

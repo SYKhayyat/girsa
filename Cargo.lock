@@ -520,7 +520,9 @@ dependencies = [
  "girsa-ksav",
  "girsa-link",
  "girsa-ref",
+ "girsa-scan",
  "girsa-source",
+ "lopdf",
  "serde",
  "serde_json",
  "thiserror",
@@ -594,6 +596,17 @@ version = "0.3.0"
 dependencies = [
  "girsa-hebrew",
  "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "girsa-scan"
+version = "0.1.0"
+dependencies = [
+ "girsa-cite",
+ "girsa-ref",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

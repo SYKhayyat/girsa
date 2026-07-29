@@ -25,6 +25,7 @@ import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
 import { LinksView } from "./linksview.ts";
 import { PaneView } from "./pane.ts";
+import { ScanView } from "./scanview.ts";
 import { Picker } from "./picker.ts";
 import { SearchView } from "./search.ts";
 import { ShelfView } from "./shelf.ts";
@@ -40,6 +41,12 @@ const fixbox = new FixBox();
 const suspects = new SuspectsView();
 const linksview = new LinksView();
 const views = new Map<PaneId, PaneView>();
+/** Panes holding a scan (W25). A second map rather than a union: a scan has no
+ * lines, so none of the questions asked of a reading pane — what is
+ * highlighted, which line is this, what corrections are on it — have an answer
+ * here, and `views.get` coming back empty for a scan pane is the right answer
+ * to every one of them. */
+const scans = new Map<PaneId, ScanView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
 const reported = new Map<PaneId, string>();
@@ -187,27 +194,49 @@ async function draw(): Promise<void> {
   for (const id of [...views.keys()]) {
     if (!open.panes.some((p) => p.id === id)) views.delete(id);
   }
+  for (const id of [...scans.keys()]) {
+    if (!open.panes.some((p) => p.id === id)) scans.delete(id);
+  }
 
   for (const pane of open.panes) {
     const slot = slots.get(pane.id);
     if (!slot) continue;
-    let view = views.get(pane.id);
-    const fresh = !view;
-    if (!view) {
-      view = new PaneView(pane.id, pane.slug, whenMoved, whenFocused);
-      views.set(pane.id, view);
-      addControls(view, pane.id);
+    const held = views.get(pane.id) ?? scans.get(pane.id);
+    if (held) {
+      slot.replaceChildren(held.element);
+      held.setFocused(open.focused === pane.id);
+      held.setFollowing(followLabel(pane.follows));
+      continue;
     }
+
+    // Which of the two reading modes this is (spec.md §6.2, §6.3). The card
+    // says, because the window has to know before it builds a pane — and
+    // because a PDF opened into the reading pane is a sefer of blank lines,
+    // which is what this window did until W25.
+    const text = await api.openSefer(pane.slug);
+    titles.set(pane.slug, text.work.he_title);
+    // The tab was drawn before the title was known.
+    redrawTabs();
+
+    if (text.work.scan) {
+      const scan = new ScanView(pane.id, pane.slug, whenMoved, whenFocused);
+      scans.set(pane.id, scan);
+      addScanControls(scan, pane.id);
+      slot.replaceChildren(scan.element);
+      scan.setFocused(open.focused === pane.id);
+      scan.setFollowing(followLabel(pane.follows));
+      const opened = await api.scan(pane.slug);
+      await scan.show(opened, opened.at);
+      continue;
+    }
+
+    const view = new PaneView(pane.id, pane.slug, whenMoved, whenFocused);
+    views.set(pane.id, view);
+    addControls(view, pane.id);
     slot.replaceChildren(view.element);
     view.setFocused(open.focused === pane.id);
     view.setFollowing(followLabel(pane.follows));
-    if (fresh) {
-      const text = await api.openSefer(pane.slug);
-      titles.set(pane.slug, text.work.he_title);
-      view.show(text, pane.at ?? null);
-      // The tab was drawn before the title was known.
-      redrawTabs();
-    }
+    view.show(text, pane.at ?? null);
   }
 }
 
@@ -247,12 +276,49 @@ function addControls(view: PaneView, id: PaneId): void {
   const close = button("סגור", "סגור את הטור (Ctrl+W)", async () => {
     await api.closePane(id);
     views.delete(id);
+    scans.delete(id);
     await reload();
   });
   view.addControl(beside);
   view.addControl(unfollow);
   view.addControl(links);
   view.addControl(save);
+  view.addControl(close);
+}
+
+/**
+ * The buttons a scan's header carries.
+ *
+ * Fewer than a reading pane's, and the missing ones are missing for a reason: a
+ * scan has no lines to correct, no links on its words yet, and nothing to
+ * export that is not the file the reader already has. A button that did
+ * nothing would be a button that teaches the reader the buttons lie.
+ */
+function addScanControls(view: ScanView, id: PaneId): void {
+  const beside = button("לצד", "פתח ספר בטור שלצדו (Ctrl+\)", () => {
+    const pane = tab()?.panes.find((p) => p.id === id);
+    if (!pane) return;
+    picker.openBeside(pane.slug, titleOf(pane.slug), async (slug) => {
+      await api.split(id, "vertical", slug, true);
+      await reload();
+    });
+  });
+  const unfollow = button("עוקב", "עקוב אחרי הטור שלצדו, או הפסק", async () => {
+    const pane = tab()?.panes.find((p) => p.id === id);
+    if (!pane) return;
+    const others = tab()?.panes.filter((p) => p.id !== id) ?? [];
+    const leader = pane.follows === undefined ? (others[0]?.id ?? null) : null;
+    await api.setFollows(id, leader);
+    await reload();
+  });
+  const close = button("סגור", "סגור את הטור (Ctrl+W)", async () => {
+    await api.closePane(id);
+    views.delete(id);
+    scans.delete(id);
+    await reload();
+  });
+  view.addControl(beside);
+  view.addControl(unfollow);
   view.addControl(close);
 }
 
@@ -263,6 +329,10 @@ async function whenMoved(pane: PaneId, at: string): Promise<void> {
   const moves = await api.moved(pane, at);
   for (const move of moves) {
     views.get(move.pane)?.goTo(move.place, move.relation);
+    // A scan has no lines to scroll to: where it goes is a page, counted in
+    // Rust. `undefined` is *the pane stays where it is*, which is what a daf
+    // this scan does not carry has to do (W9's `NoPlace`, in a photograph).
+    scans.get(move.pane)?.turnTo(move.page ?? null, move.place.kind);
   }
 }
 
@@ -743,6 +813,22 @@ function shortcut(event: KeyboardEvent): void {
 async function copySource(): Promise<void> {
   const open = tab();
   if (!open) return;
+
+  // A page of a scan is a **mareh makom** and not a quote: there is nothing to
+  // quote off a photograph nobody has OCR'd, and the importer will not invent
+  // Hebrew it cannot read. What goes down is the citation and the ref.
+  const scan = scans.get(open.focused);
+  if (scan) {
+    try {
+      const cited = await api.scanCopy(scan.slug, scan.here());
+      if (cited.put.trouble) say(cited.put.trouble, true);
+      else say(`הועתק — ${cited.display}`, false);
+    } catch (e) {
+      say(String(e), true);
+    }
+    return;
+  }
+
   const view = views.get(open.focused);
   if (!view) return;
 

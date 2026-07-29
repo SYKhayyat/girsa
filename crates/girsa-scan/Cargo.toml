@@ -1,0 +1,24 @@
+[package]
+name = "girsa-scan"
+description = "Scans you brought: which page is which daf, and what a page cites as"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# A page's address is an address like any other, and the daf reader that knows
+# `ב.` is `2a` is the one every citation in this system already goes through.
+girsa-ref.workspace = true
+# What a page cites as is printed by the formatter both applications compile
+# (spec.md §12). A scan that printed its own mareh makom would be the second
+# implementation that crate exists to prevent.
+girsa-cite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -36,7 +36,7 @@ use girsa_search::facets::{self, Dimension, Facets, Row};
 use girsa_search::index::{Paging, SearchIndex};
 use girsa_search::torat_emet::{Match, Together};
 use girsa_search::Mode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// How many seforim are kept in memory at once.
 ///
@@ -147,6 +147,10 @@ struct Card {
     /// `sefaria`, `otzaria` or `mine`. Shown on the row: a sefer of yours
     /// should be recognisable as yours without being second-class.
     source: &'static str,
+    /// Whether this sefer is a scan (W25). Carried on the card because the
+    /// window has to know **before** it opens a pane which of the two reading
+    /// modes it is opening — and because a shelf row for a scan should say so.
+    scan: bool,
 }
 
 impl Card {
@@ -162,6 +166,7 @@ impl Card {
                 .as_deref()
                 .map(|code| display::era_said(code).to_string()),
             source: work.source.as_str(),
+            scan: girsa_app::is_scan(work),
         }
     }
 }
@@ -283,6 +288,12 @@ struct Move {
     /// What relates the two seforim, so the pane can say *why* it moved — or
     /// why it did not.
     relation: girsa_app::Relation,
+    /// For a pane holding a **scan**, the page to turn to (W25). A scan has no
+    /// lines to scroll to, so the place it goes is a page — and it is counted
+    /// here rather than worked out in the window from a segment id, which
+    /// would be the window deriving an address from an ordinal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page: Option<usize>,
 }
 
 #[tauri::command]
@@ -926,6 +937,228 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
             .map(|s| line_of(sefer, s, nikud))
             .collect(),
         has_nikud,
+    })
+}
+
+// ── Scans (spec.md §6.3, BUILDER.md W25) ────────────────────────────────────
+
+/// A scan opened into a pane.
+///
+/// The window is given the **file** and the mapping, and draws the page itself
+/// — the scan is the daf and there is nothing to typeset. What it is not given
+/// is any way to work out which daf a page is: that is arithmetic on a
+/// declaration, it lives in `girsa-scan`, and it is asked one page at a time.
+#[derive(Serialize)]
+struct ScanView {
+    work: Card,
+    pages: usize,
+    /// The page to open on: where this scan was left last time (spec.md §6.1's
+    /// position memory), or its first page.
+    at: usize,
+    /// The PDF itself, as a path the window turns into an `asset:` URL.
+    file: String,
+    /// Whether the once-per-sefer chore has been done. *No mapping yet* and
+    /// *nothing printed on this page* are different sentences.
+    paged: bool,
+    /// The sefer this is a scan of, where the reader has said.
+    of: Option<String>,
+    scheme: &'static str,
+    anchors: Vec<AnchorRow>,
+    /// Why nothing here can be cited, where that is so — a scan whose sefer is
+    /// not on this shelf, so far. Said rather than fallen back from.
+    trouble: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AnchorRow {
+    page: usize,
+    /// Absent where the anchor says *these are not pages of the sefer*.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    at: Option<String>,
+}
+
+/// What one page of a scan is, for the header and for Ctrl+C.
+#[derive(Serialize)]
+struct PageSaid {
+    page: usize,
+    /// The whole mareh makom — `ברכות כג.`. Absent for a page the mapping does
+    /// not cover, where the window says *page 3 of the file* instead of
+    /// inventing a daf.
+    display: Option<String>,
+    reference: Option<String>,
+    /// The permanent id of the page, which is what a note anchors to and what
+    /// no mapping ever moves.
+    id: Option<String>,
+}
+
+/// Open a scan into a pane.
+#[tauri::command]
+fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.sefer(&slug)?;
+    // Where this scan was left last time. Looked up here rather than worked out
+    // in the window from the id it remembered, for the reason in `page_of_id`.
+    let left = state.session.positions.get(&slug).cloned();
+    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+    let at = left
+        .and_then(|id| girsa_app::scanning::page_of_id(sefer, &id))
+        .unwrap_or(1);
+    Ok(view_of(shelf, sefer, &scan, at))
+}
+
+fn view_of(shelf: &Shelf, sefer: &Open, scan: &girsa_scan::Scan, at: usize) -> ScanView {
+    ScanView {
+        work: Card::of(&sefer.work),
+        pages: scan.pages(),
+        at,
+        file: sefer.work.origin.display().to_string(),
+        paged: scan.is_paged(),
+        of: scan.paging().of().map(ToString::to_string),
+        scheme: scan.paging().scheme().name(),
+        anchors: scan
+            .paging()
+            .anchors()
+            .iter()
+            .map(|a| AnchorRow {
+                page: a.page,
+                at: a.at.as_ref().map(ToString::to_string),
+            })
+            .collect(),
+        trouble: girsa_app::scanning::naming(shelf, scan)
+            .err()
+            .map(|e| e.to_string()),
+    }
+}
+
+/// What is printed on a page.
+#[tauri::command]
+fn scan_at(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+) -> Result<PageSaid, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let style = state.session.cite;
+    state.sefer(&slug)?;
+    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+
+    // A scan whose sefer is not on the shelf still shows its pages; what it
+    // cannot do is print a mekor naming a sefer nobody here has.
+    let sent = girsa_app::scanning::naming(shelf, &scan)
+        .ok()
+        .and_then(|naming| girsa_app::mareh_makom(&scan, page, &naming, &sefer.work, style));
+    Ok(PageSaid {
+        page,
+        display: sent.as_ref().map(|s| s.display().to_string()),
+        reference: sent.as_ref().map(|s| s.packet.reference.clone()),
+        id: girsa_app::scanning::page_id(sefer, page).map(|id| id.to_string()),
+    })
+}
+
+/// Say which page is which daf — the once-per-sefer chore (spec.md §6.3).
+#[tauri::command]
+fn scan_map(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    scheme: String,
+    anchors: Vec<AnchorRow>,
+    of: Option<String>,
+) -> Result<ScanView, String> {
+    let scheme = girsa_scan::Scheme::named(&scheme)
+        .ok_or_else(|| format!("{scheme}: this reads `amud`, `daf` or `numbered`"))?;
+    let anchors: Result<Vec<girsa_scan::Anchor>, String> = anchors
+        .into_iter()
+        .map(|row| match row.at {
+            Some(at) => girsa_scan::Anchor::written(row.page, &at).map_err(|e| e.to_string()),
+            None => Ok(girsa_scan::Anchor::unpaged(row.page)),
+        })
+        .collect();
+    let of = of.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    // The mapping is checked before it is stored, so a `Paging` that exists is
+    // one that has been checked — and the reader is told which anchor was
+    // refused rather than finding out from a mekor that lands elsewhere.
+    let paging = girsa_scan::Paging::declare(of, scheme, anchors?).map_err(|e| e.to_string())?;
+
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_mut().ok_or("there is no shelf here")?;
+    shelf
+        .declare_paging(&slug, paging)
+        .map_err(|e| e.to_string())?;
+    // What an address of this sefer means has changed, so the copy held open
+    // is out of date (see `Open::paging`).
+    state.reread(&slug);
+    drop(state);
+    scan(shared, slug)
+}
+
+/// Take a mapping back — better no mareh makom than a wrong one.
+#[tauri::command]
+fn scan_forget(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_mut().ok_or("there is no shelf here")?;
+    shelf.forget_paging(&slug).map_err(|e| e.to_string())?;
+    state.reread(&slug);
+    drop(state);
+    scan(shared, slug)
+}
+
+/// The page a place is printed on — the *go to daf* box.
+///
+/// `None` where this scan does not carry it, and never the nearest page it
+/// does: a scan opened one daf away with the header naming the daf that was
+/// asked for is wrong in the way nobody checks.
+#[tauri::command]
+fn scan_page_of(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    written: String,
+) -> Result<Option<usize>, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.sefer(&slug)?;
+    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+
+    // A ref pasted in, or a place typed the way a reader writes one. Both are
+    // read by `girsa-ref`, which is the one thing in this system that knows
+    // what `ב ע"ב` is.
+    if let Ok(reference) = written.parse::<girsa_ref::Ref>() {
+        return Ok(scan.page_of_ref(&reference));
+    }
+    Ok(girsa_ref::Address::parse(&written).and_then(|address| scan.page_of(&address)))
+}
+
+/// Ctrl+C on a page of a scan: the mareh makom, in the three flavours.
+///
+/// There is nothing to quote — the importer will not invent Hebrew it cannot
+/// read — so what goes down is the citation and the ref. `girsa-ksav` writes
+/// that as a mareh makom rather than as an empty quote block.
+#[tauri::command]
+fn scan_copy(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+) -> Result<Copied, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let style = state.session.cite;
+    state.sefer(&slug)?;
+    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+    let naming = girsa_app::scanning::naming(shelf, &scan).map_err(|e| e.to_string())?;
+    let sent =
+        girsa_app::mareh_makom(&scan, page, &naming, &sefer.work, style).ok_or_else(|| {
+            format!("there is nothing printed on page {page} that a mekor could name")
+        })?;
+    Ok(Copied {
+        display: sent.display().to_string(),
+        reference: sent.packet.reference.clone(),
+        lines: 0,
+        put: clipboard::put(&sent),
     })
 }
 
@@ -2024,11 +2257,42 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
         else {
             continue;
         };
+        // A scan follows the sefer beside it by turning to the page the daf is
+        // printed on — but only where the reader has said it is a scan **of**
+        // that sefer (W25). Everything else is left where it is, which is W9's
+        // rule and not a special case of it.
+        if let Some(shelf) = state.shelf.as_ref() {
+            if let Some(scan) = girsa_app::scan_of(shelf, follower) {
+                let page = girsa_app::scanning::beside(&scan, &at);
+                moves.push(Move {
+                    pane: id,
+                    place: match page.and_then(|p| girsa_app::scanning::page_id(follower, p)) {
+                        Some(id) => Place::At(vec![id]),
+                        // The scan is of this sefer and does not carry this
+                        // daf — a scan of one masechta open beside another
+                        // volume of it. *Related, and nothing here*, which is
+                        // the sentence W9 wrote `NoPlace` for.
+                        None if scan.paging().of() == Some(leader_slug.as_str()) => Place::NoPlace,
+                        None => Place::Unrelated,
+                    },
+                    relation: if scan.paging().of() == Some(leader_slug.as_str()) {
+                        girsa_app::Relation::Declared {
+                            follower_is_commentary: false,
+                        }
+                    } else {
+                        girsa_app::Relation::Unrelated
+                    },
+                    page,
+                });
+                continue;
+            }
+        }
         let beside = Beside::between(leader, follower, &root);
         moves.push(Move {
             pane: id,
             place: beside.place(&at),
             relation: beside.relation(),
+            page: None,
         });
     }
     state.save();
@@ -2094,6 +2358,18 @@ pub fn run() {
             let session_path = data.join("session.json");
             let session = Session::load(&session_path);
             let personal = find_personal(&data);
+
+            // The one directory of the reader's own disk the window may read:
+            // where a dropped PDF was copied to (W25). A scan is hundreds of
+            // megabytes and cannot travel over the IPC channel a page at a
+            // time, so the webview opens the file itself — and nothing outside
+            // this directory is reachable, which is why the scope is opened
+            // here rather than declared as a pattern in the config.
+            if let Err(e) = tauri::Manager::asset_protocol_scope(app)
+                .allow_directory(personal.join("files"), false)
+            {
+                eprintln!("scans will not open: {e}");
+            }
 
             let (shelf, trouble) = match find_corpus() {
                 Ok(root) => match Shelf::open(&root, &personal) {
@@ -2169,6 +2445,12 @@ pub fn run() {
             companions,
             open_sefer,
             open_tab,
+            scan,
+            scan_at,
+            scan_map,
+            scan_forget,
+            scan_page_of,
+            scan_copy,
             split,
             close_pane,
             focus,

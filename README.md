@@ -41,6 +41,7 @@ file in the app's data directory.
 | `girsa-search` | tantivy indices, the five modes, the ladder, the chips and the facets |
 | `girsa-link` | The typed link graph, your repairs to it, later mining |
 | `girsa-fix` | Corrections as an overlay, and the ranked OCR queue |
+| `girsa-scan` | Scans you brought: which page is which daf, and what a page cites as |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
 
 plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
@@ -92,6 +93,19 @@ cargo run --release -p girsa-search --bin girsa-index -- stamp index
 cargo run --release -p girsa-search --bin girsa-index -- find  index corpus יתגבר כארי
 ```
 
+A scan is a sefer with pages instead of lines, and the once-per-sefer chore that
+makes one citable can be done without a window too:
+
+```sh
+cargo run -p girsa-app --bin girsa-daf -- corpus personal add ~/ברכות.pdf
+cargo run -p girsa-app --bin girsa-daf -- corpus personal map user/ברכות amud 5=ב. --of bavli/berakhot
+cargo run -p girsa-app --bin girsa-daf -- corpus personal cite user/ברכות 47
+cargo run -p girsa-app --bin girsa-daf -- corpus personal page user/ברכות "כג."
+```
+
+`5=ב.` says page 5 of the file is daf ב, amud alef, and the count runs on from
+there. `43=-` says *from here these are not pages of the sefer* — the plates.
+
 `girsa-link-types` reads the graph from the **segment's** side and has to run
 before the index if the link facet is to have anything to count — see below. It
 is a cache like the index, and an index built without it says so rather than
@@ -123,11 +137,12 @@ query bar.
 
 ## Status
 
-**Tier 0 through Tier 4 are done — the corpus is on the shelf, the graph is on
-top of it, there is a window, the shelf is one you can rearrange, and all five
-ways of searching it are in that window with the counts to narrow by. Tier 5,
-the Ksav loop, has started: one Ctrl+C puts down three flavours and the third
-one is a source packet a real Ksav really renders.** All four verify commands
+**Tier 0 through Tier 7 are done — the corpus is on the shelf, the graph is on
+top of it, there is a window, all five ways of searching it, the Ksav loop in
+both directions, corrections as an overlay that never touches the text, and a
+link graph you can argue with. Tier 8 has started: a PDF you drop in is a second
+reading mode, and once you say which page is daf ב, every page of it is
+citable.** All four verify commands
 green in all three repositories.
 
 | | What holds |
@@ -1380,8 +1395,157 @@ range are *punctuation that separates words* — maqaf, paseq, sof pasuq, nun
 hafukha. Deleting maqaf glues `אֶת־הַשָּׁמַיִם` into one token and the second verse of
 the Torah stops being findable by either word in it. They become spaces.
 
+## Scans
+
+### The scan is the daf
+
+spec.md §6.2 and §6.3 are one decision taken twice. A text sefer gets modern
+columns and **no tzuras hadaf**, because rebuilding the traditional page out of
+a string of words is a typesetting project. A scan needs no engine at all: the
+photograph *is* the daf, with the Rashi in its column and the Tosfos in its. So
+the PDF layer is a second reading mode rather than an attachment, and the whole
+of what this work order adds is the one thing a photograph does not come with —
+**a mekor**.
+
+```
+page 47 of the file  ──[ the mapping ]──►  ברכות כג.  ──►  girsa:bavli/berakhot/23a
+```
+
+Both directions, because both are asked. Forward is what the header says and
+what Ctrl+C copies. Backward is *where is daf כג* — a search hit, a link, a
+mekor clicked in a Ksav document — and it is what makes a scan open on the right
+page instead of at the beginning.
+
+### One number would have been the same bug again
+
+The obvious mapping is an offset: *the daf is the page plus three*. It is two
+lines of arithmetic and it is right until the first plate — and a scan of
+anything old has one, bound in somewhere around daf כ, after which the number
+that was right for four hundred pages is one daf out for the rest of the sefer.
+
+The only repair for one number is to change it, and changing it **moves every
+citation in the sefer**, including the four hundred pages that were already
+right, silently, with nothing anywhere saying that a mekor written last month
+now points a daf away. That is BUILDER.md T1 wearing a different hat: the page
+number is being used as the address.
+
+So the mapping is a **list of anchors**, and a page's daf is counted from the
+nearest anchor *behind* it. Declaring a new one cannot move a page in front of
+it, because no page's address is ever computed from an anchor after it. An
+anchor may also say **nothing** — `43=-`, *from here these are not pages of the
+sefer* — which is how the plates themselves stop being cited as dafim printed
+elsewhere in the masechta.
+
+```
+5=ב.    43=-    45=כא.
+page 42 → כ:     pages 43, 44 → not the sefer     page 45 → כא.
+```
+
+`crates/girsa-scan/tests/which_page_is_which_daf.rs` is written against the
+one-offset version and seven of its fifteen cases fail there — including the
+title page coming out as **daf 0a**, and the whole scan moving when the reader
+declares the plates.
+
+Three schemes, because a scan is not always a masechta: one **amud** to the page
+(nearly every Shas PDF), one **daf** to the page (a photograph of the open
+sefer, so the page is a *span* — which is what a ref has been since W3), or one
+**number** to the page. A sefer with four simanim to the page is not describable
+this way, and nothing here pretends otherwise: interpolating to the siman that
+starts nearest is how a mekor names a place the reader was not looking at.
+
+### What a page cites as, and what it never invents
+
+A scan of Berakhot cites as **ברכות** — the mekor everybody else writes,
+resolving to the same place in the library — once the reader says what it is a
+scan of. Standing on its own it cites as itself, which is still a real ref to a
+real sefer on a real shelf. And the property `girsa-cite` asserts about every
+other citation in this system holds here too: **what a page cites as reads back
+as the page it came from**, over every page of the scan, in all three styles.
+
+Three things it will not do:
+
+- **The front matter gets no daf.** There is no daf א in any masechta — the
+  first leaf is the title page — so a mapping that extrapolated backwards would
+  hand the reader a mekor to a place that has never been printed. The window
+  says *עמוד 3 בקובץ*, which describes where they are without pretending it is
+  citable.
+- **A daf the scan does not carry is not the nearest page it does.** The same
+  refusal to round as everywhere else here.
+- **A mapping that would put two pages on one daf is refused**, naming both. A
+  duplicated page happens; what may not happen is `page_of` quietly ceasing to
+  be a function and one of the two pages becoming unreachable.
+
+A page has no words — the importer will not invent Hebrew it cannot read — so
+Ctrl+C on one puts down a **mareh makom**: the citation and the ref, and no
+quote. `girsa-ksav` writes that as `#מראה_מקום(…)` alone rather than as
+`#ציטוט[]`, which is the one change this work order made in the shared crates:
+an empty quote block in the middle of somebody's chaburah reads as a paste that
+failed.
+
+### The defect a real PDF found and the tests had not
+
+Running `girsa-daf` against a real 302-page sefer, with its printed numbering
+declared from page 7:
+
+```
+$ girsa-daf … cite user/berachos-combined 47
+berachos_combined מ"א
+girsa:user/berachos-combined/41
+girsa:user/berachos-combined/47#47
+the ref opens page 47 — the page it was copied from
+```
+
+That last line is there because it once said something else. A scan's segments
+are addressed by the **file's** page — page 47 is `47` — and a sefer numbered by
+page has its own numbers, so `girsa:user/…/41` meant *printed 41* to the viewer
+and *file 41* to everything that resolves a ref. Seven pages apart, both plain
+numbers, and nothing anywhere saying which was meant.
+
+Once a reader declares what the pages are called, **that is what an address of
+that sefer means**, here and everywhere. A page the mapping does not cover is
+then not reachable by a ref at all, which is the honest answer — the reader has
+said the sefer starts on page 7, and the shaar blatt is not a place in it. It is
+still reachable, still noteable and still linkable by its **permanent id**,
+which no mapping ever moves. That is the whole of W6 said again about pages, and
+`the_scan_is_the_daf.rs` asserts it: re-declaring the anchor moves every
+citation the scan prints and not one of the 120 ids.
+
+### The scan beside the Gemara
+
+W9's acceptance in the second reading mode: move the Gemara and the column
+beside it turns to the daf. It follows **only because the reader said this is a
+scan of Berakhot** — a scan and a text that merely share an address shape line
+up beautifully and mean nothing, and a column that moved on a resemblance shows
+a reader one place while the header names another. A daf the scan does not carry
+is `אין כאן`, and the pane stays where it is.
+
+### What draws the page
+
+pdf.js, bundled — Apache-2.0, which is one half of this project's own licence —
+and **loaded the first time a scan is opened and not before**: it is half a
+megabyte of renderer, and most readings of most seforim never touch a PDF. The
+alternative was the webview's own PDF viewer, which is Edge's on Windows and
+WebKit's on macOS: two behaviours, neither of them ours, and neither able to say
+which page is on the screen, which is the one thing this pane exists to know.
+
+The file itself is read off the disk through Tauri's asset protocol, scoped at
+startup to `personal/files` and nothing else. A scan is hundreds of megabytes
+and cannot travel over the IPC channel a page at a time.
+
+**What this does not yet do:** OCR (W26). A scan is not searchable, and the
+results header does not yet say that four PDFs on a shelf are missing from the
+index. Nothing on a page can be highlighted, corrected or linked to at a finer
+grain than the page itself — all of which want coordinates on the image, which
+is what W26 is for.
+
 ## Licence
 
 MIT OR Apache-2.0 — see [`LICENSE`](LICENSE). Forced by crate-sharing with
 Ksav. No corpus text is committed here; texts are downloaded at first run and
 each carries its own source and licence.
+
+What is bundled *into* the installer and is not ours is listed in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) — today that is pdf.js, which
+draws a page of a scan. No AGPL or GPL code is used anywhere here: Zayit,
+HebMorph and Sefaria-ElasticSearch were read as prior art and copied from
+nowhere (`BUILDER.md` T7).

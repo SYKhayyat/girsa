@@ -61,6 +61,9 @@ pub struct Shelf {
     /// What you have said about the link graph (W23). Beside the corrections,
     /// under the same rule: the importer owns the shards and replaces them.
     repairs: girsa_link::repair::Repairs,
+    /// Which page of your scans is which daf (W25). In your layer for a third
+    /// reason on top of the other two: it is about a file only you have.
+    scans: girsa_scan::Scans,
     /// Something wrong with the personal layer that the reader should be told
     /// about — an arrangement file that would not read, so far.
     trouble: Option<String>,
@@ -115,6 +118,8 @@ impl Shelf {
         let (fixes, mut bad_lines) = girsa_fix::Layer::open(personal);
         let (repairs, bad_repairs) = girsa_link::repair::Repairs::open(personal);
         bad_lines.extend(bad_repairs);
+        let (scans, bad_scans) = girsa_scan::Scans::open(personal);
+        bad_lines.extend(bad_scans);
         for line in bad_lines {
             trouble = Some(match trouble {
                 Some(said) => format!("{said} · {line}"),
@@ -142,6 +147,7 @@ impl Shelf {
             fixes,
             showing: Showing::default(),
             repairs,
+            scans,
             trouble,
             works,
             by_slug,
@@ -176,12 +182,15 @@ impl Shelf {
         let root = self.root_of(&work);
         let read = import::read_back(root, slug)
             .map_err(|e| ShelfError::Unreadable(slug.to_string(), e.to_string()))?;
-        Ok(Open::corrected(
-            work,
-            read.segments,
-            &self.fixes,
-            self.showing,
-        ))
+        let open = Open::corrected(work, read.segments, &self.fixes, self.showing);
+        // A scan the reader has paged is addressed by what is printed on its
+        // pages (W25). One place decides that, and this is it.
+        Ok(match self.scans.of(slug) {
+            Some(paging) if paging.is_declared() && crate::scanning::is_scan(&open.work) => {
+                open.paged_by(paging.clone())
+            }
+            _ => open,
+        })
     }
 
     /// Your corrections (W20).
@@ -209,6 +218,39 @@ impl Shelf {
     /// layer, and nothing here may write into `corpus/links/`.
     pub fn repairs_mut(&mut self) -> &mut girsa_link::repair::Repairs {
         &mut self.repairs
+    }
+
+    /// Which page of your scans is which daf (W25).
+    #[must_use]
+    pub fn scans(&self) -> &girsa_scan::Scans {
+        &self.scans
+    }
+
+    /// Say what a scan's pages are, and write it down.
+    ///
+    /// # Errors
+    ///
+    /// If the personal layer will not take it. The mapping was checked when it
+    /// was declared — a `Paging` that exists is one that has been checked.
+    pub fn declare_paging(
+        &mut self,
+        slug: &str,
+        paging: girsa_scan::Paging,
+    ) -> Result<(), ShelfError> {
+        self.scans
+            .declare(slug, paging)
+            .map_err(|e| ShelfError::Refused(e.to_string()))
+    }
+
+    /// Take a mapping back — better no mareh makom than a wrong one.
+    ///
+    /// # Errors
+    ///
+    /// If the personal layer will not write.
+    pub fn forget_paging(&mut self, slug: &str) -> Result<bool, ShelfError> {
+        self.scans
+            .forget(slug)
+            .map_err(|e| ShelfError::Refused(e.to_string()))
     }
 
     /// How much of them is being applied to what you read.
@@ -508,6 +550,27 @@ pub struct Open {
     /// the panes would disagree with the links.
     index: SegmentIndex,
     position: HashMap<SegmentId, usize>,
+    /// For a scan, what the reader has said its pages are called (W25).
+    ///
+    /// # Why an address of a scan is read through this and not through `index`
+    ///
+    /// A scan's segments are addressed by the **file's** page: page 47 of the
+    /// PDF is `47`. What is printed on that page is a different number — the
+    /// sefer's own, once the front matter is off — and for a scan numbered by
+    /// page the two are both plain numbers. So `girsa:user/x/41` means
+    /// *printed page 41* to the viewer and *file page 41* to the index, and on
+    /// a real scan those are seven pages apart with nothing anywhere saying
+    /// which was meant. Two answers for one ref is the silent wrongness this
+    /// project is arranged against, and it was found by running the tool
+    /// against a real PDF rather than by a test.
+    ///
+    /// So once a reader declares what the pages are called, **that is what an
+    /// address of this sefer means**, here and everywhere. A page the mapping
+    /// does not cover is then not reachable by ref, which is the honest
+    /// answer — the reader has said the sefer starts on page 7, and the shaar
+    /// blatt is not a place in it. It is still reachable, still noteable and
+    /// still linkable by its **permanent id**, which no mapping ever moves.
+    paging: Option<girsa_scan::Paging>,
 }
 
 impl Open {
@@ -556,7 +619,18 @@ impl Open {
             corrections,
             index,
             position,
+            paging: None,
         }
+    }
+
+    /// The same, knowing what the reader has said this scan's pages are called.
+    ///
+    /// Set by [`Shelf::read`] for a scan with a mapping, and by nothing else:
+    /// what an address of a sefer means may be decided in one place.
+    #[must_use]
+    pub fn paged_by(mut self, paging: girsa_scan::Paging) -> Self {
+        self.paging = Some(paging);
+        self
     }
 
     #[must_use]
@@ -599,6 +673,17 @@ impl Open {
     /// Empty when the address names nothing here — never the nearest thing.
     #[must_use]
     pub fn at(&self, address: &Address) -> Vec<SegmentId> {
+        // A scan whose pages the reader has named is addressed by those names
+        // and not by the file's page numbers — see the field's note. What the
+        // mapping does is turn one into the other; the lookup below is then the
+        // same lookup every other sefer gets.
+        let address = &match self.paging.as_ref() {
+            Some(paging) => match paging.page_of(address, self.segments.len()) {
+                Some(page) => Address::parse(&page.to_string()).unwrap_or_default(),
+                None => return Vec::new(),
+            },
+            None => address.clone(),
+        };
         let path: Vec<String> = self.work.slug.split('/').map(str::to_string).collect();
         let Some(run) = self.index.resolve(&Ref::point(path, address.clone())) else {
             return Vec::new();
@@ -698,6 +783,7 @@ pub(crate) mod tests {
         let (arrangement, trouble) = Arrangement::load(&personal.join("shelf.json"));
         let (fixes, _) = girsa_fix::Layer::open(personal);
         let (repairs, _) = girsa_link::repair::Repairs::open(personal);
+        let (scans, _) = girsa_scan::Scans::open(personal);
         Shelf {
             root: PathBuf::new(),
             personal: personal.to_path_buf(),
@@ -705,6 +791,7 @@ pub(crate) mod tests {
             fixes,
             showing: Showing::default(),
             repairs,
+            scans,
             trouble,
             by_slug: works
                 .iter()

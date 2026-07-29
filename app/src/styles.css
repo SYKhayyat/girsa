@@ -1433,3 +1433,94 @@ body {
 .writing-box:focus {
   outline: none;
 }
+
+/* --- scans (spec.md §6.3, W25) -------------------------------------------
+ *
+ * The scan *is* the daf, so the page is the whole of what this pane shows: no
+ * chrome over it, no toolbar of somebody else's, nothing between the reader
+ * and the photograph. The canvas is drawn at a fixed pixel width and scaled to
+ * the column, which is what keeps a daf legible in a narrow split.
+ */
+.pane.is-scan .pane-body {
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: var(--page);
+}
+
+.scan-canvas {
+  max-width: 100%;
+  height: auto;
+  /* A scan is a photograph of paper. On a dark background it wants a border,
+     or the white page bleeds into the window. */
+  border: 1px solid var(--rule);
+}
+
+.scan-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.scan-page {
+  width: 4.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.scan-goto {
+  width: 9em;
+  font-family: var(--hebrew);
+}
+
+.scan-page,
+.scan-goto,
+.scan-anchors,
+.scan-of,
+.scan-scheme {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 3px 8px;
+}
+
+.scan-page:focus,
+.scan-goto:focus,
+.scan-anchors:focus,
+.scan-of:focus {
+  outline: none;
+  border-color: var(--mark);
+}
+
+/* The once-per-sefer chore. A small form on the pane rather than a dialogue:
+   the reader is looking at the page they are describing, and a modal would
+   cover the one thing they need to read the answer off. */
+.scan-map {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--rule);
+  background: var(--page-raised);
+}
+
+.scan-anchors {
+  font-family: "Cascadia Mono", "Consolas", var(--hebrew), monospace;
+  resize: vertical;
+}
+
+/* The refusal, in the words `girsa-scan` refused it in — never a second
+   opinion written here, which could disagree with the one the mekoros are
+   printed from. */
+.scan-said {
+  margin: 0;
+  font-size: 12px;
+  color: var(--mark);
+  min-height: 1.2em;
+}

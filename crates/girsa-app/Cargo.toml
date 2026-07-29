@@ -18,6 +18,10 @@ girsa-link.workspace = true
 # the page, a quote, a citation regenerated from a ref — is the sefer as you
 # have it.
 girsa-fix.workspace = true
+# Scans you brought (spec.md §6.3, W25). Which page is which daf is arithmetic
+# on a declaration, and it is kept out of here so it can be tested without a
+# shelf — and so W26's OCR has somewhere to go that is not the workspace.
+girsa-scan.workspace = true
 # The Ksav loop (spec.md §10). The packet is the contract and the formatter is
 # the one both applications compile — neither is reimplemented here.
 girsa-cite.workspace = true
@@ -34,6 +38,12 @@ thiserror.workspace = true
 # dropped on the window; writing one is the same two files backwards. MIT, and
 # with its default features off.
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+# W25's test drops a real scan on a real shelf, so it writes a real PDF rather
+# than checking in a binary nobody can diff — the same way `girsa-corpus` tests
+# the importer that reads it.
+lopdf = { version = "0.42.0", default-features = false }
 
 [lints]
 workspace = true
