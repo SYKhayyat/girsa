@@ -23,11 +23,13 @@ import { PaneView } from "./pane.ts";
 import { Picker } from "./picker.ts";
 import { SearchView } from "./search.ts";
 import { ShelfView } from "./shelf.ts";
+import { WritingView } from "./writing.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
 const shelf = new ShelfView();
 const find = new SearchView();
+const writing = new WritingView();
 const views = new Map<PaneId, PaneView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
@@ -43,7 +45,10 @@ function titleOf(slug: string): string {
 async function main(): Promise<void> {
   if (!root) return;
   await connect();
-  root.append(picker.element, shelf.element, find.element);
+  root.append(picker.element, shelf.element, find.element, writing.element);
+  // The drawer asks the window for a source, because which pane is focused is
+  // the window's business and not the drawer's.
+  writing.onSourceWanted(sourceForBuffer);
   document.addEventListener("keydown", shortcut);
   await whenFilesDropped(whenDropped);
   // Ksav, or a citation clicked in a document, asking for a page (§10.6).
@@ -77,6 +82,7 @@ async function watchForKsav(): Promise<void> {
     } else {
       ksav = now;
     }
+    writing.setKsav(now);
   };
   await look();
   window.setInterval(() => void look(), 5000);
@@ -241,6 +247,7 @@ function tabBar(): HTMLElement {
   bar.append(button("＋", "פתח ספר (Ctrl+O)", openSomething));
   bar.append(button("מדף", "עיין במדף (Ctrl+B)", browseShelf));
   bar.append(button("חפש", "חפש בכל המדף (Ctrl+F)", search));
+  bar.append(button("כתוב", "פתח את הכתיבה (Ctrl+E)", () => void writing.toggle()));
   return bar;
 }
 
@@ -346,6 +353,19 @@ function openSomething(): void {
 function shortcut(event: KeyboardEvent): void {
   if (picker.isOpen) return;
   const control = event.ctrlKey || event.metaKey;
+  // While the caret is in the buffer, the keyboard belongs to the buffer.
+  // Ctrl+C there is *copy*, not copy-a-source, and Alt+N is a letter somebody
+  // is typing — the reading shortcuts are not live inside a text box.
+  if (writing.isOpen && writing.element.contains(event.target as Node)) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      writing.close();
+    } else if (control && event.key.toLowerCase() === "e") {
+      event.preventDefault();
+      writing.close();
+    }
+    return;
+  }
   if (find.isOpen && event.key === "Escape") {
     event.preventDefault();
     find.close();
@@ -402,6 +422,12 @@ function shortcut(event: KeyboardEvent): void {
       views.clear();
       await reload();
     })();
+  } else if (control && event.key.toLowerCase() === "e") {
+    event.preventDefault();
+    void writing.toggle();
+  } else if (writing.isOpen && event.key === "Escape") {
+    event.preventDefault();
+    writing.close();
   } else if (control && event.shiftKey && event.key.toLowerCase() === "c") {
     event.preventDefault();
     void sendToKsav();
@@ -477,6 +503,26 @@ async function sendToKsav(): Promise<void> {
     // and "Ksav refused it" are different things to a reader.
     say(String(e), true);
   }
+}
+
+/**
+ * The passage the reader has highlighted, as real Ksav markup.
+ *
+ * Built in Rust by `girsa-ksav` — the same writer Ksav compiles — so a quote
+ * written into the buffer and a quote sent over the loopback are the same
+ * markup (spec.md §10.3).
+ */
+async function sourceForBuffer(): Promise<string | null> {
+  const open = tab();
+  if (!open) return null;
+  const view = views.get(open.focused);
+  if (!view) return null;
+  const chosen = view.selection();
+  if (chosen) {
+    return api.sourceMarkup(chosen.from, chosen.to, chosen.fromChar, chosen.toChar);
+  }
+  const here = view.here();
+  return here ? api.sourceMarkup(here, here, 0, null) : null;
 }
 
 /** A line the window says and then stops saying. */

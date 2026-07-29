@@ -354,7 +354,7 @@ fn escape_attr(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     // A panic in a test is a failure report. The workspace denies these in
     // library code, where a panic would take the reader's window with it.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -401,7 +401,7 @@ mod tests {
         Open::new(work, segments)
     }
 
-    fn shulchan_arukh() -> Open {
+    pub(crate) fn shulchan_arukh() -> Open {
         sefer(
             "shulchan-arukh/orach-chayim",
             "שולחן ערוך, אורח חיים",

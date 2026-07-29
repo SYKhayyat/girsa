@@ -16,6 +16,9 @@ girsa-link.workspace = true
 # The Ksav loop (spec.md §10). The packet is the contract and the formatter is
 # the one both applications compile — neither is reimplemented here.
 girsa-cite.workspace = true
+# The buffer writes real Ksav markup from the first keystroke (spec.md §10.3),
+# which means the same writer Ksav compiles and not a second one here.
+girsa-ksav.workspace = true
 girsa-source.workspace = true
 serde.workspace = true
 serde_json.workspace = true

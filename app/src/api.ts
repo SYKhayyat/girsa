@@ -143,6 +143,13 @@ export interface Landing {
   id: string;
 }
 
+/** A buffer: what you are writing, and the `.ksav` file it lives in. */
+export interface Writing {
+  name: string;
+  text: string;
+  path: string;
+}
+
 export interface AppState {
   workspace: Workspace;
   nikud: boolean;
@@ -229,6 +236,18 @@ export const api = {
 
   // --- the loopback (W16) -------------------------------------------------
   ksavPresence: () => call<Presence>("ksav_presence"),
+
+  // --- the buffer (W17) ---------------------------------------------------
+  //
+  // The window holds the text while it is being typed and Rust holds the file.
+  // What the window never does is *write markup*: `sourceMarkup` comes from
+  // `girsa-ksav`, the writer Ksav itself compiles.
+  buffers: () => call<string[]>("buffers"),
+  bufferOpen: (name: string) => call<Writing>("buffer_open", { name }),
+  bufferSave: (name: string, text: string) => call<string>("buffer_save", { name, text }),
+  sourceMarkup: (from: string, to: string, fromChar: number, toChar: number | null) =>
+    call<string>("source_markup", { from, to, fromChar, toChar }),
+  bufferToKsav: (name: string, text: string) => call<void>("buffer_to_ksav", { name, text }),
   /** Straight into the open document, no clipboard. Only offered when
    * presence says it would land. */
   sendToKsav: (from: string, to: string, fromChar: number, toChar: number | null, note?: string) =>
@@ -424,6 +443,14 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
           packet: false,
           trouble: "העתקת מקור פועלת בחלון בלבד",
         },
+      } as T;
+    case "buffers":
+      return [] as T;
+    case "buffer_open":
+      return {
+        name: String(args?.name ?? ""),
+        text: "",
+        path: "כתיבה פועלת בחלון בלבד",
       } as T;
     case "ksav_presence":
       return { state: "not_running" } as T;

@@ -877,6 +877,109 @@ fn copy(
     })
 }
 
+// ── The buffer (spec.md §10.3, BUILDER.md W17) ──────────────────────────────
+
+/// What you are writing, and where it is kept.
+#[derive(Serialize)]
+struct Writing {
+    name: String,
+    text: String,
+    /// The file it lives in — a `.ksav` document in your own layer, which is
+    /// the whole of what "opens in real Ksav with zero conversion" means.
+    path: String,
+}
+
+#[tauri::command]
+fn buffers(shared: tauri::State<'_, Shared>) -> Result<Vec<String>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(girsa_app::Buffer::list(shelf.personal()))
+}
+
+#[tauri::command]
+fn buffer_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Writing, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let buffer = girsa_app::Buffer::open(shelf.personal(), &name).map_err(|e| e.to_string())?;
+    let path = girsa_app::Buffer::path(shelf.personal(), &name).map_err(|e| e.to_string())?;
+    Ok(Writing {
+        name: buffer.name,
+        text: buffer.text,
+        path: path.display().to_string(),
+    })
+}
+
+#[tauri::command]
+fn buffer_save(
+    shared: tauri::State<'_, Shared>,
+    name: String,
+    text: String,
+) -> Result<String, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let mut buffer = girsa_app::Buffer::new(name);
+    buffer.text = text;
+    Ok(buffer
+        .save(shelf.personal())
+        .map_err(|e| e.to_string())?
+        .display()
+        .to_string())
+}
+
+/// The markup for a selection, ready to go into the buffer.
+///
+/// **The window does not build this string.** It is `girsa-ksav`'s, the writer
+/// Ksav itself compiles — a second one written in TypeScript is precisely the
+/// drift spec.md §10.3 forbids, and it would show up as documents that differ
+/// depending on which end wrote them.
+#[tauri::command]
+fn source_markup(
+    shared: tauri::State<'_, Shared>,
+    from: String,
+    to: Option<String>,
+    from_char: usize,
+    to_char: Option<usize>,
+) -> Result<String, String> {
+    let from: SegmentId = from.parse().map_err(|e| format!("{e}"))?;
+    let to: SegmentId = match to {
+        Some(to) => to.parse().map_err(|e| format!("{e}"))?,
+        None => from.clone(),
+    };
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let style = state.session.cite;
+    let sefer = state.sefer(from.work())?;
+    let selection = girsa_app::Selection {
+        from,
+        to,
+        from_char,
+        to_char,
+    };
+    let sent = girsa_app::send(sefer, &selection, style, nikud, None).map_err(|e| e.to_string())?;
+    Ok(girsa_ksav::to_ksav(
+        &sent.packet,
+        girsa_ksav::CitationPlacement::Mekor,
+    ))
+}
+
+/// Hand the whole buffer to the real Ksav (spec.md §10.3 — *open the real Ksav
+/// editor here*).
+///
+/// It is saved first, so what Ksav is given and what is on disk are the same
+/// words, and only offered when presence says Ksav would take it.
+#[tauri::command]
+fn buffer_to_ksav(
+    shared: tauri::State<'_, Shared>,
+    name: String,
+    text: String,
+) -> Result<(), String> {
+    buffer_save(shared, name.clone(), text.clone())?;
+    let errand = serde_json::json!({ "name": name, "text": text }).to_string();
+    girsa_post::send(girsa_post::App::Ksav, "/document", Some(&errand))
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Whether Ksav is there (spec.md §10.6 — *presence*).
 ///
 /// Asked of Ksav rather than assumed from a file: an endpoint left behind by a
@@ -1237,6 +1340,11 @@ pub fn run() {
             set_cite_style,
             ksav_presence,
             send_to_ksav,
+            buffers,
+            buffer_open,
+            buffer_save,
+            source_markup,
+            buffer_to_ksav,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

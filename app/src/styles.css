@@ -955,3 +955,80 @@ body {
   border-color: var(--mark);
   color: var(--mark);
 }
+
+/* The buffer (W17): a drawer along the foot of the window, so the sefer you
+   are writing about stays on the screen. A pane would have taken half the
+   reading, and the thing you were about to say is the thing you then go and
+   look up again. */
+.writing {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  height: 38vh;
+  display: none;
+  flex-direction: column;
+  background: var(--page-raised);
+  border-top: 1px solid var(--rule);
+  box-shadow: 0 -4px 18px rgb(0 0 0 / 18%);
+  z-index: 20;
+}
+
+.writing.is-open {
+  display: flex;
+}
+
+.writing-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: wrap;
+}
+
+.writing-name {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 3px 8px;
+  min-width: 10ch;
+  max-width: 28ch;
+}
+
+.writing-note {
+  flex: 1;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+  direction: ltr;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-note.is-trouble {
+  color: var(--mark);
+}
+
+/* Monospace on purpose: this is markup, and a bracket that does not line up
+   is the commonest thing to get wrong in it. */
+.writing-box {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  resize: none;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--ink);
+  font-family: "Cascadia Mono", "Consolas", var(--hebrew), monospace;
+  font-size: calc(15px * var(--reading-size) / 100%);
+  line-height: 1.7;
+}
+
+.writing-box:focus {
+  outline: none;
+}

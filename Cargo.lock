@@ -516,6 +516,7 @@ dependencies = [
  "girsa-cite",
  "girsa-corpus",
  "girsa-hebrew",
+ "girsa-ksav",
  "girsa-link",
  "girsa-ref",
  "girsa-source",
@@ -552,6 +553,13 @@ name = "girsa-hebrew"
 version = "0.3.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "girsa-ksav"
+version = "0.3.0"
+dependencies = [
+ "girsa-source",
 ]
 
 [[package]]

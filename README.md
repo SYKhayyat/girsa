@@ -46,7 +46,7 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and thirty-two commands, and **nothing
+`app/` is the Tauri shell: a window and thirty-seven commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -144,6 +144,7 @@ green in all three repositories.
 | **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
 | **W12** · Torat Emet | The literal mode, and the default. The three operators that get used — the word, the letters it **contains**, those letters **in order** with others between — plus **within X words of each other, in either order**. Every query carries a plan saying exactly what was asked of the index, and a test asserts that plan is the typed words with their nikud off and nothing else. On the shelf: `קדש` is 31,483 segments, `--contains קדש` is 301,910, and the difference is a thing the reader asked for. |
 | **W13** · the ladder | Two columns of one table (§9.6), and the difference between them is the work order: the default mode **offers** the rungs with their counts and applies nothing; Smart climbs them and says so. The counts are computed from the query the click would run, so the promise and the result cannot disagree — checked both ways. Two rungs are named and not offered, because a missing chip reads as *there is nothing down that road*: nikud is already off in every mode, and the root rung is what §9.4 rejected every analyser for. |
+| **W17** · the buffer | Ctrl+E, a drawer at the foot of the window, and **real Ksav markup from the first keystroke** — `girsa-ksav`, the writer Ksav compiles, not a second one in TypeScript. A buffer is a `.ksav` file in your own layer, and Ksav's suite compiles one this window wrote and reads the mekor off the page, below its quote. |
 | **W16** · the pairing | A desk on loopback in each application, token-gated, presence asked rather than assumed — `Live`, `NotRunning` and `Stale` are three different things and the window says which. Ctrl+Shift+C sends into the open document with no clipboard at all; `/cite` and `/quote` let Ksav re-print a citation or re-read a quote from the corpus as it stands. Tested through a real socket, including the 401. And `girsa:…` **is** the deep link — the ref the document already stores. |
 | **W15** · the clipboard | One Ctrl+C, three flavours — and the third is written natively, because a webview's custom format is a private encoding no other application can read. Only the highlighted part travels; the ref is a span when the quote is. The citation is `girsa-cite`, compiled into both apps, and **the test is that Girsa reads back what Girsa printed** — which found two defects in `girsa-ref` and fixed them there. Checked in Ksav against a packet Girsa really sent, asserted **on the laid-out page**. |
 | **W14** · the rest of §9 | The other three modes, the chip row, and the five facets. **A facet row's count is the number clicking it gives you** — the ladder's promise, one section on, asserted for every row of every dimension. On the shelf: `יתגבר כארי` is 79 segments; the rail says `חסידות 26`, and clicking it gives 26. The two instruments the index cannot answer say so by name instead of approximating: a dilug reads letters and a notarikon is four patterns each matching half the vocabulary. |
@@ -862,6 +863,38 @@ print it to PDF, and the mekor in the PDF opens the page it names.
 Anything that is not one of the two errands is refused rather than approximated.
 A URL handler is an entry point every page on the machine can reach.
 
+### A place to write, in the same window
+
+spec.md §10.3. You are learning, you have a thought, and switching applications
+to record one line is how the line does not get recorded. **Ctrl+E** opens a
+drawer along the foot of the window — not a pane, because the sefer you are
+writing about has to stay on the screen.
+
+What it writes is **real Ksav markup from the first keystroke**:
+
+```
+#כותרת1[השכמת הבוקר]
+#ציטוט[ראוי לכל ירא שמים שיהא מיצר ודואג על חורבן בית המקדש:]#מראה_מקום[שולחן ערוך, אורח חיים סימן א' סעיף ג']
+
+וצריך עיון.
+```
+
+That is a `.ksav` file in your own layer, and the acceptance is checked **from
+the other side**: `ksav/engine/tests/from_girsa.rs` takes a buffer this window
+wrote, compiles it with the real Typst engine, and reads the words off the laid
+out page — including that the mekor lands *below* the quote, where a footnote
+belongs.
+
+The markup is not written here. `#ציטוט[…]` comes from `girsa-ksav`, the crate
+Ksav itself compiles, because *lightweight means the UI, not the format*: a
+second writer in TypeScript would be two applications producing documents that
+differ depending on which end wrote them. The window decides where the caret is
+and nothing else.
+
+**פתח בכסב** hands the whole document to the real Ksav over the loopback —
+offered only when presence says it is there. There is no conversion step, which
+is the point: Ksav is opening a document it can already read.
+
 ### What has not been checked
 
 **The shelf panel has been driven in a browser, not in the shell.**
@@ -914,8 +947,8 @@ which has no test harness, and the endpoint files are per-user, so two builds
 running at once is the one thing a test cannot arrange for itself. Start both
 and press Ctrl+Shift+C; that is the check nobody has run.
 
-The rest of the Ksav loop (W17–W19) is still to come: the buffer,
-cite-on-selection, and sending your own writing back into the library.
+The rest of the Ksav loop (W18–W19) is still to come: cite-on-selection, and
+sending your own writing back into the library.
 
 Two things W10 leaves for the orders that own them. A sefer of yours is **not in
 the resolver's lexicon**, so it is opened and filed by title and not yet cited

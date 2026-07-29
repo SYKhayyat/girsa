@@ -34,6 +34,7 @@ girsa-cite = { path = "../../../sefer-crates/crates/girsa-cite" }
 girsa-source = { path = "../../../sefer-crates/crates/girsa-source" }
 # The loopback: token-gated, localhost only, and the `girsa://` links.
 girsa-post = { path = "../../../sefer-crates/crates/girsa-post" }
+girsa-ksav = { path = "../../../sefer-crates/crates/girsa-ksav" }
 clipboard-rs = { version = "0.3.5", default-features = false }
 tauri-plugin-deep-link = "2.4.9"
 

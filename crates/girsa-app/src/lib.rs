@@ -24,6 +24,7 @@
 
 pub mod arrangement;
 pub mod beside;
+pub mod buffer;
 pub mod display;
 pub mod sending;
 pub mod session;
@@ -33,6 +34,7 @@ pub mod workspace;
 
 pub use arrangement::Arrangement;
 pub use beside::{Beside, Place, Relation};
+pub use buffer::{Buffer, BufferError};
 pub use sending::{quote, send, Selection, SendError, Sent};
 pub use session::Session;
 pub use shelf::{Companion, Open, Shelf, ShelfError};
