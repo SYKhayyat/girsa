@@ -55,6 +55,15 @@ pub enum Repair {
         from: String,
         to: String,
     },
+    /// Which words of one of its ends the link is about (spec.md §8.4).
+    ///
+    /// The segment is named because a link has two ends and a span belongs to
+    /// one of them — the one you were looking at when you pinned it.
+    Pinned {
+        at: String,
+        from_char: usize,
+        to_char: usize,
+    },
     /// An edge that is not in the corpus at all, because you drew it.
     Drawn {
         from: String,
@@ -77,6 +86,7 @@ impl Repair {
             } => "rejected",
             Self::Retyped { .. } => "retyped",
             Self::Reanchored { .. } => "reanchored",
+            Self::Pinned { .. } => "pinned",
             Self::Drawn { .. } => "drawn",
         }
     }
@@ -89,6 +99,7 @@ impl Repair {
             (Self::Judged { .. }, Self::Judged { .. })
                 | (Self::Retyped { .. }, Self::Retyped { .. })
                 | (Self::Reanchored { .. }, Self::Reanchored { .. })
+                | (Self::Pinned { .. }, Self::Pinned { .. })
                 | (Self::Drawn { .. }, Self::Drawn { .. })
         )
     }
@@ -270,6 +281,29 @@ impl Repairs {
         )
     }
 
+    /// Say which words of a segment a link is about (spec.md §8.4).
+    ///
+    /// # Errors
+    ///
+    /// If your layer cannot be written.
+    pub fn pin_named(
+        &mut self,
+        edge: &str,
+        at: &girsa_corpus::segment::SegmentId,
+        span: std::ops::Range<usize>,
+        who: &str,
+    ) -> Result<(), RepairError> {
+        self.record(
+            edge.to_string(),
+            Repair::Pinned {
+                at: at.to_string(),
+                from_char: span.start,
+                to_char: span.end,
+            },
+            who,
+        )
+    }
+
     /// Move a link onto the segments it belongs on.
     ///
     /// # Errors
@@ -435,6 +469,16 @@ impl Repairs {
                     repaired.edge.from = from;
                     repaired.edge.to = to;
                 }
+                Repair::Pinned {
+                    at,
+                    from_char,
+                    to_char,
+                } => {
+                    let Ok(at) = at.parse() else {
+                        continue;
+                    };
+                    repaired.pinned = Some((at, *from_char..*to_char));
+                }
                 // A drawn edge is not an override of a shipped one.
                 Repair::Drawn { .. } => continue,
             }
@@ -530,6 +574,8 @@ pub struct Repaired {
     pub mine: bool,
     /// Which of §8.3's actions were applied, in the order they were made.
     pub changed: Vec<&'static str>,
+    /// The words of one end this link is about, where you have said (§8.4).
+    pub pinned: Option<(girsa_corpus::segment::SegmentId, std::ops::Range<usize>)>,
     pub who: Option<String>,
     pub when: Option<u64>,
 }
@@ -543,6 +589,7 @@ impl Repaired {
             rejected: false,
             mine: false,
             changed: Vec::new(),
+            pinned: None,
             who: None,
             when: None,
         }

@@ -376,6 +376,33 @@ body {
   color: var(--mark);
 }
 
+/* The lenses (W24). Saved filters, so the row draws whatever is on the file —
+ * including one you added and not including one you deleted. */
+.lenses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.lens {
+  font-family: var(--hebrew);
+  font-size: 14px;
+  color: var(--ink-quiet);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 2px 12px;
+  cursor: pointer;
+}
+
+.lens.is-on {
+  color: var(--ink);
+  border-color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 14%, transparent);
+}
+
 .link {
   display: flex;
   align-items: center;

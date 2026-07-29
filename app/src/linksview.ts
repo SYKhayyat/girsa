@@ -34,6 +34,10 @@ export class LinksView {
   private readonly list: HTMLElement;
   private readonly note: HTMLElement;
   private at: string | null = null;
+  /** Which lens is on, or none — all of them. */
+  private lens: string | null = null;
+  /** The highlight the panel was opened on, when it was opened on one. */
+  private span: [number, number] | null = null;
   private goTo: ((work: string, at: string) => Promise<void>) | null = null;
   /** Where the reader is standing, for *reanchor to here* and *draw from here*. */
   private here: (() => string | null) | null = null;
@@ -75,17 +79,26 @@ export class LinksView {
     this.here = here;
   }
 
-  async toggle(at: string | null): Promise<void> {
+  /** …and where they have highlighted, for pinning a link onto those words
+   * (spec.md §8.4). */
+  onPinTo(span: () => [number, number] | null): void {
+    this.pinTo = span;
+  }
+
+  private pinTo: (() => [number, number] | null) | null = null;
+
+  async toggle(at: string | null, span?: [number, number] | null): Promise<void> {
     if (this.isOpen) {
       this.close();
       return;
     }
-    await this.show(at);
+    await this.show(at, span);
   }
 
-  async show(at: string | null): Promise<void> {
+  async show(at: string | null, span?: [number, number] | null): Promise<void> {
     if (!at) return;
     this.at = at;
+    this.span = span ?? null;
     this.element.classList.add("is-open");
     this.note.textContent = "קורא…";
     this.list.replaceChildren();
@@ -100,14 +113,17 @@ export class LinksView {
     if (!this.at) return;
     let found: Links;
     try {
-      found = await api.links(this.at);
+      found = await api.links(this.at, this.lens ?? undefined, this.span ?? undefined);
     } catch (e) {
       this.note.textContent = String(e);
       return;
     }
+    this.list.replaceChildren();
     const shown = found.links.filter((link) => !link.rejected);
+    const words = this.span ? " על המילים שסימנת" : "";
     this.note.textContent =
-      shown.length === 0 ? "אין קישורים לשורה זו" : `${shown.length} קישורים`;
+      shown.length === 0 ? `אין קישורים${words}` : `${shown.length} קישורים${words}`;
+    this.list.append(this.lensRow(found));
     if (found.incoming_unknown) {
       // Two different statements, and a short list says the wrong one.
       const warn = document.createElement("p");
@@ -117,6 +133,28 @@ export class LinksView {
       this.list.append(warn);
     }
     this.list.append(...found.links.map((link) => this.row(link, found.types)));
+  }
+
+  /** The lenses, as a row of buttons (spec.md §8.5). They are yours: the five
+   * that ship are five rows of a file, and this draws whatever is on it. */
+  private lensRow(found: Links): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "lenses";
+    const all = this.lensButton(null, "הכל");
+    row.append(all);
+    for (const lens of found.lenses) row.append(this.lensButton(lens.key, lens.title));
+    return row;
+  }
+
+  private lensButton(key: string | null, title: string): HTMLElement {
+    const button = document.createElement("button");
+    button.className = "lens" + (this.lens === key ? " is-on" : "");
+    button.textContent = title;
+    button.addEventListener("click", () => {
+      this.lens = key;
+      void this.draw();
+    });
+    return button;
   }
 
   private row(link: LinkRow, types: string[]): HTMLElement {
@@ -142,6 +180,9 @@ export class LinksView {
     const work = document.createElement("span");
     work.className = "link-work";
     const bits = [`${Math.round(link.confidence * 100)}%`, link.method];
+    // Which words, and who says so — the dibur hamatchil the commentary itself
+    // declares, or a span you pinned (spec.md §8.4).
+    if (link.span_from) bits.push(link.span_from === "pinned" ? "על מילים (שלך)" : "על מילים");
     if (link.label) bits.push(`"${link.label}"`);
     if (link.was && link.was !== link.kind) bits.push(`היה: ${said(link.was)}`);
     if (link.changed.length > 0) bits.push(link.changed.join(", "));
@@ -195,6 +236,23 @@ export class LinksView {
         if (!here) return;
         try {
           await api.linkReanchor(link.edge, link.outgoing ? "to" : "from", here);
+          await this.draw();
+        } catch (e) {
+          this.note.textContent = String(e);
+        }
+      }),
+    );
+    // Pinning: onto the words the reader has highlighted right now, which is
+    // the only span the window can name without asking a second question.
+    box.append(
+      this.button("על מילים אלו", "קבע שהקישור מדבר על מה שסימנת", async () => {
+        const span = this.pinTo?.();
+        if (!span || !this.at) {
+          this.note.textContent = "סמן קודם את המילים";
+          return;
+        }
+        try {
+          await api.linkPin(link.edge, this.at, span[0], span[1]);
           await this.draw();
         } catch (e) {
           this.note.textContent = String(e);

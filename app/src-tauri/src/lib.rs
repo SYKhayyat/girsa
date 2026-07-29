@@ -1120,6 +1120,11 @@ struct LinkRow {
     confirmed: bool,
     rejected: bool,
     mine: bool,
+    /// Which words of the line this link is about, where anything says (§8.4).
+    span: Option<(usize, usize)>,
+    /// Where that came from: `pinned` (you said) or `dibur` (the commentary
+    /// says). Absent when the link is on the whole segment.
+    span_from: Option<&'static str>,
     /// Which of the four repairs have been applied to it.
     changed: Vec<&'static str>,
     who: Option<String>,
@@ -1138,19 +1143,111 @@ struct Links {
     incoming_unknown: bool,
     /// The types a link may be retyped to, in the order they are offered.
     types: Vec<&'static str>,
+    /// Your lenses (§8.5, W24): saved filters, not hardcoded lists.
+    lenses: Vec<LensRow>,
+    /// Which one is on, if any.
+    lens: Option<String>,
 }
 
+#[derive(Serialize)]
+struct LensRow {
+    key: String,
+    title: String,
+}
+
+/// The links on a line — through a lens, and against a highlight (W23, W24).
+///
+/// `lens` is one of yours by key, or nothing for all of them. `from_char`/
+/// `to_char` are a highlight in the line, and then only the links **not known
+/// to be about other words** come back (spec.md §8.4).
 #[tauri::command]
-fn links(shared: tauri::State<'_, Shared>, at: String) -> Result<Links, String> {
+fn links(
+    shared: tauri::State<'_, Shared>,
+    at: String,
+    lens: Option<String>,
+    from_char: Option<usize>,
+    to_char: Option<usize>,
+) -> Result<Links, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let lens = lens.filter(|key| !key.is_empty());
+
+    // The line itself, as the pane drew it, because a span is in those
+    // characters (W20's two coordinate systems, again).
+    let base = {
+        let sefer = state.sefer(at.work())?;
+        let nth = sefer
+            .position_of(&at)
+            .ok_or_else(|| format!("{at} is not in this sefer"))?;
+        sefer
+            .segments
+            .get(nth)
+            .map(|segment| segment.text.clone())
+            .unwrap_or_default()
+    };
+
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let touching = girsa_app::touching(shelf, shelf.repairs(), &at);
+    let mut links = touching.links;
+
+    // The words each link is about, where anything says — and the far end's
+    // text is only consulted for seforim that are **already open**.
+    for link in &mut links {
+        let far = state.open.get(&link.work);
+        link.span = girsa_app::links::span_on(link, &at, &base, far, nikud);
+    }
+    if let (Some(from), Some(to)) = (from_char, to_char) {
+        if from < to {
+            links = girsa_app::links::touching_words(links, from..to);
+        }
+    }
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let (lenses, trouble) = girsa_app::Lenses::load(shelf.personal());
+    if let Some(said) = trouble {
+        eprintln!("{said}");
+    }
+    if let Some(key) = lens.as_deref() {
+        links = lenses.through(key, shelf, links);
+    }
+
     Ok(Links {
-        links: touching.links.iter().map(LinkRow::of).collect(),
+        links: links.iter().map(LinkRow::of).collect(),
         incoming_unknown: touching.incoming_unknown,
         types: EDGE_TYPES.iter().map(|t| t.as_str()).collect(),
+        lenses: lenses
+            .lenses
+            .iter()
+            .map(|(key, lens)| LensRow {
+                key: key.clone(),
+                title: lens.title.clone(),
+            })
+            .collect(),
+        lens,
     })
+}
+
+/// Pin a link onto the words it is about (spec.md §8.4).
+#[tauri::command]
+fn link_pin(
+    shared: tauri::State<'_, Shared>,
+    edge: String,
+    at: String,
+    from_char: usize,
+    to_char: usize,
+) -> Result<(), String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    if from_char >= to_char {
+        return Err("nothing is selected".to_string());
+    }
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let trouble = state.trouble();
+    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let who = who();
+    shelf
+        .repairs_mut()
+        .pin_named(&edge, &at, from_char..to_char, &who)
+        .map_err(|e| e.to_string())
 }
 
 /// The types a reader may set, strongest claim first — the order `EdgeType` is
@@ -1190,6 +1287,14 @@ impl LinkRow {
             confirmed: link.repaired.confirmed,
             rejected: link.repaired.rejected,
             mine: link.repaired.mine,
+            span: link.span.as_ref().map(|span| (span.start, span.end)),
+            span_from: link.span.as_ref().map(|_| {
+                if link.repaired.pinned.is_some() {
+                    "pinned"
+                } else {
+                    "dibur"
+                }
+            }),
             changed: link.repaired.changed.clone(),
             who: link.repaired.who.clone(),
             curated: link.repaired.is_curated(),
@@ -2109,6 +2214,7 @@ pub fn run() {
             link_repair,
             link_reanchor,
             link_draw,
+            link_pin,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");

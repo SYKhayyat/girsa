@@ -212,3 +212,104 @@ fn a_link_you_draw_shows_up_beside_the_shipped_ones() {
     assert_eq!(mine.repaired.confidence(), 1.0);
     assert!(mine.repaired.is_curated(), "you said it, so it is a claim");
 }
+
+#[test]
+fn rashi_says_which_words_he_is_on_and_they_are_found_in_the_gemara() {
+    // W24 on the real corpus. Sefaria marks the dibur hamatchil in the text —
+    // 43,890 of them in Berakhot alone — so *which words a link is about* is
+    // readable rather than guessable, for the commentaries that declare one.
+    //
+    // Asked of the texts rather than through the link panel: Rashi is a
+    // **declared** commentary (its address extends the Gemara's), so the pair
+    // to compare is knowable without reading a single edge, and the panel's own
+    // cost is measured in the test above.
+    let root = corpus_or_skip!();
+    let shelf = Shelf::open(&root, &scratch("dibur")).expect("the shelf opens");
+    let (Ok(gemara), Ok(rashi)) = (
+        shelf.read("bavli/berakhot"),
+        shelf.read("bavli/rashi-on-berakhot"),
+    ) else {
+        eprintln!("skipped: Berakhot and Rashi on it are not both on this shelf");
+        return;
+    };
+
+    // Rashi on Berakhot 2a:1:3 is the third comment on Berakhot 2a:1, so the
+    // base segment is his address with the last level dropped (spec.md §6.1's
+    // rule, and the one `beside` follows).
+    let mut looked_at = 0usize;
+    let mut landed = 0usize;
+    let mut shown = 0usize;
+    for comment in &rashi.segments {
+        if comment.id.path().len() < 3 {
+            continue;
+        }
+        if girsa_app::spans::diburim(&comment.text).is_empty() {
+            continue;
+        }
+        looked_at += 1;
+        if looked_at > 500 {
+            break;
+        }
+        let address: Vec<String> = comment.id.path()[..comment.id.path().len() - 1].to_vec();
+        let Some(base) = gemara
+            .segments
+            .iter()
+            .find(|segment| segment.id.path() == address.as_slice())
+        else {
+            continue;
+        };
+        let Some(span) = girsa_app::spans::dibur_span(&base.text, &comment.text, true) else {
+            continue;
+        };
+        landed += 1;
+
+        let drawn = girsa_app::display::Shown::of(&base.text, true);
+        let letters: Vec<char> = drawn.text().chars().collect();
+        assert!(span.end <= letters.len(), "the span is inside the line");
+        let words: String = letters[span.clone()].iter().collect();
+        assert!(!words.trim().is_empty());
+        if shown < 3 {
+            shown += 1;
+            println!("{} — on: {words}", comment.id);
+        }
+    }
+
+    println!("{landed} of {looked_at} diburim landed on their words");
+    assert!(looked_at > 0, "Rashi on Berakhot declares diburim");
+    // Not a rate to optimise — a fact to state. The ones that do not land are
+    // refused on purpose: the words are not in the line, or are there twice.
+    assert!(
+        landed > 0,
+        "at least some of Rashi's diburim are found in the Gemara he is on"
+    );
+}
+
+#[test]
+fn a_link_on_other_words_is_left_out_and_one_on_the_whole_line_is_not() {
+    // The narrower question (spec.md §8.4): *which links are on these words*.
+    // A link whose words are known and are elsewhere goes; a link with no span
+    // stays, because the whole segment includes what was highlighted.
+    let root = corpus_or_skip!();
+    let shelf = Shelf::open(&root, &scratch("words")).expect("the shelf opens");
+    let at = first_mishnah(&shelf);
+    let mut links = girsa_app::touching(&shelf, shelf.repairs(), &at).links;
+    assert!(links.len() >= 2, "the first mishnah has links");
+
+    // One link pinned to the first ten characters, one left as it came.
+    links[0].span = Some(0..10);
+    let on_the_words = girsa_app::links::touching_words(links.clone(), 2..6);
+    assert!(
+        on_the_words.iter().any(|link| link.span == Some(0..10)),
+        "the one on those words is there"
+    );
+    let elsewhere = girsa_app::links::touching_words(links.clone(), 40..60);
+    assert!(
+        !elsewhere.iter().any(|link| link.span == Some(0..10)),
+        "and it is not there when the highlight is elsewhere"
+    );
+    assert_eq!(
+        elsewhere.len(),
+        links.len() - 1,
+        "everything with no span stays, because it is on the whole segment"
+    );
+}

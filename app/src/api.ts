@@ -127,6 +127,10 @@ export interface LinkRow {
   confirmed: boolean;
   rejected: boolean;
   mine: boolean;
+  /** Which words of the line this link is about (spec.md §8.4). */
+  span: [number, number] | null;
+  /** `pinned` — you said; `dibur` — the commentary says. */
+  span_from: string | null;
   changed: string[];
   who: string | null;
   /** Whether it may be shown as a statement about the texts. */
@@ -139,6 +143,9 @@ export interface Links {
    * swallowed. */
   incoming_unknown: boolean;
   types: string[];
+  /** Your lenses (spec.md §8.5): saved filters, not hardcoded lists. */
+  lenses: { key: string; title: string }[];
+  lens: string | null;
 }
 
 /** A sefer written out with your corrections in it (spec.md §7.4, W22). */
@@ -418,7 +425,15 @@ export const api = {
   // Repairs are overrides in your own layer; nothing here writes into the
   // shipped graph. Which link may be shown as curated fact is answered in
   // Rust, because it is a rule about evidence.
-  links: (at: string) => call<Links>("links", { at }),
+  links: (at: string, lens?: string, span?: [number, number]) =>
+    call<Links>("links", {
+      at,
+      lens: lens ?? null,
+      fromChar: span ? span[0] : null,
+      toChar: span ? span[1] : null,
+    }),
+  linkPin: (edge: string, at: string, fromChar: number, toChar: number) =>
+    call<void>("link_pin", { edge, at, fromChar, toChar }),
   linkRepair: (edge: string, does: string, value?: string) =>
     call<void>("link_repair", { edge, does, value: value ?? null }),
   linkReanchor: (edge: string, end: "from" | "to", to: string) =>
@@ -640,7 +655,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "suspects":
       return [] as T;
     case "links":
-      return { links: [], incoming_unknown: false, types: [] } as T;
+      return { links: [], incoming_unknown: false, types: [], lenses: [], lens: null } as T;
     case "buffer_open":
       return {
         name: String(args?.name ?? ""),

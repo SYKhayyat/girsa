@@ -42,6 +42,12 @@ pub struct Link {
     pub work: String,
     pub he_title: String,
     pub address: String,
+    /// Which words of **the segment you are standing on** this link is about
+    /// (spec.md §8.4, W24), as characters of the text the pane drew.
+    ///
+    /// `None` when nothing says: the link is on the whole segment, which is
+    /// what the shipped data addresses and what most links will say forever.
+    pub span: Option<std::ops::Range<usize>>,
 }
 
 impl Link {
@@ -126,6 +132,55 @@ fn read_shard(root: &Path, slug: &str) -> Vec<girsa_link::Edge> {
     store::read_back(root, slug).unwrap_or_default()
 }
 
+/// Which words of the segment you are standing on a link is about, where
+/// anything says (spec.md §8.4, W24).
+///
+/// Two sources and no third: **you pinned it**, or the commentary at the far end
+/// declares a dibur hamatchil that is in this line exactly once. A link with
+/// neither is on the whole segment, which is what the shipped data addresses.
+///
+/// The far end's words are only looked at when that sefer is **already open** —
+/// the panel is not entitled to read forty seforim off the disk to decorate a
+/// list, and the case where this matters is the one where the commentary is in
+/// the column beside you anyway.
+#[must_use]
+pub fn span_on(
+    link: &Link,
+    at: &SegmentId,
+    base: &str,
+    far: Option<&crate::shelf::Open>,
+    nikud: bool,
+) -> Option<std::ops::Range<usize>> {
+    if let Some((pinned_at, span)) = &link.repaired.pinned {
+        if pinned_at == at {
+            return Some(span.clone());
+        }
+    }
+    let far = far?;
+    let commentary = far
+        .position_of(&link.other.from)
+        .and_then(|nth| far.segments.get(nth))?;
+    crate::spans::dibur_span(base, &commentary.text, nikud)
+}
+
+/// Keep the links that touch a highlight.
+///
+/// A link whose words are known and are **not** these words goes; a link with no
+/// span stays, because it is on the whole segment and the whole segment includes
+/// what was highlighted. Dropping those would be answering "which links are on
+/// these words" with "the ones I happen to know the words of".
+#[must_use]
+pub fn touching_words(links: Vec<Link>, span: std::ops::Range<usize>) -> Vec<Link> {
+    links
+        .into_iter()
+        .filter(|link| {
+            link.span
+                .as_ref()
+                .is_none_or(|on| on.start < span.end && span.start < on.end)
+        })
+        .collect()
+}
+
 fn link(shelf: &Shelf, repaired: Repaired, outgoing: bool) -> Link {
     let other = if outgoing {
         repaired.edge.to.clone()
@@ -143,6 +198,7 @@ fn link(shelf: &Shelf, repaired: Repaired, outgoing: bool) -> Link {
         he_title,
         outgoing,
         repaired,
+        span: None,
     }
 }
 

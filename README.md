@@ -47,7 +47,7 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and forty-nine commands, and **nothing
+`app/` is the Tauri shell: a window and fifty commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -1287,6 +1287,58 @@ test that re-found "the first Rambam row" after each action was confirming one
 link and rejecting another while believing it did both to one. Every repair is
 keyed to the edge's **shipped name** — its two segment ids — which is also why a
 reanchored edge is still found by the record that moved it.
+
+### Which words a link is about, when anything says
+
+spec.md §8.4: *links attach to specific words, not whole segments — selecting a
+phrase highlights only the links touching it.* Nothing in the shipped data says
+which words: Sefaria's links address a segment and so do Otzaria's. So a span
+comes from one of exactly two places, and never from a guess:
+
+1. **The dibur hamatchil** — the commentary says which words it is on, in the
+   text. And the corpus writes that two ways: `<b>…</b>` in some volumes, and a
+   dash in others. Rashi on Berakhot, in the copy on this shelf, is entirely the
+   second — a reader of `<b>` alone finds **nothing** in the whole masechta.
+2. **You said so** — a link you drew from a highlight, or pinned onto one.
+
+Measured on the real text:
+
+```
+255 of 501 diburim landed on their words
+girsa:bavli/rashi-on-berakhot/2a:1:1#1 — on: מֵאֵימָתַי קוֹרִין אֶת שְׁמַע בָּעֲרָבִין? מִשָּׁעָה שֶׁהַכֹּהֲנִים…
+girsa:bavli/rashi-on-berakhot/2a:1:2#2 — on: עַד סוֹף הָאַשְׁמוּרָה הָרִאשׁוֹנָה
+```
+
+That is not a rate to optimise. The half that does not land is **refused on
+purpose**: the words are not in that line, or they are there twice. A dibur
+hamatchil that appears twice gives two candidate spans and no way to choose, so
+it gives none — a highlight on the wrong half of a line looks exactly like a
+highlight on the right one, which is rule 6 in the place a reader would never
+check. Matching is through the normalizer throughout, because Berakhot ships
+menukad and Rashi on it does not.
+
+One of those refusals is worth reading twice: Rashi quotes `בערבין` where the
+mishnah in front of him reads `בערבית`. That is a girsa and not a typo, the
+whole-phrase candidate correctly finds nothing, and the shorter phrase he also
+quotes is what lands.
+
+Asking the narrower question drops **only what is known to be elsewhere**: a
+link with no span stays, because it is on the whole segment and the segment
+includes what was highlighted. Answering "which links are on these words" with
+"the ones whose words I happen to know" would be a shorter list wearing the face
+of a complete one.
+
+### Lenses are saved filters, not five lists
+
+spec.md §8.5. Halacha / Lomdus / Peshat / Girsa / Mine ship as five rows of
+`personal/lenses.json` — each a filter over **type, era and strength** — and
+every one of them is yours to change, add to or delete. Whether the Tur belongs
+under Halacha is a question about how you learn, not about this program.
+
+Strength is where W23 pays: a confirmed link and one you drew score 1.0, an
+untyped seed scores what its method scores (0.9 citation-addressed, 0.7
+line-indexed), and a rejected one scores nothing. So *"only what somebody has
+actually checked"* is a lens with `at_least: 1.0` and no code behind it.
 
 ### Measured against `spec.md` §2
 

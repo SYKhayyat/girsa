@@ -66,6 +66,7 @@ async function main(): Promise<void> {
   suspects.onOpen(openSuspect);
   linksview.onOpen(openFound);
   linksview.onHere(whereIAm);
+  linksview.onPinTo(whatIsHighlighted);
   // The drawer asks the window for a source, because which pane is focused is
   // the window's business and not the drawer's.
   writing.onSourceWanted(sourceForBuffer);
@@ -549,9 +550,23 @@ function whereIAm(): string | null {
  * and asking about "the highlighted part" would be W24's question.
  */
 async function showLinks(): Promise<void> {
-  const here = whereIAm();
-  if (!here) return;
-  await linksview.toggle(here);
+  const open = tab();
+  if (!open) return;
+  const view = views.get(open.focused);
+  // A highlight asks a narrower question: *which links are on these words*
+  // (spec.md §8.4). With nothing highlighted it is the whole line.
+  const chosen = view?.fixSelection();
+  const at = chosen?.at ?? whereIAm();
+  if (!at) return;
+  await linksview.toggle(at, chosen ? [chosen.fromChar, chosen.toChar] : null);
+}
+
+/** The highlight in the focused pane, as offsets in its line. */
+function whatIsHighlighted(): [number, number] | null {
+  const open = tab();
+  if (!open) return null;
+  const chosen = views.get(open.focused)?.fixSelection();
+  return chosen ? [chosen.fromChar, chosen.toChar] : null;
 }
 
 /** Write the sefer out with your corrections in it (spec.md §7.4). */
