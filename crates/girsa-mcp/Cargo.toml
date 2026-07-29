@@ -1,0 +1,30 @@
+[package]
+name = "girsa-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The library, answering a program instead of a person — MCP over stdio"
+
+[dependencies]
+# The shelf, and the text a segment id names.
+girsa-app.workspace = true
+girsa-corpus.workspace = true
+# The five modes and the relaxation ladder. The whole point of this crate is
+# that a program gets the *same* engine a person does, including its refusals —
+# so the modes are this crate's dependency and not its reimplementation.
+girsa-search.workspace = true
+# The graph, and W28's chain tracing over it.
+girsa-link.workspace = true
+girsa-ref.workspace = true
+# Two Hebrew strings are compared in `seforim`, and W2's sibling rule is that
+# every such comparison in this codebase goes through the shared normalizer.
+girsa-hebrew.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

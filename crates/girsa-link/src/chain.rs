@@ -24,11 +24,11 @@
 //!
 //! # What the corpus can and cannot say
 //!
-//! Every edge type present in the 4,182,344 edges on this machine, counted:
+//! Every edge type present in the 4,182,337 edges on this machine, counted:
 //!
 //! ```text
-//! 2,123,216  comments-on     50.8%
-//! 2,048,332  references      49.0%    ← "connected somehow", and nothing more
+//! 2,123,215  comments-on     50.8%
+//! 2,048,326  references      49.0%    ← "connected somehow", and nothing more
 //!     7,812  paraphrases      0.2%
 //!     2,984  quotes           0.1%
 //! ```

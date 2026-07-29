@@ -1,7 +1,7 @@
 //! Build the search index, and probe it (BUILDER.md W11).
 //!
 //! ```sh
-//! cargo run --release -p girsa-search --bin girsa-index -- build corpus index personal
+//! cargo run --release -p girsa-search --bin girsa-index -- build index corpus personal
 //! cargo run --release -p girsa-search --bin girsa-index -- words  index יתגבר כארי
 //! cargo run --release -p girsa-search --bin girsa-index -- phrase index יתגבר כארי
 //! cargo run --release -p girsa-search --bin girsa-index -- stamp  index

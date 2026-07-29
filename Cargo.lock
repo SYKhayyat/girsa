@@ -592,6 +592,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "girsa-mcp"
+version = "0.1.0"
+dependencies = [
+ "girsa-app",
+ "girsa-corpus",
+ "girsa-hebrew",
+ "girsa-link",
+ "girsa-ref",
+ "girsa-search",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "girsa-note"
 version = "0.1.0"
 dependencies = [

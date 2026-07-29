@@ -31,7 +31,7 @@
 //! So: **years first, era only where there are no years**, and where there is
 //! neither the answer is [`Order::Unknown`] and is shown as such.
 //!
-//! Measured over the graph on this machine: **88.7% of the 4,182,344 edges
+//! Measured over the graph on this machine: **88.7% of the 4,182,337 edges
 //! point at a work that can be placed in time** (78.2% on era codes alone). The
 //! other 11.3% are not walked and are counted where they were refused, because
 //! a chain that quietly skipped the seforim it could not date would look

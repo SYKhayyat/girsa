@@ -74,6 +74,24 @@ pub const CACHE_STAMP: &str = "girsa-cache.json";
 /// facet over).
 pub const BUILD_REPORT: &str = "girsa-build.json";
 
+/// Whether a directory holds an index, and so may be thrown away and rebuilt.
+///
+/// Deliberately generous about *which* index: tantivy writes `meta.json` and
+/// Girsa writes [`CACHE_STAMP`] beside it, and either one is enough. An index
+/// half-written by a run that was killed has the first and not the second, and
+/// refusing to rebuild that would be refusing the exact case rebuilding is for.
+///
+/// An empty directory is fine — there is nothing there to lose. Anything else
+/// is somebody's data. See [`SearchIndex::rebuild`] for what this cost before
+/// it existed.
+#[must_use]
+pub fn looks_like_an_index(dir: &Path) -> bool {
+    if dir.join(CACHE_STAMP).is_file() || dir.join("meta.json").is_file() {
+        return true;
+    }
+    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none())
+}
+
 /// Bumped when the *shape* of the index changes — a field added, a field
 /// indexed differently.
 ///
@@ -161,6 +179,16 @@ pub enum IndexError {
     /// not written by Girsa at all. **Rebuild it** — never read it anyway.
     #[error("the index at {path} cannot be trusted: {reason}")]
     Stale { path: String, reason: String },
+    /// [`SearchIndex::rebuild`] was pointed at a directory holding something
+    /// that is not an index.
+    ///
+    /// Rebuilding deletes the directory first, so this is the difference
+    /// between a mistyped argument and a corpus. See [`SearchIndex::rebuild`].
+    #[error(
+        "{path} is not an index and will not be deleted — `girsa-index build` takes the \
+         index directory first and the corpus roots after it"
+    )]
+    NotAnIndex { path: String },
     #[error("the index is missing the field {0}, which this build requires")]
     Field(&'static str),
     /// A `contains` or `letters` pattern matched more distinct words than a
@@ -749,11 +777,33 @@ impl SearchIndex {
     /// were rewritten wholesale, so the index built from them is not worth
     /// patching.
     ///
+    /// # It will only delete an index
+    ///
+    /// This function recursively deletes the path it is given, and the path
+    /// comes off a command line. `girsa-index build` takes the index directory
+    /// **first** and the corpus roots after it, so one transposition —
+    /// `build corpus index` — pointed this at the corpus and destroyed it. That
+    /// happened here, on this machine, and cost a 2.2 GB refetch and the whole
+    /// of Tier 2 again.
+    ///
+    /// So it refuses anything that is not already an index or an empty
+    /// directory. The check is not clever and does not need to be: a tantivy
+    /// index has a `meta.json` and Girsa's has a [`CACHE_STAMP`] beside it, and
+    /// a directory with neither is somebody's data. The cost of the check is a
+    /// `stat`; the cost of not having it was measured.
+    ///
     /// # Errors
     ///
-    /// If the directory cannot be removed or the index cannot be created.
+    /// [`IndexError::NotAnIndex`] if `dir` holds something that is not an
+    /// index. Otherwise, if the directory cannot be removed or the index
+    /// cannot be created.
     pub fn rebuild(dir: &Path) -> Result<Self, IndexError> {
         if dir.exists() {
+            if !looks_like_an_index(dir) {
+                return Err(IndexError::NotAnIndex {
+                    path: dir.display().to_string(),
+                });
+            }
             std::fs::remove_dir_all(dir).map_err(IndexError::io(dir))?;
         }
         Self::create(dir)
@@ -1805,5 +1855,47 @@ mod tests {
         let body = serde_json::to_string(&Stamp::current()).expect("json");
         let read: Stamp = serde_json::from_str(&body).expect("json");
         assert_eq!(read, Stamp::current());
+    }
+
+    #[test]
+    fn rebuilding_will_not_delete_a_directory_that_is_not_an_index() {
+        // This is not hypothetical. `girsa-index build` takes the index
+        // directory first and the corpus roots after it; one transposition —
+        // `build corpus index` — pointed `rebuild` at the corpus and its first
+        // act was `remove_dir_all`. 2.2 GB of fetched export, 7,189 imported
+        // works and a 4.1-million-edge graph, gone, with the exit code of a
+        // missing file.
+        let corpus = std::env::temp_dir().join("girsa-rebuild-guard/corpus");
+        let _ = std::fs::remove_dir_all(corpus.parent().unwrap_or(&corpus));
+        std::fs::create_dir_all(corpus.join("works")).expect("makes a corpus");
+        std::fs::write(corpus.join("works/index.jsonl"), "{}\n").expect("writes");
+
+        let refused = SearchIndex::rebuild(&corpus);
+        assert!(
+            matches!(refused, Err(IndexError::NotAnIndex { .. })),
+            "a directory holding a corpus is not a cache to throw away"
+        );
+        assert!(
+            corpus.join("works/index.jsonl").is_file(),
+            "and it is still there"
+        );
+
+        // What it must still do: an empty directory, a directory that is not
+        // there at all, and — the case rebuilding exists for — an index left
+        // half-written by a run that was killed.
+        let empty = corpus.with_file_name("empty");
+        std::fs::create_dir_all(&empty).expect("makes it");
+        assert!(SearchIndex::rebuild(&empty).is_ok());
+        assert!(SearchIndex::rebuild(&corpus.with_file_name("absent")).is_ok());
+        let half = corpus.with_file_name("half-written");
+        std::fs::create_dir_all(&half).expect("makes it");
+        std::fs::write(half.join("meta.json"), "{}").expect("writes");
+        std::fs::write(half.join("0.store"), "not really").expect("writes");
+        assert!(
+            SearchIndex::rebuild(&half).is_ok(),
+            "an index with tantivy's meta.json and no stamp of ours is still an index"
+        );
+
+        let _ = std::fs::remove_dir_all(corpus.parent().unwrap_or(&corpus));
     }
 }

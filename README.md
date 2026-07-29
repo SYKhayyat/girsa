@@ -86,13 +86,32 @@ cargo run -p girsa-app --bin girsa-shelf -- corpus personal reset
 ```
 
 The index is built and probed the same way — and it is a **rebuildable cache**,
-so `build` throws the old one away rather than patching it:
+so `build` throws the old one away rather than patching it. **The index
+directory comes first and the corpus roots after it**; `rebuild` refuses a
+directory that is not already an index, because that argument order has been
+transposed here once and it cost the corpus:
 
 ```sh
 cargo run --release -p girsa-link  --bin girsa-link-types -- corpus
 cargo run --release -p girsa-search --bin girsa-index -- build index corpus personal
 cargo run --release -p girsa-search --bin girsa-index -- stamp index
 cargo run --release -p girsa-search --bin girsa-index -- find  index corpus יתגבר כארי
+```
+
+The transmission chain is four commands, and the library answers a program over
+stdio:
+
+```sh
+cargo run --release -p girsa-app --bin girsa-chain -- corpus personal \
+    back girsa:mishnah-berurah/58:1#1496 --depth=2
+cargo run --release -p girsa-app --bin girsa-chain -- corpus personal \
+    forward girsa:bavli/berakhot/2a:1#1
+cargo run --release -p girsa-app --bin girsa-chain -- corpus personal \
+    path girsa:bavli/berakhot/2a:1#1 girsa:mishnah-berurah/58:1#1496
+cargo run --release -p girsa-app --bin girsa-chain -- corpus personal \
+    fork girsa:bavli/berakhot/2a:1#1 --width=25
+
+cargo run --release -p girsa-mcp -- corpus personal index
 ```
 
 A scan is a sefer with pages instead of lines, and the once-per-sefer chore that
@@ -160,11 +179,15 @@ query bar.
 **Tier 0 through Tier 8 are done — the corpus is on the shelf, the graph is on
 top of it, there is a window, all five ways of searching it, the Ksav loop in
 both directions, corrections as an overlay that never touches the text, a link
-graph you can argue with, and scans that are citable and readable. Tier 9 has
-started: what you write is a sefer on your own shelf, joined to the sugya by the
-same kind of edge as Rashi — so *what have I written about this* and *who quotes
-this* are one question asked from two ends.** All four verify commands
-green in all three repositories.
+graph you can argue with, and scans that are citable and readable. Tier 9 is
+nearly done: what you write is a sefer on your own shelf joined to the sugya by
+the same kind of edge as Rashi; the transmission chain runs forward from a
+Gemara to how it became halacha and back from a ruling to where it came from,
+along the axis of *when the seforim were written* rather than which way the
+corpus happened to store an edge; and the whole library answers a program over
+MCP with the same refusals it gives a person. One thing in the spec is unbuilt
+and is waiting on a ruling rather than on work: the semantic lane (§9.9).** All
+four verify commands green in all three repositories.
 
 | | What holds |
 |---|---|
@@ -2089,7 +2112,7 @@ written `ה' תרלז - ה' תרלז (בקירוב)` — 5,637 anno mundi, 1877 
 Otzaria-side acharonim, which is the layer a halachic chain *ends* at, so
 dropping them would shorten exactly the traces this is for.
 
-**88.7% of the 4,182,344 edges point at a work that can be placed in time**
+**88.7% of the 4,182,337 edges point at a work that can be placed in time**
 (78.2% on era codes alone). The other 11.3% are not walked, and are counted where
 they were refused rather than quietly skipped — a chain that dropped what it
 could not date would look shorter and surer than it is.
@@ -2110,10 +2133,10 @@ file of the work its far end lands in:
 $ cargo run --release -p girsa-link --bin girsa-link-types -- corpus
 two caches written beside the edges:
   shards read        5790
-  edges              4182344
-  type rows          3637528   (both ends of each, deduplicated)
-  inbound rows       4131107   (51237 skipped — both ends in one work, whose own shard holds them)
-  took               149s
+  edges              4182337
+  type rows          3637524   (both ends of each, deduplicated)
+  inbound rows       4131100   (51237 skipped — both ends in one work, whose own shard holds them)
+  took               139s
 ```
 
 Identical rows to `edges.jsonl`, read back by the same reader, so the two halves
@@ -2132,8 +2155,8 @@ cap with it.
 Every edge type present in the graph, counted:
 
 ```
-2,123,216  comments-on   50.8%
-2,048,332  references    49.0%   ← "these two are joined", and nothing further
+2,123,215  comments-on   50.8%
+2,048,326  references    49.0%   ← "these two are joined", and nothing further
     7,812  paraphrases    0.2%
     2,984  quotes         0.1%
 ```
@@ -2212,8 +2235,98 @@ answering the other, which is a different thing.
   offline is the product), it carries its own licence into a repo that is
   MIT/Apache by obligation (T7), and 5,000,545 segments is days of embedding
   before it answers anything. **That one is for you to rule on.**
-- **MCP is not built.** It is the other half of W28 and it needs no ruling —
-  a local stdio server over the same reads this command already does. Next.
+
+## Answering a program
+
+### The same engine, refusals included
+
+`spec.md` §12 and W28 ask for **MCP on both ends**. Girsa's end is `girsa-mcp`:
+nine tools over stdio — `search`, `read`, `resolve`, `where_from`, `links`,
+`trace`, `path`, `fork`, `seforim`.
+
+Every one of them is a thin call onto the engine the window calls. That
+thinness is the whole design. A second query path written for a caller that
+cannot complain is exactly where §9's guarantees would quietly stop holding,
+and it would stop holding where nobody is watching:
+
+- **Torat Emet is the default here too.** `search` runs literally unless the
+  caller names a mode, and the answer says which mode ran. A program cannot get
+  a widened result by accident any more than a person can.
+- **A zero offers the ladder, priced, and applies nothing.** The rungs come back
+  as `offered_and_not_applied` with their counts. Asking for one is a second
+  call.
+- **A citation with two plausible targets comes back as two.** `resolve` returns
+  `settled: false` and every candidate the shelf could not rule out. There is no
+  `first()` in that file.
+- **Every answer says what it cut** — `not_shown`, `not_followed`,
+  `incoming_half_unknown`. A list that silently stopped at ten reads to an agent,
+  and to whatever the agent is writing, as *these are all of them*.
+
+The `initialize` reply says the first two out loud, because an agent that has to
+discover a refusal by hitting it will work around it instead:
+
+```
+Two things about this engine are deliberate and will not be worked around:
+
+1. Search is literal by default … nothing is applied until you ask for a rung by name.
+2. A citation with more than one plausible target comes back as a list of
+   candidates, never as a pick. Choose one, or ask the person you are working for.
+```
+
+### stdio, and nothing bound
+
+A child process reading a pipe. No port, no socket, nothing dialled — §14 makes
+offline the product, and W16's loopback transport for Ksav is token-gated
+precisely because it *is* a socket. Here the program that can talk to Girsa is
+the program that started it, which needs no gate.
+
+The envelope is a hundred lines of `serde_json` rather than a protocol crate:
+the alternative is carrying somebody else's licence and release cadence for the
+sake of a message wrapper (T7). A version the server has not heard of is **not**
+echoed back — that would be claiming compatibility with a revision this code was
+written before.
+
+```sh
+cargo run --release -p girsa-mcp -- corpus personal index
+```
+
+### What the MCP end does not do
+
+- **Ksav's end is Ksav's repo.** "Both ends" is two servers and this is one of
+  them.
+- **Read only.** Nothing here writes a note, draws a link or records a
+  correction. Those are all *your layer*, and a tool that let an agent edit it
+  without a person in the loop is a different decision from exposing the library.
+- **No resources, no prompts, no sampling.** Tools only.
+- **A search is capped at 50 rows** whatever `limit` says, and says so.
+
+### And one guardrail, bought expensively
+
+`girsa-index build` takes the index directory **first** and the corpus roots
+after it. `SearchIndex::rebuild` deletes the directory it is handed before
+creating an index there. Those two facts met, during this work order, in a
+transposed command — `build corpus index` — and the corpus was deleted: 3.4 GB
+of fetched export, 7,189 imported works and a 4.1-million-edge graph, with the
+exit code of a missing file.
+
+Everything was rebuildable, which is the design working (`spec.md` §4.1: the
+files are the truth, everything else is a cache — and here even the files turned
+out to be a cache of the export). Nothing authored was lost; the personal layer
+lives in a different tree and was untouched. It still cost the whole of Tier 2
+again.
+
+So `rebuild` now refuses any directory that is not already an index or empty.
+The check is a `stat` for tantivy's `meta.json` or Girsa's own stamp; the cost
+of not having it was measured.
+
+One number moved in the rebuild and it is worth saying rather than papering
+over: the graph came back as **4,182,337 edges** against W8's 4,182,344.
+Sefaria's export is a live bucket and a day passed between the two fetches;
+7 rows in 5.1 million changed upstream. Every other measurement in this file
+came back identical — 7,189 works, 5,375 of them datable, 4,812 with an era,
+5,294 with a year. The W8 tables above are left at the numbers that run produced,
+because rewriting a measurement to match a later one is how a measured number
+turns into a documented one.
 
 ## Licence
 
