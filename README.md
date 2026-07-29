@@ -40,14 +40,14 @@ file in the app's data directory.
 | `girsa-corpus` | Storage, ingest, schemas, permanent segment IDs |
 | `girsa-search` | tantivy indices, the five modes, the ladder, the chips and the facets |
 | `girsa-link` | The typed link graph, repair, later mining |
-| `girsa-fix` | Corrections as an overlay: patches on permanent ids, never edits to the text |
+| `girsa-fix` | Corrections as an overlay, and the ranked OCR queue |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
 
 plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and forty-one commands, and **nothing
+`app/` is the Tauri shell: a window and forty-four commands, and **nothing
 that decides anything**. Where a pane lands, what may sit beside what, and what the
 nikud toggle takes off are all answered in `girsa-app`, because those can be
 tested and a webview cannot.
@@ -1074,6 +1074,57 @@ errors and only notes variants. **Ctrl+Shift+K** rounds the three settings —
 corrected, as printed, with variants — and it is remembered like the nikud
 toggle. A variant carries the ref of the sefer that says it, which is the
 `emends` edge of spec.md §8.2 written from the other end.
+
+### The queue is worth more than the editor, and the corpus said why
+
+spec.md §7.3: *a word appearing exactly once in the corpus, one edit-distance
+from a word appearing ten thousand times, is almost certainly an OCR error.*
+`girsa-suspects` is that batch job. It reads the **index's term dictionary** —
+tantivy has already counted every word of every segment, so a second pass over
+five million of them would be an hour spent arriving at the same table.
+
+```
+2,402,768 words in the index, read in 5.6s
+   28,124 candidates in 90.1s
+    1,356 of them a known confusion of shapes
+```
+
+What makes it usable is what it refuses. Hebrew attaches its function words to
+the front of the next one, so `ובשבת` is `בשבת` with a vav — one edit, and it
+looks exactly like a scanner dropping a letter:
+
+| refused | why |
+|---|---|
+| a letter added or dropped at the **front**, where it is ו ה ב כ ל מ ש ד | a prefix, not a scanner |
+| a letter added or dropped at the **end**, where it is ו י ה כ מ נ ת | a pronoun or a plural |
+| words shorter than four letters | every short Hebrew word is one edit from a dozen others |
+
+**And the first ranking was wrong, which the real corpus is what said so.**
+Ranked by how common the neighbour is, the queue opened with ten misspellings of
+`הוא` — a word in 1,305,264 segments, so every four-letter near-miss of it
+outranks every ד/ר in the library. Frequency is not evidence. What replaced it
+weighs three things: how common the neighbour is *as a logarithm*, how long the
+rare word is, and **what the scanner did** — a letter read as another is worth
+twice a letter that merely appeared, and a pair that look alike in print is
+worth twice again. The same run, rescored:
+
+```
+סשומ (1) → משומ (574,691) [מ/ס]   bavli/shita-mekubetzet-on-bava-metzia 12b:2
+שאיג (1) → שאינ (556,837) [ג/נ]   torah-ohr bereshit:3:11
+אפילז (1) → אפילו (315,809) [ו/ז]  bavli/penei-yehoshua-on-kiddushin 12a:5
+יהודח (1) → יהודה (173,217) [ה/ח]  ein-yaakov sanhedrin:11:70
+רכינו (1) → רבינו (189,148) [ב/כ]  tzafnat-paneach-on-torah leviticus:7:35
+```
+
+**Nothing in the queue corrects anything.** A candidate is a question: which
+word, which word it looks like, how often each was seen, and where to go and
+look. Opening one takes you to the place with the word marked and the correction
+box on it — and the correction goes through the same path a correction made
+while reading does. Ctrl+J opens the queue; *לא טעות* takes a candidate off it.
+
+A decision survives the batch job running again, which is the difference between
+a tool and a list: without that, the second run hands you the four thousand you
+have already dismissed, and you stop running it.
 
 ### What corrections do not reach yet
 

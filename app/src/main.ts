@@ -18,6 +18,7 @@ import {
   type PaneId,
   type Presence,
   type Showing,
+  type SuspectRow,
   type Tab,
 } from "./api.ts";
 import { FixBox } from "./fix.ts";
@@ -26,6 +27,7 @@ import { PaneView } from "./pane.ts";
 import { Picker } from "./picker.ts";
 import { SearchView } from "./search.ts";
 import { ShelfView } from "./shelf.ts";
+import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
@@ -34,6 +36,7 @@ const shelf = new ShelfView();
 const find = new SearchView();
 const writing = new WritingView();
 const fixbox = new FixBox();
+const suspects = new SuspectsView();
 const views = new Map<PaneId, PaneView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
@@ -49,7 +52,15 @@ function titleOf(slug: string): string {
 async function main(): Promise<void> {
   if (!root) return;
   await connect();
-  root.append(picker.element, shelf.element, find.element, writing.element, fixbox.element);
+  root.append(
+    picker.element,
+    shelf.element,
+    find.element,
+    writing.element,
+    suspects.element,
+    fixbox.element,
+  );
+  suspects.onOpen(openSuspect);
   // The drawer asks the window for a source, because which pane is focused is
   // the window's business and not the drawer's.
   writing.onSourceWanted(sourceForBuffer);
@@ -138,7 +149,14 @@ async function draw(): Promise<void> {
   const open = tab();
   if (!open) {
     chrome.append(nothingOpen());
-    root.replaceChildren(chrome, picker.element, shelf.element, find.element, fixbox.element);
+    root.replaceChildren(
+      chrome,
+      picker.element,
+      shelf.element,
+      find.element,
+      suspects.element,
+      fixbox.element,
+    );
     return;
   }
 
@@ -147,7 +165,14 @@ async function draw(): Promise<void> {
   });
   boxes.classList.add("panes");
   chrome.append(boxes);
-  root.replaceChildren(chrome, picker.element, shelf.element, find.element, fixbox.element);
+  root.replaceChildren(
+    chrome,
+    picker.element,
+    shelf.element,
+    find.element,
+    suspects.element,
+    fixbox.element,
+  );
 
   // Panes that are no longer open go, and the ones that stayed keep their
   // scroll position rather than being rebuilt underneath the reader.
@@ -253,6 +278,18 @@ function tabBar(): HTMLElement {
   bar.append(button("מדף", "עיין במדף (Ctrl+B)", browseShelf));
   bar.append(button("חפש", "חפש בכל המדף (Ctrl+F)", search));
   bar.append(button("כתוב", "פתח את הכתיבה (Ctrl+E)", () => void writing.toggle()));
+  // The queue, where there is one. Not shown at all when the batch job has
+  // never been run: a button that opens an empty list teaches the reader that
+  // the feature does nothing.
+  if ((state?.suspects ?? 0) > 0) {
+    bar.append(
+      button(
+        `טעויות ${state?.suspects ?? 0}`,
+        "תור שגיאות הסריקה (Ctrl+J)",
+        () => void suspects.toggle(),
+      ),
+    );
+  }
   return bar;
 }
 
@@ -407,6 +444,48 @@ function correct(): void {
   );
 }
 
+/**
+ * Open a candidate from the queue (W21).
+ *
+ * The place, the word marked, and the correction box on it with the common
+ * spelling suggested — and **nothing applied**. The reader is looking at the
+ * sefer while they decide, which is the whole reason the queue points at a
+ * place rather than offering a button that says *fix*.
+ */
+async function openSuspect(row: SuspectRow): Promise<void> {
+  if (!row.at || !row.work) return;
+  await openFound(row.work, row.at);
+  const open = tab();
+  const view = open?.panes.find((p) => p.slug === row.work);
+  const pane = view ? views.get(view.id) : undefined;
+  if (!pane) return;
+  try {
+    const standing = await api.suspectAt(row.id, row.at);
+    const at = pane.markWord(standing.at, standing.from_char, standing.to_char);
+    fixbox.show(
+      {
+        at: standing.at,
+        fromChar: standing.from_char,
+        toChar: standing.to_char,
+        words: standing.suggestion ?? standing.printed,
+        fixed: [],
+        printed: standing.printed,
+      },
+      at,
+      {
+        save: async (now, kind) => {
+          await applyFix(pane, standing.at, standing.from_char, standing.to_char, now, kind);
+          await api.suspectDecide(row.id, "fixed");
+          suspects.taken(row.id);
+        },
+        revert: async () => {},
+      },
+    );
+  } catch (e) {
+    say(String(e), true);
+  }
+}
+
 async function applyFix(
   view: PaneView,
   at: string,
@@ -487,6 +566,11 @@ function shortcut(event: KeyboardEvent): void {
     }
     return;
   }
+  if (suspects.isOpen && event.key === "Escape") {
+    event.preventDefault();
+    suspects.close();
+    return;
+  }
   if (find.isOpen && event.key === "Escape") {
     event.preventDefault();
     find.close();
@@ -549,6 +633,9 @@ function shortcut(event: KeyboardEvent): void {
   } else if (writing.isOpen && event.key === "Escape") {
     event.preventDefault();
     writing.close();
+  } else if (control && event.key.toLowerCase() === "j") {
+    event.preventDefault();
+    void suspects.toggle();
   } else if (control && event.shiftKey && event.key.toLowerCase() === "k") {
     event.preventDefault();
     void nextShowing();

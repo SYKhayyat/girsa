@@ -31,7 +31,7 @@
 //! did not write. The index is a rebuildable cache (spec.md §4.1); refusing it
 //! costs a rebuild, and trusting it costs the reader's trust in the search box.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::{Segment, SegmentKind};
@@ -1339,6 +1339,41 @@ impl SearchIndex {
     /// If the search cannot be run or a stored document cannot be read back.
     pub fn words(&self, query: &str) -> Result<Vec<Hit>, IndexError> {
         Ok(self.search(&torat_emet::Query::new(query))?.hits)
+    }
+
+    /// Every word in the index, and how many segments each is in.
+    ///
+    /// The OCR queue's input (W21). It is read straight out of tantivy's term
+    /// dictionary, which is this table already — the alternative is a pass over
+    /// five million segments to count what the index counted while it was being
+    /// built.
+    ///
+    /// The words are the **indexed** spellings: nikud off, final letters
+    /// folded, exactly as W11 wrote them. That is what makes comparing two of
+    /// them mean something, and it is why a suspect has to be turned back into
+    /// the printed word before anybody is shown it.
+    ///
+    /// # Errors
+    ///
+    /// If a segment of the index will not open.
+    pub fn vocabulary(&self) -> Result<Vec<(String, u64)>, IndexError> {
+        let searcher = self.reader.searcher();
+        let mut counts: HashMap<String, u64> = HashMap::new();
+        for reader in searcher.segment_readers() {
+            let inverted = reader.inverted_index(self.fields.text)?;
+            let mut words = inverted.terms().stream().map_err(|source| IndexError::Io {
+                path: "the term dictionary".to_string(),
+                source,
+            })?;
+            while let Some((word, info)) = words.next() {
+                let Ok(word) = std::str::from_utf8(word) else {
+                    // A term that is not text is not a word anybody typed.
+                    continue;
+                };
+                *counts.entry(word.to_string()).or_default() += u64::from(info.doc_freq);
+            }
+        }
+        Ok(counts.into_iter().collect())
     }
 
     /// Segments holding these words, adjacent and in this order.

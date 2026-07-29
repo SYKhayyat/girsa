@@ -35,6 +35,8 @@
 //! the patch is reported stale. A correction that lands on the wrong letters is
 //! worse than one that does not land (BUILDER.md rule 6).
 
+pub mod suspect;
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::Range;

@@ -15,6 +15,10 @@ girsa-hebrew.workspace = true
 # are read off the index, and the column they are read from is written from
 # `girsa_link::touching` at build time.
 girsa-link.workspace = true
+# The OCR queue (W21). The finding and the ranking are `girsa-fix`'s, because
+# they are about corrections; the term dictionary they read is this crate's,
+# and `girsa-suspects` is the thin batch job between them.
+girsa-fix.workspace = true
 girsa-ref.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -293,6 +293,38 @@ export class PaneView {
     return { at: here, fixed: line.fixed ?? [], printed: line.printed ?? null };
   }
 
+  /**
+   * Point at one word of one line, and say where it ended up on the screen.
+   *
+   * What the OCR queue needs (W21): the reader arrives at a line they have
+   * never seen, and the word in question has to be the one their eye lands on.
+   * The offsets are the ones Rust worked out — this only draws them.
+   */
+  markWord(id: string, fromChar: number, toChar: number): DOMRect | null {
+    const at = this.byId.get(id);
+    if (at === undefined) return null;
+    if (at < this.from + 5 || at >= this.to - 5) this.render(at);
+    const line = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(id)}"]`);
+    const words = line?.querySelector<HTMLElement>(".line-text");
+    if (!line || !words) return null;
+
+    this.quiet = true;
+    this.body.scrollTop +=
+      line.getBoundingClientRect().top - this.body.getBoundingClientRect().top - 8;
+    window.setTimeout(() => {
+      this.quiet = false;
+    }, 120);
+
+    // A range over the characters themselves, so the mark is on the word and
+    // not on the line — and so its rectangle is where the box opens.
+    const range = charRange(words, fromChar, toChar);
+    if (!range) return null;
+    const chosen = window.getSelection();
+    chosen?.removeAllRanges();
+    chosen?.addRange(range);
+    return range.getBoundingClientRect();
+  }
+
   /** A word about who this pane is following, in its header. */
   setFollowing(label: string): void {
     let chip = this.element.querySelector<HTMLElement>(".pane-follows");
@@ -351,6 +383,35 @@ function runElement(run: Run): Node {
   node.className = run.style === "opening" ? "run-opening" : "run-quiet";
   node.textContent = run.text;
   return node;
+}
+
+/**
+ * A range over characters `from..to` of a line's words.
+ *
+ * Walked over the text nodes, because a line is runs and `<br>`s rather than
+ * one string — the same reason `offsetIn` asks the document rather than adding
+ * up lengths.
+ */
+function charRange(words: HTMLElement, from: number, to: number): Range | null {
+  const walker = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  let seen = 0;
+  let started = false;
+  let node = walker.nextNode();
+  while (node) {
+    const length = node.textContent?.length ?? 0;
+    if (!started && seen + length >= from) {
+      range.setStart(node, from - seen);
+      started = true;
+    }
+    if (started && seen + length >= to) {
+      range.setEnd(node, to - seen);
+      return range;
+    }
+    seen += length;
+    node = walker.nextNode();
+  }
+  return started ? range : null;
 }
 
 function addressOf(line: HTMLElement): string {

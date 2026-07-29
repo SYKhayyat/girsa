@@ -318,6 +318,113 @@ body {
   opacity: 0.55;
 }
 
+/* --- the OCR queue (W21) -----------------------------------------------
+ *
+ * A drawer down the side rather than a dialog: the reader works down it with
+ * the sefer open, and every row that is opened puts the word on the page
+ * beside the list.
+ */
+.suspects {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  overflow: hidden;
+  z-index: 30;
+  background: var(--page-raised);
+  border-left: 1px solid var(--rule);
+  transition: width 0.12s ease-out;
+}
+
+.suspects.is-open {
+  width: min(560px, 46vw);
+}
+
+.suspects-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.suspects-title {
+  font-family: var(--hebrew);
+  font-size: 17px;
+}
+
+.suspects-note {
+  flex: 1;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.suspects-list {
+  height: calc(100% - 44px);
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.suspects-empty {
+  margin: 16px 14px;
+  font-family: var(--plain);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-quiet);
+  direction: ltr;
+  text-align: left;
+  word-break: break-word;
+}
+
+.suspect {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 60%, transparent);
+}
+
+.suspect:hover {
+  background: color-mix(in srgb, var(--mark) 8%, transparent);
+}
+
+.suspect-words {
+  flex: 0 0 auto;
+  min-width: 11em;
+  font-family: var(--hebrew);
+  font-size: 17px;
+}
+
+.suspect-arrow {
+  color: var(--ink-quiet);
+}
+
+.suspect-counts,
+.suspect-how,
+.suspect-where {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+.suspect-how {
+  flex: 0 0 auto;
+  min-width: 4.5em;
+  color: var(--mark);
+}
+
+.suspect-where {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--hebrew);
+  font-size: 13px;
+}
+
 /* The correction box: it opens where the words are, with the words in it. */
 .fixbox {
   position: fixed;

@@ -1453,6 +1453,7 @@ name = "girsa-search"
 version = "0.1.0"
 dependencies = [
  "girsa-corpus",
+ "girsa-fix",
  "girsa-hebrew",
  "girsa-link",
  "girsa-ref",

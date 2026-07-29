@@ -116,6 +116,36 @@ pub fn correction(
     Ok(Patch::new(at.clone(), span, was, now, kind, who))
 }
 
+/// Where a word the OCR queue found sits on the page (W21).
+///
+/// The queue works in the **index's** spelling — nikud off, final letters
+/// folded — and the page is neither. So the line is tokenized by the same
+/// normalizer the index was built with (W2) and the token whose normal form is
+/// the word is the one to point at. Comparing the printed strings would find
+/// nothing at all on a menukad page.
+///
+/// The first occurrence, where a line has the word twice: the box opens on a
+/// place the reader can see, and the second one is the next item in the queue.
+#[must_use]
+pub fn where_word(
+    sefer: &Open,
+    at: &SegmentId,
+    word: &str,
+    nikud: bool,
+) -> Option<std::ops::Range<usize>> {
+    let position = sefer.position_of(at)?;
+    let segment = sefer.segments.get(position)?;
+    let drawn = Shown::of(&segment.text, nikud);
+    let token = girsa_hebrew::tokenize(drawn.text())
+        .into_iter()
+        .find(|token| token.text == word)?;
+    // `tokenize` counts bytes and everything downstream counts characters.
+    let letters = drawn.text();
+    let from = letters.get(..token.start)?.chars().count();
+    let to = letters.get(..token.end)?.chars().count();
+    (from < to).then_some(from..to)
+}
+
 #[cfg(test)]
 mod tests {
     // A panic in a test is a failure report. The workspace denies these in
@@ -239,6 +269,40 @@ mod tests {
             matches!(refused, Err(FixHere::AlreadyCorrected { .. })),
             "{refused:?}"
         );
+    }
+
+    #[test]
+    fn a_word_the_queue_found_is_pointed_at_on_the_page_and_not_in_the_index() {
+        // The queue has `ובשבת` — the index's spelling. The page has
+        // `וּבַשַּׁבָּת` inside a `<b>`, and the reader may have nikud on or off. All
+        // three are the same word, and only the normalizer knows it.
+        let sefer = sefer(&Layer::nowhere());
+        let bare = where_word(&sefer, &id(), "ובשבת", false).expect("it is on the page");
+        assert_eq!(bare, 8..13);
+        assert_eq!(
+            Shown::of(AS_PRINTED, false)
+                .text()
+                .chars()
+                .collect::<Vec<_>>()[bare]
+                .iter()
+                .collect::<String>(),
+            "ובשבת"
+        );
+
+        // With nikud on, the same word is twice as many characters, and the
+        // span still covers exactly it.
+        let pointed = where_word(&sefer, &id(), "ובשבת", true).expect("still there");
+        assert_eq!(
+            Shown::of(AS_PRINTED, true)
+                .text()
+                .chars()
+                .collect::<Vec<_>>()[pointed]
+                .iter()
+                .collect::<String>(),
+            "וּבַשַּׁבָּת"
+        );
+
+        assert_eq!(where_word(&sefer, &id(), "אנפילאות", false), None);
     }
 
     #[test]

@@ -104,6 +104,35 @@ export interface PatchRow {
 /** How much of the correction layer is applied to what you read. */
 export type Showing = "as_printed" | "fixed" | "fixed_with_variants";
 
+/** One candidate from the OCR queue (spec.md §7.3, W21). A question, not a
+ * correction: it says which word, which word it looks like, how often each was
+ * seen, and where to go and look. */
+export interface SuspectRow {
+  id: string;
+  rare: string;
+  common: string;
+  rare_count: number;
+  common_count: number;
+  /** `ד/ר`, where the letters are a pair that look alike in print. */
+  confusion: string | null;
+  how: "letter" | "added" | "dropped" | "swapped";
+  at: string | null;
+  work: string | null;
+  he_title: string | null;
+  address: string | null;
+}
+
+/** Where a candidate's word sits on the page, and what to put in the box. */
+export interface Standing {
+  at: string;
+  from_char: number;
+  to_char: number;
+  printed: string;
+  /** `null` on a pointed word — rebuilding nikud for different letters would
+   * be inventing text, so the reader types it. */
+  suggestion: string | null;
+}
+
 export interface Text {
   work: Card;
   lines: Line[];
@@ -204,6 +233,8 @@ export interface AppState {
   showing: Showing;
   /** How many corrections you have made. */
   fixes: number;
+  /** How many OCR candidates are waiting to be looked at. */
+  suspects: number;
 }
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -316,6 +347,16 @@ export const api = {
   unfix: (at: string, patch: string) => call<Fixed>("unfix", { at, patch }),
   setShowing: (showing: Showing) => call<void>("set_showing", { showing }),
   fixes: (slug?: string) => call<PatchRow[]>("fixes", { slug: slug ?? null }),
+
+  // --- the OCR queue (W21) ------------------------------------------------
+  //
+  // Written by `girsa-suspects`, a batch job that runs outside the window.
+  // Nothing here applies anything: `suspectAt` says where the word is, and the
+  // correction goes through `fix` like any other.
+  suspects: (limit: number) => call<SuspectRow[]>("suspects", { limit }),
+  suspectAt: (id: string, at: string) => call<Standing>("suspect_at", { id, at }),
+  suspectDecide: (id: string, decision: "dismissed" | "fixed") =>
+    call<void>("suspect_decide", { id, decision }),
 };
 
 
@@ -454,6 +495,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       works: 0,
       showing: "fixed",
       fixes: 0,
+      suspects: 0,
       trouble:
         "running in a browser with no fixtures — build them with " +
         "`cargo run -p girsa-app --example dev-fixtures`",
@@ -526,6 +568,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "unfix":
       throw new Error("תיקונים פועלים בחלון בלבד");
     case "fixes":
+    case "suspects":
       return [] as T;
     case "buffer_open":
       return {

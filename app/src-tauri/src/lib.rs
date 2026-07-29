@@ -72,6 +72,10 @@ pub(crate) struct State {
     /// The resolver's lexicon, for linkify (W19). Read once: it is 24,731
     /// spellings and a citation is looked up per word of prose.
     pub(crate) lexicon: Option<girsa_ref::Lexicon>,
+    /// The OCR queue, once it has been looked at (W21). Written by
+    /// `girsa-suspects`, which is a batch job outside this window, so it is
+    /// re-read whenever the drawer is opened rather than held as truth.
+    queue: Option<girsa_fix::suspect::Queue>,
     /// Slug → the sefer, read once. Cleared oldest-first.
     open: HashMap<String, Open>,
     order: Vec<String>,
@@ -283,7 +287,15 @@ struct Move {
 
 #[tauri::command]
 fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    // The queue is 28,124 lines on the real corpus and this is asked on every
+    // redraw, so it is read once and held. `suspects` re-reads it, which is
+    // where a run of the batch job is noticed.
+    if state.queue.is_none() {
+        if let Some(personal) = state.shelf.as_ref().map(|s| s.personal().to_path_buf()) {
+            state.queue = Some(girsa_fix::suspect::Queue::open(&personal).0);
+        }
+    }
     Ok(serde_json::json!({
         "workspace": state.session.workspace,
         "nikud": state.session.nikud,
@@ -295,6 +307,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> 
         "pairing": state.no_post,
         "showing": state.session.showing,
         "fixes": state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
+        "suspects": state.queue.as_ref().map_or(0, girsa_fix::suspect::Queue::waiting),
     }))
 }
 
@@ -1078,6 +1091,154 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
     Ok(rows)
 }
 
+// ── The OCR queue (spec.md §7.3, BUILDER.md W21) ────────────────────────────
+
+/// One candidate, as the queue shows it.
+#[derive(Serialize)]
+struct SuspectRow {
+    id: String,
+    rare: String,
+    common: String,
+    rare_count: u64,
+    common_count: u64,
+    /// `ד/ר`, where the letters are a pair that look alike in print.
+    confusion: Option<String>,
+    /// What the scanner did — `letter`, `added`, `dropped`, `swapped`.
+    how: &'static str,
+    /// Where to go and look: the first place, with the sefer named.
+    at: Option<String>,
+    work: Option<String>,
+    he_title: Option<String>,
+    address: Option<String>,
+}
+
+/// The next candidates to review, best first.
+///
+/// Re-read from disk every time: `girsa-suspects` is a batch job that runs
+/// outside this window, and a queue held in memory would be the one from
+/// before it ran.
+#[tauri::command]
+fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<SuspectRow>, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let (queue, trouble) = girsa_fix::suspect::Queue::open(shelf.personal());
+    for line in trouble {
+        eprintln!("{line}");
+    }
+    let rows = queue
+        .ranked(limit.clamp(1, 500))
+        .into_iter()
+        .map(|suspect| {
+            let at = suspect.places.first();
+            SuspectRow {
+                id: suspect.id.clone(),
+                rare: suspect.rare.clone(),
+                common: suspect.common.clone(),
+                rare_count: suspect.rare_count,
+                common_count: suspect.common_count,
+                confusion: suspect.confusion.clone(),
+                how: suspect.how.as_str(),
+                at: at.map(ToString::to_string),
+                work: at.map(|id| id.work().to_string()),
+                he_title: at.and_then(|id| shelf.work(id.work()).map(|w| w.he_title.clone())),
+                address: at.map(|id| id.path().join(":")),
+            }
+        })
+        .collect();
+    state.queue = Some(queue);
+    Ok(rows)
+}
+
+/// Where on the page a candidate's word is, and what to put in the box.
+#[derive(Serialize)]
+struct Standing {
+    at: String,
+    from_char: usize,
+    to_char: usize,
+    /// The word as printed, which is what the reader is about to change.
+    printed: String,
+    /// The common spelling, where it can be given without inventing text —
+    /// see [`girsa_fix::suspect::Suspect::suggestion`]. `null` on a pointed
+    /// word, and then the reader types.
+    suggestion: Option<String>,
+}
+
+/// Open a candidate: where its word sits in the segment the queue named.
+#[tauri::command]
+fn suspect_at(
+    shared: tauri::State<'_, Shared>,
+    id: String,
+    at: String,
+) -> Result<Standing, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let (queue, _) = girsa_fix::suspect::Queue::open(shelf.personal());
+    let suspect = queue.get(&id).ok_or("there is no such candidate")?.clone();
+    state.queue = Some(queue);
+
+    let sefer = state.sefer(at.work())?;
+    let span = girsa_app::fixing::where_word(sefer, &at, &suspect.rare, nikud)
+        .ok_or("that word is not in that line any more")?;
+    let drawn = girsa_app::display::Shown::of(
+        &sefer
+            .segments
+            .get(sefer.position_of(&at).ok_or("not in this sefer")?)
+            .ok_or("not in this sefer")?
+            .text,
+        nikud,
+    );
+    let printed: String = drawn
+        .text()
+        .chars()
+        .skip(span.start)
+        .take(span.len())
+        .collect();
+    Ok(Standing {
+        at: at.to_string(),
+        from_char: span.start,
+        to_char: span.end,
+        suggestion: suspect.suggestion(&printed),
+        printed,
+    })
+}
+
+/// Say what was done about a candidate: corrected, or not an error.
+///
+/// Recorded so the batch job does not ask again — never so that anything is
+/// applied. The correction itself, if there is one, went through `fix`.
+#[tauri::command]
+fn suspect_decide(
+    shared: tauri::State<'_, Shared>,
+    id: String,
+    decision: String,
+) -> Result<(), String> {
+    let decision = match decision.as_str() {
+        "dismissed" => girsa_fix::suspect::Decision::Dismissed,
+        "fixed" => girsa_fix::suspect::Decision::Fixed,
+        other => return Err(format!("no such decision: {other}")),
+    };
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let personal = state
+        .shelf
+        .as_ref()
+        .ok_or_else(|| state.trouble())?
+        .personal()
+        .to_path_buf();
+    let mut queue = match state.queue.take() {
+        Some(queue) => queue,
+        None => girsa_fix::suspect::Queue::open(&personal).0,
+    };
+    let known = queue.decide(&id, decision).map_err(|e| e.to_string())?;
+    state.queue = Some(queue);
+    if known {
+        Ok(())
+    } else {
+        Err("there is no such candidate".to_string())
+    }
+}
+
 /// Whose correction this is, for the provenance a patch carries.
 ///
 /// The machine's idea of who is sitting at it. There is no account and no
@@ -1574,6 +1735,7 @@ pub fn run() {
                     desk: None,
                     no_post: None,
                     lexicon,
+                    queue: None,
                     open: HashMap::new(),
                     order: Vec::new(),
                 }),
@@ -1654,6 +1816,9 @@ pub fn run() {
             unfix,
             set_showing,
             fixes,
+            suspects,
+            suspect_at,
+            suspect_decide,
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be created");
