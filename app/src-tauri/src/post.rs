@@ -8,6 +8,8 @@
 //! | `POST /open` | *show me this place* — the window opens the sefer and scrolls to it |
 //! | `POST /cite` | *print this ref in that style* — the citation, re-printed |
 //! | `POST /quote` | *give me this source again* — the words, from the corpus as it stands now |
+//! | `POST /where-from` | *where is this phrase from?* — cite-on-selection (W18) |
+//! | `POST /search` | *nothing fitted* — put the phrase in the search and open it |
 //!
 //! # Why `/cite` and `/quote` exist at all
 //!
@@ -35,6 +37,9 @@ use crate::Shared;
 
 /// The event the window listens for when something asks Girsa to show a place.
 pub const OPEN_EVENT: &str = "girsa://open";
+
+/// And the one for *put this in the search and open it*.
+pub const SEARCH_EVENT: &str = "girsa://search";
 
 /// What every errand carries.
 #[derive(Deserialize)]
@@ -64,6 +69,13 @@ pub fn open(handle: &tauri::AppHandle) -> Result<Desk, std::io::Error> {
 }
 
 fn answer(handle: &tauri::AppHandle, path: &str, body: &str) -> Reply {
+    // The two errands that carry a phrase rather than a ref, first.
+    match path {
+        "/where-from" => return where_from(handle, body),
+        "/search" => return search(handle, body),
+        _ => {}
+    }
+
     let asked: Asked = match serde_json::from_str(body) {
         Ok(asked) => asked,
         Err(e) => return Reply::refused(400, format!("that is not an errand: {e}")),
@@ -176,6 +188,98 @@ fn quote(handle: &tauri::AppHandle, reference: &Ref, style: Option<&str>, text: 
     }
 }
 
+/// What a phrase errand carries.
+#[derive(Deserialize)]
+struct AskedPhrase {
+    phrase: String,
+    /// The sefer to leave out — the one the phrase came from. With it, the
+    /// question is *who quotes this*; without it, *where is this from*.
+    #[serde(default)]
+    except: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// *Where is this phrase from?* (spec.md §10.4, W18).
+///
+/// The candidates come back with the citation already printed, because
+/// printing one needs the title and the schema's words for a level — both of
+/// which live here. Ksav shows them and cycles them; it does not have to know
+/// what a siman is.
+fn where_from(handle: &tauri::AppHandle, body: &str) -> Reply {
+    let asked: AskedPhrase = match serde_json::from_str(body) {
+        Ok(asked) => asked,
+        Err(e) => return Reply::refused(400, format!("that is not a phrase: {e}")),
+    };
+    let shared = handle.state::<Shared>();
+    let Ok(state) = shared.lock() else {
+        return Reply::refused(500, "the library is busy");
+    };
+    let Some(bar) = state.bar.as_ref() else {
+        return Reply::refused(503, state.no_search());
+    };
+    let found = match girsa_search::mekoros::where_from(
+        bar,
+        &asked.phrase,
+        asked.except.as_deref(),
+        asked.limit.unwrap_or(8),
+    ) {
+        Ok(found) => found,
+        Err(why) => return Reply::refused(400, why),
+    };
+
+    let style = state.session.cite;
+    let shelf = state.shelf.as_ref();
+    let places: Vec<serde_json::Value> = found
+        .candidates
+        .iter()
+        .map(|candidate| {
+            let reference = candidate.id.to_ref();
+            let display = shelf
+                .and_then(|s| s.work(&candidate.work))
+                .map_or_else(String::new, |work| cite(&about(work), &reference, style));
+            serde_json::json!({
+                "id": candidate.id.to_string(),
+                "ref": reference.to_string(),
+                "display": display,
+                "he_title": candidate.he_title,
+                "text": candidate.text,
+            })
+        })
+        .collect();
+
+    Reply::ok(
+        serde_json::json!({
+            "phrase": found.phrase,
+            "total": found.total,
+            "how": found.how,
+            "is_a_quotation": found.is_a_quotation(),
+            "said": found.describe(),
+            "not_widened": found.not_widened,
+            "places": places,
+        })
+        .to_string(),
+    )
+}
+
+/// *Nothing fitted* — put the phrase in the search and bring the window up.
+fn search(handle: &tauri::AppHandle, body: &str) -> Reply {
+    let asked: AskedPhrase = match serde_json::from_str(body) {
+        Ok(asked) => asked,
+        Err(e) => return Reply::refused(400, format!("that is not a phrase: {e}")),
+    };
+    show_phrase(handle, &asked.phrase);
+    Reply::ok(r#"{"opened":true}"#)
+}
+
+fn show_phrase(handle: &tauri::AppHandle, phrase: &str) {
+    let _ = handle.emit(SEARCH_EVENT, phrase.to_string());
+    if let Some(window) = handle.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 /// A `girsa://` URL the operating system handed us.
 ///
 /// The same errand as `/open`, arriving the other way: from a citation clicked
@@ -183,10 +287,15 @@ fn quote(handle: &tauri::AppHandle, reference: &Ref, style: Option<&str>, text: 
 /// an errand is dropped without comment — a URL handler is reachable by any web
 /// page on the machine.
 pub fn opened_url(handle: &tauri::AppHandle, url: &str) {
-    let Some(Errand::Open { reference }) = girsa_post::deep_link(App::Girsa, url) else {
-        return;
-    };
-    if let Ok(reference) = reference.parse::<Ref>() {
-        show(handle, &reference);
+    match girsa_post::deep_link(App::Girsa, url) {
+        Some(Errand::Open { reference }) => {
+            if let Ok(reference) = reference.parse::<Ref>() {
+                show(handle, &reference);
+            }
+        }
+        Some(Errand::Search { phrase }) => show_phrase(handle, &phrase),
+        // `Insert` is Ksav's errand, and anything else is not an errand at
+        // all. A URL handler is reachable by every page on the machine.
+        _ => {}
     }
 }

@@ -125,6 +125,22 @@ export class SearchView {
     else await this.show(opened);
   }
 
+  /**
+   * Open with a phrase already in the box, as one thing (W18).
+   *
+   * The quotation marks are the sigil for *one after the other* (§9.5), so
+   * this arrives as a phrase search and the chip says so — the reader sees
+   * what was asked, not a query that behaves differently from how it reads.
+   */
+  async showPhrase(opened: Opened, phrase: string): Promise<void> {
+    this.opened = opened;
+    this.open = true;
+    this.element.hidden = false;
+    this.box.value = `"${phrase.trim()}"`;
+    this.box.focus();
+    await this.run();
+  }
+
   /** Ask, and draw what came back. */
   private async run(chipsOnly = false): Promise<void> {
     const typed = this.box.value.trim();

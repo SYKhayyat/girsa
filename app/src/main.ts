@@ -11,6 +11,7 @@ import {
   connect,
   isShell,
   whenAskedToOpen,
+  whenAskedToSearch,
   whenFilesDropped,
   type AppState,
   type Landing,
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
   await whenFilesDropped(whenDropped);
   // Ksav, or a citation clicked in a document, asking for a page (§10.6).
   await whenAskedToOpen(whenAskedFor);
+  await whenAskedToSearch((phrase) => void find.showPhrase(openFound, phrase));
   await watchForKsav();
   await reload();
 }

@@ -16,6 +16,7 @@ pub mod facets;
 pub mod index;
 pub mod instruments;
 pub mod ladder;
+pub mod mekoros;
 pub mod regex_mode;
 pub mod scope;
 pub mod smart;

@@ -348,6 +348,14 @@ export async function whenAskedToOpen(handler: (landing: Landing) => void): Prom
   await listen<Landing>("girsa://open", (event) => handler(event.payload));
 }
 
+/** Something asked Girsa to put a phrase in the search — Ksav, when no
+ *  candidate fitted what somebody highlighted (spec.md §10.4). */
+export async function whenAskedToSearch(handler: (phrase: string) => void): Promise<void> {
+  if (!invoke) return;
+  const { listen } = await import("@tauri-apps/api/event");
+  await listen<string>("girsa://search", (event) => handler(event.payload));
+}
+
 export async function whenFilesDropped(handler: (paths: string[]) => void): Promise<void> {
   if (!invoke) return;
   const { getCurrentWebview } = await import("@tauri-apps/api/webview");

@@ -69,6 +69,11 @@ fn main() -> std::process::ExitCode {
             Some((index_dir, rest)) if rest.len() > 1 => find(Path::new(index_dir), rest),
             _ => usage(),
         },
+        // W18: where is this phrase from — and, with `--except`, who quotes it.
+        "where-from" => match rest.split_first() {
+            Some((index_dir, rest)) if rest.len() > 1 => where_from(Path::new(index_dir), rest),
+            _ => usage(),
+        },
         "stamp" => match rest.first() {
             Some(index_dir) => stamp(Path::new(index_dir)),
             None => usage(),
@@ -82,7 +87,8 @@ fn usage() -> std::process::ExitCode {
         "usage:\n  \
          girsa-index build <index-dir> <corpus-root> [personal-root …]\n  \
          girsa-index find  <index-dir> [how …] <query …>\n  \
-         girsa-index stamp <index-dir>\n\
+         girsa-index where-from <index-dir> <corpus-root> [--except SLUG] <phrase>
+  \n         girsa-index stamp <index-dir>\n\
          \n\
          how — the chips of spec.md §9.5, as flags. Nothing else is applied:\n  \
          --contains   the word contains these letters      קדש → המקדש\n  \
@@ -299,6 +305,74 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
 /// a flag is part of what you are looking for, and the **sigils** work here too:
 /// `"…"`, `*…*`, `~…`, `~5`, `/…/`, `@…`, `=613` set the same chips they set in
 /// the window, because they are read by the same code.
+/// *Where is this phrase from?* — and *who quotes this Gemara?* (W18).
+///
+/// One call for both, which is the claim: `--except` is the only difference,
+/// and it is the sefer you are standing in.
+fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
+    let Some((root, rest)) = args.split_first() else {
+        return usage();
+    };
+    let root = PathBuf::from(root);
+
+    let mut except: Option<String> = None;
+    let mut words: Vec<&str> = Vec::new();
+    let mut rest = rest.iter();
+    while let Some(arg) = rest.next() {
+        match arg.as_str() {
+            "--except" => except = rest.next().cloned(),
+            other => words.push(other),
+        }
+    }
+    let phrase = words.join(" ");
+
+    let index = match SearchIndex::open(index_dir) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("{e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let works = match load_works(&root) {
+        Ok(works) => works,
+        Err(e) => {
+            eprintln!("cannot read {}'s work index: {e}", root.display());
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let bar = Bar::new(index, Catalogue::of(&works), &root);
+    let found = match girsa_search::mekoros::where_from(&bar, &phrase, except.as_deref(), 8) {
+        Ok(found) => found,
+        Err(why) => {
+            eprintln!("{why}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    println!("{}  —  {}", found.phrase, found.describe());
+    if !found.is_a_quotation() && found.total > 0 {
+        println!("(not offered as a source: {} places)", found.total);
+    }
+    if let Some(why) = found.only_literally() {
+        println!("(only literally: {why})");
+    }
+    for candidate in &found.candidates {
+        println!(
+            "  {:<28} {}",
+            candidate.he_title,
+            first_words(&candidate.text, 12)
+        );
+        println!("  {:<28} {}", "", candidate.id);
+    }
+    std::process::ExitCode::SUCCESS
+}
+
+/// The opening of a segment, for a line of output.
+fn first_words(text: &str, how_many: usize) -> String {
+    let words: Vec<&str> = text.split_whitespace().take(how_many).collect();
+    words.join(" ")
+}
+
 fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
     let Some((root, rest)) = args.split_first() else {
         return usage();

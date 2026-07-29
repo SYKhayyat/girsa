@@ -144,6 +144,7 @@ green in all three repositories.
 | **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
 | **W12** · Torat Emet | The literal mode, and the default. The three operators that get used — the word, the letters it **contains**, those letters **in order** with others between — plus **within X words of each other, in either order**. Every query carries a plan saying exactly what was asked of the index, and a test asserts that plan is the typed words with their nikud off and nothing else. On the shelf: `קדש` is 31,483 segments, `--contains קדש` is 301,910, and the difference is a thing the reader asked for. |
 | **W13** · the ladder | Two columns of one table (§9.6), and the difference between them is the work order: the default mode **offers** the rungs with their counts and applies nothing; Smart climbs them and says so. The counts are computed from the query the click would run, so the promise and the result cannot disagree — checked both ways. Two rungs are named and not offered, because a missing chip reads as *there is nothing down that road*: nikud is already off in every mode, and the root rung is what §9.4 rejected every analyser for. |
+| **W18** · cite on selection | *Where is this from* and *who quotes this* are **one call** — 61 places for the Mishnah's own line, 59 when Berakhot is left out. Ctrl+Shift+M in Ksav; Tab cycles; no fit opens Girsa's search with the phrase in it. `אמר רבי יוחנן` is 12,347 places and is reported as a turn of speech rather than offered as a source. |
 | **W17** · the buffer | Ctrl+E, a drawer at the foot of the window, and **real Ksav markup from the first keystroke** — `girsa-ksav`, the writer Ksav compiles, not a second one in TypeScript. A buffer is a `.ksav` file in your own layer, and Ksav's suite compiles one this window wrote and reads the mekor off the page, below its quote. |
 | **W16** · the pairing | A desk on loopback in each application, token-gated, presence asked rather than assumed — `Live`, `NotRunning` and `Stale` are three different things and the window says which. Ctrl+Shift+C sends into the open document with no clipboard at all; `/cite` and `/quote` let Ksav re-print a citation or re-read a quote from the corpus as it stands. Tested through a real socket, including the 401. And `girsa:…` **is** the deep link — the ref the document already stores. |
 | **W15** · the clipboard | One Ctrl+C, three flavours — and the third is written natively, because a webview's custom format is a private encoding no other application can read. Only the highlighted part travels; the ref is a span when the quote is. The citation is `girsa-cite`, compiled into both apps, and **the test is that Girsa reads back what Girsa printed** — which found two defects in `girsa-ref` and fixed them there. Checked in Ksav against a packet Girsa really sent, asserted **on the laid-out page**. |
@@ -894,6 +895,44 @@ and nothing else.
 **פתח בכסב** hands the whole document to the real Ksav over the loopback —
 offered only when presence says it is there. There is no conversion step, which
 is the point: Ksav is opening a document it can already read.
+
+### Where is this from, and who quotes it
+
+spec.md §10.4 says these are one feature asked from two directions, and they
+are **one function**: the only difference is whether the sefer you are standing
+in is left out of the answer.
+
+```
+$ girsa-index where-from index corpus "משעה שהכהנים נכנסים לאכול בתרומתן"
+משעה שהכהנים נכנסים לאכול בתרומתן  —  ב־61 מקומות
+  ברכות             מֵאֵימָתַי קוֹרִין אֶת שְׁמַע בָּעֲרָבִין? מִשָּׁעָה שֶׁהַכֹּהֲנִים נִכְנָסִים…
+  רש"י על ברכות     מאימתי קורין את שמע בערבין. משעה שהכהנים נכנסים לאכול בתרומתן…
+  הלכות גדולות      מאימתי קורין את שמע בערבין משעה שהכהנים נכנסים לאכול בתרומתן…
+
+$ girsa-index where-from index corpus --except bavli/berakhot "משעה שהכהנים…"
+משעה שהכהנים נכנסים לאכול בתרומתן  —  ב־59 מקומות
+```
+
+61 places, and 59 of them are not the Gemara — which is the answer to *who
+quotes this*. In Ksav it is Ctrl+Shift+M on a highlighted phrase: the first
+mekor appears, Tab cycles the rest, Enter inserts it as a `#מראה_מקום`, and if
+none fits, **the last row opens Girsa's search with the phrase already in it**.
+A citation nobody could settle is not a citation to guess at.
+
+What the engine is careful about is not finding — a phrase search always finds
+something. It is not *lying*:
+
+```
+$ girsa-index where-from index corpus "אמר רבי יוחנן"
+אמר רבי יוחנן  —  ב־12347 מקומות — ביטוי, לא ציטוט
+(not offered as a source: 12347 places)
+```
+
+12,347 places has no source; it has a language. The list is still shown — the
+reader may recognise one — but **nothing is preselected and nothing is called
+the mekor**. And a quotation that is not letter for letter says so: the literal
+search runs first, the ladder is climbed only on a zero, and what comes back
+carries the rung that was used, so a near match is never shown as an exact one.
 
 ### What has not been checked
 
