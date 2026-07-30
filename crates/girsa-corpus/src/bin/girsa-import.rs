@@ -452,3 +452,133 @@ fn find_txt(root: &Path, stem: &str) -> Option<PathBuf> {
 fn _assert_source_is_used(work: &Work) -> bool {
     work.source == Source::Sefaria
 }
+
+#[cfg(test)]
+mod tests {
+    // A panic in a test is a failure report.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    /// The smallest `merged.json` that carries a printed edition — the two
+    /// fields `sefaria::version_of` reads, and a `text` array to walk.
+    fn a_sefer_on_disk(at: &Path, edition: &str) {
+        std::fs::write(
+            at,
+            format!(
+                r#"{{ "text": ["ראוי לכל ירא שמים", "בשעה שמכניסין"],
+                      "sectionNames": ["Paragraph"],
+                      "versionTitle": "{edition}",
+                      "versionSource": "https://www.sefaria.org/Shulchan_Arukh,_Orach_Chayim" }}"#
+            ),
+        )
+        .unwrap();
+    }
+
+    /// A work exactly as the catalogue builds one: **no version**, because the
+    /// catalogue is built from the schemas and has never opened a text file.
+    fn as_the_catalogue_builds_it(slug: &str, origin: PathBuf) -> Work {
+        Work {
+            slug: slug.to_string(),
+            he_title: "אורח חיים".into(),
+            en_title: "Orach Chayim".into(),
+            categories: vec!["Halakhah".into()],
+            source: Source::Sefaria,
+            origin,
+            schema: None,
+            author: None,
+            era: None,
+            comp_date: None,
+            version: None,
+            he_sections: Vec::new(),
+            commentary_on: Vec::new(),
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("girsa-import-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The pass that reads the text has to hand back what it read.
+    ///
+    /// This is finding N-1 at its source. `write_index` was never wrong — it
+    /// wrote whatever it was given, and it was given `catalogue.works()`, which
+    /// cannot know a printed edition. So the property to pin is that the
+    /// importer returns the enriched `Work` rather than dropping it, and that
+    /// what reaches the index is the same value that reached `work.json`.
+    #[test]
+    fn what_the_import_hands_back_carries_the_edition_it_read() {
+        let dir = scratch("hands-back");
+        let origin = dir.join("merged.json");
+        a_sefer_on_disk(&origin, "Maginei Eretz, Lemberg, 1893");
+        let catalogued = as_the_catalogue_builds_it("test/orach-chayim", origin);
+        assert!(
+            catalogued.version.is_none(),
+            "the catalogue never knows the edition — that is the whole premise"
+        );
+
+        let corpus = dir.join("corpus");
+        let imported = import_all(&corpus, std::slice::from_ref(&catalogued), 1);
+
+        assert_eq!(imported.works.len(), 1);
+        let version = imported.works[0]
+            .version
+            .as_ref()
+            .expect("the edition was read out of the text and has to come back");
+        assert!(version.edition.contains("Lemberg"), "{:?}", version.edition);
+
+        // And it is the *same* value the work's own file got. Two writers that
+        // disagree about this field is exactly what N-1 was.
+        let on_disk = import::read_back(&corpus, &catalogued.slug).unwrap();
+        assert_eq!(
+            on_disk.work.version, imported.works[0].version,
+            "work.json and the index are written from one value, or they drift"
+        );
+    }
+
+    /// A work that could not be read is not handed back, so it is not indexed.
+    ///
+    /// There is no text on disk for it, so a line in `index.jsonl` would be a
+    /// sefer the shelf offers and then fails to open.
+    #[test]
+    fn a_work_that_would_not_read_is_not_in_the_index() {
+        let dir = scratch("unreadable");
+        let good = dir.join("good.json");
+        a_sefer_on_disk(&good, "Lemberg, 1893");
+
+        let works = vec![
+            as_the_catalogue_builds_it("test/good", good),
+            // Never written, so `import::read` fails on it.
+            as_the_catalogue_builds_it("test/missing", dir.join("not-here.json")),
+        ];
+
+        let imported = import_all(&dir.join("corpus"), &works, 1);
+
+        assert_eq!(imported.works.len(), 1, "only the one that read");
+        assert_eq!(imported.works[0].slug, "test/good");
+    }
+
+    /// The index is in catalogue order however the threads finished.
+    ///
+    /// A byte-stable `index.jsonl` is what lets one rebuild be diffed against
+    /// the one before it; workers popping a shared queue do not deliver that on
+    /// their own.
+    #[test]
+    fn the_index_is_in_catalogue_order_whatever_the_threads_did() {
+        let dir = scratch("ordering");
+        let mut works = Vec::new();
+        for n in 0..60 {
+            let origin = dir.join(format!("{n}.json"));
+            a_sefer_on_disk(&origin, "Lemberg, 1893");
+            works.push(as_the_catalogue_builds_it(&format!("test/{n:03}"), origin));
+        }
+
+        let imported = import_all(&dir.join("corpus"), &works, 8);
+
+        let got: Vec<&str> = imported.works.iter().map(|w| w.slug.as_str()).collect();
+        let want: Vec<&str> = works.iter().map(|w| w.slug.as_str()).collect();
+        assert_eq!(got, want);
+    }
+}
