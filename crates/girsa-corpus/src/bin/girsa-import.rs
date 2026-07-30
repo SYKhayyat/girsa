@@ -86,13 +86,17 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::SUCCESS;
     }
 
-    let counts = import_all(&corpus_root, catalogue.works(), threads());
+    let imported = import_all(&corpus_root, catalogue.works(), threads());
+    let counts = imported.counts;
     eprintln!(
         "\n{} works · {} segments · {} headings",
         counts.works, counts.segments, counts.headings
     );
 
-    if let Err(e) = write_index(&corpus_root, catalogue.works(), &catalogue) {
+    // From `imported.works`, never from `catalogue.works()`. The catalogue is
+    // built from the schemas and has not opened a text file, so it does not
+    // know the printed edition — see `Imported`.
+    if let Err(e) = write_index(&corpus_root, &imported.works, &catalogue) {
         eprintln!("could not write the work index: {e}");
         return std::process::ExitCode::FAILURE;
     }
@@ -185,13 +189,37 @@ fn threads() -> usize {
     std::thread::available_parallelism().map_or(4, |n| n.get().min(16))
 }
 
+/// What one import pass produced: the measurements, and the works exactly as
+/// they were written to disk.
+///
+/// The works come back rather than being dropped on the floor because a `Work`
+/// learns something during this pass that the catalogue can never know. The
+/// printed edition is read out of the text file by `import::read`, and spec.md
+/// §13 says that field is *"the only thing preserving the option to distribute
+/// publicly later"*. Returning it here is what lets `works/index.jsonl` have a
+/// single writer: this pass, holding the same value it just wrote into each
+/// work's own `work.json`. It used to be written from `catalogue.works()`
+/// instead, which had never opened a `merged.json` — so 6,211 of 7,189 works
+/// were catalogued with no edition at all while the edition sat on disk one
+/// directory away.
+struct Imported {
+    counts: Counts,
+    /// In catalogue order, and only the works that were actually written. A
+    /// work that could not be read has no text on disk, so a line for it in
+    /// the index would be a sefer the shelf offers and then fails to open.
+    works: Vec<Work>,
+}
+
 /// Read and write every work, in parallel.
-fn import_all(root: &Path, works: &[Work], threads: usize) -> Counts {
+fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
     let total = works.len();
-    let queue = Arc::new(Mutex::new(works.iter().rev().cloned().collect::<Vec<_>>()));
+    let queue = Arc::new(Mutex::new(
+        works.iter().cloned().enumerate().rev().collect::<Vec<_>>(),
+    ));
     let done = Arc::new(AtomicUsize::new(0));
     let failed = Arc::new(AtomicUsize::new(0));
     let counts = Arc::new(Mutex::new(Counts::default()));
+    let written = Arc::new(Mutex::new(Vec::<(usize, Work)>::with_capacity(total)));
 
     std::thread::scope(|scope| {
         for _ in 0..threads.max(1) {
@@ -199,17 +227,24 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Counts {
             let done = Arc::clone(&done);
             let failed = Arc::clone(&failed);
             let counts = Arc::clone(&counts);
+            let written = Arc::clone(&written);
             scope.spawn(move || loop {
-                let Some(work) = queue.lock().ok().and_then(|mut q| q.pop()) else {
+                let Some((at, work)) = queue.lock().ok().and_then(|mut q| q.pop()) else {
                     return;
                 };
                 match import::read(&work).and_then(|imported| {
                     let c = imported.counts();
-                    import::write(root, &imported).map(|()| c)
+                    import::write(root, &imported)?;
+                    // `imported.work`, not `work`: this is the one that has
+                    // been told which edition it was read out of.
+                    Ok((c, imported.work))
                 }) {
-                    Ok(c) => {
+                    Ok((c, as_written)) => {
                         if let Ok(mut total) = counts.lock() {
                             total.absorb(c);
+                        }
+                        if let Ok(mut written) = written.lock() {
+                            written.push((at, as_written));
                         }
                     }
                     Err(e) => {
@@ -227,9 +262,19 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Counts {
 
     let failed = failed.load(Ordering::Relaxed);
     if failed > 0 {
-        eprintln!("\n{failed} works could not be read");
+        // Named as a consequence rather than a statistic: these are the works
+        // that will not be in the index, and so not on the shelf.
+        eprintln!("\n{failed} works could not be read, and are not in the index");
     }
-    counts.lock().map(|c| *c).unwrap_or_default()
+    // Threads finish out of order; the index does not get to be arbitrary. A
+    // byte-stable `index.jsonl` is what lets a rebuild be diffed against the
+    // one before it.
+    let mut works = written.lock().map(|w| w.clone()).unwrap_or_default();
+    works.sort_by_key(|(at, _)| *at);
+    Imported {
+        counts: counts.lock().map(|c| *c).unwrap_or_default(),
+        works: works.into_iter().map(|(_, w)| w).collect(),
+    }
 }
 
 /// Rewrite every work's `work.json` from the catalogue, keeping what only the

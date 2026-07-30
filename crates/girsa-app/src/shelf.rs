@@ -113,17 +113,23 @@ impl Shelf {
         let body = std::fs::read_to_string(&index)
             .map_err(|_| ShelfError::NoShelf(root.display().to_string()))?;
 
-        let mut works = catalogue(&body);
+        let (mut works, mut bad_lines) = catalogue(&index, &body);
         // Yours, after the corpus's, and never in the same file — see the
         // module note.
-        if let Ok(mine) = std::fs::read_to_string(personal.join("works/index.jsonl")) {
-            works.extend(catalogue(&mine));
+        let mine_index = personal.join("works/index.jsonl");
+        if let Ok(mine) = std::fs::read_to_string(&mine_index) {
+            let (mine_works, mine_trouble) = catalogue(&mine_index, &mine);
+            works.extend(mine_works);
+            bad_lines.extend(mine_trouble);
         }
 
         let (arrangement, mut trouble) = Arrangement::load(&personal.join("shelf.json"));
         // A correction that will not read is one correction, and it is said out
-        // loud — not a library that refuses to open.
-        let (fixes, mut bad_lines) = girsa_fix::Layer::open(personal);
+        // loud — not a library that refuses to open. The catalogue above is
+        // held to the same rule, and first: it is the file that decides which
+        // seforim exist at all.
+        let (fixes, fix_trouble) = girsa_fix::Layer::open(personal);
+        bad_lines.extend(fix_trouble);
         let (repairs, bad_repairs) = girsa_link::repair::Repairs::open(personal);
         bad_lines.extend(bad_repairs);
         let (scans, bad_scans) = girsa_scan::Scans::open(personal);
@@ -192,7 +198,7 @@ impl Shelf {
     ///
     /// If the sefer is not on the shelf, or its files will not read.
     pub fn read(&self, slug: &str) -> Result<Open, ShelfError> {
-        let work = self
+        let mut work = self
             .work(slug)
             .ok_or_else(|| ShelfError::NoSuchWork(slug.to_string()))?
             .clone();
@@ -202,6 +208,18 @@ impl Shelf {
         let root = self.root_of(&work);
         let read = import::read_back(root, slug)
             .map_err(|e| ShelfError::Unreadable(slug.to_string(), e.to_string()))?;
+        // The catalogue is a derived file; `work.json` sits beside the text and
+        // is what the import actually wrote. The printed edition is read out of
+        // the text and only that side ever learns it, so when the index has no
+        // version, take the one next to the words (spec.md §13). `read_back`
+        // has already parsed it — this is a field, not a second read.
+        //
+        // Belt and braces on top of the importer writing it: a corpus imported
+        // by an older build is still on disk, and a quote whose provenance was
+        // dropped cannot be un-dropped.
+        if work.version.is_none() {
+            work.version = read.work.version.clone();
+        }
         let open = Open::corrected(work, read.segments, &self.fixes, self.showing);
         // A scan the reader has paged is addressed by what is printed on its
         // pages (W25). One place decides that, and this is it.
@@ -634,14 +652,34 @@ impl Shelf {
     }
 }
 
-/// One catalogue file, as works. A record that will not parse is skipped
-/// rather than fatal: one unreadable line should cost one sefer, not the
-/// library.
-fn catalogue(body: &str) -> Vec<Work> {
-    body.lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str::<Work>(l).ok())
-        .collect()
+/// One catalogue file, as works, and the lines that would not read.
+///
+/// A record that will not parse is skipped rather than fatal: one unreadable
+/// line should cost one sefer, not the library. But it is never skipped
+/// *quietly*. This file decides which seforim exist at all, so a torn write or
+/// a half-finished import removing one has to be as loud as a correction that
+/// will not read — the bar every other loader in [`Shelf::open`] already meets.
+///
+/// spec.md §5 is the promise being kept here: *"Nothing is ever missing, and
+/// 'is it in there?' stops being a question you have to think about."* A
+/// silently dropped line makes that question worth thinking about again.
+fn catalogue(path: &Path, body: &str) -> (Vec<Work>, Vec<String>) {
+    let mut works = Vec::new();
+    let mut trouble = Vec::new();
+    for (n, line) in body.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<Work>(line) {
+            Ok(work) => works.push(work),
+            Err(e) => trouble.push(format!(
+                "{}: line {} is not a work: {e}",
+                path.display(),
+                n + 1
+            )),
+        }
+    }
+    (works, trouble)
 }
 
 /// A sefer with its text, ready to be read and to be lined up against another.
