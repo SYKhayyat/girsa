@@ -23,6 +23,12 @@ jobs:
           repository: SYKhayyat/sefer-crates
           path: sefer-crates
 
+      # The pen. Not built here — only its fixture is read, by the last step.
+      - uses: actions/checkout@v4
+        with:
+          repository: SYKhayyat/ksav
+          path: Ksav
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -38,3 +44,75 @@ jobs:
         working-directory: Girsa
       - run: cargo fmt -- --check
         working-directory: Girsa
+
+      # The producer against the consumer, on every push.
+      #
+      # `Ksav/ksav/engine/tests/from_girsa.rs` asserts a Ksav page against a
+      # packet Girsa really produced. That fixture was captured by hand, because
+      # reproducing it needed the 2.2 GB corpus — so when the import path
+      # started dropping the printed edition, the fixture kept the old value and
+      # the one test that existed to catch it went green for the whole time it
+      # was broken. `--example fixture-packet` needs no corpus, so this is now a
+      # `cargo run` and a `diff`. See tools/check-ksav-fixture.sh.
+      - name: Girsa's packet is still the one Ksav asserts against
+        run: bash tools/check-ksav-fixture.sh
+        working-directory: Girsa
+
+  # The window, which is where the whole Girsa half of the Ksav loop lives.
+  #
+  # `app/src-tauri` is `exclude`d from the workspace because it cannot build
+  # until the frontend has been built into `app/dist`, and the root
+  # `cargo build --all-targets` has to stay green without a node toolchain. That
+  # constraint is real; leaving 4,501 lines and all 91 tauri commands in no gate
+  # at all was the wrong conclusion drawn from it. The ordering it needs is a
+  # `needs:`-shaped edge inside one job, not an exemption — build the frontend
+  # first, then check the crate.
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Girsa
+      - uses: actions/checkout@v4
+        with:
+          repository: SYKhayyat/sefer-crates
+          path: sefer-crates
+
+      # What `tauri` links against on Linux. The webview is the platform's,
+      # which is the reason spec.md asks for Hebrew-with-nikud to be looked at
+      # on both platforms rather than screenshotted on one.
+      - name: Tauri's system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Girsa/app/package-lock.json
+      - run: npm ci
+        working-directory: Girsa/app
+      # `app/dist`, which the crate below embeds and cannot compile without.
+      - run: npm run build
+        working-directory: Girsa/app
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Girsa/app/src-tauri
+
+      # `check` rather than `build`: what this gate is for is the refactor in a
+      # shared crate that breaks a caller nothing compiles. That shows up here.
+      - run: cargo check --all-targets
+        working-directory: Girsa/app/src-tauri
+      # The workspace's `unwrap_used`/`expect_used` cannot be inherited by an
+      # excluded crate, so this crate declares them itself — see its Cargo.toml.
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: Girsa/app/src-tauri
+      - run: cargo fmt -- --check
+        working-directory: Girsa/app/src-tauri

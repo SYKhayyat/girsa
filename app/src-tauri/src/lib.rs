@@ -3166,13 +3166,15 @@ fn find_personal(data: &std::path::Path) -> PathBuf {
     std::env::var("GIRSA_PERSONAL").map_or_else(|_| data.join("personal"), PathBuf::from)
 }
 
-/// # Panics
+/// Open the window.
 ///
-/// If the window cannot be created at all, which is not a condition the app can
-/// carry on from.
+/// If it cannot be opened at all there is nothing to carry on into, so this
+/// says so and exits non-zero. It used to `expect`, which is the same outcome
+/// wearing a backtrace — and it was the only `unwrap`/`expect` in this file,
+/// which is now denied here rather than merely avoided (see `Cargo.toml`).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let built = tauri::Builder::default()
         // `girsa://…` — and a ref, which is already a `girsa:` URI, so the
         // citation a Word document or a compiled PDF has been carrying all
         // along is a link that lands on the page it names (spec.md §10.6).
@@ -3374,8 +3376,13 @@ pub fn run() {
             tags,
             export_layer,
         ])
-        .run(tauri::generate_context!())
-        .expect("the window could not be created");
+        .run(tauri::generate_context!());
+    if let Err(e) = built {
+        // A sentence a reader can act on, not a panic message. The rest of this
+        // shell refuses legibly; the one path that can only stop should too.
+        eprintln!("Girsa could not open its window: {e}");
+        std::process::exit(1);
+    }
 }
 
 // ── Your own layer (spec.md §11, BUILDER.md W27) ────────────────────────────

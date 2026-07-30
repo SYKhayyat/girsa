@@ -70,3 +70,12 @@ tauri-plugin-dialog = "2"
 
 [lints.rust]
 unsafe_code = "forbid"
+
+# The same two the workspace denies, repeated rather than inherited: this crate
+# is `exclude`d from the workspace (see the root Cargo.toml), so
+# `[workspace.lints]` has never reached it. It happened to hold to them anyway —
+# one `expect` in 4,080 lines — but that was discipline and not enforcement, and
+# discipline is not a gate. A panic here takes the reader's window with it.
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
