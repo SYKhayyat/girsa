@@ -81,12 +81,19 @@ jobs:
       # What `tauri` links against on Linux. The webview is the platform's,
       # which is the reason spec.md asks for Hebrew-with-nikud to be looked at
       # on both platforms rather than screenshotted on one.
+      #
+      # `libappindicator3-dev` is deliberately absent. It and
+      # `libayatana-appindicator3-dev` conflict — the ayatana package
+      # `Replaces:` the old one, so asking for both makes apt exit 100 and the
+      # job never reaches a compiler. Tauri v2 wants ayatana. Ksav's workflow
+      # carries this same note, having learned it first; this file asked for
+      # both anyway on its first run, and got the 100.
       - name: Tauri's system libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev
+            libwebkit2gtk-4.1-dev librsvg2-dev patchelf \
+            libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev
 
       - uses: actions/setup-node@v4
         with:
