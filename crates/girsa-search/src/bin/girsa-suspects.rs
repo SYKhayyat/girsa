@@ -158,5 +158,8 @@ fn usage() -> std::process::ExitCode {
          Finds words that are almost certainly scanning errors and writes them\n\
          to <personal>/suspects.jsonl as a ranked queue. Corrects nothing."
     );
-    std::process::ExitCode::FAILURE
+    // 2, like the other thirteen binaries here. This one exited 1, which is
+    // the code they all use for "ran, and could not do the thing" — so a
+    // script could not tell a typo in the invocation from a failed run.
+    std::process::ExitCode::from(2)
 }
