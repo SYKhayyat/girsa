@@ -36,6 +36,10 @@ const FACETS: { dimension: Dimension; label: string }[] = [
   { dimension: "author", label: "מחבר" },
   { dimension: "sefer", label: "ספר" },
   { dimension: "link", label: "קישור" },
+  // Your own tags, last, because they are yours and everything above is the
+  // library's. A search over the corpus alone has none and the row is simply
+  // absent, the way an author facet is absent from a sefer nobody attributed.
+  { dimension: "tag", label: "תג" },
 ];
 
 /** How many rows of one facet before the rest are counted rather than listed. */
@@ -187,7 +191,24 @@ export class SearchView {
     if (chipsOnly && typed === "") {
       const empty = await api.find("", 1);
       this.drawChips(empty.chips);
-      this.head.textContent = "";
+      // On open, and not only after the first keystroke.
+      //
+      // The browser build *does* refuse — *"החיפוש פועל בחלון בלבד — הדפדפן קורא
+      // קבצי דוגמה סטטיים, ואין בהם אינדקס"* — and the refusal was already in this
+      // response and was being thrown away here, so the panel opened as a
+      // full-height empty box and said nothing until something was typed. A reader
+      // who types a phrase into a box that cannot search has been let type it.
+      this.head.classList.toggle("is-trouble", Boolean(empty.refused));
+      if (empty.refused) {
+        this.head.textContent = empty.refused;
+      } else {
+        this.head.textContent = "";
+        // What this search will not be able to see, before it is run. Same
+        // sentence as after a search, because it is true either way (B7). Appended
+        // unconditionally: `gapLine` fills itself asynchronously and is an empty
+        // paragraph when there is nothing to say.
+        this.head.append(this.gapLine());
+      }
       this.list.replaceChildren();
       this.rail.replaceChildren();
       this.lane.hide();

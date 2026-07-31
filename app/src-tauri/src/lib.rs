@@ -849,6 +849,11 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
         let key = girsa_app::taxonomy::shelf_key_of(work, shelf.arrangement());
         catalogue.filed(&work.slug, key.split('/').map(str::to_string).collect());
     }
+    // Your own tags, so the tag facet has rows to count and a click has somewhere
+    // to narrow to (B18). Tags were counted and shown with no code path by which
+    // clicking one could narrow anything.
+    let (notes, _) = girsa_note::note::Notes::open(shelf.personal());
+    let catalogue = catalogue.tagged(&notes);
     (Some(Bar::new(index, catalogue, corpus)), None)
 }
 

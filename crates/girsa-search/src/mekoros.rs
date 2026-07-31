@@ -47,8 +47,18 @@ pub struct Candidate {
     pub id: SegmentId,
     pub work: String,
     pub he_title: String,
-    /// The segment as printed, so the reader can see it is the right one.
-    pub text: String,
+    /// The words around the match, so the reader can see it is the right one:
+    /// the match in `[brackets]`, and any elision shown as `…`.
+    ///
+    /// **Not the whole segment.** It used to be, which meant the CLI cut it to its
+    /// first twelve words — so the answer to *where is this from* could be evidence
+    /// that did not contain the phrase — and the MCP server serialised the lot, and
+    /// the largest segment in the corpus is 1,275,307 characters. One renderer now,
+    /// `snippet::of`, windowed on the match.
+    pub shown: String,
+    /// How long the whole segment is, so a caller knows what `shown` is a window
+    /// into. A snippet with no size beside it reads as the whole thing.
+    pub characters: usize,
 }
 
 /// How the phrase was matched.
@@ -222,7 +232,8 @@ fn gather(
                         .catalogue()
                         .facts(hit.id.work())
                         .map_or_else(|| hit.id.work().to_string(), |f| f.title.clone()),
-                    text: hit.text.clone(),
+                    shown: crate::snippet::of(&hit.text, &results.marker.marks(hit)).text,
+                    characters: hit.text.chars().count(),
                 })
                 .collect(),
             except: except.map(ToString::to_string),

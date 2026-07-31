@@ -60,6 +60,14 @@ fn main() -> std::process::ExitCode {
         return usage();
     };
 
+    // Asked for, rather than only printed on the way to exit 2. There was no help
+    // verb at all, so the only way to see the usage was to get something wrong —
+    // and the usage was itself missing `find`'s root.
+    if matches!(command.as_str(), "-h" | "--help" | "help") {
+        print_usage();
+        return std::process::ExitCode::SUCCESS;
+    }
+
     match command.as_str() {
         "build" => match rest.split_first() {
             Some((index_dir, roots)) if !roots.is_empty() => build(Path::new(index_dir), roots),
@@ -83,12 +91,96 @@ fn main() -> std::process::ExitCode {
 }
 
 fn usage() -> std::process::ExitCode {
+    print_usage();
+    std::process::ExitCode::from(2)
+}
+
+/// A positional root that is not a directory is a mistake, and it is said.
+///
+/// This is the same family as the guardrail the README says was bought
+/// expensively: `build corpus index` transposed, and the corpus deleted. That fix
+/// landed on `rebuild` and not on `find` — so `find index corpus personal יתגבר
+/// כארי` silently absorbed `personal` as a query word, answered `0 in 5000847
+/// segments`, and exited **0**. A word that is not Hebrew, not in the corpus and
+/// not typed by the reader was added to the query and the answer looked like an
+/// answer.
+///
+/// A root that cannot be *read* was already refused loudly. The gap was the
+/// argument that reads fine and is not a root.
+///
+/// # Errors
+///
+/// Exit 2 — a usage error, not a failure — when the path is not a directory.
+fn refuse_a_query_word_in_root_position(root: &Path) -> Result<(), std::process::ExitCode> {
+    if root.is_dir() {
+        return Ok(());
+    }
+    let shown = root.display();
+    if root.exists() {
+        eprintln!("{shown} is a file, not a root. The root is the corpus or personal directory.");
+    } else {
+        eprintln!(
+            "{shown} is not a directory, so it is not a root — and a word in root position \
+             would otherwise be searched for as part of the query. If it is a query word, \
+             put the root first: girsa-index find <index-dir> <root> {shown} …"
+        );
+    }
+    Err(std::process::ExitCode::from(2))
+}
+
+/// A second root in the *query* is the transposition that was actually reported.
+///
+/// `build` takes `<index-dir> <corpus-root> [personal-root …]` — several roots. So
+/// somebody who has run `build index corpus personal` once types
+/// `find index corpus personal יתגבר כארי`, and `find` takes one root and reads
+/// `personal` as a Hebrew word to look for. It answered
+/// `0 in 5000847 segments · showing 0` and exited 0.
+///
+/// A query word that names a directory on this machine is a transposition, not a
+/// search term: no word in the corpus is a path, and a reader looking for a
+/// directory name has the regex mode. Both readings are named in the refusal,
+/// because guessing which one was meant is how this happened in the first place.
+///
+/// # Errors
+///
+/// Exit 2, before any search runs.
+fn refuse_a_root_among_the_query_words(words: &[&str]) -> Result<(), std::process::ExitCode> {
+    let looks_like_a_root: Vec<&&str> = words
+        .iter()
+        .filter(|word| Path::new(word).is_dir())
+        .collect();
+    if looks_like_a_root.is_empty() {
+        return Ok(());
+    }
+    for word in &looks_like_a_root {
+        eprintln!(
+            "{word} is a directory on this machine, and it is in the query rather than in \
+             root position."
+        );
+    }
+    eprintln!(
+        "`find` and `where-from` take ONE root, unlike `build` which takes several — so a \
+         second root here would be searched for as a word. Either drop it, or make it the root."
+    );
+    Err(std::process::ExitCode::from(2))
+}
+
+/// The usage. `--help` asks for it; `usage` prints it on the way to exit 2.
+fn print_usage() {
     eprintln!(
         "usage:\n  \
          girsa-index build <index-dir> <corpus-root> [personal-root …]\n  \
-         girsa-index find  <index-dir> [how …] <query …>\n  \
+         girsa-index find  <index-dir> <root> [how …] <query …>\n  \
          girsa-index where-from <index-dir> <corpus-root> [--except SLUG] <phrase>
   \n         girsa-index stamp <index-dir>\n\
+         \n\
+         <root> is the corpus or personal root `find` reads its catalogue,\n\
+         corrections and shelf from. It has always been required and the usage\n\
+         line did not say so, while `build <index> <corpus> <personal>` two lines\n\
+         up teaches exactly the shape that breaks it: `find index corpus personal\n\
+         יתגבר כארי` searched for the words `personal יתגבר כארי`, answered zero,\n\
+         and exited 0. An argument in that position that is not a directory is\n\
+         now refused by name at exit 2.\n\
          \n\
          how — the chips of spec.md §9.5, as flags. Nothing else is applied:\n  \
          --contains   the word contains these letters      קדש → המקדש\n  \
@@ -99,10 +191,10 @@ fn usage() -> std::process::ExitCode {
          the relaxation ladder (spec.md §9.6). In the literal mode a zero is\n\
          offered the rungs with their counts and nothing is applied; --rung is\n\
          the click:\n  \
-         --rung NAME  prefixes · spellings · gershayim · abbreviations · proximity\n  \
+         --tag NAME   narrow to your own tag (spec.md §11)
+           --rung NAME  prefixes · spellings · gershayim · abbreviations · proximity\n  \
          --smart      Smart mode: apply the form rungs, and say what that did"
     );
-    std::process::ExitCode::from(2)
 }
 
 /// What a build found, and what it could not.
@@ -361,6 +453,11 @@ fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
         return usage();
     };
     let root = PathBuf::from(root);
+    // `where-from` has the same shape as `find` — a positional root and then a
+    // free-form phrase — so it has the same hole and gets the same two guards.
+    if let Err(code) = refuse_a_query_word_in_root_position(&root) {
+        return code;
+    }
 
     let mut except: Option<String> = None;
     let mut words: Vec<&str> = Vec::new();
@@ -370,6 +467,9 @@ fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             "--except" => except = rest.next().cloned(),
             other => words.push(other),
         }
+    }
+    if let Err(code) = refuse_a_root_among_the_query_words(&words) {
+        return code;
     }
     let phrase = words.join(" ");
 
@@ -387,7 +487,8 @@ fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let bar = Bar::new(index, Catalogue::of(&works), &root);
+    let (notes, _) = girsa_note::note::Notes::open(&root);
+    let bar = Bar::new(index, Catalogue::of(&works).tagged(&notes), &root);
     let found = match girsa_search::mekoros::where_from(&bar, &phrase, except.as_deref(), 8) {
         Ok(found) => found,
         Err(why) => {
@@ -404,20 +505,10 @@ fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
         println!("(only literally: {why})");
     }
     for candidate in &found.candidates {
-        println!(
-            "  {:<28} {}",
-            candidate.he_title,
-            first_words(&candidate.text, 12)
-        );
+        println!("  {:<28} {}", candidate.he_title, candidate.shown);
         println!("  {:<28} {}", "", candidate.id);
     }
     std::process::ExitCode::SUCCESS
-}
-
-/// The opening of a segment, for a line of output.
-fn first_words(text: &str, how_many: usize) -> String {
-    let words: Vec<&str> = text.split_whitespace().take(how_many).collect();
-    words.join(" ")
 }
 
 /// spec.md §9.7's badge, on a terminal.
@@ -440,6 +531,9 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
         return usage();
     };
     let root = PathBuf::from(root);
+    if let Err(code) = refuse_a_query_word_in_root_position(&root) {
+        return code;
+    }
 
     let mut chips = Chips::default();
     let mut rungs: Vec<Rung> = Vec::new();
@@ -500,6 +594,9 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             "--era" => narrow.push((Dimension::Era, value())),
             "--by" => narrow.push((Dimension::Author, value())),
             "--linked" => narrow.push((Dimension::Link, value())),
+            // Your own tags (B18). The same one naming as the chip and the facet
+            // row, because `Dimension` is the one place a dimension is named.
+            "--tag" => narrow.push((Dimension::Tag, value())),
             "--not" => exclude.push((Dimension::Sefer, value())),
             "--not-shelf" => exclude.push((Dimension::Shelf, value())),
             "--page" => paging = pages(paging, &value()),
@@ -532,7 +629,8 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let bar = Bar::new(index, Catalogue::of(&works), &root);
+    let (notes, _) = girsa_note::note::Notes::open(&root);
+    let bar = Bar::new(index, Catalogue::of(&works).tagged(&notes), &root);
 
     // The scope chip, set the way a facet click sets it — through the same
     // functions, so the command line cannot narrow by a rule the window does
@@ -544,6 +642,12 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
     for (dimension, key) in exclude {
         chips.scope =
             girsa_search::facets::exclude(&chips.scope, bar.catalogue(), dimension, &row(&key));
+    }
+
+    // Before anything is searched for, and before the index is even opened: a
+    // refusal that arrives after `0 in 5000847 segments` is a refusal nobody reads.
+    if let Err(code) = refuse_a_root_among_the_query_words(&words) {
+        return code;
     }
 
     let typed = words.join(" ");
@@ -800,20 +904,10 @@ fn sounding_named(name: &str) -> Option<Sounding> {
 /// three letters of it that were typed, and the word a gematria added up rather
 /// than the number.
 fn excerpt(hit: &Hit, marks: &[(usize, usize)]) -> String {
-    let mut out = String::new();
-    let mut at = 0usize;
-    for (start, end) in marks {
-        if *start < at || *end > hit.text.len() {
-            continue;
-        }
-        out.push_str(hit.text.get(at..*start).unwrap_or_default());
-        out.push('[');
-        out.push_str(hit.text.get(*start..*end).unwrap_or_default());
-        out.push(']');
-        at = *end;
-    }
-    out.push_str(hit.text.get(at..).unwrap_or_default());
-    out.chars().take(220).collect()
+    // One renderer, windowed on the match. This used to bracket the marks and then
+    // take the first 220 characters *from the start*, so a match half a megabyte
+    // into a 495,726-character segment was nowhere near what got displayed.
+    girsa_search::snippet::of(&hit.text, marks).text
 }
 
 fn stamp(index_dir: &Path) -> std::process::ExitCode {

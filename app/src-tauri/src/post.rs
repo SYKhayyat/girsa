@@ -248,7 +248,11 @@ fn where_from(handle: &tauri::AppHandle, body: &str) -> Reply {
                 "ref": reference.to_string(),
                 "display": display,
                 "he_title": candidate.he_title,
-                "text": candidate.text,
+                // The words around the match, not the whole segment: the largest in
+                // the corpus is 1,275,307 characters, and Ksav wants to show the
+                // reader enough to recognise the place (B16).
+                "shown": candidate.shown,
+                "characters": candidate.characters,
             })
         })
         .collect();

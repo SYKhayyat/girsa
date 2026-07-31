@@ -15,6 +15,9 @@ girsa-corpus.workspace = true
 # The five modes and the relaxation ladder. The whole point of this crate is
 # that a program gets the *same* engine a person does, including its refusals —
 # so the modes are this crate's dependency and not its reimplementation.
+# Your own layer, for the tag facet (B18): a tag is a property of a note, and
+# `Catalogue::tagged` is given the notes as this crate read them.
+girsa-note.workspace = true
 girsa-search.workspace = true
 # The graph, and W28's chain tracing over it.
 girsa-link.workspace = true

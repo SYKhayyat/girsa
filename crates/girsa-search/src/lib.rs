@@ -19,7 +19,10 @@ pub mod ladder;
 pub mod mekoros;
 pub mod regex_mode;
 pub mod scope;
+// One snippet renderer, windowed on the match (B16). There were two, and the
+// wrong one answered *where is this from*.
 pub mod smart;
+pub mod snippet;
 pub mod tokenizer;
 pub mod torat_emet;
 

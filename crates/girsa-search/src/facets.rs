@@ -55,16 +55,28 @@ pub enum Dimension {
     Era,
     Author,
     Link,
+    /// Your own tags (spec.md §11).
+    ///
+    /// This variant did not exist, so tags were **counted across the layer and
+    /// shown, with no code path by which clicking one could narrow anything.** A
+    /// chip that cannot be clicked is a label, and a label that looks like a chip
+    /// is worse than no chip.
+    ///
+    /// It narrows through the catalogue like `Sefer` and `Shelf` rather than
+    /// through an index column, because a tag is a property of a note and a note
+    /// is a work on the shelf.
+    Tag,
 }
 
 impl Dimension {
     /// Every dimension, in the order spec.md §9.8 lists them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Shelf,
         Self::Era,
         Self::Author,
         Self::Sefer,
         Self::Link,
+        Self::Tag,
     ];
 
     #[must_use]
@@ -75,6 +87,7 @@ impl Dimension {
             Self::Era => "era",
             Self::Author => "author",
             Self::Link => "link type",
+            Self::Tag => "tag",
         }
     }
 }
@@ -88,6 +101,13 @@ pub struct Facts {
     /// Sefaria's era code, as written. `None` where neither corpus says.
     pub era: Option<String>,
     pub author: Option<String>,
+    /// Your own tags on this work, where it is a note (spec.md §11).
+    ///
+    /// Empty for everything in the corpus, which has no tags and never will —
+    /// tagging is what *you* did to *your* layer. Filled by
+    /// [`Catalogue::tagged`], because a `Work` does not carry them and a `Note`
+    /// does.
+    pub tags: Vec<String>,
 }
 
 /// The key of the row for a work whose era nobody recorded.
@@ -117,6 +137,9 @@ impl Catalogue {
                     shelf: taxonomy::shelf_of(work),
                     era: work.era.clone(),
                     author: work.author.clone(),
+                    // Filled by `tagged`, from the notes. A `Work` does not carry
+                    // tags and the corpus has none.
+                    tags: Vec::new(),
                 },
             );
         }
@@ -132,6 +155,29 @@ impl Catalogue {
     pub fn filed(&mut self, slug: &str, shelf: Vec<String>) {
         if let Some(facts) = self.rows.get_mut(slug) {
             facts.shelf = shelf;
+        }
+    }
+
+    /// Put your own tags on the works that carry them.
+    ///
+    /// Separate from [`Catalogue::of`] because a `Work` does not carry tags and a
+    /// `Note` does, and because the corpus is tagless: a catalogue built for a
+    /// search over `bavli/` should not pay for reading the personal layer.
+    ///
+    /// Called with the notes as `girsa-note` read them, so a tag on a note and the
+    /// tag on its facet row are the same string from the same file.
+    #[must_use]
+    pub fn tagged(mut self, notes: &girsa_note::note::Notes) -> Self {
+        for note in notes.all() {
+            self.tag(&note.slug, &note.tags);
+        }
+        self
+    }
+
+    /// Put tags on one work. `tagged` is the loop over the notes; this is one row.
+    pub fn tag(&mut self, slug: &str, tags: &[String]) {
+        if let Some(facts) = self.rows.get_mut(slug) {
+            facts.tags = tags.to_vec();
         }
     }
 
@@ -168,6 +214,10 @@ impl Catalogue {
                 }
                 Dimension::Era => facts.era.as_deref().unwrap_or(NO_ERA) == key,
                 Dimension::Author => facts.author.as_deref().unwrap_or_default() == key,
+                // `same_tag` rather than `==`: `girsa-note` decides when two tags
+                // are the same tag, and a facet with its own opinion about that
+                // would narrow to a different set than the tag list shows.
+                Dimension::Tag => facts.tags.iter().any(|tag| girsa_note::same_tag(tag, key)),
                 // Not a property of a sefer at all — it is a column of the
                 // index, and narrowing by it never goes through the catalogue.
                 Dimension::Link => false,
@@ -212,6 +262,9 @@ pub struct Facets {
     pub era: Vec<Row>,
     pub author: Vec<Row>,
     pub link: Links,
+    /// Your own tags, counted over this result set. Empty when nothing in the
+    /// results is tagged, which on a corpus-only search is always.
+    pub tag: Vec<Row>,
     /// Hits in seforim the catalogue has never heard of.
     ///
     /// Zero on a shelf and an index built from each other. Above zero it means
@@ -230,6 +283,7 @@ impl Facets {
         let mut shelf: BTreeMap<String, (usize, usize)> = BTreeMap::new();
         let mut era: BTreeMap<String, usize> = BTreeMap::new();
         let mut author: BTreeMap<String, usize> = BTreeMap::new();
+        let mut tag: BTreeMap<String, usize> = BTreeMap::new();
         let mut uncatalogued = 0usize;
 
         for (slug, count) in &counts.by_work {
@@ -261,6 +315,9 @@ impl Facets {
             if let Some(name) = &facts.author {
                 *author.entry(name.clone()).or_default() += count;
             }
+            for own in &facts.tags {
+                *tag.entry(own.clone()).or_default() += count;
+            }
         }
 
         sefer.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.label.cmp(&b.label)));
@@ -290,6 +347,16 @@ impl Facets {
             author: ordered(
                 author
                     .into_iter()
+                    .map(|(key, count)| Row {
+                        label: key.clone(),
+                        key,
+                        count,
+                        depth: 0,
+                    })
+                    .collect(),
+            ),
+            tag: ordered(
+                tag.into_iter()
                     .map(|(key, count)| Row {
                         label: key.clone(),
                         key,
@@ -331,6 +398,7 @@ impl Facets {
                 Links::Counted(rows) => rows,
                 Links::NotBuilt => &[],
             },
+            Dimension::Tag => &self.tag,
         }
     }
 }
@@ -555,5 +623,106 @@ mod tests {
             scope.excluded_works().iter().cloned().collect::<Vec<_>>(),
             ["mishnah-berurah"]
         );
+    }
+
+    /// A catalogue with two tagged notes on it, as `Catalogue::tagged` builds one.
+    ///
+    /// The tags go on by hand rather than through `Notes::open`, which reads a
+    /// directory: what is under test is the facet, not the file format.
+    fn with_tagged_notes() -> Catalogue {
+        let mut catalogue = Catalogue::of(&[
+            work("bavli/berakhot", &["Talmud", "Bavli"], Some("A"), None),
+            work("note/kushya", &["Yours"], None, None),
+            work("note/other", &["Yours"], None, None),
+        ]);
+        catalogue.tag("note/kushya", &["ברכות".to_string(), "קושיא".to_string()]);
+        catalogue.tag("note/other", &["ברכות".to_string()]);
+        catalogue
+    }
+
+    /// A tag was counted and shown, and clicking one could not narrow anything.
+    ///
+    /// `Dimension` had five variants and none of them was `Tag`, so the tag list in
+    /// the drawer was a list of labels dressed as chips. The row, the count and the
+    /// click are asserted together, because the defect was that the three did not
+    /// join up.
+    #[test]
+    fn a_tag_is_a_row_a_count_and_a_click() {
+        let catalogue = with_tagged_notes();
+        let facets = Facets::of(
+            &counts(
+                &[
+                    ("bavli/berakhot", 20),
+                    ("note/kushya", 3),
+                    ("note/other", 2),
+                ],
+                &[],
+                false,
+            ),
+            &catalogue,
+        );
+
+        // The rows, counted over these results rather than across the whole layer.
+        let rows: Vec<(&str, usize)> = facets
+            .tag
+            .iter()
+            .map(|r| (r.key.as_str(), r.count))
+            .collect();
+        assert!(rows.contains(&("ברכות", 5)), "{rows:?}");
+        assert!(rows.contains(&("קושיא", 3)), "{rows:?}");
+        // And `rows(Tag)` is that same list, so the rail and the click read one thing.
+        assert_eq!(facets.rows(Dimension::Tag), facets.tag.as_slice());
+
+        // The click. This is the assertion that could not have been written before:
+        // there was no `Dimension::Tag` to pass in.
+        assert_eq!(
+            catalogue.seforim_under(Dimension::Tag, "קושיא"),
+            vec!["note/kushya".to_string()]
+        );
+        assert_eq!(
+            catalogue.seforim_under(Dimension::Tag, "ברכות"),
+            vec!["note/kushya".to_string(), "note/other".to_string()]
+        );
+        // A tag nobody used narrows to nothing rather than to everything.
+        assert!(catalogue.seforim_under(Dimension::Tag, "שבת").is_empty());
+
+        // Narrowing goes through the catalogue, like Sefer and Shelf, so the scope
+        // it produces holds exactly the notes carrying that tag.
+        let scope = narrow(
+            &Scope::everything(),
+            &catalogue,
+            Dimension::Tag,
+            &Row {
+                key: "קושיא".into(),
+                label: "קושיא".into(),
+                count: 3,
+                depth: 0,
+            },
+        );
+        assert_eq!(
+            scope.works().iter().cloned().collect::<Vec<_>>(),
+            ["note/kushya"]
+        );
+    }
+
+    #[test]
+    fn a_tag_facet_is_absent_from_a_search_over_the_corpus_alone() {
+        // The corpus has no tags and never will: tagging is what you did to your own
+        // layer. An empty column is the right answer, not a missing one.
+        let facets = Facets::of(&counts(&[("bavli/berakhot", 20)], &[], false), &shelf());
+        assert!(facets.tag.is_empty());
+        assert!(facets.rows(Dimension::Tag).is_empty());
+    }
+
+    #[test]
+    fn every_dimension_has_a_name_and_a_place_in_the_rail() {
+        // `ALL` is what the rail iterates. A dimension in the enum and not in `ALL`
+        // is a facet that exists and is never drawn — one better than a facet drawn
+        // and never clickable, and still wrong.
+        assert_eq!(Dimension::ALL.len(), 6);
+        for dimension in Dimension::ALL {
+            assert!(!dimension.label().is_empty(), "{dimension:?}");
+        }
+        assert!(Dimension::ALL.contains(&Dimension::Tag));
     }
 }

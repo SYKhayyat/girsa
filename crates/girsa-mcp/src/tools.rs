@@ -64,6 +64,10 @@ pub fn catalogue() -> Value {
                         "description": "Default torat-emet: literal, nothing expanded or guessed."
                     },
                     "sefer": {"type": "string", "description": "A work slug, to search inside one sefer."},
+                    "tag": {
+                        "type": "string",
+                        "description": "One of your own tags, to search only what you tagged with it.     Corpus seforim carry no tags; this narrows to your notes."
+                    },
                     "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT}
                 },
                 "required": ["query"]
@@ -310,20 +314,27 @@ fn search(server: &Server, args: &Value) -> Result<Value, String> {
         mode,
         ..Chips::default()
     };
-    if let Some(slug) = args.get("sefer").and_then(Value::as_str) {
-        // Narrowed through the same function a facet click goes through, so a
-        // program cannot narrow by a rule the window does not have.
-        chips.scope = girsa_search::facets::narrow(
-            &chips.scope,
-            server.bar.catalogue(),
-            girsa_search::facets::Dimension::Sefer,
-            &girsa_search::facets::Row {
-                key: slug.to_string(),
-                label: slug.to_string(),
-                count: 0,
-                depth: 0,
-            },
-        );
+    // Narrowed through the same function a facet click goes through, so a program
+    // cannot narrow by a rule the window does not have — and the two dimensions are
+    // named by the same `Dimension`, so a chip that says `tag` and a flag that
+    // applies it cannot drift.
+    for (arg, dimension) in [
+        ("sefer", girsa_search::facets::Dimension::Sefer),
+        ("tag", girsa_search::facets::Dimension::Tag),
+    ] {
+        if let Some(key) = args.get(arg).and_then(Value::as_str) {
+            chips.scope = girsa_search::facets::narrow(
+                &chips.scope,
+                server.bar.catalogue(),
+                dimension,
+                &girsa_search::facets::Row {
+                    key: key.to_string(),
+                    label: key.to_string(),
+                    count: 0,
+                    depth: 0,
+                },
+            );
+        }
     }
 
     let paging = Paging {

@@ -94,7 +94,10 @@ impl Server {
             .map_err(|e| OpenError::Catalogue(root.join("works/index.jsonl"), e.to_string()))?;
         let search = SearchIndex::open(index)
             .map_err(|e| OpenError::Index(index.to_path_buf(), e.to_string()))?;
-        let catalogue = Catalogue::of(shelf.works());
+        // With your own tags on it, so `search`'s facets carry a tag column and
+        // `narrow_by: "tag"` has somewhere to narrow to (B18).
+        let (notes, _) = girsa_note::note::Notes::open(personal);
+        let catalogue = Catalogue::of(shelf.works()).tagged(&notes);
         // Loads a side-loaded model when the lane is on, which is why it is done
         // once here and not per call. With the lane off — the default — this
         // costs nothing at all.

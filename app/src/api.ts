@@ -869,13 +869,20 @@ export interface Facets {
   era: FacetRow[];
   author: FacetRow[];
   link: LinkFacet;
+  /** Your own tags, counted over this result set (spec.md §11).
+   *
+   *  Empty on a corpus-only search, because the corpus has no tags. Tags used to
+   *  be counted across the layer and shown with **no code path by which clicking
+   *  one could narrow anything** — `Dimension` had no `Tag` variant — so this is
+   *  the facet and `"tag"` below is the click. */
+  tag: FacetRow[];
   /** Hits in seforim the catalogue does not have. Above zero, the three
    * derived facets are short by this many, and the panel says so. */
   uncatalogued: number;
   total: number;
 }
 
-export type Dimension = "sefer" | "shelf" | "era" | "author" | "link";
+export type Dimension = "sefer" | "shelf" | "era" | "author" | "link" | "tag";
 
 export interface Hit {
   id: string;
