@@ -172,6 +172,76 @@ const RANK: [&str; 8] = [
     "מפרשים",
 ];
 
+/// The category values that mark a shelf of **commentary** rather than a shelf
+/// of seforim.
+///
+/// Prefixes, because Sefaria writes the base into the name: `Rishonim on
+/// Talmud`, `Acharonim on Mishnah`, `Modern Commentary on Tanakh`, `Commentary on
+/// Minor Tractates`, `Commentary of the Rosh`. Twenty-three distinct values in
+/// the shipped corpus and all of them start with one of these five.
+const COMMENTARY: [&str; 5] = [
+    "Commentary",
+    "Rishonim",
+    "Acharonim",
+    "Modern Commentary",
+    "Targum",
+];
+
+/// Whether a work stands on a shelf of commentary, and what is above it.
+///
+/// `Some(&["Halakhah", "Shulchan Arukh"])` for a work filed under `Halakhah /
+/// Shulchan Arukh / Commentary / Kaf HaChayim` — the shelf its base text stands
+/// on. `None` for a work that is not filed as commentary at all.
+#[must_use]
+pub fn commentary_shelf(work: &Work) -> Option<&[String]> {
+    let at = work
+        .categories
+        .iter()
+        .position(|c| COMMENTARY.iter().any(|m| c.starts_with(m)))?;
+    Some(&work.categories[..at])
+}
+
+/// Whether one work is a commentary **on another**.
+///
+/// This is the question W43's tick-list, and anything else that says *these are
+/// the mefarshim on this sefer*, has to ask. It is not the same question as
+/// *does an edge join them*: `comments-on` is a type on one of 4.18M edges and
+/// Sefaria's link data is not careful enough for that to be a claim about two
+/// seforim. Tur has commentary edges landing in it from forty works and is
+/// commented on by four.
+///
+/// Two ways to be one, and both of them are the corpus's own statement:
+///
+/// - it **declares** the base — `commentary_on`, which is Sefaria's
+///   `base_text_titles`;
+/// - or it stands on a **commentary shelf** whose shelf-above is the shelf the
+///   sefer itself stands on. The Kaf HaChayim declares nothing and is the largest
+///   commentary on Orach Chayim; the Beit Yosef declares nothing and is *the*
+///   commentary on the Tur. Keeping only the declared ones would drop both.
+///
+/// Never from a slug or a title — BUILDER.md rule 6, which is what the first
+/// version of this got wrong by not asking the question at all.
+#[must_use]
+pub fn is_commentary_on(commentary: &Work, base: &Work) -> bool {
+    if commentary.slug == base.slug {
+        return false;
+    }
+    if commentary
+        .commentary_on
+        .iter()
+        .any(|declared| declared.slug == base.slug)
+    {
+        return true;
+    }
+    // A declaration that names some *other* sefer is a statement about what this
+    // is a commentary on, and it did not name this one. The shelf is only asked
+    // of a work that has said nothing.
+    if !commentary.commentary_on.is_empty() {
+        return false;
+    }
+    commentary_shelf(commentary).is_some_and(|above| above == base.categories.as_slice())
+}
+
 /// The shelf a work sits on, as a path from the top.
 ///
 /// Always at least one element, and its first element is always one of [`TOP`]
@@ -196,6 +266,22 @@ pub fn shelf_of(work: &Work) -> Vec<String> {
             continue;
         }
         shelf.push(term_of(trimmed, &said));
+    }
+
+    // W46. A sefer that **declares** itself a commentary and whose categories put
+    // it on its own base's shelf is filed one level down, with the commentaries.
+    //
+    // Sefaria's own data disagrees with itself about this, in one line:
+    //
+    //     peri-megadim-on-orach-chayim  ['Halakhah','Shulchan Arukh']
+    //     peri-megadim-on-yoreh-deah    ['Halakhah','Shulchan Arukh','Commentary','Pri Megadim']
+    //
+    // Same author, same sefer, two chalakim, two filings — so one of them stands
+    // beside the four chalakim as though it were a fifth. The declaration is the
+    // stronger statement and it wins, which is the precedence the rest of this
+    // codebase already uses everywhere else.
+    if !work.commentary_on.is_empty() && commentary_shelf(work).is_none() {
+        shelf.push(term_of("Commentary", &said));
     }
     shelf
 }
@@ -269,6 +355,204 @@ mod tests {
             commentary_on: Vec::new(),
         };
         shelf_of(&work).join("/")
+    }
+
+    /// A work with categories, and the bases it declares.
+    fn work_of(slug: &str, categories: &[&str], on: &[&str]) -> Work {
+        Work {
+            slug: slug.into(),
+            he_title: slug.into(),
+            en_title: slug.into(),
+            categories: categories.iter().map(|c| (*c).to_string()).collect(),
+            source: Source::Sefaria,
+            origin: std::path::PathBuf::new(),
+            schema: None,
+            author: None,
+            era: None,
+            comp_date: None,
+            version: None,
+            he_sections: Vec::new(),
+            commentary_on: on
+                .iter()
+                .map(|slug| crate::work::BaseText {
+                    slug: (*slug).to_string(),
+                    mapping: crate::work::Mapping::Unstated,
+                })
+                .collect(),
+        }
+    }
+
+    // ── W45: is this a commentary on *that* sefer ────────────────────────────
+    //
+    // The corpus holds 4.18M edges and `comments-on` is a type on an edge, not a
+    // claim about two seforim. Tur has commentary edges landing in it from forty
+    // works and is commented on by four. Reading the edge as the claim is how
+    // Rashi on Berakhot became a mefaresh on the Tur.
+
+    // ── W46: a sefer that says it is a commentary is filed as one ────────────
+
+    #[test]
+    fn the_pri_megadim_is_filed_with_the_mefarshim_and_not_beside_the_shulchan_arukh() {
+        // Upstream, in one line, and this is the reader's *"pri megadim is lumped
+        // with it"*:
+        //
+        //   peri-megadim-on-orach-chayim  ['Halakhah','Shulchan Arukh']
+        //   peri-megadim-on-yoreh-deah    ['Halakhah','Shulchan Arukh','Commentary','Pri Megadim']
+        //
+        // Same author, same sefer, two chalakim, two different filings. So one of
+        // them stands on the Shulchan Arukh's own shelf as though it were a fifth
+        // chelek. It is not a guess to move it: it **declares**
+        // `commentary_on: shulchan-arukh/orach-chayim`.
+        let pri_megadim = work_of(
+            "peri-megadim-on-orach-chayim",
+            &["Halakhah", "Shulchan Arukh"],
+            &["shulchan-arukh/orach-chayim"],
+        );
+        assert_eq!(shelf_of(&pri_megadim).join("/"), "הלכה/שולחן ערוך/מפרשים");
+    }
+
+    #[test]
+    fn the_shulchan_arukh_itself_does_not_move() {
+        // The base text declares nothing, so nothing moves it. This is the test
+        // that keeps the rule above from filing the whole shelf under its own
+        // commentaries.
+        let arukh = work_of(
+            "shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        assert_eq!(shelf_of(&arukh).join("/"), "הלכה/שולחן ערוך");
+
+        // And an introduction to a sefer is part of the sefer.
+        let intro = work_of(
+            "shulchan-arukh/introduction",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        assert_eq!(shelf_of(&intro).join("/"), "הלכה/שולחן ערוך");
+    }
+
+    #[test]
+    fn a_commentary_already_filed_as_one_is_left_where_it_is() {
+        // Rashi declares Berakhot and is already under the rishonim. Moving it
+        // again would put it under `תלמוד/בבלי/ראשונים/מפרשים`, which is a folder
+        // nobody asked for.
+        let rashi = work_of(
+            "bavli/rashi-on-berakhot",
+            &["Talmud", "Bavli", "Rishonim on Talmud", "Rashi"],
+            &["bavli/berakhot"],
+        );
+        assert_eq!(
+            shelf_of(&rashi).join("/"),
+            "תלמוד/בבלי/ראשונים/Rashi",
+            "a commentary on a commentary shelf stays on it"
+        );
+    }
+
+    #[test]
+    fn a_commentary_that_declares_its_base_is_a_commentary_on_it() {
+        let rashi = work_of(
+            "bavli/rashi-on-berakhot",
+            &["Talmud", "Bavli", "Rishonim on Talmud", "Rashi"],
+            &["bavli/berakhot"],
+        );
+        let berakhot = work_of("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[]);
+        assert!(is_commentary_on(&rashi, &berakhot));
+    }
+
+    #[test]
+    fn rashi_on_berakhot_is_not_a_mefaresh_on_the_tur() {
+        // The reader's words: *"rashi on berachos is put as a mefaresh on tur.
+        // this is crazy."* It was, and the graph really does hold `comments-on`
+        // edges between them — Sefaria's link types are not this careful.
+        let rashi = work_of(
+            "bavli/rashi-on-berakhot",
+            &["Talmud", "Bavli", "Rishonim on Talmud", "Rashi"],
+            &["bavli/berakhot"],
+        );
+        let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
+        assert!(!is_commentary_on(&rashi, &tur));
+    }
+
+    #[test]
+    fn a_masechta_is_not_a_mefaresh_on_the_shulchan_arukh() {
+        // *"shabbos is put as a mefaresh on shulchan aruch which is absurd."*
+        let shabbat = work_of("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"], &[]);
+        let arukh = work_of(
+            "shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        assert!(!is_commentary_on(&shabbat, &arukh));
+        // And the Shulchan Arukh is not a commentary on the Tur, though it has
+        // 697 commentary edges into it.
+        let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
+        assert!(!is_commentary_on(&arukh, &tur));
+    }
+
+    #[test]
+    fn a_commentary_that_declares_nothing_is_known_by_the_shelf_it_stands_on() {
+        // The Kaf HaChayim is the largest mefaresh on Orach Chayim — 29,956
+        // edges — and Sefaria declares no base text for it. So *keep only the
+        // declared ones* is not the fix: it would throw away the biggest one.
+        //
+        // Sefaria does say where it stands, though, and that is enough: a
+        // commentary shelf, with Orach Chayim's own shelf directly above it.
+        let kaf = work_of(
+            "kaf-hachayim-on-shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh", "Commentary", "Kaf HaChayim"],
+            &[],
+        );
+        let arukh = work_of(
+            "shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        assert!(is_commentary_on(&kaf, &arukh));
+
+        // The Beit Yosef on the Tur, same shape — and this one the old
+        // declared-only reading would have dropped from the Tur entirely,
+        // 18,353 edges of the sefer that is *the* commentary on it.
+        let beit_yosef = work_of("beit-yosef", &["Halakhah", "Tur", "Commentary"], &[]);
+        let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
+        assert!(is_commentary_on(&beit_yosef, &tur));
+    }
+
+    #[test]
+    fn a_commentary_on_one_shelf_is_not_a_commentary_on_a_sefer_on_another() {
+        // The negative half of the rule above. Being *a* commentary is not being
+        // a commentary on *this*.
+        let kaf = work_of(
+            "kaf-hachayim-on-shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh", "Commentary", "Kaf HaChayim"],
+            &[],
+        );
+        let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
+        assert!(!is_commentary_on(&kaf, &tur));
+    }
+
+    #[test]
+    fn a_sefer_is_not_a_commentary_on_itself() {
+        let arukh = work_of(
+            "shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        assert!(!is_commentary_on(&arukh, &arukh));
+    }
+
+    #[test]
+    fn the_rule_asks_the_shelf_and_not_the_slug() {
+        // BUILDER.md rule 6. `X on Y` in a slug is not evidence: the two works
+        // here are named for each other and stand nowhere near each other, and
+        // the answer is no.
+        let looks_right = work_of(
+            "something-on-berakhot",
+            &["Musar", "Acharonim"],
+            &["berakhot-a-different-sefer"],
+        );
+        let berakhot = work_of("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[]);
+        assert!(!is_commentary_on(&looks_right, &berakhot));
     }
 
     #[test]

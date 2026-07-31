@@ -17,7 +17,7 @@
 // hold them — the same reason `preview.ts` holds B1's geometry. They are: what
 // the door should say given what is behind it, and which sefer to offer first.
 
-import type { Comments, Companion, Mefaresh } from "./api.ts";
+import type { Branch, Comments, Companion, Mefaresh } from "./api.ts";
 
 /**
  * The declared commentaries, and only those.
@@ -91,6 +91,8 @@ export interface Choice {
    */
   tickable: boolean;
   chosen: boolean;
+  /** The folder it stands in (W44). Absent for one drawn above the folders. */
+  shelf?: string;
 }
 
 /**
@@ -120,6 +122,7 @@ export function choices(companions: Companion[], can: Mefaresh[]): Choice[] {
     links: c.links,
     tickable: graph.has(c.slug),
     chosen: graph.get(c.slug)?.chosen ?? false,
+    shelf: graph.get(c.slug)?.shelf,
   }));
   const listed = new Set(rows.map((r) => r.slug));
   const rest = can
@@ -133,8 +136,71 @@ export function choices(companions: Companion[], can: Mefaresh[]): Choice[] {
       links: 0,
       tickable: true,
       chosen: m.chosen,
+      shelf: m.shelf,
     }));
   return [...rows, ...rest];
+}
+
+/** A heading, or a sefer — one row of the list behind the door. */
+export type Listed =
+  | { kind: "folder"; title: string; depth: number; count: number }
+  | { kind: "sefer"; choice: Choice };
+
+/**
+ * The list in reading order: mefarshim in their folders, then everything else
+ * (W44).
+ *
+ * > *"it would be nice if meforshim remained in their folders"*
+ *
+ * Three sections and they are three different claims, which is why they are not
+ * one list of sixty rows:
+ *
+ * 1. the mefarshim the corpus places on this sefer's lines, in their folders —
+ *    rishonim together, acharonim together, because that is the first thing
+ *    anybody wants to know about a mefaresh;
+ * 2. the commentaries the corpus **declares** but whose comments it cannot place
+ *    on a line, so they can be opened beside but not ticked;
+ * 3. the seforim that merely share links, under a heading that says so — the Beit
+ *    Yosef cites Berakhot 815 times and is not a commentary on it.
+ *
+ * The folders come from Rust, so there is one idea of which shelf a sefer is on.
+ */
+export function listed(rows: Choice[], folders: Branch[]): Listed[] {
+  const out: Listed[] = [];
+  const shown = new Set<string>();
+  const sefer = (choice: Choice): Listed => {
+    shown.add(choice.slug);
+    return { kind: "sefer", choice };
+  };
+
+  // The mefarshim with no folder go first, above the headings, so a heading
+  // always has its own seforim under it and never somebody else's.
+  for (const row of rows) {
+    if (row.tickable && !row.shelf) out.push(sefer(row));
+  }
+  const walk = (branches: Branch[], depth: number): void => {
+    for (const branch of branches) {
+      const held = rows.filter((r) => r.shelf === branch.key);
+      if (held.length === 0 && branch.children.length === 0) continue;
+      out.push({ kind: "folder", title: branch.title, depth, count: branch.count });
+      for (const row of held) out.push(sefer(row));
+      walk(branch.children, depth + 1);
+    }
+  };
+  walk(folders, 0);
+
+  const rest = rows.filter((r) => !shown.has(r.slug));
+  const declared = rest.filter((r) => r.declared);
+  if (declared.length > 0) {
+    out.push({ kind: "folder", title: "פירושים בלי מקום בשורה", depth: 0, count: declared.length });
+    for (const row of declared) out.push(sefer(row));
+  }
+  const linked = rest.filter((r) => !r.declared);
+  if (linked.length > 0) {
+    out.push({ kind: "folder", title: "ספרים מקושרים", depth: 0, count: linked.length });
+    for (const row of linked) out.push(sefer(row));
+  }
+  return out;
 }
 
 /**

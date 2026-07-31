@@ -1350,3 +1350,140 @@ Talmud and index 1 for Tanakh.
 
 **Acceptance.** Open the mefarshim on Genesis and the Rishonim are together,
 under a heading, above the Acharonim.
+
+---
+
+### W45 · A mefaresh is a commentary on **this** sefer
+
+> *"shabbos is put as a mefaresh on shulchan aruch which is absurd. rashi on
+> berachos is put as a mefaresh on tur. this is crazy."*
+
+Both true, and both mine. W43's `Marks::of` took **every** incoming `comments-on`
+edge and called the far end a mefaresh. That is inferring a commentary
+relationship from the presence of an edge, which is the thing BUILDER.md rule 6
+exists to forbid, and I wrote it three commits after fixing the same class of
+error in the orientation layer.
+
+Why the test suite missed it — the number that should have been the tell:
+
+| sefer | works with `comments-on` landing in it | declared commentaries on it |
+|---|---|---|
+| `bavli/berakhot` | 30 | **30** |
+| `shulchan-arukh/orach-chayim` | 48 | 17 |
+| `tur` | 40 | 4 |
+
+`rashi_is_on_the_first_line_of_the_daf_in_the_real_corpus` reads Berakhot, where
+the graph is clean, so it passed. One masechta is not the corpus. The oracle test
+`the_meforshim_are_on_the_daf` has the same shape — it asks *is Rashi reachable*,
+never *is anything reachable that should not be*, except for five hand-picked
+negative controls that happened to be about Shulchan Arukh mefarshim rather than
+about Talmud appearing on Shulchan Arukh.
+
+**Not fixable by keeping only declared commentaries.** The biggest mefaresh on
+Orach Chayim is the Kaf HaChayim, 29,956 edges, and Sefaria declares nothing for
+it. Nor is the Biur Halacha, the Levushei Serad, or R' Akiva Eiger. Dropping the
+undeclared drops those.
+
+What separates them is the shelf, and Sefaria's own filing says it plainly:
+
+    kaf-hachayim-on-...orach-chayim  ['Halakhah','Shulchan Arukh','Commentary','Kaf HaChayim']
+    bavli/rashi-on-berakhot          ['Talmud','Bavli','Rishonim on Talmud','Rashi']
+    bavli/shabbat                    ['Talmud','Bavli','Seder Moed']
+    shulchan-arukh/orach-chayim      ['Halakhah','Shulchan Arukh']
+    tur                              ['Halakhah','Tur']
+
+**The rule.** A work is a mefaresh on a sefer when it has commentary edges
+landing there **and** one of:
+
+- it **declares** it — `commentary_on` names that sefer; or
+- it stands on a **commentary shelf** (`Commentary`, `Rishonim…`, `Acharonim…`,
+  `Modern Commentary…`, `Targum…`) whose shelf-above is the shelf the sefer
+  itself stands on.
+
+No slug parsing, no title matching. Both halves are the corpus's own statements.
+
+Every case falls out:
+
+| commentary | sefer | why |
+|---|---|---|
+| Kaf HaChayim | S.A. O.C. | commentary shelf `Halakhah/Shulchan Arukh/Commentary`, above it `Halakhah/Shulchan Arukh` = O.C.'s own shelf ✓ |
+| Beit Yosef | Tur | `Halakhah/Tur/Commentary` over `Halakhah/Tur` ✓ — **gained**, 18,353 edges, and `declared` alone missed it |
+| Rashi on Berakhot | Tur | declares Berakhot; its shelf-above is `Talmud/Bavli`, not `Halakhah/Tur` ✗ |
+| Shabbat | S.A. O.C. | not on a commentary shelf at all ✗ |
+| S.A. O.C. | Tur | not on a commentary shelf ✗ |
+| Yerushalmi Ketubot | Tur | ✗ |
+
+**Where it lives.** `girsa_corpus::taxonomy::is_commentary_on`, beside `shelf_of`,
+because it is the same knowledge about the same field and a second reader of
+`categories` is how a sefer ends up a commentary here and not there. `Marks::of`
+takes the shelf so it can ask.
+
+**Test first, and watch these fail.**
+1. Shabbat is not a mefaresh on Shulchan Arukh, Orach Chayim.
+2. Rashi on Berakhot is not a mefaresh on the Tur.
+3. Shulchan Arukh, Orach Chayim is not a mefaresh on the Tur.
+4. The Kaf HaChayim **is** one on Orach Chayim, though it declares nothing.
+5. The Beit Yosef **is** one on the Tur, though it declares nothing.
+6. Rashi is still on Berakhot, and all 30 of Berakhot's survive — the fix must
+   not be a filter that quietly empties the daf.
+7. Over the **whole corpus**, not one masechta: every work the tick-list offers
+   on ten sample seforim from five different parts of the shelf passes the rule.
+   This is the shape the old test lacked, and the reason it lacked it.
+
+**Acceptance.** The tick-list on the Tur has the Beit Yosef, Prisha, Bach and
+Drisha in it, and does not have Rashi on Berakhot.
+
+---
+
+### W46 · A sefer that says it is a commentary is filed with the commentaries
+
+> *"shulchan aruch should have folders for mefrshim and then for actual shulchan
+> aruch. it is structured oddly now, and pri megadim is lumped with it."*
+
+Upstream, in one line:
+
+    peri-megadim-on-orach-chayim  ['Halakhah','Shulchan Arukh']
+    peri-megadim-on-yoreh-deah    ['Halakhah','Shulchan Arukh','Commentary','Pri Megadim']
+
+Same author, same sefer, two chalakim, two different filings. So the Pri Megadim
+on Orach Chayim stands on the Shulchan Arukh's own shelf, beside the four
+chalakim, as though it were a fifth.
+
+It is not a guess to move it: it **declares** `commentary_on:
+shulchan-arukh/orach-chayim`. So — a work that declares itself a commentary and
+whose categories put it on its base's own shelf is filed one level down, under
+that shelf's commentary folder. A declaration outranks a category, which is the
+same precedence the rest of this codebase already uses.
+
+**Build.** In `girsa_corpus::taxonomy::shelf_of`, because the shelf has to be one
+mapping — the search facets group by it too (the note at the top of
+`girsa_app::taxonomy` is about exactly this).
+
+**Test first.**
+1. `peri-megadim-on-orach-chayim` lands under the commentary folder, not beside
+   the chalakim.
+2. `shulchan-arukh/orach-chayim` does **not** move: it declares nothing and it is
+   the base text.
+3. `shulchan-arukh/introduction` does not move either — it declares nothing, and
+   an introduction to a sefer is part of it.
+4. Every sefer still has exactly one shelf, and `every_sefer_has_a_shelf` still
+   counts to the whole corpus.
+
+**Acceptance.** Open Shulchan Arukh on the shelf: four chalakim and an
+introduction, and a מפרשים folder holding the sixty-eight commentaries — the Pri
+Megadim among them.
+
+---
+
+### W47 · Open something without closing what you are reading
+
+> *"there should be a way to open while keeping madaf open."*
+
+---
+
+### W48 · A search result opens without closing the search
+
+> *"same for search - be able to go there while keeping search open."*
+
+A reader working through search results reads one, goes back, reads the next. If
+the jump closes the panel, the second result costs the whole search again.

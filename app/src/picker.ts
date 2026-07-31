@@ -8,7 +8,7 @@
 
 import { api, type Card, type Mefarshim } from "./api.ts";
 import { field } from "./controls.ts";
-import { choices, ticked, type Choice } from "./mefarshim.ts";
+import { choices, listed, ticked, type Choice, type Listed } from "./mefarshim.ts";
 
 type Chosen = (slug: string) => void;
 
@@ -38,7 +38,7 @@ export class Picker {
   private cursor = 0;
   private chosen: Chosen = () => {};
   private beside: string | null = null;
-  private mefarshim: Mefarshim = { works: [], marked: [], touched: 0 };
+  private mefarshim: Mefarshim = { works: [], folders: [], marked: [], touched: 0 };
   private tick: (work: string, on: boolean) => void = () => {};
   /** The sentence under the list: how much of the sefer has commentary at all. */
   private readonly said: HTMLElement;
@@ -112,8 +112,9 @@ export class Picker {
       // builds its list in two passes, and the same daf opened twice must offer
       // the same order. Mefarshim first — a reader who pressed this button came
       // for one.
+      const rows = choices(await api.companions(this.beside), this.mefarshim.works);
       this.fill(
-        choices(await api.companions(this.beside), this.mefarshim.works).map(companionRow),
+        listed(rows, this.mefarshim.folders).map(listedRow),
         "אין ספר שהחיבור מעיד עליו — חפש אחד",
       );
       this.said.textContent = ticked(
@@ -141,8 +142,21 @@ export class Picker {
       return;
     }
     for (const row of rows) {
+      // A folder heading (W44). Not a row you can choose: it is the shelf the
+      // seforim under it stand on, and the arrow keys skip it for that reason.
+      if (row.heading) {
+        const head = document.createElement("li");
+        head.className = "picker-folder";
+        head.style.setProperty("--depth", String(row.heading.depth));
+        head.textContent = row.heading.count > 0
+          ? `${row.title} · ${row.heading.count}`
+          : row.title;
+        this.list.append(head);
+        continue;
+      }
       const node = document.createElement("li");
       node.className = "picker-row";
+      if (row.depth) node.style.setProperty("--depth", String(row.depth));
       const title = document.createElement("span");
       title.className = "picker-row-title";
       title.textContent = row.title;
@@ -219,6 +233,23 @@ interface Row {
   why?: string;
   /** Present on a row that can be ticked, with whether it is (W43). */
   tick?: { on: boolean };
+  /** Present on a folder heading rather than a sefer (W44). */
+  heading?: { depth: number; count: number };
+  /** How far in a sefer under a folder is drawn. */
+  depth?: number;
+}
+
+/** One entry of the grouped list: a heading, or a sefer under one. */
+function listedRow(entry: Listed): Row {
+  if (entry.kind === "folder") {
+    return {
+      slug: "",
+      title: entry.title,
+      aside: "",
+      heading: { depth: entry.depth, count: entry.count },
+    };
+  }
+  return companionRow(entry.choice);
 }
 
 function cardRow(card: Card): Row {

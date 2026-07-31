@@ -115,13 +115,10 @@ impl State {
     /// Which mefarshim speak on which line of one sefer, read once.
     fn marks(&mut self, slug: &str) -> Result<&girsa_app::mefarshim::Marks, String> {
         if !self.marks.contains_key(slug) {
-            let root = self
-                .shelf
-                .as_ref()
-                .ok_or_else(|| self.trouble())?
-                .root()
-                .to_path_buf();
-            let read = girsa_app::mefarshim::Marks::of(&root, slug).map_err(|e| e.to_string())?;
+            let trouble = self.trouble();
+            let shelf = self.shelf.as_ref().ok_or(trouble)?;
+            let read =
+                girsa_app::mefarshim::Marks::of(shelf, slug).map_err(|e| e.to_string())?;
             self.marks.insert(slug.to_string(), read);
         }
         self.marks
@@ -1035,12 +1032,19 @@ struct Mefaresh {
     en_title: String,
     /// Whether the reader has ticked it on this sefer.
     chosen: bool,
+    /// The folder it is drawn in (W44), or absent for one drawn loose.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shelf: Option<String>,
 }
 
 /// The tick-list, and which lines to mark given what is ticked.
 #[derive(Serialize)]
 struct Mefarshim {
     works: Vec<Mefaresh>,
+    /// The folders they stand in — rishonim, acharonim, and the authors with
+    /// more than one sefer among them (W44). Empty when there is nothing worth
+    /// grouping, and then the list is drawn flat.
+    folders: Vec<Branch>,
     /// The segments a **ticked** mefaresh speaks on. Only these get a marker:
     /// 2,749 of Berakhot's segments carry commentary from somebody, and a mark
     /// on nearly every line is not a mark.
@@ -1061,6 +1065,14 @@ fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim
     let marked: Vec<String> = marks.marked(&chosen).into_iter().collect();
 
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    // The folders they stand in, over the same works the list offers — through
+    // `taxonomy::tree`'s idea of a shelf, so a sefer is in one place here and on
+    // the bookcase.
+    let works: Vec<girsa_corpus::work::Work> = commentators
+        .iter()
+        .filter_map(|slug| shelf.work(slug).cloned())
+        .collect();
+    let folders = girsa_app::mefarshim::folders(&works, shelf.arrangement());
     Ok(Mefarshim {
         works: commentators
             .into_iter()
@@ -1070,10 +1082,12 @@ fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim
                     he_title: named.map_or_else(|| work.clone(), |w| w.he_title.clone()),
                     en_title: named.map_or_else(|| work.clone(), |w| w.en_title.clone()),
                     chosen: chosen.contains(&work),
+                    shelf: folders.of.get(&work).cloned(),
                     slug: work,
                 }
             })
             .collect(),
+        folders: folders.tree,
         marked,
         touched,
     })

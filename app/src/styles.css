@@ -902,6 +902,28 @@ body {
   accent-color: var(--mark);
 }
 
+/* A folder heading in the list (W44). Rishonim together, acharonim together —
+ * the first thing anybody wants to know about a mefaresh, and a flat list of
+ * sixty throws it away. */
+.picker-folder {
+  padding: 10px 14px 3px;
+  padding-inline-start: calc(14px + var(--depth, 0) * 14px);
+  font-family: var(--plain);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-quiet);
+  border-top: 1px solid var(--rule);
+  user-select: none;
+}
+
+.picker-folder:first-child {
+  border-top: none;
+}
+
+.picker-row {
+  padding-inline-start: calc(14px + var(--depth, 0) * 14px);
+}
+
 .picker-said {
   margin: 0;
   padding: 8px 14px 12px;

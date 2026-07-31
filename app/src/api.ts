@@ -214,11 +214,16 @@ export interface Mefaresh {
   he_title: string;
   en_title: string;
   chosen: boolean;
+  /** The folder it stands in (W44). Absent for one drawn loose. */
+  shelf?: string;
 }
 
 /** The tick-list, and which lines carry a marker given what is ticked. */
 export interface Mefarshim {
   works: Mefaresh[];
+  /** Rishonim, acharonim, and the authors with more than one sefer among them
+   * (W44). Empty when there is nothing worth grouping. */
+  folders: Branch[];
   marked: string[];
   /** How many lines of this sefer anybody comments on, so *you have ticked
    * nobody* never reads as *nobody wrote*. */
@@ -1073,7 +1078,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // is the truth here — there are no edges in a fixture — so the door says
     // *nobody comments on this* rather than pretending six people do.
     case "mefarshim":
-      return { works: [], marked: [], touched: 0 } as T;
+      return { works: [], folders: [], marked: [], touched: 0 } as T;
     case "choose_mefaresh":
       return [] as unknown as T;
     case "mefarshim_at":

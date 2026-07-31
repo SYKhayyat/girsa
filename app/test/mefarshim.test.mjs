@@ -24,6 +24,7 @@ import {
   nothingHere,
   ticked,
   choices,
+  listed,
 } from "../.tmp-test/mefarshim.mjs";
 
 /** As `Shelf::companions` returns them: declared ones first, then by links. */
@@ -224,5 +225,91 @@ export function run() {
 
   check("with no graph read yet, every row is a row and none is tickable",
     choices(DECLARED, []).filter((r) => r.tickable).length, 0);
+
+  // ------------------------------------------------- the folders (W44)
+
+  const folder = (key, title, count, children = []) => ({
+    key,
+    title,
+    here: count - children.reduce((n, c) => n + c.count, 0),
+    count,
+    mine: false,
+    edited: false,
+    children,
+  });
+
+  const IN_FOLDERS = [
+    { slug: "rashi", he_title: "רש״י", en_title: "Rashi", chosen: false, shelf: "ראשונים" },
+    { slug: "tosafot", he_title: "תוספות", en_title: "Tosafot", chosen: false, shelf: "ראשונים" },
+    { slug: "pnei", he_title: "פני יהושע", en_title: "Pnei", chosen: false, shelf: "אחרונים" },
+    { slug: "loose", he_title: "בודד", en_title: "Loose", chosen: false },
+  ];
+  const grouped = listed(
+    choices(
+      [
+        companion("rashi", true, 3139),
+        companion("tosafot", true, 812),
+        companion("pnei", true, 40),
+        companion("loose", true, 5),
+        companion("beit-yosef", false, 815),
+        companion("declared-nowhere", true, 0),
+      ],
+      IN_FOLDERS,
+    ),
+    [folder("ראשונים", "ראשונים", 2), folder("אחרונים", "אחרונים", 1)],
+  );
+  const shape = grouped.map((e) => (e.kind === "folder" ? `# ${e.title}` : e.choice.slug));
+
+  check(
+    "the mefarshim stand in their folders, the loose one above them",
+    shape,
+    [
+      "loose",
+      "# ראשונים",
+      "rashi",
+      "tosafot",
+      "# אחרונים",
+      "pnei",
+      // A declared commentary the graph cannot place on any line: offered, under
+      // a heading that says why it has no tick-box.
+      "# פירושים בלי מקום בשורה",
+      "declared-nowhere",
+      // And a sefer that merely shares links, said as that and not as a mefaresh.
+      "# ספרים מקושרים",
+      "beit-yosef",
+    ],
+  );
+
+  check(
+    "grouping the list loses nobody",
+    grouped.filter((e) => e.kind === "sefer").length,
+    6,
+  );
+
+  // The heading is the claim, and the claim has to be true of what is under it.
+  // A folder with nothing in it and nothing under it is not drawn.
+  check(
+    "a folder with nothing in it is not drawn",
+    listed(choices([companion("rashi", true, 1)], []), [folder("ריק", "ריק", 0)]).map((e) =>
+      e.kind === "folder" ? `# ${e.title}` : e.choice.slug,
+    ),
+    ["# פירושים בלי מקום בשורה", "rashi"],
+  );
+
+  // With no folders read, every mefaresh is loose and the list is what it was
+  // before W44 — plus the one heading for the declared commentary the graph
+  // cannot place.
+  check(
+    "with no folders the list is flat",
+    listed(choices(DECLARED, CAN_MARK), []).map((e) =>
+      e.kind === "folder" ? `# ${e.title}` : e.choice.slug,
+    ),
+    [
+      "bavli/rashi-on-berakhot",
+      "bavli/ben-yehoyada",
+      "# פירושים בלי מקום בשורה",
+      "bavli/tosafot-on-berakhot",
+    ],
+  );
 
 }
