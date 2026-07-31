@@ -519,11 +519,21 @@ fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
 /// (`girsa_scan::engine`) and a reader is entitled to know which is in front of
 /// them. **Badge them, don't demote them**: the row is where the score put it.
 fn badge(hit: &girsa_search::index::Hit) -> String {
-    match &hit.by {
+    let read = match &hit.by {
         None => String::new(),
         Some(by) if by.is_ocr() => format!("  [OCR — {}]", by.name()),
         Some(_) => "  [read off the file]".to_string(),
+    };
+    // A permanent id naming this much text names a volume, not a place (B12): the
+    // words are in there and the citation is not a mareh makom, and both halves of
+    // that are said rather than only the first.
+    if hit.is_a_volume() {
+        return format!(
+            "{read}  [{} chars — this id names a volume, not a place]",
+            hit.characters()
+        );
     }
+    read
 }
 
 fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {

@@ -690,6 +690,27 @@ impl Hit {
         self.by.as_ref().is_some_and(Reader::is_ocr)
     }
 
+    /// Whether this row's id names a volume rather than a place (B12).
+    ///
+    /// 5,733 segments in the corpus are over 10,000 characters and the largest is
+    /// 1,275,307. A hit inside one is honest about the words being *in there* and
+    /// dishonest about the citation being a mareh makom, so the row says so — the
+    /// same rule as the OCR badge one field up, and for the same reason: a reader is
+    /// entitled to know which kind of result is in front of them.
+    ///
+    /// A corpus imported since B12 has none of these, because the importer cuts
+    /// them. This is what a row looks like against a corpus imported before it.
+    #[must_use]
+    pub fn is_a_volume(&self) -> bool {
+        self.text.chars().count() > girsa_corpus::oversized::NAMES_A_PLACE
+    }
+
+    /// How long the segment is, for a row that wants to say.
+    #[must_use]
+    pub fn characters(&self) -> usize {
+        self.text.chars().count()
+    }
+
     /// Whether this row is a page of a scan at all — OCR'd or read off the
     /// file's own text.
     #[must_use]

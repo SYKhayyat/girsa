@@ -11,6 +11,10 @@ pub mod era;
 pub mod fetch;
 pub mod import;
 pub mod index;
+// A permanent id that names 1.2 MB of text names a volume, not a place (B12).
+// Counting them, and cutting them into places that anchors on the parent still
+// cover.
+pub mod oversized;
 pub mod segment;
 pub mod span;
 pub mod store;

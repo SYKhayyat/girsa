@@ -818,9 +818,41 @@ impl Open {
     }
 
     /// Where a segment sits in reading order.
+    ///
+    /// An id that was **split** since it was written down resolves to the first of
+    /// its children. spec.md §3's promise is that *"editing text cannot move an
+    /// anchor"* and that *"splitting a segment mints a child ID rather than shifting
+    /// seventeen thousand others"* — and `Ordinal::covers` is how that promise is
+    /// kept, so anything looking a segment up has to ask it. Without this, cutting
+    /// a 1.2 MB segment into places (B12) would silently orphan every citation,
+    /// link, mark and correction that named the parent.
+    ///
+    /// Exact first, because that is every lookup in a corpus nothing has split.
     #[must_use]
     pub fn position_of(&self, id: &SegmentId) -> Option<usize> {
-        self.position.get(id).copied()
+        if let Some(at) = self.position.get(id).copied() {
+            return Some(at);
+        }
+        self.covered_by(id).first().copied()
+    }
+
+    /// Where every segment an id covers sits, in reading order.
+    ///
+    /// Itself, if it is live. Its children, if it was split. Empty if it names
+    /// nothing here — never the nearest thing.
+    #[must_use]
+    pub fn covered_by(&self, id: &SegmentId) -> Vec<usize> {
+        if let Some(at) = self.position.get(id).copied() {
+            return vec![at];
+        }
+        let mut out: Vec<usize> = self
+            .position
+            .iter()
+            .filter(|(live, _)| id.covers(live))
+            .map(|(_, at)| *at)
+            .collect();
+        out.sort_unstable();
+        out
     }
 
     /// The segments an address names in this work, in reading order.
@@ -843,13 +875,18 @@ impl Open {
         let Some(run) = self.index.resolve(&Ref::point(path, address.clone())) else {
             return Vec::new();
         };
-        let (Some(from), to) = (
-            self.position_of(&run.first),
-            run.last.as_ref().and_then(|l| self.position_of(l)),
+        // The *first* of what the start covers and the *last* of what the end
+        // covers, so an address naming a segment that has since been split names
+        // all of its children rather than only the first one.
+        let (Some(&from), to) = (
+            self.covered_by(&run.first).first(),
+            run.last
+                .as_ref()
+                .and_then(|l| self.covered_by(l).last().copied()),
         ) else {
             return Vec::new();
         };
-        let to = to.unwrap_or(from);
+        let to = to.unwrap_or_else(|| self.covered_by(&run.first).last().copied().unwrap_or(from));
         self.segments
             .get(from..=to)
             .map(|run| run.iter().map(|s| s.id.clone()).collect())

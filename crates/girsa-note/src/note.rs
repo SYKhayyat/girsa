@@ -692,6 +692,10 @@ impl Notes {
         let imported = girsa_corpus::import::ImportedWork {
             work: note.work(&self.personal),
             segments: note.segments(),
+            // A note is a paragraph at a time and no paragraph is 10,000
+            // characters, so there is nothing oversized to count (B12). Default
+            // rather than measured, because measuring would be measuring zero.
+            oversized: girsa_corpus::oversized::Tally::default(),
         };
         girsa_corpus::import::write(&self.personal, &imported)
             .map_err(|e| NoteError::Refused(e.to_string()))?;

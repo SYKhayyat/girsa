@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::oversized;
 use crate::segment::SegmentId;
 use crate::store::SegmentStore;
 use crate::work::{Source, Work};
@@ -149,6 +150,11 @@ pub struct RawSegment {
 pub struct ImportedWork {
     pub work: Work,
     pub segments: Vec<Segment>,
+    /// What was too long to be a place, and what was done about it (B12).
+    ///
+    /// Counted on the way through `assemble`, so the number in the import's report
+    /// is the number the importer acted on rather than a second measurement.
+    pub oversized: oversized::Tally,
 }
 
 /// What an import found, for asserting against spec.md §2.
@@ -167,6 +173,25 @@ pub struct Counts {
 
 impl ImportedWork {
     /// Give every segment its permanent name, in reading order, once.
+    ///
+    /// # A segment too long to be a place is cut into places
+    ///
+    /// 5,733 of the corpus's 5,000,545 segments are over 10,000 characters and the
+    /// largest is 1,275,307 — a permanent id naming 1.2 MB of text, which names a
+    /// volume and not a place (see [`crate::oversized`]). A citation to it is
+    /// unusable as a mareh makom, a highlight cannot help, and a search result over
+    /// it is *"it is somewhere in here."*
+    ///
+    /// So this is where they are cut, because this is the one place ordinals are
+    /// handed out. **Nothing anchored to the parent breaks**: `#32` split gives
+    /// `#32.1 #32.2 #32.3`, and [`Ordinal::covers`](crate::segment::Ordinal::covers)
+    /// says `#32` covers all three — which is exactly the property spec.md §3
+    /// minted the ordinal scheme for. A Ksav document, a link, a correction or a
+    /// mark on `#32` still names the same words, as a group rather than as one
+    /// record.
+    ///
+    /// The tally of what was cut goes on `oversized`, so the import reports it the
+    /// way it reports everything else.
     #[must_use]
     pub fn assemble(work: Work, raw: Vec<RawSegment>) -> Self {
         let kinds: Vec<SegmentKind> = raw.iter().map(|r| r.kind).collect();
@@ -178,17 +203,37 @@ impl ImportedWork {
         // `SegmentStore` is ordered by ordinal, and the ordinals were handed
         // out in the order the segments were given — so this zip is reading
         // order against reading order. Nothing else here may assume that.
-        let segments = store
-            .iter()
-            .zip(kinds)
-            .map(|((id, text), kind)| Segment {
-                id: id.clone(),
-                kind,
-                text: text.to_string(),
-            })
-            .collect();
+        let mut oversized = oversized::Tally::default();
+        let mut segments = Vec::new();
+        for ((id, text), kind) in store.iter().zip(kinds) {
+            oversized.saw(&id.to_string(), text.chars().count(), &work.slug);
+            let pieces = oversized::pieces(text, oversized::TARGET);
+            if pieces.len() == 1 {
+                segments.push(Segment {
+                    id: id.clone(),
+                    kind,
+                    text: text.to_string(),
+                });
+                continue;
+            }
+            oversized.cut(pieces.len());
+            // The children, in reading order. The parent id is not written to disk:
+            // it is not a segment any more, and `covers` is what keeps it resolvable
+            // rather than a record that would be a second copy of the same words.
+            for (child, piece) in id.split(pieces.len()).into_iter().zip(pieces) {
+                segments.push(Segment {
+                    id: child,
+                    kind,
+                    text: piece.to_string(),
+                });
+            }
+        }
 
-        Self { work, segments }
+        Self {
+            work,
+            segments,
+            oversized,
+        }
     }
 
     #[must_use]
@@ -435,7 +480,22 @@ pub fn read_back(root: &Path, slug: &str) -> Result<ImportedWork, ImportError> {
             .map_err(|e| ImportError::malformed(&segments_path, e.to_string()))?;
         segments.push(segment);
     }
-    Ok(ImportedWork { work, segments })
+    // Measured on the way back in, so `read_back` reports what is on disk rather
+    // than what the last import happened to do — which is what makes it usable as
+    // a check over a corpus imported by an older build.
+    let mut oversized = oversized::Tally::default();
+    for segment in &segments {
+        oversized.saw(
+            &segment.id.to_string(),
+            segment.text.chars().count(),
+            &work.slug,
+        );
+    }
+    Ok(ImportedWork {
+        work,
+        segments,
+        oversized,
+    })
 }
 
 #[cfg(test)]

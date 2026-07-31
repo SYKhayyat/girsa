@@ -92,6 +92,22 @@ fn main() -> std::process::ExitCode {
         "\n{} works · {} segments · {} headings",
         counts.works, counts.segments, counts.headings
     );
+    // Counted out loud, whether or not any were cut (B12). A number nobody prints
+    // is a number nobody knows, and this one was 5,733 segments over 10,000
+    // characters, in 926 works, with the largest at 1,275,307 — reported nowhere.
+    // `cargo run -p girsa-corpus --example measure-oversized -- corpus` is the same
+    // measurement over a corpus already on disk.
+    if imported.oversized.is_empty() {
+        eprintln!(
+            "no segment is over {} characters — every permanent id names a place",
+            girsa_corpus::oversized::NAMES_A_PLACE
+        );
+    } else {
+        eprintln!("segments too long to name a place:");
+        for line in imported.oversized.said() {
+            eprintln!("{line}");
+        }
+    }
 
     // From `imported.works`, never from `catalogue.works()`. The catalogue is
     // built from the schemas and has not opened a text file, so it does not
@@ -204,6 +220,12 @@ fn threads() -> usize {
 /// directory away.
 struct Imported {
     counts: Counts,
+    /// Segments too long to name a place, and what was done about them (B12).
+    ///
+    /// Reported the way the link table's six lines are reported, which is the
+    /// standard this project already holds itself to — 5,733 segments over 10,000
+    /// characters, the largest 1,275,307, were counted nowhere at all.
+    oversized: girsa_corpus::oversized::Tally,
     /// In catalogue order, and only the works that were actually written. A
     /// work that could not be read has no text on disk, so a line for it in
     /// the index would be a sefer the shelf offers and then fails to open.
@@ -218,6 +240,7 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
     ));
     let done = Arc::new(AtomicUsize::new(0));
     let failed = Arc::new(AtomicUsize::new(0));
+    let oversized = Arc::new(Mutex::new(girsa_corpus::oversized::Tally::default()));
     let counts = Arc::new(Mutex::new(Counts::default()));
     let written = Arc::new(Mutex::new(Vec::<(usize, Work)>::with_capacity(total)));
 
@@ -227,6 +250,7 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
             let done = Arc::clone(&done);
             let failed = Arc::clone(&failed);
             let counts = Arc::clone(&counts);
+            let oversized = Arc::clone(&oversized);
             let written = Arc::clone(&written);
             scope.spawn(move || loop {
                 let Some((at, work)) = queue.lock().ok().and_then(|mut q| q.pop()) else {
@@ -234,14 +258,18 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
                 };
                 match import::read(&work).and_then(|imported| {
                     let c = imported.counts();
+                    let big = imported.oversized.clone();
                     import::write(root, &imported)?;
                     // `imported.work`, not `work`: this is the one that has
                     // been told which edition it was read out of.
-                    Ok((c, imported.work))
+                    Ok((c, big, imported.work))
                 }) {
-                    Ok((c, as_written)) => {
+                    Ok((c, big, as_written)) => {
                         if let Ok(mut total) = counts.lock() {
                             total.absorb(c);
+                        }
+                        if let Ok(mut total) = oversized.lock() {
+                            total.absorb(&big);
                         }
                         if let Ok(mut written) = written.lock() {
                             written.push((at, as_written));
@@ -272,6 +300,7 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
     let mut works = written.lock().map(|w| w.clone()).unwrap_or_default();
     works.sort_by_key(|(at, _)| *at);
     Imported {
+        oversized: oversized.lock().map(|t| t.clone()).unwrap_or_default(),
         counts: counts.lock().map(|c| *c).unwrap_or_default(),
         works: works.into_iter().map(|(_, w)| w).collect(),
     }
