@@ -5,6 +5,12 @@
 Girsa (גִּרְסָא, "the text as received") is the page. **Ksav** (כְּתָב, "writing")
 is the pen. The pairing is the idea.
 
+**If you are here to use it, not to build it: [`docs/start-here.md`](docs/start-here.md).**
+Five minutes, end to end, and it is the whole idea.
+
+- **[`docs/`](docs/)** — for a reader: getting started, *coming from Otzar
+  HaChochma* and *from Bar Ilan*, and the keyboard card (generated from the source,
+  so it cannot drift).
 - **[`spec.md`](spec.md)** — what Girsa is.
 - **[`BUILDER.md`](BUILDER.md)** — what to do on day one: work orders, binding
   rules, the verified traps in the data, and what may not be decided alone.
