@@ -34,6 +34,7 @@ import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { KSAV, withPrefix } from "./names.ts";
+import { doorLabel, doorTitle } from "./mefarshim.ts";
 import { presenceSaid } from "./presence.ts";
 import { announces, button, region } from "./controls.ts";
 
@@ -278,6 +279,25 @@ async function repaintMarks(): Promise<void> {
   }
 }
 
+/**
+ * Put the mefarshim count on a pane's beside-button.
+ *
+ * Failure is silent and that is deliberate: the button already works and its
+ * fallback label is honest. A pane header is not the place to report that a
+ * cache is cold — `linksview` already says that where it matters, in a sentence.
+ */
+async function nameTheDoor(control: HTMLElement, id: PaneId): Promise<void> {
+  const pane = tab()?.panes.find((p) => p.id === id);
+  if (!pane) return;
+  try {
+    const companions = await api.companions(pane.slug);
+    control.textContent = doorLabel(companions);
+    control.title = doorTitle(companions);
+  } catch {
+    // Leave `לצד` and the tooltip that came with it.
+  }
+}
+
 function followLabel(leader: PaneId | undefined): string {
   if (leader === undefined) return "";
   const open = tab();
@@ -286,7 +306,7 @@ function followLabel(leader: PaneId | undefined): string {
 }
 
 function addControls(view: PaneView, id: PaneId): void {
-  const beside = button("לצד", "פתח ספר בטור שלצדו (Ctrl+\)", () => {
+  const beside = button("לצד", doorTitle([]), () => {
     const pane = tab()?.panes.find((p) => p.id === id);
     if (!pane) return;
     picker.openBeside(pane.slug, titleOf(pane.slug), async (slug) => {
@@ -294,6 +314,14 @@ function addControls(view: PaneView, id: PaneId): void {
       await reload();
     });
   });
+  // Named after what is behind it, once the shelf has said what that is.
+  //
+  // *"i have no clue how to even open mefarshim"* was this button — working,
+  // opening a list that marks each declared commentary `פירוש`, and labelled
+  // `לצד`: a preposition. Named after the round trip rather than before it,
+  // because a header that waits on the shelf before drawing is worse than one
+  // whose label sharpens a moment later.
+  void nameTheDoor(beside, id);
   const unfollow = button("עוקב", "עקוב אחרי הטור שלצדו, או הפסק", async () => {
     const pane = tab()?.panes.find((p) => p.id === id);
     if (!pane) return;
@@ -333,7 +361,7 @@ function addControls(view: PaneView, id: PaneId): void {
  * nothing would be a button that teaches the reader the buttons lie.
  */
 function addScanControls(view: ScanView, id: PaneId): void {
-  const beside = button("לצד", "פתח ספר בטור שלצדו (Ctrl+\)", () => {
+  const beside = button("לצד", doorTitle([]), () => {
     const pane = tab()?.panes.find((p) => p.id === id);
     if (!pane) return;
     picker.openBeside(pane.slug, titleOf(pane.slug), async (slug) => {
@@ -341,6 +369,10 @@ function addScanControls(view: ScanView, id: PaneId): void {
       await reload();
     });
   });
+  // A scan of a daf has mefarshim like any other copy of that daf, so it gets
+  // the same name on the same button. Fixing one and not the other is how the
+  // label drifts back apart.
+  void nameTheDoor(beside, id);
   const unfollow = button("עוקב", "עקוב אחרי הטור שלצדו, או הפסק", async () => {
     const pane = tab()?.panes.find((p) => p.id === id);
     if (!pane) return;

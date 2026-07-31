@@ -8,6 +8,7 @@
 
 import { api, type Card, type Companion } from "./api.ts";
 import { field } from "./controls.ts";
+import { ordered } from "./mefarshim.ts";
 
 type Chosen = (slug: string) => void;
 
@@ -82,8 +83,11 @@ export class Picker {
   private async refresh(): Promise<void> {
     const query = this.input.value.trim();
     if (query.length === 0 && this.beside) {
+      // Sorted here rather than taken as it arrived: `companions()` builds its
+      // list in two passes, and the same daf opened twice must offer the same
+      // order. Mefarshim first — a reader who pressed this button came for one.
       this.fill(
-        (await api.companions(this.beside)).map(companionRow),
+        ordered(await api.companions(this.beside)).map(companionRow),
         "אין ספר שהחיבור מעיד עליו — חפש אחד",
       );
       return;
