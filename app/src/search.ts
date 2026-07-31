@@ -22,6 +22,7 @@
 import { api, type Chip, type Dimension, type FacetRow, type Found, type Run } from "./api.ts";
 import { LaneColumn } from "./laneview.ts";
 import { announces, field, glyph, region } from "./controls.ts";
+import { dock, undock } from "./dock.ts";
 
 /** Open a sefer at a segment — or, with no id, at wherever it was left.
  *
@@ -169,6 +170,29 @@ export class SearchView {
   close(): void {
     this.open = false;
     this.element.hidden = true;
+    this.element.classList.remove("is-docked");
+    undock("search");
+  }
+
+  /**
+   * Go to a result and **keep the results** (W48).
+   *
+   * > *"same for search - be able to go there while keeping search open."*
+   *
+   * A reader working through results reads one, comes back, reads the next. When
+   * the jump closed the panel, the second result cost the whole search again —
+   * the query, the chips, the page, and the place in the list.
+   *
+   * So it docks instead of closing: the scrim goes, the sheet becomes a column
+   * on the leading edge, and the reading pane is made narrower to fit rather than
+   * being covered. Narrower and not covered is the whole point — a panel over the
+   * text is the complaint that started this (*"it is weirdly over the text, so i
+   * cant see it r the text"*), and a search you can see beside the sefer you
+   * searched for is what the panel is for.
+   */
+  private dock(): void {
+    this.element.classList.add("is-docked");
+    dock("search");
   }
 
   async toggle(opened: Opened): Promise<void> {
@@ -439,7 +463,8 @@ export class SearchView {
       }
       row.append(text);
       row.addEventListener("click", () => {
-        this.close();
+        // Docked, not closed (W48): the reader is going to want the next result.
+        this.dock();
         this.opened(hit.work, hit.id, hit.marked);
       });
       this.list.append(row);
@@ -469,7 +494,7 @@ export class SearchView {
       row.className = "find-hit";
       row.textContent = place.reference;
       row.addEventListener("click", () => {
-        this.close();
+        this.dock();
         this.opened(place.work, place.id);
       });
       box.append(row);

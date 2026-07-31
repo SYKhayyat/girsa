@@ -14,6 +14,7 @@
 import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
 import { field } from "./controls.ts";
+import { dock, undock } from "./dock.ts";
 
 type Opened = (slug: string) => void;
 
@@ -101,6 +102,24 @@ export class ShelfView {
 
   close(): void {
     this.element.hidden = true;
+    this.element.classList.remove("is-docked");
+    undock("shelf");
+  }
+
+  /**
+   * Open a sefer and **keep the shelf** (W47).
+   *
+   * > *"there should be a way to open while keeping madaf open."*
+   *
+   * The bookcase used to close on the way out, so browsing to a second sefer
+   * meant opening it again and finding your place in it again. Docked, it is a
+   * column on the leading edge and the reading is made narrower rather than
+   * covered — so what you just opened is visible *and* the shelf you opened it
+   * from still is.
+   */
+  private dock(): void {
+    this.element.classList.add("is-docked");
+    dock("shelf");
   }
 
   async toggle(opened: Opened): Promise<void> {
@@ -268,11 +287,11 @@ export class ShelfView {
 
     row.append(title, aside);
     row.addEventListener("dblclick", () => {
-      this.close();
+      this.dock();
       this.opened(card.slug);
     });
     row.addEventListener("click", () => {
-      this.close();
+      this.dock();
       this.opened(card.slug);
     });
     row.addEventListener("dragstart", (event) => {

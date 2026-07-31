@@ -68,6 +68,61 @@ body {
   height: 100%;
 }
 
+/* --- docking (W47, W48) -------------------------------------------------
+ *
+ * > *"there should be a way to open while keeping madaf open. same for search -
+ * > be able to go there while keeping search open."*
+ *
+ * A panel that fills the window is a panel you have to close to use what it
+ * gave you. Docked, it is a column on the leading edge and the reading is made
+ * **narrower** rather than covered — which is the same complaint as *"i opened
+ * halashon smucha and it is weirdly over the text"*, and the same answer.
+ *
+ * One width, one variable, both panels, because a shelf 380px wide and a search
+ * 420px wide would make the text jump as you moved between them.
+ */
+:root {
+  --dock: 380px;
+}
+
+:root.is-docked .app {
+  margin-inline-start: var(--dock);
+}
+
+/* No scrim: there is nothing modal about a docked panel, and a dimmed sefer is
+ * a sefer you are not reading. */
+.find.is-docked,
+.shelf.is-docked {
+  inset: 0 auto 0 0;
+  width: var(--dock);
+  background: none;
+  display: block;
+  z-index: 11;
+}
+
+.find.is-docked .find-sheet,
+.shelf.is-docked .shelf-sheet {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  border-radius: 0;
+  border-block: none;
+  border-inline-start: none;
+  box-shadow: 2px 0 12px rgb(0 0 0 / 25%);
+}
+
+/* The facets sit beside the results at full width and under them in a column
+ * 380px wide, or neither would be readable. */
+.find.is-docked .find-body {
+  flex-direction: column;
+}
+
+.find.is-docked .find-rail {
+  border-inline-start: none;
+  border-top: 1px solid var(--rule);
+  width: auto;
+}
+
 /* --- tabs and tools ---------------------------------------------------- */
 
 .tabs {

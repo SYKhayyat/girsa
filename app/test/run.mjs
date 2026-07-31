@@ -23,7 +23,7 @@ const OUT = path.join(APP, ".tmp-test");
  * their decisions out from their drawing is what puts them on this list, which
  * is the pressure this file is meant to apply.
  */
-const MODULES = ["mefarshim", "names", "presence", "trouble"];
+const MODULES = ["dock", "mefarshim", "names", "presence", "trouble"];
 
 await rm(OUT, { recursive: true, force: true });
 
