@@ -33,6 +33,16 @@ pub struct Session {
     /// Sefer → the segment you were last looking at in it.
     #[serde(default)]
     pub positions: BTreeMap<String, SegmentId>,
+    /// Sefer → the mefarshim you ticked on it (W43).
+    ///
+    /// A `Vec` and not a set, because the order is the reader's: somebody who
+    /// ticked the Rosh before Rashi meant it, and an alphabetical answer would
+    /// quietly reorder their own list every time they opened the daf.
+    ///
+    /// Per sefer, and that is the point — the mefarshim you follow on Berakhot
+    /// are not the ones you follow on Chullin.
+    #[serde(default)]
+    pub chosen: BTreeMap<String, Vec<String>>,
     /// Whether nikud is shown. One setting for the window, because a reader
     /// who turns it off wants it off — not off in this pane and on in the one
     /// beside it.
@@ -76,6 +86,7 @@ impl Default for Session {
         Self {
             workspace: Workspace::default(),
             positions: BTreeMap::new(),
+            chosen: BTreeMap::new(),
             nikud: yes(),
             text_size: hundred(),
             cite: full(),
@@ -126,6 +137,32 @@ impl Session {
     pub fn where_i_was(&self, slug: &str) -> Option<&SegmentId> {
         self.positions.get(slug)
     }
+
+    /// Tick, or untick, one mefaresh on one sefer.
+    ///
+    /// A newly ticked mefaresh goes on the **end** of the list, where the reader
+    /// put it. Unticking the last one removes the sefer's entry entirely rather
+    /// than leaving an empty list behind: the file should say what is ticked, not
+    /// what once was.
+    pub fn choose(&mut self, slug: &str, work: &str, on: bool) {
+        let list = self.chosen.entry(slug.to_string()).or_default();
+        if on {
+            if !list.iter().any(|w| w == work) {
+                list.push(work.to_string());
+            }
+        } else {
+            list.retain(|w| w != work);
+        }
+        if list.is_empty() {
+            self.chosen.remove(slug);
+        }
+    }
+
+    /// The mefarshim ticked on one sefer, in the order they were ticked.
+    #[must_use]
+    pub fn chosen_for(&self, slug: &str) -> &[String] {
+        self.chosen.get(slug).map_or(&[], Vec::as_slice)
+    }
 }
 
 #[cfg(test)]
@@ -156,6 +193,74 @@ mod tests {
         );
         assert_eq!(session.where_i_was("bavli/eruvin"), None);
         assert_eq!(session.positions.len(), 2);
+    }
+
+    #[test]
+    fn the_mefarshim_you_ticked_are_remembered_per_sefer() {
+        let mut session = Session::default();
+        session.choose("bavli/berakhot", "bavli/tosafot-on-berakhot", true);
+        session.choose("bavli/berakhot", "bavli/rashi-on-berakhot", true);
+        session.choose("bavli/shabbat", "bavli/rashi-on-shabbat", true);
+
+        // The order is the reader's, not the alphabet's: they put Tosafot first.
+        assert_eq!(
+            session.chosen_for("bavli/berakhot"),
+            ["bavli/tosafot-on-berakhot", "bavli/rashi-on-berakhot"]
+        );
+        // Per sefer. Ticking Rashi on Berakhot does not tick Rashi on Shabbat,
+        // which is a different sefer with a different pshat to follow.
+        assert_eq!(
+            session.chosen_for("bavli/shabbat"),
+            ["bavli/rashi-on-shabbat"]
+        );
+        assert!(session.chosen_for("bavli/eruvin").is_empty());
+    }
+
+    #[test]
+    fn ticking_the_same_mefaresh_twice_ticks_it_once() {
+        let mut session = Session::default();
+        session.choose("bavli/berakhot", "bavli/rashi-on-berakhot", true);
+        session.choose("bavli/berakhot", "bavli/rashi-on-berakhot", true);
+        assert_eq!(session.chosen_for("bavli/berakhot").len(), 1);
+
+        session.choose("bavli/berakhot", "bavli/rashi-on-berakhot", false);
+        assert!(session.chosen_for("bavli/berakhot").is_empty());
+        // Unticking the last one does not leave a sefer behind in the file.
+        assert!(!session.chosen.contains_key("bavli/berakhot"));
+    }
+
+    #[test]
+    fn the_ticked_mefarshim_survive_closing_the_sefer() {
+        let dir = std::env::temp_dir().join("girsa-app-session-chosen");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("session.json");
+
+        let mut session = Session::default();
+        session.choose("bavli/berakhot", "bavli/rashi-on-berakhot", true);
+        session.save(&path).expect("saves");
+
+        assert_eq!(
+            Session::load(&path).chosen_for("bavli/berakhot"),
+            ["bavli/rashi-on-berakhot"]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_session_written_before_the_mefarshim_were_tickable_still_loads() {
+        // The field is `serde(default)`, and this is the test that says why: a
+        // reader upgrading has a session file with no `chosen` in it, and a
+        // parse failure there costs them every tab they had open.
+        let dir = std::env::temp_dir().join("girsa-app-session-old");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("session.json");
+        std::fs::write(&path, r#"{"nikud":false,"text_size":120}"#).expect("writes");
+
+        let session = Session::load(&path);
+        assert!(!session.nikud, "the file was read, not fallen back from");
+        assert!(session.chosen_for("bavli/berakhot").is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

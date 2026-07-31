@@ -40,10 +40,26 @@ use serde::Serialize;
 /// Which works comment on which segment of one sefer.
 #[derive(Debug, Default, Clone)]
 pub struct Marks {
-    by_segment: BTreeMap<String, BTreeSet<String>>,
+    by_segment: BTreeMap<String, Vec<Spoken>>,
     /// Every work that comments anywhere in this sefer, so the chooser can be
     /// drawn from the same read.
     works: BTreeSet<String>,
+}
+
+/// One thing one mefaresh says about one line, and where to read it.
+///
+/// The address is in the **commentary**, not in the sefer: it is what a pane
+/// opens and what a citation cites. A marker only needs the work's name; a click
+/// needs this.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Spoken {
+    pub work: String,
+    pub at: SegmentId,
+    /// The far end, where the comment runs over more than one segment of the
+    /// commentary. Kept because a Tosafot that spans four segments is one
+    /// Tosafot, and reading only the first would cut it off mid-sentence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<SegmentId>,
 }
 
 /// One line's worth of answer: the chosen mefarshim that speak here.
@@ -85,22 +101,32 @@ impl Marks {
                 continue;
             }
             marks.works.insert(from.clone());
+            let spoken = Spoken {
+                work: from,
+                at: edge.from.from.clone(),
+                to: edge.from.to.clone(),
+            };
             // A span covers a run of segments and every one of them is spoken
             // about, not just the first.
-            marks
-                .by_segment
-                .entry(edge.to.from.to_string())
-                .or_default()
-                .insert(from.clone());
-            if let Some(last) = &edge.to.to {
-                marks
-                    .by_segment
-                    .entry(last.to_string())
-                    .or_default()
-                    .insert(from);
+            let here = edge.to.from.to_string();
+            let far = edge.to.to.as_ref().map(ToString::to_string);
+            marks.add(here.clone(), &spoken);
+            if let Some(far) = far {
+                // Unless both ends of the span landed in the same segment, in
+                // which case this is one comment and not two.
+                if far != here {
+                    marks.add(far, &spoken);
+                }
             }
         }
         Ok(marks)
+    }
+
+    fn add(&mut self, segment: String, spoken: &Spoken) {
+        let said = self.by_segment.entry(segment).or_default();
+        if !said.contains(spoken) {
+            said.push(spoken.clone());
+        }
     }
 
     /// Every work that comments anywhere in this sefer — the list to tick.
@@ -123,11 +149,27 @@ impl Marks {
         Here {
             works: chosen
                 .iter()
-                .filter(|w| here.is_some_and(|set| set.contains(*w)))
+                .filter(|w| here.is_some_and(|said| said.iter().any(|s| &s.work == *w)))
                 .cloned()
                 .collect(),
-            any: here.is_some_and(|set| !set.is_empty()),
+            any: here.is_some_and(|said| !said.is_empty()),
         }
+    }
+
+    /// Where to read the chosen mefarshim on one line.
+    ///
+    /// Grouped by mefaresh in the order they were ticked, and within one
+    /// mefaresh in the order the corpus lists them — a Rashi with four diburim
+    /// on one stretch of Gemara comes back as four, because it is four.
+    #[must_use]
+    pub fn said(&self, at: &SegmentId, chosen: &[String]) -> Vec<Spoken> {
+        let Some(here) = self.by_segment.get(&at.to_string()) else {
+            return Vec::new();
+        };
+        chosen
+            .iter()
+            .flat_map(|want| here.iter().filter(move |s| &s.work == want).cloned())
+            .collect()
     }
 
     /// The segments to put a marker on: those where a chosen mefaresh speaks.
@@ -141,7 +183,7 @@ impl Marks {
         let want: BTreeSet<&str> = chosen.iter().map(String::as_str).collect();
         self.by_segment
             .iter()
-            .filter(|(_, set)| set.iter().any(|w| want.contains(w.as_str())))
+            .filter(|(_, said)| said.iter().any(|s| want.contains(s.work.as_str())))
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -176,26 +218,48 @@ mod tests {
     }
 
     /// Hand-built, so the filtering rules are tested without the corpus.
+    ///
+    /// Two Rashis on `2a:2`, because that is what a daf looks like.
     fn made_up() -> Marks {
         let mut marks = Marks::default();
-        for (seg, works) in [
-            ("girsa:bavli/berakhot/2a:1#1", vec![RASHI, TOSAFOT]),
-            ("girsa:bavli/berakhot/2a:2#2", vec![RASHI]),
+        for (seg, said) in [
+            (
+                "girsa:bavli/berakhot/2a:1#1",
+                vec![
+                    (RASHI, "girsa:bavli/rashi-on-berakhot/2a:1:1#1"),
+                    (TOSAFOT, "girsa:bavli/tosafot-on-berakhot/2a:1:1#1"),
+                ],
+            ),
+            (
+                "girsa:bavli/berakhot/2a:2#2",
+                vec![
+                    (RASHI, "girsa:bavli/rashi-on-berakhot/2a:2:1#2"),
+                    (RASHI, "girsa:bavli/rashi-on-berakhot/2a:2:2#3"),
+                ],
+            ),
             (
                 "girsa:bavli/berakhot/2a:3#3",
-                vec!["bavli/meiri-on-berakhot"],
+                vec![(
+                    "bavli/meiri-on-berakhot",
+                    "girsa:bavli/meiri-on-berakhot/2a:3:1#4",
+                )],
             ),
         ] {
-            // Keyed through `SegmentId` rather than by the literal, so the
-            // fixture cannot disagree with `Marks::of` about whether an id
-            // carries its `girsa:` scheme. The first draft of this did, and the
-            // three filtering tests all failed while the corpus one passed.
-            marks.by_segment.insert(
-                id(seg).to_string(),
-                works.iter().map(|w| (*w).to_string()).collect(),
-            );
-            for w in works {
-                marks.works.insert(w.to_string());
+            for (work, at) in said {
+                // Keyed through `SegmentId` rather than by the literal, so the
+                // fixture cannot disagree with `Marks::of` about whether an id
+                // carries its `girsa:` scheme. The first draft of this did, and
+                // the three filtering tests all failed while the corpus one
+                // passed.
+                marks.add(
+                    id(seg).to_string(),
+                    &Spoken {
+                        work: work.to_string(),
+                        at: id(at),
+                        to: None,
+                    },
+                );
+                marks.works.insert(work.to_string());
             }
         }
         marks
@@ -258,6 +322,39 @@ mod tests {
         let chosen = vec![TOSAFOT.to_string(), RASHI.to_string()];
         let here = marks.on(&id("girsa:bavli/berakhot/2a:1#1"), &chosen);
         assert_eq!(here.works, chosen);
+    }
+
+    #[test]
+    fn the_answer_says_where_in_the_commentary_to_read_not_only_who_wrote() {
+        // The click needs an address. `Here` says *Rashi speaks here*, which is
+        // enough to draw a marker and not enough to show a word of Rashi.
+        let marks = made_up();
+        let said = marks.said(&id("girsa:bavli/berakhot/2a:1#1"), &[RASHI.to_string()]);
+        assert_eq!(said.len(), 1);
+        assert_eq!(said[0].work, RASHI);
+        assert_eq!(said[0].at.work(), RASHI, "the address is in the commentary");
+    }
+
+    #[test]
+    fn one_mefaresh_can_say_two_things_about_one_line() {
+        // Rashi on a single stretch of Gemara is routinely three or four
+        // separate diburim, each its own segment. Returning one and calling it
+        // Rashi would silently drop the rest.
+        let marks = made_up();
+        let said = marks.said(&id("girsa:bavli/berakhot/2a:2#2"), &[RASHI.to_string()]);
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert!(said.iter().all(|s| s.work == RASHI));
+    }
+
+    #[test]
+    fn what_you_did_not_tick_is_not_read() {
+        let marks = made_up();
+        let said = marks.said(&id("girsa:bavli/berakhot/2a:1#1"), &[TOSAFOT.to_string()]);
+        assert_eq!(said.len(), 1);
+        assert_eq!(said[0].work, TOSAFOT);
+        assert!(marks
+            .said(&id("girsa:bavli/berakhot/2a:1#1"), &[])
+            .is_empty());
     }
 
     #[test]

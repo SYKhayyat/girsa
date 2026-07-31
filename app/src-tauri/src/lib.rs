@@ -86,6 +86,13 @@ pub(crate) struct State {
     /// Slug → the sefer, read once. Cleared oldest-first.
     open: HashMap<String, Open>,
     order: Vec<String>,
+    /// Slug → which mefarshim speak on which of its lines (W43).
+    ///
+    /// Held because ticking a box asks again, and a reader ticking six of them
+    /// should not pay six reads of a 3.4 MB file for an answer that cannot have
+    /// changed. One `Marks` is the whole sefer's answer; the read that builds it
+    /// is 0.07s for Berakhot.
+    marks: HashMap<String, girsa_app::mefarshim::Marks>,
 }
 
 impl State {
@@ -103,6 +110,23 @@ impl State {
             self.open.insert(slug.to_string(), read);
         }
         self.open.get(slug).ok_or_else(|| "not open".to_string())
+    }
+
+    /// Which mefarshim speak on which line of one sefer, read once.
+    fn marks(&mut self, slug: &str) -> Result<&girsa_app::mefarshim::Marks, String> {
+        if !self.marks.contains_key(slug) {
+            let root = self
+                .shelf
+                .as_ref()
+                .ok_or_else(|| self.trouble())?
+                .root()
+                .to_path_buf();
+            let read = girsa_app::mefarshim::Marks::of(&root, slug).map_err(|e| e.to_string())?;
+            self.marks.insert(slug.to_string(), read);
+        }
+        self.marks
+            .get(slug)
+            .ok_or_else(|| "no mefarshim read".to_string())
     }
 
     /// Forget a sefer we are holding, so the next read of it picks up a
@@ -993,6 +1017,157 @@ fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Comp
     let state = shared.lock().map_err(|_| "state is poisoned")?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf.companions(&slug))
+}
+
+// ── The mefarshim on the line (W43) ──────────────────────────────────────────
+//
+// Two ways to open a commentary, and they answer different questions. `beside`
+// puts one sefer in a column and keeps it in step: *Rashi down the side of the
+// Gemara*. This is the other one: *of the six mefarshim I follow, which said
+// something about this line, and what?* Otzaria's model, and the reason the
+// split is untouched by any of it.
+
+/// One mefaresh, as the tick-list shows it.
+#[derive(Serialize)]
+struct Mefaresh {
+    slug: String,
+    he_title: String,
+    en_title: String,
+    /// Whether the reader has ticked it on this sefer.
+    chosen: bool,
+}
+
+/// The tick-list, and which lines to mark given what is ticked.
+#[derive(Serialize)]
+struct Mefarshim {
+    works: Vec<Mefaresh>,
+    /// The segments a **ticked** mefaresh speaks on. Only these get a marker:
+    /// 2,749 of Berakhot's segments carry commentary from somebody, and a mark
+    /// on nearly every line is not a mark.
+    marked: Vec<String>,
+    /// How many segments carry commentary from anybody. For the sentence under
+    /// the list, so *you have ticked nobody* does not read as *nobody wrote*.
+    touched: usize,
+}
+
+/// The mefarshim on one sefer, and what the reader has ticked.
+#[tauri::command]
+fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
+    let marks = state.marks(&slug)?;
+    let commentators = marks.commentators();
+    let touched = marks.segments_touched();
+    let marked: Vec<String> = marks.marked(&chosen).into_iter().collect();
+
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(Mefarshim {
+        works: commentators
+            .into_iter()
+            .map(|work| {
+                let named = shelf.work(&work);
+                Mefaresh {
+                    he_title: named.map_or_else(|| work.clone(), |w| w.he_title.clone()),
+                    en_title: named.map_or_else(|| work.clone(), |w| w.en_title.clone()),
+                    chosen: chosen.contains(&work),
+                    slug: work,
+                }
+            })
+            .collect(),
+        marked,
+        touched,
+    })
+}
+
+/// Tick or untick one mefaresh, and say which lines are marked now.
+#[tauri::command]
+fn choose_mefaresh(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    work: String,
+    on: bool,
+) -> Result<Vec<String>, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.session.choose(&slug, &work, on);
+    state.save();
+    let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
+    Ok(state.marks(&slug)?.marked(&chosen).into_iter().collect())
+}
+
+/// One mefaresh's words on one line.
+#[derive(Serialize)]
+struct Said {
+    work: String,
+    he_title: String,
+    en_title: String,
+    /// Where this is, in the commentary — what a citation would name.
+    address: String,
+    lines: Vec<Line>,
+}
+
+/// What the ticked mefarshim say about one line, and whether anybody else did.
+#[derive(Serialize)]
+struct Comments {
+    said: Vec<Said>,
+    /// True when something comments here that the reader has **not** ticked.
+    /// *Nobody wrote about this line* and *none of the six you follow wrote
+    /// about this line* are different sentences, and the window says which.
+    others: bool,
+}
+
+/// Click a line: read the ticked mefarshim on it.
+#[tauri::command]
+fn mefarshim_at(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    at: String,
+) -> Result<Comments, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let nikud = state.session.nikud;
+    let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
+
+    let marks = state.marks(&slug)?;
+    let spoken = marks.said(&at, &chosen);
+    let mine = marks.on(&at, &chosen).works.len();
+    let all = marks.on(&at, &marks.commentators()).works.len();
+    let others = all > mine;
+
+    let mut said: Vec<Said> = Vec::new();
+    for one in spoken {
+        // The commentary itself, read like any other sefer — the same cache, the
+        // same corrections, the same nikud toggle. A comment shown by a
+        // different path from the pane would be a second idea of what the text
+        // says.
+        let lines: Vec<Line> = {
+            let sefer = state.sefer(&one.work)?;
+            let Some(first) = sefer.position_of(&one.at) else {
+                // The graph points at a segment this sefer does not have.
+                // Skipped rather than reported as an empty comment: it is a fact
+                // about the link, and W23's panel is where a bad link is
+                // repaired.
+                continue;
+            };
+            let last = one
+                .to
+                .as_ref()
+                .and_then(|to| sefer.position_of(to))
+                .map_or(first, |to| to.max(first));
+            sefer.segments[first..=last]
+                .iter()
+                .map(|s| line_of(sefer, s, nikud))
+                .collect()
+        };
+        let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
+        said.push(Said {
+            he_title: named.map_or_else(|| one.work.clone(), |w| w.he_title.clone()),
+            en_title: named.map_or_else(|| one.work.clone(), |w| w.en_title.clone()),
+            address: one.at.path().join(":"),
+            work: one.work,
+            lines,
+        });
+    }
+    Ok(Comments { said, others })
 }
 
 /// Read a sefer for a pane.
@@ -3269,6 +3444,7 @@ pub fn run() {
                     stop_embedding: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     open: HashMap::new(),
                     order: Vec::new(),
+                    marks: HashMap::new(),
                 }),
             );
 
@@ -3308,6 +3484,9 @@ pub fn run() {
             search,
             recent,
             companions,
+            mefarshim,
+            choose_mefaresh,
+            mefarshim_at,
             open_sefer,
             open_tab,
             scan,

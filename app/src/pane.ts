@@ -4,7 +4,7 @@
 // is. It does not decide where anything goes — it is told, by `main.ts`, which
 // asks Rust.
 
-import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Text } from "./api.ts";
+import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
 
 /** How many lines are put on the page at once, and how many more at an edge. */
 const WINDOW = 400;
@@ -33,6 +33,14 @@ export class PaneView {
   /** Your highlights in this sefer, as Rust placed them (W27). Kept so the
    * lines that scroll into view later get painted too. */
   private marks: MarkRow[] = [];
+  /** The lines a **ticked** mefaresh speaks on (W43). Rust's answer, not this
+   * one's: which lines those are is a fact about the link graph. */
+  private marked = new Set<string>();
+  /** How many mefarshim are ticked on this sefer. Nothing ticked means a click
+   * on a line is just a click — the reader has not asked for anything, so the
+   * pane must not start answering. */
+  private ticked = 0;
+  private onComments: ((at: string) => void) | null = null;
   /** Set while a following pane is being moved, so its own scroll handler does
    * not report the move back and start the two panes chasing each other. */
   private quiet = false;
@@ -62,6 +70,32 @@ export class PaneView {
     this.body.addEventListener("scroll", () => this.scrolled(), { passive: true });
     this.body.addEventListener("pointerdown", () => this.onFocus(this.id));
     this.body.addEventListener("focus", () => this.onFocus(this.id));
+    this.body.addEventListener("click", (event) => this.clicked(event));
+  }
+
+  /** What to do when a reader clicks a line to see their mefarshim on it. */
+  whenComments(fn: (at: string) => void): void {
+    this.onComments = fn;
+  }
+
+  /**
+   * A click on a line, in the one case where it means something.
+   *
+   * Silent unless the reader has ticked at least one mefaresh. That is not
+   * timidity — a pane where every click makes something appear is a pane you
+   * cannot click, and the reader who has ticked nobody has not asked a question.
+   */
+  private clicked(event: MouseEvent): void {
+    if (this.ticked === 0 || !this.onComments) return;
+    // A reader dragging across words is quoting, not asking.
+    if (window.getSelection()?.isCollapsed === false) return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    // Clicks inside an open comment belong to the comment.
+    if (target instanceof Element && target.closest(".line-said")) return;
+    const line = lineOf(target);
+    const id = line?.dataset.id;
+    if (id) this.onComments(id);
   }
 
   /** The buttons a pane's header carries. Added by the caller, which owns what
@@ -111,7 +145,67 @@ export class PaneView {
     this.paint();
   }
 
+  /**
+   * Which lines your mefarshim speak on (W43).
+   *
+   * Only the ticked ones, and that is the decision the whole interaction rests
+   * on: 2,749 of Berakhot's segments carry commentary from somebody, so marking
+   * every line that has any would mark the daf and say nothing. Which lines those
+   * are was worked out in Rust, from the link graph — this draws it.
+   */
+  setMefarshim(marked: string[], ticked: number): void {
+    this.marked = new Set(marked);
+    this.ticked = ticked;
+    // A mefaresh unticked while their comments are open: the comments are no
+    // longer an answer to anything the reader is asking.
+    for (const open of this.body.querySelectorAll(".line-said")) open.remove();
+    this.paint();
+  }
+
+  /**
+   * What the ticked mefarshim say about one line, under that line.
+   *
+   * Under it, and not in a panel over the page. Eleven panels in this window are
+   * `position: fixed` and the reader's complaint about the first one they met was
+   * *"it is weirdly over the text, so i cant see it or the text"*. A comment on a
+   * line belongs beside the line — and this way the answer cannot cover the
+   * question.
+   *
+   * Clicking the same line again closes it, so the gesture that opened it is the
+   * gesture that puts the daf back.
+   */
+  showSaid(at: string, said: Said[], message: string): void {
+    const row = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(at)}"]`);
+    if (!row) return;
+    const already = row.nextElementSibling;
+    if (already?.classList.contains("line-said")) {
+      already.remove();
+      return;
+    }
+    const box = el("div", "line-said");
+    if (message) {
+      const none = el("p", "said-none");
+      none.textContent = message;
+      box.append(none);
+    }
+    for (const one of said) {
+      const block = el("div", "said");
+      const who = el("p", "said-who");
+      who.textContent = one.address ? `${one.he_title} ${one.address}` : one.he_title;
+      who.title = one.en_title;
+      block.append(who);
+      for (const line of one.lines) {
+        const words = el("p", "said-line");
+        words.append(...line.runs.map(runElement));
+        block.append(words);
+      }
+      box.append(block);
+    }
+    row.after(box);
+  }
+
   private paint(): void {
+    this.markMefarshim();
     for (const mark of this.marks) {
       if (!mark.span) continue;
       const line = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(mark.at)}"]`);
@@ -130,6 +224,15 @@ export class PaneView {
         // wrapped in one element. Left unpainted rather than split into two
         // marks that would look like two highlights.
       }
+    }
+  }
+
+  /** The mark itself: a class on the line, so the CSS owns what it looks like. */
+  private markMefarshim(): void {
+    for (const row of this.body.querySelectorAll<HTMLElement>(".line")) {
+      const on = this.marked.has(row.dataset.id ?? "");
+      row.classList.toggle("has-mefarshim", on);
+      if (on && !row.title) row.title = "מפרשים שסימנת כתבו על השורה הזאת — לחץ";
     }
   }
 
@@ -166,12 +269,18 @@ export class PaneView {
     }
   }
 
-  /** The first line whose text is actually in view. */
+  /**
+   * The first line whose text is actually in view.
+   *
+   * `.line` and not any child, because an open block of commentary (W43) sits
+   * between two lines and is not one. Returning it would report a position with
+   * no segment id, which is how a following pane gets told to scroll to "".
+   */
   private topLine(): HTMLElement | null {
     const top = this.body.getBoundingClientRect().top;
-    for (const child of this.body.children) {
+    for (const child of this.body.querySelectorAll<HTMLElement>(":scope > .line")) {
       const box = child.getBoundingClientRect();
-      if (box.bottom > top + 8) return child as HTMLElement;
+      if (box.bottom > top + 8) return child;
     }
     return null;
   }

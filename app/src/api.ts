@@ -208,6 +208,38 @@ export interface Companion {
   links: number;
 }
 
+/** One mefaresh in the tick-list (W43). */
+export interface Mefaresh {
+  slug: string;
+  he_title: string;
+  en_title: string;
+  chosen: boolean;
+}
+
+/** The tick-list, and which lines carry a marker given what is ticked. */
+export interface Mefarshim {
+  works: Mefaresh[];
+  marked: string[];
+  /** How many lines of this sefer anybody comments on, so *you have ticked
+   * nobody* never reads as *nobody wrote*. */
+  touched: number;
+}
+
+/** One mefaresh's words on one line. */
+export interface Said {
+  work: string;
+  he_title: string;
+  en_title: string;
+  address: string;
+  lines: Line[];
+}
+
+export interface Comments {
+  said: Said[];
+  /** Somebody commented here that you have not ticked. */
+  others: boolean;
+}
+
 export type Place =
   | { kind: "at"; ids: string[] }
   | { kind: "no_place" }
@@ -599,6 +631,10 @@ export const api = {
   search: (query: string) => call<Card[]>("search", { query }),
   recent: () => call<Card[]>("recent"),
   companions: (slug: string) => call<Companion[]>("companions", { slug }),
+  mefarshim: (slug: string) => call<Mefarshim>("mefarshim", { slug }),
+  chooseMefaresh: (slug: string, work: string, on: boolean) =>
+    call<string[]>("choose_mefaresh", { slug, work, on }),
+  mefarshimAt: (slug: string, at: string) => call<Comments>("mefarshim_at", { slug, at }),
   openSefer: (slug: string) => call<Text>("open_sefer", { slug }),
   openTab: (slug: string) => call<PaneId>("open_tab", { slug }),
   split: (pane: PaneId, axis: "vertical" | "horizontal", slug: string, follow: boolean) =>
@@ -1033,6 +1069,15 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return json<Companion[]>(`/dev/companions-${flatten(slug!)}.json`).catch(
         () => [] as Companion[],
       ) as Promise<T>;
+    // The mefarshim tick-list in a browser with no link graph. Empty, and empty
+    // is the truth here — there are no edges in a fixture — so the door says
+    // *nobody comments on this* rather than pretending six people do.
+    case "mefarshim":
+      return { works: [], marked: [], touched: 0 } as T;
+    case "choose_mefaresh":
+      return [] as unknown as T;
+    case "mefarshim_at":
+      return { said: [], others: false } as T;
     case "open_sefer": {
       const key = flatten(slug!);
       if (!texts.has(key)) texts.set(key, await json<Text>(`/dev/text-${key}.json`));

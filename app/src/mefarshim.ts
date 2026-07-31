@@ -17,7 +17,7 @@
 // hold them — the same reason `preview.ts` holds B1's geometry. They are: what
 // the door should say given what is behind it, and which sefer to offer first.
 
-import type { Companion } from "./api.ts";
+import type { Comments, Companion, Mefaresh } from "./api.ts";
 
 /**
  * The declared commentaries, and only those.
@@ -71,4 +71,102 @@ export function doorTitle(companions: Companion[]): string {
   const n = mefarshim(companions).length;
   const found = n === 0 ? "אין מפרשים מוצהרים על הספר הזה" : `${n} מפרשים על הספר הזה`;
   return `${found} · פתח ספר בטור שלצדו (Ctrl+\\)`;
+}
+
+/** One row of the list behind the door: a sefer you can open, tick, or both. */
+export interface Choice {
+  slug: string;
+  he_title: string;
+  en_title: string;
+  declared: boolean;
+  links: number;
+  /**
+   * Whether ticking this one could mark a line — that is, whether the link graph
+   * has it commenting somewhere in this sefer.
+   *
+   * Not the same question as `declared`. `Tosafot on Berakhot` declares itself a
+   * commentary; whether *this* corpus holds edges placing its comments on
+   * particular lines is a separate fact, and after W32 it is a fact worth
+   * distrusting. A tick-box that can never mark anything is worse than no box.
+   */
+  tickable: boolean;
+  chosen: boolean;
+}
+
+/**
+ * The one list behind `מפרשים · N`, doing both jobs (W43).
+ *
+ * > *"there should be a way to have mefarshim also open like otzaria"* …
+ * > *"but keep the split too — its also nice"*
+ *
+ * So: every row still opens that sefer into the column beside you, which is the
+ * split, untouched. Rows the graph can place also carry a tick-box, which marks
+ * their comments on the daf and opens them where you click. One door, because a
+ * second door for the second reading of the same list is how a toolbar grows to
+ * eleven buttons.
+ *
+ * The declared companions keep `ordered`'s order — a reader learns where Rashi
+ * sits in the list and it must not move. Mefarshim the graph knows and the
+ * metadata does not (the Ben Yehoyada on Berakhot, most of Otzaria's shelf)
+ * follow, by slug, rather than being dropped.
+ */
+export function choices(companions: Companion[], can: Mefaresh[]): Choice[] {
+  const graph = new Map(can.map((m) => [m.slug, m]));
+  const rows: Choice[] = ordered(companions).map((c) => ({
+    slug: c.slug,
+    he_title: c.he_title,
+    en_title: c.en_title,
+    declared: c.declared,
+    links: c.links,
+    tickable: graph.has(c.slug),
+    chosen: graph.get(c.slug)?.chosen ?? false,
+  }));
+  const listed = new Set(rows.map((r) => r.slug));
+  const rest = can
+    .filter((m) => !listed.has(m.slug))
+    .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
+    .map((m) => ({
+      slug: m.slug,
+      he_title: m.he_title,
+      en_title: m.en_title,
+      declared: false,
+      links: 0,
+      tickable: true,
+      chosen: m.chosen,
+    }));
+  return [...rows, ...rest];
+}
+
+/**
+ * What a click on a line says when it opens nothing (W43).
+ *
+ * There are four ways to end up with no comment in front of you, they are four
+ * different facts, and the reader's next move is different in each. Collapsing
+ * them into *no comments* would tell somebody who has ticked nobody that nobody
+ * wrote — which is exactly the class of quiet lie the rest of this codebase
+ * spent the week pulling out of its error messages.
+ *
+ * Nobody-ticked comes first, ahead of *others wrote here*, because when the list
+ * is empty the advice is the same either way: tick somebody. Reporting on the
+ * unticked mefarshim of one line to a reader who has ticked none of them
+ * anywhere is answering a question they have not asked yet.
+ */
+export function nothingHere(comments: Comments, chosen: number): string {
+  if (comments.said.length > 0) return "";
+  if (chosen === 0) return "סמן מפרשים ברשימה כדי לראות מה כתבו על השורה";
+  if (comments.others) return "כתבו כאן מפרשים שלא סימנת";
+  return "אין מפרש שכתב על השורה הזאת";
+}
+
+/**
+ * The sentence under the tick-list: how much of this sefer is commented on, and
+ * how much of that you asked to see.
+ *
+ * Both numbers, because they answer the two questions a reader has when the daf
+ * shows no markers — *is there nothing here* and *have I asked for nothing*.
+ */
+export function ticked(touched: number, chosen: number): string {
+  if (touched === 0) return "אין מפרשים על הספר הזה בגרסה שלך";
+  const of = `מפרשים על ${touched} שורות`;
+  return chosen === 0 ? `${of} · לא סימנת אף אחד` : `${of} · סימנת ${chosen}`;
 }

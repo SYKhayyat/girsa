@@ -15,6 +15,7 @@ import {
   whenFilesDropped,
   type AppState,
   type Landing,
+  type Mefarshim,
   type PaneId,
   type Presence,
   type Showing,
@@ -34,7 +35,7 @@ import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { KSAV, withPrefix } from "./names.ts";
-import { doorLabel, doorTitle } from "./mefarshim.ts";
+import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { presenceSaid } from "./presence.ts";
 import { announces, button, region } from "./controls.ts";
 
@@ -264,6 +265,11 @@ async function draw(): Promise<void> {
     // Your highlights, where Rust placed them against the same lines this pane
     // was just sent (W27). One call for the sefer rather than one a line.
     view.setMarks(await api.marksIn(pane.slug));
+    // And which lines the mefarshim you ticked speak on (W43). Also one call:
+    // `inbound.jsonl` is one file per sefer, and reading Berakhot's 21,065 rows
+    // into per-line answers takes 0.07s.
+    view.whenComments((at) => void openComments(view, at));
+    await drawMefarshim(view);
   }
 }
 
@@ -276,6 +282,98 @@ async function repaintMarks(): Promise<void> {
       // A pane whose sefer has gone — a note you just deleted — has no marks
       // to draw and is about to be closed by the reload that follows.
     }
+  }
+}
+
+/**
+ * The door, doing both jobs.
+ *
+ * One list: click a row and that sefer opens in the column beside this one, which
+ * is the split the reader asked to keep; tick a row and its comments are marked
+ * on the lines they are about. Both were asked for in the same breath, so they
+ * are behind the same button.
+ */
+async function openMefarshim(id: PaneId): Promise<void> {
+  const pane = tab()?.panes.find((p) => p.id === id);
+  if (!pane) return;
+  const slug = pane.slug;
+  picker.openBeside({
+    slug,
+    title: titleOf(slug),
+    mefarshim: await mefarshimFor(slug),
+    chosen: async (opened) => {
+      await api.split(id, "vertical", opened, true);
+      await reload();
+    },
+    tick: (work, on) => void tickMefaresh(slug, work, on),
+  });
+}
+
+/** Tick one mefaresh, and redraw the markers on every pane reading this sefer. */
+async function tickMefaresh(slug: string, work: string, on: boolean): Promise<void> {
+  const held = await mefarshimFor(slug);
+  const marked = await api.chooseMefaresh(slug, work, on);
+  // Rust owns which lines are marked; this only records what was ticked, so the
+  // next opening of the list draws the boxes the reader left.
+  mefarshimOf.set(slug, {
+    ...held,
+    marked,
+    works: held.works.map((w) => (w.slug === work ? { ...w, chosen: on } : w)),
+  });
+  for (const view of views.values()) {
+    if (view.slug === slug) await drawMefarshim(view);
+  }
+}
+
+/**
+ * Which mefarshim can be placed on which sefer, and which the reader ticked.
+ *
+ * Kept per sefer rather than per pane: the same masechta open in two panes has
+ * one set of ticked mefarshim, because the reader ticked them on the sefer and
+ * not on a column.
+ */
+const mefarshimOf = new Map<string, Mefarshim>();
+
+/** Read the tick-list for a sefer, once. */
+async function mefarshimFor(slug: string): Promise<Mefarshim> {
+  const held = mefarshimOf.get(slug);
+  if (held) return held;
+  try {
+    const read = await api.mefarshim(slug);
+    mefarshimOf.set(slug, read);
+    return read;
+  } catch {
+    // No link graph, or a sefer with no inbound cache. An empty tick-list is the
+    // honest answer and `ticked()` says which kind of empty it is.
+    return { works: [], marked: [], touched: 0 };
+  }
+}
+
+/** Draw the markers on a pane, for whatever is ticked now. */
+async function drawMefarshim(view: PaneView): Promise<void> {
+  const on = await mefarshimFor(view.slug);
+  view.setMefarshim(
+    on.marked,
+    on.works.filter((w) => w.chosen).length,
+  );
+}
+
+/**
+ * A click on a line: what the ticked mefarshim say about it (W43).
+ *
+ * Otzaria's model, and the half the reader asked for that the split does not
+ * answer — *of the six mefarshim I follow, which said something about **this
+ * line**, and what?* The comments open under the line, not in a panel over it.
+ */
+async function openComments(view: PaneView, at: string): Promise<void> {
+  const on = await mefarshimFor(view.slug);
+  const chosen = on.works.filter((w) => w.chosen).length;
+  try {
+    const comments = await api.mefarshimAt(view.slug, at);
+    view.showSaid(at, comments.said, nothingHere(comments, chosen));
+  } catch (e) {
+    // A read that failed is not *nobody wrote here*, and must not be shown as it.
+    view.showSaid(at, [], `לא הצלחתי לקרוא את המפרשים: ${e}`);
   }
 }
 
@@ -307,12 +405,7 @@ function followLabel(leader: PaneId | undefined): string {
 
 function addControls(view: PaneView, id: PaneId): void {
   const beside = button("לצד", doorTitle([]), () => {
-    const pane = tab()?.panes.find((p) => p.id === id);
-    if (!pane) return;
-    picker.openBeside(pane.slug, titleOf(pane.slug), async (slug) => {
-      await api.split(id, "vertical", slug, true);
-      await reload();
-    });
+    void openMefarshim(id);
   });
   // Named after what is behind it, once the shelf has said what that is.
   //
@@ -362,12 +455,7 @@ function addControls(view: PaneView, id: PaneId): void {
  */
 function addScanControls(view: ScanView, id: PaneId): void {
   const beside = button("לצד", doorTitle([]), () => {
-    const pane = tab()?.panes.find((p) => p.id === id);
-    if (!pane) return;
-    picker.openBeside(pane.slug, titleOf(pane.slug), async (slug) => {
-      await api.split(id, "vertical", slug, true);
-      await reload();
-    });
+    void openMefarshim(id);
   });
   // A scan of a daf has mefarshim like any other copy of that daf, so it gets
   // the same name on the same button. Fixing one and not the other is how the
@@ -865,12 +953,7 @@ function shortcut(event: KeyboardEvent): void {
     event.preventDefault();
     const open = tab();
     if (!open) return;
-    const pane = open.panes.find((p) => p.id === open.focused);
-    if (!pane) return;
-    picker.openBeside(pane.slug, titleOf(pane.slug), async (slug) => {
-      await api.split(pane.id, "vertical", slug, true);
-      await reload();
-    });
+    void openMefarshim(open.focused);
   } else if (control && event.key.toLowerCase() === "w") {
     event.preventDefault();
     const open = tab();

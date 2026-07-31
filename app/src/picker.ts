@@ -6,11 +6,28 @@
 // graph joins it to — rather than 7,189 titles in alphabetical order, which is
 // a list and not a choice.
 
-import { api, type Card, type Companion } from "./api.ts";
+import { api, type Card, type Mefarshim } from "./api.ts";
 import { field } from "./controls.ts";
-import { ordered } from "./mefarshim.ts";
+import { choices, ticked, type Choice } from "./mefarshim.ts";
 
 type Chosen = (slug: string) => void;
+
+/**
+ * What the mefarshim door is opened with.
+ *
+ * Both jobs at once, because it is one list: `chosen` opens a sefer into the
+ * column beside this one (the split), and `tick` marks a mefaresh's comments on
+ * the daf. The reader asked for the second and asked to keep the first.
+ */
+export interface Beside {
+  slug: string;
+  title: string;
+  chosen: Chosen;
+  /** Who the link graph can place on this sefer's lines, and who is ticked. */
+  mefarshim: Mefarshim;
+  /** Tick or untick one. The caller redraws the markers. */
+  tick: (work: string, on: boolean) => void;
+}
 
 export class Picker {
   readonly element: HTMLElement;
@@ -21,6 +38,10 @@ export class Picker {
   private cursor = 0;
   private chosen: Chosen = () => {};
   private beside: string | null = null;
+  private mefarshim: Mefarshim = { works: [], marked: [], touched: 0 };
+  private tick: (work: string, on: boolean) => void = () => {};
+  /** The sentence under the list: how much of the sefer has commentary at all. */
+  private readonly said: HTMLElement;
 
   constructor() {
     this.element = document.createElement("div");
@@ -39,7 +60,9 @@ export class Picker {
     });
     this.list = document.createElement("ul");
     this.list.className = "picker-list";
-    sheet.append(this.heading, this.input, this.list);
+    this.said = document.createElement("p");
+    this.said.className = "picker-said";
+    sheet.append(this.heading, this.input, this.list, this.said);
     this.element.append(sheet);
 
     this.input.addEventListener("input", () => void this.refresh());
@@ -57,11 +80,13 @@ export class Picker {
     this.show();
   }
 
-  /** Open a sefer beside the one already open. */
-  openBeside(slug: string, title: string, chosen: Chosen): void {
-    this.beside = slug;
-    this.chosen = chosen;
-    this.heading.textContent = `לצד ${title}`;
+  /** Open the mefarshim on the sefer already open: to read beside it, or to tick. */
+  openBeside(open: Beside): void {
+    this.beside = open.slug;
+    this.chosen = open.chosen;
+    this.mefarshim = open.mefarshim;
+    this.tick = open.tick;
+    this.heading.textContent = `מפרשים · ${open.title}`;
     this.show();
   }
 
@@ -83,15 +108,21 @@ export class Picker {
   private async refresh(): Promise<void> {
     const query = this.input.value.trim();
     if (query.length === 0 && this.beside) {
-      // Sorted here rather than taken as it arrived: `companions()` builds its
-      // list in two passes, and the same daf opened twice must offer the same
-      // order. Mefarshim first — a reader who pressed this button came for one.
+      // Sorted in `choices` rather than taken as it arrived: `companions()`
+      // builds its list in two passes, and the same daf opened twice must offer
+      // the same order. Mefarshim first — a reader who pressed this button came
+      // for one.
       this.fill(
-        ordered(await api.companions(this.beside)).map(companionRow),
+        choices(await api.companions(this.beside), this.mefarshim.works).map(companionRow),
         "אין ספר שהחיבור מעיד עליו — חפש אחד",
+      );
+      this.said.textContent = ticked(
+        this.mefarshim.touched,
+        this.mefarshim.works.filter((w) => w.chosen).length,
       );
       return;
     }
+    this.said.textContent = "";
     if (query.length === 0) {
       this.fill((await api.recent()).map(cardRow), "התחל להקליד שם של ספר");
       return;
@@ -119,6 +150,29 @@ export class Picker {
       aside.className = "picker-row-aside";
       aside.textContent = row.aside;
       if (row.why) aside.title = row.why;
+      // The tick-box, on the rows that can carry one (W43). Its own control and
+      // not part of the row's click, because the two do different things: ticking
+      // marks this mefaresh on the daf and leaves the list open, clicking the row
+      // opens the sefer in the column beside you and closes it.
+      if (row.tick) {
+        const tick = row.tick;
+        // Through `field`, like every other control here: a checkbox with no name
+        // is one of thirty unlabelled boxes to a screen reader, and B14's guard
+        // in `sources.test.mjs` fails the build over exactly this.
+        const box = field(`סמן את ${row.title}`, {
+          type: "checkbox",
+          className: "picker-tick",
+        });
+        box.checked = tick.on;
+        box.title = "סמן כדי לראות מה כתב על השורות של הספר";
+        box.addEventListener("click", (event) => {
+          // Or the row's own handler would open it beside as well.
+          event.stopPropagation();
+          this.tick(row.slug, box.checked);
+        });
+        box.addEventListener("pointerdown", (event) => event.stopPropagation());
+        node.append(box);
+      }
       node.append(title, aside);
       node.addEventListener("pointerdown", () => this.take(row.slug));
       this.list.append(node);
@@ -163,6 +217,8 @@ interface Row {
   title: string;
   aside: string;
   why?: string;
+  /** Present on a row that can be ticked, with whether it is (W43). */
+  tick?: { on: boolean };
 }
 
 function cardRow(card: Card): Row {
@@ -180,13 +236,20 @@ function cardRow(card: Card): Row {
  * that one. Collapsing the two into one ranking would present a tally as a
  * fact.
  */
-function companionRow(companion: Companion): Row {
+function companionRow(companion: Choice): Row {
   return {
     slug: companion.slug,
     title: companion.he_title,
-    aside: companion.declared ? "פירוש" : `${companion.links} קישורים`,
+    aside: companion.declared
+      ? "פירוש"
+      : companion.links > 0
+        ? `${companion.links} קישורים`
+        : "מפרש",
     why: companion.declared
       ? "the corpus declares this a commentary on what you are reading"
-      : `${companion.links} links join the two; nothing declares a commentary`,
+      : companion.links > 0
+        ? `${companion.links} links join the two; nothing declares a commentary`
+        : "the link graph places this sefer's comments on lines of what you are reading",
+    tick: companion.tickable ? { on: companion.chosen } : undefined,
   };
 }
