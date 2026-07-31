@@ -24,15 +24,55 @@
   --mark: #c9a24a;
   --mark-quiet: #4a3d1d;
 
-  --hebrew: "Frank Ruehl CLM", "David CLM", "Taamey Frank CLM", "SBL Hebrew",
-    "Times New Roman", "Segoe UI", serif;
-  --plain: "Segoe UI", system-ui, sans-serif;
+  /* B13. The reader's chosen family, then the stack. Empty by default, and an
+   * empty custom property in a font list is skipped — so a reader who has never
+   * opened the settings panel gets exactly what shipped. */
+  --hebrew-chosen: ;
+  --plain-chosen: ;
+  --hebrew: var(--hebrew-chosen), "Frank Ruehl CLM", "David CLM",
+    "Taamey Frank CLM", "SBL Hebrew", "Times New Roman", "Segoe UI", serif;
+  --plain: var(--plain-chosen), "Segoe UI", system-ui, sans-serif;
+  /* Line height and column width, both settable (B13). Hebrew with nikud is two
+   * storeys tall, so the default is generous — and a pane maximised on a 27-inch
+   * monitor is a line of ninety words, which is why a measure exists at all. */
+  --leading: 1.95;
+  --measure: none;
 
   color-scheme: dark;
 }
 
+/* B13. Three themes, said out loud. This block used to be the *only* way to get
+ * the light one — `color-scheme: dark` above with a `prefers-color-scheme`
+ * override, so the operating system decided and a reader who wanted the other one
+ * could not have it. It still holds, for `theme: system`, which is now one answer
+ * of three rather than the only one. */
+:root[data-theme="light"] {
+  --ink: #1d1a14;
+  --ink-quiet: #6b6455;
+  --page: #f6f2e8;
+  --page-raised: #fffdf7;
+  --rule: #ddd5c4;
+  --mark: #8a6a1c;
+  --mark-quiet: #e8dcbd;
+  color-scheme: light;
+}
+
+/* Dark, asked for rather than defaulted into: the values at the top of the file,
+ * restated so that `data-theme="dark"` beats a light system preference. */
+:root[data-theme="dark"] {
+  --ink: #e8e2d6;
+  --ink-quiet: #9a9284;
+  --page: #14130f;
+  --page-raised: #1c1a15;
+  --rule: #2e2a22;
+  --mark: #c9a24a;
+  --mark-quiet: #4a3d1d;
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: light) {
-  :root {
+  :root[data-theme="system"],
+  :root:not([data-theme]) {
     --ink: #1d1a14;
     --ink-quiet: #6b6455;
     --page: #f6f2e8;
@@ -341,14 +381,24 @@ body {
   outline: none;
 }
 
+/* The measure (B13). `none` by default, so nothing changes for a reader who has
+ * not asked; centred when set, because a column pinned to one edge of a wide pane
+ * reads worse than a narrow one in the middle. */
+.pane-body > .line,
+.pane-body > .line-said {
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+
 .line {
   display: flex;
   gap: 10px;
   margin: 0 0 0.55em;
   font-family: var(--hebrew);
   font-size: calc(19px * var(--reading-size) / 100);
-  /* Room for the nikud under and the te'amim over. */
-  line-height: 1.95;
+  /* Room for the nikud under and the te'amim over — and the reader's own, if they
+   * have said (B13). */
+  line-height: var(--leading);
   text-align: justify;
 }
 
@@ -2311,4 +2361,136 @@ body {
 
 .lane-progress[hidden] {
   display: none;
+}
+
+/* --- the settings panel (B13) -------------------------------------------
+ *
+ * > *"There is no settings panel. No font. No theme control … This is a step
+ * > backwards from what you are replacing."*
+ *
+ * A sheet and not a dock: settings are a thing you go and change and come back
+ * from, unlike the shelf and the search, which you consult *while* reading (W47,
+ * W48). Different job, different shape.
+ */
+.settings[hidden] {
+  display: none;
+}
+
+.settings {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 14;
+}
+
+.settings-sheet {
+  width: min(560px, 94vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--page-raised);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 45%);
+  overflow: hidden;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.settings-head h2 {
+  margin: 0;
+  font-family: var(--hebrew);
+  font-size: 18px;
+  font-weight: 500;
+  flex: 1;
+}
+
+.settings-body {
+  overflow-y: auto;
+  padding: 4px 14px 16px;
+}
+
+.settings-heading {
+  margin: 16px 0 4px;
+  font-family: var(--plain);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-quiet);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 4px;
+}
+
+.settings-note {
+  margin: 4px 0 8px;
+  font-family: var(--hebrew);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  font-family: var(--hebrew);
+  font-size: 14px;
+}
+
+.settings-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-with-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.settings-unit {
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.settings-number,
+.settings-text,
+.settings-select {
+  font: inherit;
+  font-size: 13px;
+  font-family: var(--plain);
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 3px 6px;
+}
+
+.settings-number {
+  width: 5.5em;
+}
+
+.settings-text {
+  width: 13em;
+}
+
+.settings-check {
+  accent-color: var(--mark);
+}
+
+/* A shortcut row's key reads as a key: monospaced, boxed, and wide enough that
+ * `Ctrl+Shift+K` and `Ctrl+J` do not make the column ragged. */
+.settings-key {
+  font-family: ui-monospace, "Cascadia Mono", monospace;
+  min-width: 8.5em;
+  text-align: center;
 }

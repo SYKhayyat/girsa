@@ -69,6 +69,20 @@ pub struct Session {
     /// one who wants Berakhot wants it everywhere at once.
     #[serde(default)]
     pub language: Language,
+    /// How the reading looks: theme, fonts, line height, column width (B13).
+    ///
+    /// > *"There is no settings panel. No font. No theme control … Otzar
+    /// > HaChochma and Bar Ilan both ship deep display and search preferences.
+    /// > **This is a step backwards from what you are replacing.**"*
+    #[serde(default)]
+    pub look: Look,
+    /// Keys the reader has rebound (B13). Action id → the combination.
+    ///
+    /// Only the ones they changed. A full table would mean a reader's file
+    /// disagreeing with a later version of the app about what the *unchanged*
+    /// keys are, and then a shortcut moving for a reason nobody could see.
+    #[serde(default)]
+    pub keys: BTreeMap<String, String>,
     /// How much of your correction layer is applied to what you read (W20).
     ///
     /// Remembered like the nikud toggle, and for the same reason: a reader who
@@ -126,6 +140,105 @@ impl Language {
     }
 }
 
+/// Which theme, said out loud.
+///
+/// Three and not two. `styles.css` set `color-scheme: dark` with a
+/// `prefers-color-scheme: light` override, so the operating system decided and a
+/// reader who wanted the other one could not have it. *Follow the system* is a
+/// perfectly good answer and it is now one of the three rather than the only one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Theme {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+}
+
+/// How the reading looks (B13).
+///
+/// Everything here is a fact about the reader's eyes and the room they are in,
+/// which is why it is one struct: a panel that sets six of these and a session
+/// that stores them in six places is how one of them ends up unsaved.
+///
+/// The **two** font families are the point. A daf is Hebrew with an English
+/// footnote, or an English translation beside a Hebrew source, and one font
+/// setting for both means choosing which of the two languages reads badly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Look {
+    #[serde(default)]
+    pub theme: Theme,
+    /// The family for Hebrew. Empty means the stylesheet's own stack, which is
+    /// what a reader who has never opened the panel gets.
+    #[serde(default)]
+    pub hebrew_font: String,
+    /// The family for Latin text — the interface, and English inside a sefer.
+    #[serde(default)]
+    pub latin_font: String,
+    /// Line height as a multiple. Hebrew with nikud is two storeys tall and the
+    /// leading that looks smart in Latin type makes a menukad Gemara unreadable,
+    /// so the default is generous and the reader can still tighten it.
+    #[serde(default = "leading")]
+    pub line_height: u16,
+    /// How wide a column of text may get, in characters. A pane maximised on a
+    /// 27-inch monitor is a line of ninety words, which nobody can read.
+    #[serde(default = "measure")]
+    pub column_ch: u16,
+}
+
+/// A hundredth of a line, so a session compares equal after a round trip — the
+/// same reason `Layout::ratio` is in tenths of a percent and not a float.
+const fn leading() -> u16 {
+    195
+}
+
+const fn measure() -> u16 {
+    0
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+            hebrew_font: String::new(),
+            latin_font: String::new(),
+            line_height: leading(),
+            column_ch: measure(),
+        }
+    }
+}
+
+impl Look {
+    /// Keep every setting inside what a reader can actually read at.
+    ///
+    /// Clamped in **one** place, here, rather than in the window and again in the
+    /// command — `percent.clamp(60, 250)` in the shell and
+    /// `Math.min(250, Math.max(60, …))` in the window is the exact shape B27
+    /// points at, and this is the same shape one order later.
+    #[must_use]
+    pub fn sane(mut self) -> Self {
+        self.line_height = self.line_height.clamp(100, 320);
+        // Zero is *no limit*, which is a real answer and not a small number.
+        if self.column_ch != 0 {
+            self.column_ch = self.column_ch.clamp(30, 200);
+        }
+        self.hebrew_font = self.hebrew_font.trim().to_string();
+        self.latin_font = self.latin_font.trim().to_string();
+        self
+    }
+}
+
 const fn yes() -> bool {
     true
 }
@@ -149,6 +262,8 @@ impl Default for Session {
             text_size: hundred(),
             cite: full(),
             language: Language::default(),
+            look: Look::default(),
+            keys: BTreeMap::new(),
             showing: girsa_fix::Showing::default(),
         }
     }

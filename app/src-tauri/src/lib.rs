@@ -361,6 +361,11 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> 
         "trouble": state.trouble,
         "cite": state.session.cite,
         "language": state.session.language,
+        // The resolved shortcut table (B13), keyed by the one spelling of each
+        // combination. Sent with the state because a `keydown` handler has to
+        // decide synchronously whether to swallow the key, and cannot await.
+        "keys": girsa_app::keys::Bound::of(&state.session.keys).table(),
+        "look": state.session.look,
         "pairing": state.no_post,
         "showing": state.session.showing,
         "fixes": state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
@@ -2174,7 +2179,9 @@ impl LinkRow {
             outgoing: link.outgoing,
             at: link.other.from.to_string(),
             work: link.work.clone(),
-            title: language.title_of(&link.he_title, &link.en_title).to_string(),
+            title: language
+                .title_of(&link.he_title, &link.en_title)
+                .to_string(),
             preview,
             address: link.address.clone(),
             said: link.said(),
@@ -2877,6 +2884,157 @@ fn set_nikud(shared: tauri::State<'_, Shared>, on: bool) -> Result<(), String> {
     state.session.nikud = on;
     state.save();
     Ok(())
+}
+
+/// The whole settings surface, in one call (B13).
+///
+/// > *"There is no settings panel … This is a step backwards from what you are
+/// > replacing."*
+///
+/// One command and one struct rather than a command per field: a panel that asks
+/// eleven questions to draw itself is a panel that draws itself wrong once, and
+/// the shortcut table has to come from `girsa_app::keys` or the card and the keys
+/// disagree.
+#[derive(Serialize)]
+struct SettingsView {
+    nikud: bool,
+    text_size: u16,
+    language: girsa_app::session::Language,
+    cite: girsa_cite::CiteStyle,
+    showing: girsa_fix::Showing,
+    theme: &'static str,
+    hebrew_font: String,
+    latin_font: String,
+    line_height: u16,
+    column_ch: u16,
+    /// Every shortcut, with what it is bound to now — the reader's binding where
+    /// they set one, the shipped default where they did not.
+    shortcuts: Vec<Shortcut>,
+    /// The families the reader may pick from: what this machine has, as far as the
+    /// window could tell us, plus what the stylesheet falls back to.
+    fonts: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct Shortcut {
+    id: &'static str,
+    he: &'static str,
+    en: &'static str,
+    /// What it answers to now.
+    bound: Option<String>,
+    /// What it shipped bound to, so *reset* has something to reset to.
+    shipped: &'static str,
+}
+
+#[tauri::command]
+fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let session = &state.session;
+    let bound = girsa_app::keys::Bound::of(&session.keys);
+    Ok(SettingsView {
+        nikud: session.nikud,
+        text_size: session.text_size,
+        language: session.language,
+        cite: session.cite,
+        showing: session.showing,
+        theme: session.look.theme.as_str(),
+        hebrew_font: session.look.hebrew_font.clone(),
+        latin_font: session.look.latin_font.clone(),
+        line_height: session.look.line_height,
+        column_ch: session.look.column_ch,
+        shortcuts: girsa_app::keys::ACTIONS
+            .iter()
+            .map(|action| Shortcut {
+                id: action.id,
+                he: action.he,
+                en: action.en,
+                bound: bound.on(action.id),
+                shipped: action.default,
+            })
+            .collect(),
+        fonts: FONTS.iter().map(|f| (*f).to_string()).collect(),
+    })
+}
+
+/// The families a reader can choose between.
+///
+/// Named rather than enumerated from the system: a webview cannot list installed
+/// fonts, and a list this project invented would offer families the machine does
+/// not have. These are the ones a Hebrew reader is likely to have and the ones the
+/// stylesheet already names — and the field takes any text, so a reader with
+/// something else types it.
+const FONTS: &[&str] = &[
+    "",
+    "Frank Ruehl CLM",
+    "David CLM",
+    "Taamey Frank CLM",
+    "Frank Ruhl Hofshi",
+    "David Libre",
+    "Narkisim",
+    "SBL Hebrew",
+    "Times New Roman",
+    "Segoe UI",
+];
+
+/// How the reading looks (B13).
+#[tauri::command]
+fn set_look(
+    shared: tauri::State<'_, Shared>,
+    look: girsa_app::session::Look,
+) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    // Clamped in `girsa_app`, once. A window that clamped and a command that
+    // clamped again is two readers of one rule, which is what B27 is about.
+    state.session.look = look.sane();
+    state.save();
+    Ok(())
+}
+
+/// Rebind one shortcut, or put it back (B13).
+///
+/// An empty `to` **removes the reader's binding** rather than binding nothing, so
+/// the action goes back to whatever the table ships with. That is what a reset
+/// button needs and it is one code path rather than two.
+#[tauri::command]
+fn bind_key(
+    shared: tauri::State<'_, Shared>,
+    action: String,
+    to: String,
+) -> Result<Vec<Shortcut>, String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    if to.trim().is_empty() {
+        state.session.keys.remove(&action);
+    } else if let Some(press) = girsa_app::keys::Press::parse(&to) {
+        // Stored in the one spelling, so a session file cannot hold two names for
+        // one combination.
+        state.session.keys.insert(action, press.said());
+    } else {
+        return Err(format!("{to} is not a key combination"));
+    }
+    state.save();
+    let bound = girsa_app::keys::Bound::of(&state.session.keys);
+    Ok(girsa_app::keys::ACTIONS
+        .iter()
+        .map(|action| Shortcut {
+            id: action.id,
+            he: action.he,
+            en: action.en,
+            bound: bound.on(action.id),
+            shipped: action.default,
+        })
+        .collect())
+}
+
+/// What a key press means (B13). The window asks; the table answers.
+#[tauri::command]
+fn what_key(
+    shared: tauri::State<'_, Shared>,
+    press: girsa_app::keys::Press,
+) -> Result<Option<String>, String> {
+    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    Ok(girsa_app::keys::Bound::of(&state.session.keys)
+        .what(&press)
+        .map(ToString::to_string))
 }
 
 /// Which language the window is in (W41).
@@ -3641,6 +3799,10 @@ pub fn run() {
             set_ratio,
             set_nikud,
             set_language,
+            settings,
+            set_look,
+            bind_key,
+            what_key,
             set_text_size,
             moved,
             shelf_tree,

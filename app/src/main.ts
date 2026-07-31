@@ -31,12 +31,14 @@ import { Picker } from "./picker.ts";
 import { SearchView } from "./search.ts";
 import { ShelfView } from "./shelf.ts";
 import { LanePanel } from "./laneview.ts";
+import { SettingsView, applyLook } from "./settingsview.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { KSAV, sefer, speak, withPrefix } from "./names.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { presenceSaid } from "./presence.ts";
+import { whatKey, type Pressed } from "./keys.ts";
 import { announces, button, glyph, region } from "./controls.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
@@ -51,6 +53,8 @@ const yoursview = new YoursView();
 /** The semantic lane's settings (spec.md §9.9, W30). Off in a fresh install,
  * and off costs nothing — so the panel is always reachable and never nags. */
 const lanepanel = new LanePanel();
+/** The settings panel Girsa did not have (B13). */
+const settingsview = new SettingsView();
 const views = new Map<PaneId, PaneView>();
 /** Panes holding a scan (W25). A second map rather than a union: a scan has no
  * lines, so none of the questions asked of a reading pane — what is
@@ -81,8 +85,16 @@ async function main(): Promise<void> {
     linksview.element,
     yoursview.element,
     lanepanel.element,
+    settingsview.element,
     fixbox.element,
   );
+  settingsview.onChanged(() => {
+    // Everything on that panel can change how a sefer is drawn, so the panes are
+    // rebuilt rather than patched.
+    views.clear();
+    scans.clear();
+    void reload();
+  });
   suspects.onOpen(openSuspect);
   linksview.onOpen(openFound);
   linksview.onHere(whereIAm);
@@ -170,6 +182,9 @@ async function reload(): Promise<void> {
   // `sefer()` in every module answers the same way. Rust holds the setting; this
   // is the one place the window is told.
   speak(state.language);
+  // How the reading looks (B13): theme, the two fonts, leading and measure. On the
+  // document as custom properties, so `styles.css` keeps owning the appearance.
+  applyLook(state.look);
   await draw();
 }
 
@@ -554,12 +569,7 @@ function tabBar(): HTMLElement {
   // needs somewhere to meet it. Standing beside it is the sefer in the focused
   // pane, so *put this one in the lane* has something to name.
   bar.append(
-    button("לשון סמוכה", "הלשון הסמוכה — מציאה לפי עניין (Ctrl+L)", () => {
-      const open = tab();
-      const here = open?.panes.find((pane) => pane.id === open.focused)?.slug ?? null;
-      lanepanel.standing(here ? { slug: here, title: titleOf(here) } : null);
-      void lanepanel.toggle();
-    }),
+    button("לשון סמוכה", "הלשון הסמוכה — מציאה לפי עניין (Ctrl+Shift+L)", openLane),
   );
   // The queue, where there is one. Not shown at all when the batch job has
   // never been run: a button that opens an empty list teaches the reader that
@@ -664,7 +674,10 @@ function toolBar(): HTMLElement {
     if (!isShell()) where.textContent += " · דפדפן, נתוני דוגמה";
   }
 
-  bar.append(nikud, language, showing, smaller, bigger, where);
+  // B13. A panel, and a way to reach it — the reading settings that used to be
+  // four buttons and nothing else.
+  const setup = button("הגדרות", "הגדרות הקריאה (Ctrl+,)", () => void settingsview.toggle());
+  bar.append(nikud, language, showing, smaller, bigger, setup, where);
 
   // Presence (spec.md §10.6): the affordance is never offered when it would
   // fail. Live, it is a button; not live, it is a word saying which of the two
@@ -920,6 +933,31 @@ function openSomething(): void {
   picker.openTab(openTab);
 }
 
+/**
+ * The semantic lane, from the button or from the key (B13).
+ *
+ * One function, because the tooltip used to say `Ctrl+L` and nothing was wired to
+ * it — the links panel had that key. A button and a shortcut that are two copies of
+ * one action is how one of them stops matching the label.
+ */
+function openLane(): void {
+  const open = tab();
+  const here = open?.panes.find((pane) => pane.id === open.focused)?.slug ?? null;
+  lanepanel.standing(here ? { slug: here, title: titleOf(here) } : null);
+  void lanepanel.toggle();
+}
+
+/** Only the parts of a keyboard event a binding is made of. */
+function asPressed(event: KeyboardEvent): Pressed {
+  return {
+    key: event.key,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+  };
+}
+
 function shortcut(event: KeyboardEvent): void {
   if (picker.isOpen) return;
   const control = event.ctrlKey || event.metaKey;
@@ -983,81 +1021,121 @@ function shortcut(event: KeyboardEvent): void {
     shelf.close();
     return;
   }
-  if (control && event.key.toLowerCase() === "b") {
+  // B13. What the reader asked for, from the table in `girsa_app::keys` with their
+  // own rebindings over it. It used to be eighteen comparisons against letters
+  // written in place, which is why there was nothing to rebind and why two
+  // tooltips could both claim Ctrl+L with only one of them wired.
+  // `Ctrl++` and `Ctrl+=` are the same key to a reader and different keys to a
+  // keyboard, so one is spelled as the other before the table is asked.
+  const pressed = event.key === "+" ? { ...asPressed(event), key: "=" } : asPressed(event);
+  const did = whatKey(state?.keys ?? {}, pressed);
+  if (did === "shelf") {
     event.preventDefault();
     browseShelf();
-  } else if (shelf.isOpen) {
+    return;
+  }
+  if (shelf.isOpen) {
     // The shelf is a place, not an overlay on top of the reading: the reading
     // shortcuts are not live while it is open.
-  } else if (control && event.key.toLowerCase() === "o") {
-    event.preventDefault();
-    openSomething();
-  } else if (control && event.key === "\\") {
-    event.preventDefault();
-    const open = tab();
-    if (!open) return;
-    void openMefarshim(open.focused);
-  } else if (control && event.key.toLowerCase() === "w") {
-    event.preventDefault();
-    const open = tab();
-    if (!open) return;
-    void (async () => {
-      await api.closePane(open.focused);
-      views.delete(open.focused);
-      await reload();
-    })();
-  } else if (event.altKey && event.key.toLowerCase() === "n") {
-    event.preventDefault();
-    void (async () => {
-      if (!state) return;
-      await api.setNikud(!state.nikud);
-      views.clear();
-      await reload();
-    })();
-  } else if (control && event.key.toLowerCase() === "e") {
-    event.preventDefault();
-    void writing.toggle();
-  } else if (writing.isOpen && event.key === "Escape") {
-    event.preventDefault();
-    writing.close();
-  } else if (control && event.key.toLowerCase() === "l") {
-    event.preventDefault();
-    void showLinks();
-  } else if (control && event.key.toLowerCase() === "j") {
-    event.preventDefault();
-    void suspects.toggle();
-  } else if (control && event.key.toLowerCase() === "m") {
-    event.preventDefault();
-    void yoursview.toggle();
-  } else if (control && event.key.toLowerCase() === "n") {
-    event.preventDefault();
-    void noteHere();
-  } else if (control && event.shiftKey && event.key.toLowerCase() === "h") {
-    event.preventDefault();
-    void markHere(false);
-  } else if (control && event.key.toLowerCase() === "d") {
-    event.preventDefault();
-    void markHere(true);
-  } else if (control && event.shiftKey && event.key.toLowerCase() === "k") {
-    event.preventDefault();
-    void nextShowing();
-  } else if (control && event.key.toLowerCase() === "k") {
-    event.preventDefault();
-    correct();
-  } else if (control && event.shiftKey && event.key.toLowerCase() === "c") {
-    event.preventDefault();
-    void sendToKsav();
-  } else if (control && event.key.toLowerCase() === "c") {
-    // **The user does nothing different** (spec.md §10.2). Ctrl+C is Ctrl+C;
-    // what changes is what lands on the clipboard beside the text. The default
-    // is not prevented — if this fails, the webview's own copy still happens.
-    void copySource();
-  } else if (control && (event.key === "=" || event.key === "+")) {
-    event.preventDefault();
-    void resize(10);
-  } else if (control && event.key === "-") {
-    event.preventDefault();
-    void resize(-10);
+    return;
+  }
+  switch (did) {
+    case "open":
+      event.preventDefault();
+      openSomething();
+      return;
+    case "beside": {
+      event.preventDefault();
+      const open = tab();
+      if (open) void openMefarshim(open.focused);
+      return;
+    }
+    case "close-pane": {
+      event.preventDefault();
+      const open = tab();
+      if (!open) return;
+      void (async () => {
+        await api.closePane(open.focused);
+        views.delete(open.focused);
+        await reload();
+      })();
+      return;
+    }
+    case "nikud":
+      event.preventDefault();
+      void (async () => {
+        if (!state) return;
+        await api.setNikud(!state.nikud);
+        views.clear();
+        await reload();
+      })();
+      return;
+    case "write":
+      event.preventDefault();
+      void writing.toggle();
+      return;
+    case "links":
+      event.preventDefault();
+      void showLinks();
+      return;
+    case "lane":
+      event.preventDefault();
+      openLane();
+      return;
+    case "queue":
+      event.preventDefault();
+      void suspects.toggle();
+      return;
+    case "mine":
+      event.preventDefault();
+      void yoursview.toggle();
+      return;
+    case "note":
+      event.preventDefault();
+      void noteHere();
+      return;
+    case "mark":
+      event.preventDefault();
+      void markHere(false);
+      return;
+    case "highlight":
+      event.preventDefault();
+      void markHere(true);
+      return;
+    case "showing":
+      event.preventDefault();
+      void nextShowing();
+      return;
+    case "fix":
+      event.preventDefault();
+      correct();
+      return;
+    case "send":
+      event.preventDefault();
+      void sendToKsav();
+      return;
+    case "copy":
+      // **The user does nothing different** (spec.md §10.2). Ctrl+C is Ctrl+C;
+      // what changes is what lands on the clipboard beside the text. The default
+      // is not prevented — if this fails, the webview's own copy still happens.
+      void copySource();
+      return;
+    case "bigger":
+      event.preventDefault();
+      void resize(10);
+      return;
+    case "smaller":
+      event.preventDefault();
+      void resize(-10);
+      return;
+    case "settings":
+      event.preventDefault();
+      void settingsview.toggle();
+      return;
+    default:
+      // A press nobody bound. Left alone, because a reader typing is not asking
+      // for anything.
+      return;
   }
 }
 

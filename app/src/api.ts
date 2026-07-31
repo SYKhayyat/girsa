@@ -260,6 +260,37 @@ export interface Comments {
   others: boolean;
 }
 
+/** One shortcut, as the settings panel shows it (B13). */
+export interface Shortcut {
+  id: string;
+  he: string;
+  en: string;
+  /** What it answers to now — the reader's binding, or the shipped default. */
+  bound: string | null;
+  /** What it shipped bound to, so *reset* has something to reset to. */
+  shipped: string;
+}
+
+/** The whole settings surface, in one call (B13). */
+export interface Settings {
+  nikud: boolean;
+  text_size: number;
+  language: Language;
+  cite: string;
+  showing: Showing;
+  theme: "system" | "light" | "dark";
+  hebrew_font: string;
+  latin_font: string;
+  /** In hundredths of a line, so a session compares equal after a round trip. */
+  line_height: number;
+  /** In characters. Zero is *no limit*, which is a real answer. */
+  column_ch: number;
+  shortcuts: Shortcut[];
+  /** Families we can name. A webview cannot list what is installed, so the field
+   * takes any text and this is a convenience. */
+  fonts: string[];
+}
+
 export type Place =
   | { kind: "at"; ids: string[] }
   | { kind: "no_place" }
@@ -349,6 +380,17 @@ export interface AppState {
   text_size: number;
   /** Which language the window is in (W41). Every sefer name follows it. */
   language: Language;
+  /** The resolved shortcut table (B13): spelling → action id. Sent with the state
+   * because a `keydown` handler cannot await a round trip before deciding whether
+   * to swallow the key. */
+  keys: Record<string, string>;
+  look: {
+    theme: "system" | "light" | "dark";
+    hebrew_font: string;
+    latin_font: string;
+    line_height: number;
+    column_ch: number;
+  };
   positions: Record<string, string>;
   works: number;
   trouble: string | null;
@@ -669,6 +711,15 @@ export const api = {
   setRatio: (pane: PaneId, ratio: number) => call<void>("set_ratio", { pane, ratio }),
   setNikud: (on: boolean) => call<void>("set_nikud", { on }),
   setLanguage: (language: Language) => call<void>("set_language", { language }),
+  settings: () => call<Settings>("settings"),
+  setLook: (look: {
+    theme: string;
+    hebrew_font: string;
+    latin_font: string;
+    line_height: number;
+    column_ch: number;
+  }) => call<void>("set_look", { look }),
+  bindKey: (action: string, to: string) => call<Shortcut[]>("bind_key", { action, to }),
   setTextSize: (percent: number) => call<void>("set_text_size", { percent }),
   moved: (pane: PaneId, at: string) => call<Move[]>("moved", { pane, at }),
 
@@ -1069,6 +1120,8 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       nikud: true,
       text_size: 100,
       language: "hebrew",
+      keys: {},
+      look: { theme: "system", hebrew_font: "", latin_font: "", line_height: 195, column_ch: 0 },
       positions: {},
       works: 0,
       showing: "fixed",
@@ -1206,7 +1259,16 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "ksav_presence":
       return { state: "not_running" } as T;
     case "set_language":
+    case "set_look":
       return undefined as T;
+    case "bind_key":
+      return [] as unknown as T;
+    case "settings":
+      return {
+        nikud: true, text_size: 100, language: "hebrew", cite: "hebrew_full",
+        showing: "fixed", theme: "system", hebrew_font: "", latin_font: "",
+        line_height: 195, column_ch: 0, shortcuts: [], fonts: [],
+      } as T;
     case "set_nikud":
       fixtureState.nikud = Boolean(args?.on);
       return undefined as T;
