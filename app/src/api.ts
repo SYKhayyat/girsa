@@ -135,6 +135,9 @@ export interface LinkRow {
   work: string;
   /** The sefer at the other end, in the window's language (W41). */
   title: string;
+  /** The first words at the other end (W37). Absent unless that sefer is already
+   * open — the panel does not read forty seforim to decorate a list. */
+  preview?: string;
   address: string;
   said: string;
   method: string;

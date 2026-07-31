@@ -137,11 +137,24 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
         links.push(link(shelf, repaired, outgoing));
     }
 
+    // Commentary first, then everything else (W37).
+    //
+    // > *"kishuri i cant tell what is going on. it is hard to read."*
+    //
+    // A line of Gemara can have four commentaries on it and forty seforim that
+    // cite it, and the list was sorted by confidence — so a `references` edge
+    // somebody scored at 0.9 stood above Rashi. *Somebody wrote about this line*
+    // and *somebody mentioned this line* are different enough that ranking them
+    // together is what made the panel unreadable.
     links.sort_by(|a, b| {
-        b.repaired
-            .confidence()
-            .partial_cmp(&a.repaired.confidence())
-            .unwrap_or(std::cmp::Ordering::Equal)
+        commentary_first(&a.repaired.edge.edge_type)
+            .cmp(&commentary_first(&b.repaired.edge.edge_type))
+            .then_with(|| {
+                b.repaired
+                    .confidence()
+                    .partial_cmp(&a.repaired.confidence())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| a.repaired.edge.edge_type.cmp(&b.repaired.edge.edge_type))
             .then_with(|| a.he_title.cmp(&b.he_title))
             .then_with(|| a.other.from.cmp(&b.other.from))
@@ -149,6 +162,19 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
     Touching {
         links,
         incoming_unknown,
+    }
+}
+
+/// Which band a link sorts into: what somebody *wrote about* this line, then what
+/// merely *mentions* it.
+///
+/// Two bands and not a full ordering of the eight edge types, because that is the
+/// distinction a reader is actually making when they open the panel. Within a band
+/// the old order stands.
+fn commentary_first(kind: &girsa_link::EdgeType) -> u8 {
+    match kind {
+        girsa_link::EdgeType::CommentsOn | girsa_link::EdgeType::Translates => 0,
+        _ => 1,
     }
 }
 
@@ -238,6 +264,26 @@ mod tests {
 
     fn id(work: &str, n: u32) -> SegmentId {
         SegmentId::new(work, vec!["1".into(), n.to_string()], Ordinal::root(n))
+    }
+
+    #[test]
+    fn what_was_written_about_this_line_comes_before_what_merely_mentions_it() {
+        // W37. The panel used to sort by confidence alone, so a `references` edge
+        // scored at 0.9 stood above Rashi at 0.8 — and *somebody wrote about this
+        // line* and *somebody mentioned this line* are not the same claim.
+        use girsa_link::EdgeType;
+        assert!(commentary_first(&EdgeType::CommentsOn) < commentary_first(&EdgeType::References));
+        assert!(commentary_first(&EdgeType::Translates) < commentary_first(&EdgeType::References));
+        // A targum is what somebody wrote about the pasuk; a parallel sugya is
+        // not, however strong the link.
+        assert_eq!(
+            commentary_first(&EdgeType::CommentsOn),
+            commentary_first(&EdgeType::Translates)
+        );
+        assert_eq!(
+            commentary_first(&EdgeType::ParallelTo),
+            commentary_first(&EdgeType::References)
+        );
     }
 
     #[test]

@@ -1965,6 +1965,15 @@ struct LinkRow {
     work: String,
     /// The sefer at the other end, in the window's language (W41).
     title: String,
+    /// The first words at the other end (W37), so the row reads as a row of
+    /// reading rather than a row of provenance.
+    ///
+    /// Absent unless that sefer is **already open**. `span_on` set this precedent
+    /// and its reason holds here: the panel is not entitled to read forty seforim
+    /// off the disk to decorate a list. The case where it matters most is the one
+    /// where the commentary is in the column beside you anyway.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview: Option<String>,
     address: String,
     said: String,
     /// `sefaria-seed`, `otzaria-seed`, `by-hand`.
@@ -2068,7 +2077,10 @@ fn links(
     }
 
     Ok(Links {
-        links: links.iter().map(|l| LinkRow::of(l, language)).collect(),
+        links: links
+            .iter()
+            .map(|l| LinkRow::of(l, language, first_words(&state, l, nikud)))
+            .collect(),
         incoming_unknown: touching.incoming_unknown,
         types: EDGE_TYPES.iter().map(|t| t.as_str()).collect(),
         lenses: lenses
@@ -2120,8 +2132,36 @@ const EDGE_TYPES: [girsa_link::EdgeType; 9] = [
     girsa_link::EdgeType::References,
 ];
 
+/// The first words at the other end of a link, where that sefer is already read
+/// (W37).
+///
+/// **Already read only.** Same rule as `girsa_app::links::span_on`, and the same
+/// reason it gives: a sidebar is not entitled to open forty seforim to decorate
+/// itself. The rows without one still name the sefer and the place, which is what
+/// every row said before this.
+fn first_words(state: &State, link: &girsa_app::Link, nikud: bool) -> Option<String> {
+    const WORDS: usize = 90;
+    let sefer = state.open.get(&link.work)?;
+    let nth = sefer.position_of(&link.other.from)?;
+    let text = display::Shown::of(&sefer.segments.get(nth)?.text, nikud)
+        .text()
+        .to_string();
+    let cut: String = text.chars().take(WORDS).collect();
+    // An ellipsis only where something was actually cut off, so a short comment
+    // does not look truncated.
+    Some(if text.chars().count() > WORDS {
+        format!("{cut}…")
+    } else {
+        cut
+    })
+}
+
 impl LinkRow {
-    fn of(link: &girsa_app::Link, language: girsa_app::session::Language) -> Self {
+    fn of(
+        link: &girsa_app::Link,
+        language: girsa_app::session::Language,
+        preview: Option<String>,
+    ) -> Self {
         Self {
             edge: girsa_link::repair::name_of(
                 link.repaired
@@ -2135,6 +2175,7 @@ impl LinkRow {
             at: link.other.from.to_string(),
             work: link.work.clone(),
             title: language.title_of(&link.he_title, &link.en_title).to_string(),
+            preview,
             address: link.address.clone(),
             said: link.said(),
             method: link.repaired.edge.method.as_str(),

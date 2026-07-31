@@ -177,21 +177,40 @@ export class LinksView {
     where.title = "פתח את המקום";
     where.addEventListener("click", () => void this.goTo?.(link.work, link.at));
 
-    // Its work, shown: how it was found, how much to believe it, what the
-    // corpus called it, and what you have done to it.
+    // W37. *"kishuri i cant tell what is going on. it is hard to read."*
+    //
+    // It was all there and all at once: a badge, an arrow, a citation, a
+    // confidence percentage, the method that found it, the corpus's own label in
+    // quotes, what the type used to be, what you had changed, who you are — and
+    // five controls. Every one of those is worth having and none of them is what
+    // a reader wants first, which is **what does this say**.
+    const head = document.createElement("div");
+    head.className = "link-head";
+    head.append(kind, where);
+    row.append(head);
+
+    // The first words at the other end, where that sefer is already open — most
+    // often the one case that matters, the commentary in the column beside you.
+    if (link.preview) {
+      const words = document.createElement("p");
+      words.className = "link-preview";
+      words.textContent = link.preview;
+      row.append(words);
+    }
+
+    // Its work, and the five repair controls: kept, and out of the way. W23's
+    // point is that a link layer has to show its work; one click away is showing
+    // it, and in front of the text is not.
+    const shown = document.createElement("details");
+    shown.className = "link-shown";
+    const summary = document.createElement("summary");
+    summary.textContent = provenanceSaid(link);
+    summary.title = "מאיפה הקישור, ומה עשית לו";
     const work = document.createElement("span");
     work.className = "link-work";
-    const bits = [`${Math.round(link.confidence * 100)}%`, link.method];
-    // Which words, and who says so — the dibur hamatchil the commentary itself
-    // declares, or a span you pinned (spec.md §8.4).
-    if (link.span_from) bits.push(link.span_from === "pinned" ? "על מילים (שלך)" : "על מילים");
-    if (link.label) bits.push(`"${link.label}"`);
-    if (link.was && link.was !== link.kind) bits.push(`היה: ${said(link.was)}`);
-    if (link.changed.length > 0) bits.push(link.changed.join(", "));
-    if (link.who) bits.push(link.who);
-    work.textContent = bits.join(" · ");
-
-    row.append(kind, where, work, this.actions(link, types));
+    work.textContent = provenance(link).join(" · ");
+    shown.append(summary, work, this.actions(link, types));
+    row.append(shown);
     return row;
   }
 
@@ -276,4 +295,34 @@ export class LinksView {
     }
   }
 
+}
+
+/**
+ * Everything the corpus and your layer say about a link (W23), as a list.
+ *
+ * Behind a disclosure since W37, and unchanged in content: a link layer that
+ * cannot show its work is a link layer you have to take on faith.
+ */
+function provenance(link: LinkRow): string[] {
+  const bits = [`${Math.round(link.confidence * 100)}%`, link.method];
+  // Which words, and who says so — the dibur hamatchil the commentary itself
+  // declares, or a span you pinned (spec.md §8.4).
+  if (link.span_from) bits.push(link.span_from === "pinned" ? "על מילים (שלך)" : "על מילים");
+  if (link.label) bits.push(`"${link.label}"`);
+  if (link.was && link.was !== link.kind) bits.push(`היה: ${said(link.was)}`);
+  if (link.changed.length > 0) bits.push(link.changed.join(", "));
+  if (link.who) bits.push(link.who);
+  return bits;
+}
+
+/**
+ * What the closed disclosure says.
+ *
+ * The two things worth seeing without opening it: whether **you** have touched
+ * this link, and how sure the corpus was. A summary that only said `פרטים` would
+ * make a reader open all twenty rows to find the one they had rejected.
+ */
+function provenanceSaid(link: LinkRow): string {
+  const mine = link.changed.length > 0 ? `${link.changed.join(", ")} · ` : "";
+  return `${mine}${Math.round(link.confidence * 100)}%`;
 }
