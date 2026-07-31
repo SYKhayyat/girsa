@@ -21,6 +21,7 @@
 
 import { api, type Chip, type Dimension, type FacetRow, type Found, type Run } from "./api.ts";
 import { LaneColumn } from "./laneview.ts";
+import { announces, field, glyph, region } from "./controls.ts";
 
 /** Open a sefer at a segment — or, with no id, at wherever it was left.
  *
@@ -73,10 +74,13 @@ export class SearchView {
 
     const bar = document.createElement("div");
     bar.className = "find-bar";
-    this.box = document.createElement("input");
-    this.box.className = "find-box";
-    this.box.dir = "rtl";
-    this.box.placeholder = "חפש בכל המדף…";
+    // The one control the whole application is about, and it had no name at all:
+    // an accessibility snapshot listed 29 controls and this was not one of them.
+    this.box = field("חיפוש בכל המדף", {
+      className: "find-box",
+      dir: "rtl",
+      placeholder: "חפש בכל המדף…",
+    });
     this.box.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         // A new query is a new search: a rung applied to the last one does not
@@ -107,13 +111,16 @@ export class SearchView {
     this.chipRow.className = "find-chips";
     this.head = document.createElement("div");
     this.head.className = "find-head";
+    // What the search said, as a live region: a count that changes without being
+    // announced is a count a screen reader never mentions.
+    announces(this.head, "מה נמצא");
 
     const body = document.createElement("div");
     body.className = "find-body";
-    this.list = document.createElement("div");
-    this.list.className = "find-list";
-    this.rail = document.createElement("div");
-    this.rail.className = "find-rail";
+    // Landmarks, so a reader can jump between the results and the facets instead
+    // of walking every row of one to reach the other.
+    this.list = region("region", "תוצאות", "find-list");
+    this.rail = region("region", "צמצום התוצאות", "find-rail");
     body.append(this.list, this.rail);
 
     sheet.append(bar, this.chipRow, this.head, body, this.lane.element);
@@ -550,15 +557,15 @@ export class SearchView {
     count.className = "find-facet-count";
     count.textContent = String(row.count);
 
-    const out = document.createElement("button");
-    out.className = "find-facet-out";
-    out.textContent = "−";
-    out.title = `הוצא את ${row.label}`;
-    out.addEventListener("click", async () => {
-      await api.findNarrow(dimension, row, true);
-      this.page = 1;
-      await this.run();
+    // `−` is not a name. What it does is, and it says which row it does it to.
+    const out = glyph("−", `הוצא את ${row.label}`, () => {
+      void (async () => {
+        await api.findNarrow(dimension, row, true);
+        this.page = 1;
+        await this.run();
+      })();
     });
+    out.classList.add("find-facet-out");
 
     line.append(narrow, count, out);
     return line;

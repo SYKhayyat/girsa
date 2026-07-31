@@ -7,6 +7,7 @@
 // a list and not a choice.
 
 import { api, type Card, type Companion } from "./api.ts";
+import { field } from "./controls.ts";
 
 type Chosen = (slug: string) => void;
 
@@ -29,10 +30,12 @@ export class Picker {
     sheet.className = "picker-sheet";
     this.heading = document.createElement("p");
     this.heading.className = "picker-heading";
-    this.input = document.createElement("input");
-    this.input.className = "picker-input";
-    this.input.type = "search";
-    this.input.setAttribute("dir", "auto");
+    // The second field the snapshot could not see.
+    this.input = field("סינון הרשימה", {
+      className: "picker-input",
+      type: "search",
+      dir: "auto",
+    });
     this.list = document.createElement("ul");
     this.list.className = "picker-list";
     sheet.append(this.heading, this.input, this.list);

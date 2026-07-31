@@ -18,6 +18,7 @@ import {
   type TagRow,
 } from "./api.ts";
 import { sayTrouble } from "./trouble.ts";
+import { area, glyph } from "./controls.ts";
 
 type Panel = "notes" | "marks" | "queries" | "folders" | "tags";
 
@@ -227,31 +228,22 @@ export class YoursView {
       id.textContent = para.id.split("#")[1] ?? "";
       id.title = para.id;
 
-      const words = document.createElement("textarea");
-      words.className = "yours-words";
-      words.value = para.text;
+      const words = area("פסקה", { className: "yours-words", value: para.text });
       words.rows = Math.max(2, Math.ceil(para.text.length / 60));
       words.addEventListener("blur", () => {
         if (words.value === para.text) return;
         void api.noteEdit(note.name, "set", para.id, words.value);
       });
 
-      const after = document.createElement("button");
-      after.className = "tool";
-      after.textContent = "+";
-      after.title = "פסקה חדשה אחרי זו";
-      after.addEventListener("click", () => {
+      const after = glyph("+", "פסקה חדשה אחרי זו", () => {
         void (async () => {
           await api.noteEdit(note.name, "after", para.id, "");
           await this.draw();
         })();
       });
+      after.classList.add("tool");
 
-      const drop = document.createElement("button");
-      drop.className = "tool";
-      drop.textContent = "−";
-      drop.title = "הסר פסקה";
-      drop.addEventListener("click", () => {
+      const drop = glyph("−", "הסר פסקה", () => {
         void (async () => {
           await api.noteEdit(note.name, "remove", para.id);
           await this.draw();

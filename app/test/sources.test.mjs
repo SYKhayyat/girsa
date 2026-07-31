@@ -69,6 +69,54 @@ export async function run() {
   }
   check("no raw caught error is assigned into user-facing text", leaks, []);
 
+  // ------------------------------------------------------ every control has a name
+  //
+  // An accessibility snapshot listed 29 controls and **neither text field was among
+  // them** — not the search box, which is the one control the whole application is
+  // about. A placeholder is not a name.
+  //
+  // `controls.ts` cannot make an unnamed control, because the name is a required
+  // argument. This is the other half: a control built by hand, bypassing it, is a
+  // failure here rather than an accessibility finding a year later.
+  const bare = [];
+  for (const [f, body] of files) {
+    if (f === "controls.ts") continue; // where they are made, with a name
+    body.split("\n").forEach((line, i) => {
+      if (isComment(line)) return;
+      if (/createElement\(\s*["'](?:input|textarea|select)["']\s*\)/.test(line)) {
+        bare.push(`${f}:${i + 1}`);
+      }
+    });
+  }
+  check("no text field, textarea or select is built without a name", bare, []);
+
+  // A `<button>` carries its own name in its text, so it is allowed — except when
+  // its face is a glyph, which is not a name. `controls::glyph` is for those.
+  const glyphs = [];
+  for (const [f, body] of files) {
+    if (f === "controls.ts") continue;
+    body.split("\n").forEach((line, i) => {
+      if (isComment(line)) return;
+      // Only a *button*: a `…` in a paragraph is a spinner, and a spinner is not a
+      // control anybody has to be able to name and press.
+      if (
+        /\.textContent\s*=\s*["'](?:×|−|\+|⚙|»|«)["']/.test(line) &&
+        !/createElement\(\s*["']p["']\s*\)/.test(line)
+      ) {
+        glyphs.push(`${f}:${i + 1}`);
+      }
+    });
+  }
+  check("no glyph is used as a button's name", glyphs, []);
+
+  // One `button`, not four. There were four — `main.ts`, `scanview.ts`,
+  // `linksview.ts` and `writing.ts` — which is the "two readers of one value" shape
+  // this project bans, applied to the thing every screen is made of.
+  const makers = files.filter(
+    ([f, b]) => f !== "controls.ts" && /(?:^|\n)\s*(?:private )?(?:function )?button\(label:/.test(b),
+  );
+  check("there is one `button` helper", makers.map(([f]) => f), []);
+
   // ------------------------------------------- and the modules are used, not copied
   //
   // A constant nothing imports is not a single source of truth, it is a

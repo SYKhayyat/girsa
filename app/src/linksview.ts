@@ -12,6 +12,7 @@
 
 import { api, type LinkRow, type Links } from "./api.ts";
 import { sayTrouble } from "./trouble.ts";
+import { button, choice } from "./controls.ts";
 
 /** What each type is called on the page. */
 const TYPES: Record<string, string> = {
@@ -199,18 +200,18 @@ export class LinksView {
     box.className = "link-actions";
 
     if (link.rejected) {
-      box.append(this.button("בטל דחייה", "החזר את הקישור", () => this.repair(link, "undo")));
+      box.append(button("בטל דחייה", "החזר את הקישור", () => this.repair(link, "undo")));
       return box;
     }
 
     if (!link.confirmed) {
       box.append(
-        this.button("אשר", "בדקתי — הקישור נכון", () => this.repair(link, "confirm")),
+        button("אשר", "בדקתי — הקישור נכון", () => this.repair(link, "confirm")),
       );
     }
-    box.append(this.button("דחה", "בדקתי — הקישור שגוי", () => this.repair(link, "reject")));
+    box.append(button("דחה", "בדקתי — הקישור שגוי", () => this.repair(link, "reject")));
 
-    const retype = document.createElement("select");
+    const retype = choice("סוג הקישור");
     retype.className = "link-retype";
     retype.title = "קבע את סוג הקשר";
     const keep = document.createElement("option");
@@ -232,7 +233,7 @@ export class LinksView {
     // Reanchoring: onto the line the reader is standing on, which is the only
     // segment the window can name without asking a second question.
     box.append(
-      this.button("העבר לכאן", "העבר את הקצה הזה לשורה שאתה עומד בה", async () => {
+      button("העבר לכאן", "העבר את הקצה הזה לשורה שאתה עומד בה", async () => {
         const here = this.here?.();
         if (!here) return;
         try {
@@ -246,7 +247,7 @@ export class LinksView {
     // Pinning: onto the words the reader has highlighted right now, which is
     // the only span the window can name without asking a second question.
     box.append(
-      this.button("על מילים אלו", "קבע שהקישור מדבר על מה שסימנת", async () => {
+      button("על מילים אלו", "קבע שהקישור מדבר על מה שסימנת", async () => {
         const span = this.pinTo?.();
         if (!span || !this.at) {
           this.note.textContent = "סמן קודם את המילים";
@@ -261,7 +262,7 @@ export class LinksView {
       }),
     );
     if (link.changed.length > 0 && !link.mine) {
-      box.append(this.button("בטל", "בטל את מה שאמרת על הקישור", () => this.repair(link, "undo")));
+      box.append(button("בטל", "בטל את מה שאמרת על הקישור", () => this.repair(link, "undo")));
     }
     return box;
   }
@@ -275,12 +276,4 @@ export class LinksView {
     }
   }
 
-  private button(label: string, title: string, click: () => void): HTMLElement {
-    const node = document.createElement("button");
-    node.className = "tool";
-    node.textContent = label;
-    node.title = title;
-    node.addEventListener("click", click);
-    return node;
-  }
 }

@@ -35,6 +35,7 @@ import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { KSAV, withPrefix } from "./names.ts";
 import { presenceSaid } from "./presence.ts";
+import { announces, button, region } from "./controls.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
@@ -196,6 +197,8 @@ async function draw(): Promise<void> {
     void api.setRatio(pane, ratio);
   });
   boxes.classList.add("panes");
+  boxes.setAttribute("role", "main");
+  boxes.setAttribute("aria-label", "הקריאה");
   chrome.append(boxes);
   root.replaceChildren(
     chrome,
@@ -386,6 +389,7 @@ function redrawTabs(): void {
 function tabBar(): HTMLElement {
   const bar = document.createElement("nav");
   bar.className = "tabs";
+  bar.setAttribute("aria-label", "לשוניות");
   state?.workspace.tabs.forEach((open, index) => {
     const button = document.createElement("button");
     button.className = "tab" + (index === state?.workspace.active ? " is-active" : "");
@@ -466,8 +470,9 @@ function bareWord(word: string): string {
 }
 
 function toolBar(): HTMLElement {
-  const bar = document.createElement("div");
-  bar.className = "tools";
+  // A landmark with a name, so a reader can reach the toolbar without walking the
+  // tab strip first (B14).
+  const bar = region("toolbar", "כלים", "tools");
 
   const nikud = button(state?.nikud ? "עם ניקוד" : "בלי ניקוד", "Alt+N", async () => {
     if (!state) return;
@@ -1078,6 +1083,10 @@ function say(words: string, trouble: boolean): void {
   if (!toast) {
     toast = document.createElement("p");
     toast.className = "said";
+    // A live region, so what the window says is announced rather than only drawn.
+    // Ksav's README claims *"the status bar is a live region"* and its snapshot
+    // bears that out; this is the same bar in the sibling application (B14).
+    announces(toast, "הודעות");
     root.append(toast);
   }
   toast.textContent = words;
@@ -1089,13 +1098,9 @@ function say(words: string, trouble: boolean): void {
   );
 }
 
-function button(label: string, title: string, click: () => void): HTMLElement {
-  const node = document.createElement("button");
-  node.className = "tool";
-  node.textContent = label;
-  node.title = title;
-  node.addEventListener("click", click);
-  return node;
-}
+// One `button` for the whole window, in `controls.ts` (B14). There were four of
+// these — here, `scanview.ts`, `linksview.ts` and `writing.ts` — which is the
+// "two readers of one value" shape this project bans, applied to the thing every
+// screen is made of.
 
 void main();

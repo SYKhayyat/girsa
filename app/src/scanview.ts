@@ -24,6 +24,7 @@ import { api, assetUrl } from "./api.ts";
 import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } from "./api.ts";
 import { glyphsOf } from "./glyphs.ts";
 import { sayTrouble } from "./trouble.ts";
+import { area, button, choice, field } from "./controls.ts";
 
 /**
  * pdf.js, loaded the first time a scan is opened and not before.
@@ -113,8 +114,7 @@ export class ScanView {
     const bar = el("div", "scan-bar");
     const back = button("‹", "העמוד הקודם", () => void this.turn(-1));
     const on = button("›", "העמוד הבא", () => void this.turn(1));
-    this.pageBox = document.createElement("input");
-    this.pageBox.className = "scan-page";
+    this.pageBox = field("עמוד או דף", { className: "scan-page" });
     this.pageBox.type = "text";
     this.pageBox.inputMode = "numeric";
     this.pageBox.title = "עמוד בקובץ";
@@ -124,10 +124,10 @@ export class ScanView {
       else this.paint();
     });
 
-    this.goBox = document.createElement("input");
-    this.goBox.className = "scan-goto";
-    this.goBox.type = "text";
-    this.goBox.placeholder = "לדף…";
+    this.goBox = field("קפוץ לדף", {
+      className: "scan-goto",
+      placeholder: "לדף…",
+    });
     this.goBox.title = "כתוב דף — ב. או ב ע\"ב — או הדבק מראה מקום";
     this.goBox.addEventListener("keydown", (event) => {
       if (event.key === "Enter") void this.goToPlace(this.goBox.value);
@@ -492,7 +492,7 @@ export class ScanView {
     }
 
     const box = el("div", "scan-map");
-    const scheme = document.createElement("select");
+    const scheme = choice("איך העמודים נקראים");
     scheme.className = "scan-scheme";
     for (const [value, label] of [
       ["amud", "עמוד לכל דף בקובץ (ב. ב: ג.)"],
@@ -506,7 +506,7 @@ export class ScanView {
       scheme.append(option);
     }
 
-    const anchors = document.createElement("textarea");
+    const anchors = area("עמוד=מקום, שורה לכל אחד");
     anchors.className = "scan-anchors";
     anchors.rows = 4;
     anchors.spellcheck = false;
@@ -516,7 +516,7 @@ export class ScanView {
     anchors.title =
       "שורה לכל עוגן: עמוד=דף. `43=-` אומר שמכאן אין אלו עמודי הספר — לוחות, מפתח";
 
-    const of = document.createElement("input");
+    const of = field("של איזה ספר");
     of.className = "scan-of";
     of.type = "text";
     of.placeholder = "צילום של… (bavli/berakhot)";
@@ -591,12 +591,6 @@ function el(tag: string, className: string): HTMLElement {
   return node;
 }
 
-function button(label: string, title: string, onClick: () => void): HTMLElement {
-  const node = document.createElement("button");
-  node.type = "button";
-  node.className = "tool";
-  node.textContent = label;
-  node.title = title;
-  node.addEventListener("click", onClick);
-  return node;
-}
+// The fourth copy of this lived here. It is `controls::button` now — one
+// implementation of the thing every screen is made of, and it takes the name as an
+// argument rather than hoping the caller sets one (B14).

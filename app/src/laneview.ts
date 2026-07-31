@@ -31,6 +31,7 @@ import {
   type LaneProgress,
   type LaneState,
 } from "./api.ts";
+import { field } from "./controls.ts";
 
 /** Open a sefer at a segment — the same handler the search list is given. */
 type Opened = (slug: string, id: string | null, marked?: string[]) => void;
@@ -333,7 +334,7 @@ export class LanePanel {
     // than the rule itself (`girsa_lane::bring`).
     const allow = document.createElement("label");
     allow.className = "lane-allow";
-    const box = document.createElement("input");
+    const box = field("נתיב אל המודל");
     box.type = "checkbox";
     box.checked = state.may_fetch;
     box.addEventListener("change", async () => {

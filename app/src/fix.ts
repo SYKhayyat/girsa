@@ -12,6 +12,7 @@
 // answered in Rust — see `girsa_app::fixing`.
 
 import type { FixMark } from "./api.ts";
+import { field } from "./controls.ts";
 
 /** What the reader highlighted, and what is already on that line. */
 export interface Correcting {
@@ -63,7 +64,7 @@ export class FixBox {
     printed.title = "כפי שנדפס";
     head.append(printed);
 
-    const input = document.createElement("input");
+    const input = field("התיקון");
     input.className = "fixbox-input";
     input.type = "text";
     input.dir = "rtl";

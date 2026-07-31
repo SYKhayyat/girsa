@@ -15,6 +15,7 @@
 import { api, isShell, type Presence } from "./api.ts";
 import { KSAV, withPrefix } from "./names.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
+import { area, button, field } from "./controls.ts";
 
 /** How long after the last keystroke the buffer is written to disk. */
 const SAVE_AFTER_MS = 900;
@@ -42,7 +43,7 @@ export class WritingView {
     const head = document.createElement("header");
     head.className = "writing-head";
 
-    this.title = document.createElement("input");
+    this.title = field("שם המסמך");
     this.title.className = "writing-name";
     this.title.spellcheck = false;
     this.title.addEventListener("change", () => void this.rename());
@@ -52,24 +53,22 @@ export class WritingView {
 
     head.append(this.title, this.note);
     head.append(
-      this.button("כותרת", "#כותרת1[…]", () => this.wrap("#כותרת1[", "]\n")),
-      this.button("ציטוט", "#ציטוט[…]", () => this.wrap("#ציטוט[", "]")),
-      this.button("הערה", "#הערת_עורך[…]", () => this.wrap("#הערת_עורך[", "]")),
-      this.button("מקור", "הכנס את הבחירה שבספר", () => void this.insertSource()),
+      button("כותרת", "#כותרת1[…]", () => this.wrap("#כותרת1[", "]\n")),
+      button("ציטוט", "#ציטוט[…]", () => this.wrap("#ציטוט[", "]")),
+      button("הערה", "#הערת_עורך[…]", () => this.wrap("#הערת_עורך[", "]")),
+      button("מקור", "הכנס את הבחירה שבספר", () => void this.insertSource()),
     );
 
-    this.ksavButton = this.button(
+    this.ksavButton = button(
       `פתח ${withPrefix("ב", KSAV)}`,
       `פתח את המסמך ${withPrefix("ב", KSAV)} עצמו`,
       () =>
       void this.handOver(),
     );
     head.append(this.ksavButton);
-    head.append(this.button("סגור", "Esc", () => this.close()));
+    head.append(button("סגור", "Esc", () => this.close()));
 
-    this.box = document.createElement("textarea");
-    this.box.className = "writing-box";
-    this.box.dir = "rtl";
+    this.box = area("מה שאתה כותב", { className: "writing-box", dir: "rtl" });
     this.box.spellcheck = false;
     this.box.addEventListener("input", () => this.scheduleSave());
 
@@ -189,14 +188,6 @@ export class WritingView {
     }
   }
 
-  private button(label: string, title: string, click: () => void): HTMLButtonElement {
-    const node = document.createElement("button");
-    node.className = "tool";
-    node.textContent = label;
-    node.title = title;
-    node.addEventListener("click", click);
-    return node;
-  }
 }
 
 /** `כ״ח בתמוז` is nicer and needs a calendar; the date the machine knows is

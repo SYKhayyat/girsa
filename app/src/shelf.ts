@@ -13,6 +13,7 @@
 
 import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
+import { field } from "./controls.ts";
 
 type Opened = (slug: string) => void;
 
@@ -208,7 +209,7 @@ export class ShelfView {
 
   private rename(branch: Branch, name: HTMLElement): void {
     if (!isShell()) return;
-    const input = document.createElement("input");
+    const input = field("שם המדף");
     input.className = "shelf-rename";
     input.value = branch.title;
     input.setAttribute("dir", "auto");
