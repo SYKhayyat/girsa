@@ -28,3 +28,6 @@ dist/
 /app/src-tauri/target/
 /app/src-tauri/gen/
 /app/public/dev/
+
+# The test runner's build output. Rebuilt by `npm test` every run (app/test/run.mjs).
+app/.tmp-test/

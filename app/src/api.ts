@@ -266,11 +266,14 @@ export interface Copied {
   put: { plain: boolean; html: boolean; packet: boolean; trouble: string | null };
 }
 
-/** Whether Ksav is there (spec.md §10.6). Asked of it, not assumed. */
-export type Presence =
-  | { state: "live"; version: string }
-  | { state: "not_running" }
-  | { state: "stale"; why: string };
+/** Whether Ksav is there (spec.md §10.6). Asked of it, not assumed.
+ *
+ *  Declared in `presence.ts`, beside the three sentences that describe the three
+ *  states, and re-exported here so the bridge stays the one import for callers.
+ *  Two declarations of one type is the shape of every bug this project's rules
+ *  are written to prevent. */
+import type { Presence } from "./presence.ts";
+export type { Presence };
 
 /** Where something asked Girsa to open — over the loopback, or a `girsa://`
  * link clicked in a document. The ref is turned into a segment id in Rust,

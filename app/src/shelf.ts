@@ -12,6 +12,7 @@
 // layer.
 
 import { api, isShell, type Branch, type Card } from "./api.ts";
+import { clearTrouble, sayTrouble } from "./trouble.ts";
 
 type Opened = (slug: string) => void;
 
@@ -305,12 +306,12 @@ export class ShelfView {
     try {
       await change();
       this.note.textContent = "";
+      clearTrouble(this.note);
     } catch (e) {
       // A refusal — a shelf inside itself, a personal layer that will not
       // write — is shown. The shelf did not move, and saying nothing would
       // leave a reader believing it had.
-      this.note.textContent = String(e);
-      this.note.classList.add("is-trouble");
+      sayTrouble(this.note, e);
       window.setTimeout(() => this.note.classList.remove("is-trouble"), 4000);
     }
     await this.refresh();

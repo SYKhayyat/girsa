@@ -17,6 +17,7 @@ import {
   type QueryRow,
   type TagRow,
 } from "./api.ts";
+import { sayTrouble } from "./trouble.ts";
 
 type Panel = "notes" | "marks" | "queries" | "folders" | "tags";
 
@@ -144,7 +145,7 @@ export class YoursView {
           return await this.drawTags();
       }
     } catch (e) {
-      this.note.textContent = String(e);
+      sayTrouble(this.note, e);
     }
   }
 
@@ -461,7 +462,7 @@ export class YoursView {
     try {
       this.note.textContent = await api.exportLayer();
     } catch (e) {
-      this.note.textContent = String(e);
+      sayTrouble(this.note, e, "write_note");
     }
   }
 }

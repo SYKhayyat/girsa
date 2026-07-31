@@ -13,6 +13,8 @@
 // documents that differ depending on which end wrote them.
 
 import { api, isShell, type Presence } from "./api.ts";
+import { KSAV, withPrefix } from "./names.ts";
+import { clearTrouble, sayTrouble } from "./trouble.ts";
 
 /** How long after the last keystroke the buffer is written to disk. */
 const SAVE_AFTER_MS = 900;
@@ -56,7 +58,10 @@ export class WritingView {
       this.button("מקור", "הכנס את הבחירה שבספר", () => void this.insertSource()),
     );
 
-    this.ksavButton = this.button("פתח בכסב", "פתח את המסמך בכסב עצמו", () =>
+    this.ksavButton = this.button(
+      `פתח ${withPrefix("ב", KSAV)}`,
+      `פתח את המסמך ${withPrefix("ב", KSAV)} עצמו`,
+      () =>
       void this.handOver(),
     );
     head.append(this.ksavButton);
@@ -137,12 +142,11 @@ export class WritingView {
     if (!this.name || !isShell()) return;
     try {
       this.note.textContent = await api.bufferSave(this.name, this.box.value);
-      this.note.classList.remove("is-trouble");
+      clearTrouble(this.note);
     } catch (e) {
       // A buffer that will not save has to say so *while you are writing*, not
       // when you come back tomorrow and find yesterday missing.
-      this.note.textContent = String(e);
-      this.note.classList.add("is-trouble");
+      sayTrouble(this.note, e, "write_note");
     }
   }
 
@@ -178,11 +182,10 @@ export class WritingView {
     await this.save();
     try {
       await api.bufferToKsav(this.name, this.box.value);
-      this.note.textContent = "נמסר לכסב";
-      this.note.classList.remove("is-trouble");
+      this.note.textContent = `נמסר ${withPrefix("ל", KSAV)}`;
+      clearTrouble(this.note);
     } catch (e) {
-      this.note.textContent = String(e);
-      this.note.classList.add("is-trouble");
+      sayTrouble(this.note, e, "send_to_ksav");
     }
   }
 

@@ -11,6 +11,7 @@
 // evidence and not about a stylesheet.
 
 import { api, type LinkRow, type Links } from "./api.ts";
+import { sayTrouble } from "./trouble.ts";
 
 /** What each type is called on the page. */
 const TYPES: Record<string, string> = {
@@ -115,7 +116,7 @@ export class LinksView {
     try {
       found = await api.links(this.at, this.lens ?? undefined, this.span ?? undefined);
     } catch (e) {
-      this.note.textContent = String(e);
+      sayTrouble(this.note, e, "read_links");
       return;
     }
     this.list.replaceChildren();
@@ -238,7 +239,7 @@ export class LinksView {
           await api.linkReanchor(link.edge, link.outgoing ? "to" : "from", here);
           await this.draw();
         } catch (e) {
-          this.note.textContent = String(e);
+          sayTrouble(this.note, e, "repair_link");
         }
       }),
     );
@@ -255,7 +256,7 @@ export class LinksView {
           await api.linkPin(link.edge, this.at, span[0], span[1]);
           await this.draw();
         } catch (e) {
-          this.note.textContent = String(e);
+          sayTrouble(this.note, e, "repair_link");
         }
       }),
     );
@@ -270,7 +271,7 @@ export class LinksView {
       await api.linkRepair(link.edge, does, value);
       await this.draw();
     } catch (e) {
-      this.note.textContent = String(e);
+      sayTrouble(this.note, e, "repair_link");
     }
   }
 

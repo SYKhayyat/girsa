@@ -23,6 +23,7 @@ import worker from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { api, assetUrl } from "./api.ts";
 import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } from "./api.ts";
 import { glyphsOf } from "./glyphs.ts";
+import { sayTrouble } from "./trouble.ts";
 
 /**
  * pdf.js, loaded the first time a scan is opened and not before.
@@ -187,9 +188,10 @@ export class ScanView {
     try {
       this.doc = await (await pdf()).getDocument({ url }).promise;
     } catch (e) {
-      // A file that has been moved or is not a PDF after all. Said, with the
-      // reason, rather than left as an empty grey rectangle.
-      this.note.textContent = `הקובץ לא נפתח: ${String(e)}`;
+      // A file that has been moved or is not a PDF after all. Said in the
+      // reader's words, with the library's own reason one hover away, rather than
+      // left as an empty grey rectangle.
+      sayTrouble(this.note, e, "open_pdf");
       return;
     }
     await this.draw();
@@ -404,7 +406,7 @@ export class ScanView {
       }
       this.sayReading(await api.scanReading(this.slug));
     } catch (e) {
-      this.reading.textContent = String(e);
+      sayTrouble(this.reading, e, "read_page");
     } finally {
       this.job = false;
     }
@@ -546,7 +548,7 @@ export class ScanView {
           await this.draw();
         })
         .catch((e: unknown) => {
-          said.textContent = String(e);
+          sayTrouble(said, e, "read_page");
         });
     });
 
@@ -567,8 +569,9 @@ export class ScanView {
       box.remove();
       await this.draw();
     } catch (e) {
-      // The refusal, in the words `girsa-scan` refused it in.
-      said.textContent = String(e);
+      // The refusal `girsa-scan` made, in the reader's words. `girsa-scan`'s own
+      // wording is on the hover, because it is written for a log.
+      sayTrouble(said, e, "read_page");
     }
   }
 }

@@ -954,7 +954,7 @@ second writer in TypeScript would be two applications producing documents that
 differ depending on which end wrote them. The window decides where the caret is
 and nothing else.
 
-**פתח בכסב** hands the whole document to the real Ksav over the loopback —
+**פתח ב־כְּתָב** hands the whole document to the real Ksav over the loopback —
 offered only when presence says it is there. There is no conversion step, which
 is the point: Ksav is opening a document it can already read.
 

@@ -33,6 +33,8 @@ import { LanePanel } from "./laneview.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
+import { KSAV, withPrefix } from "./names.ts";
+import { presenceSaid } from "./presence.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
@@ -500,17 +502,24 @@ function toolBar(): HTMLElement {
   // fail. Live, it is a button; not live, it is a word saying which of the two
   // reasons it is.
   if (isShell()) {
-    if (ksav.state === "live") {
-      const send = button("שלח לכסב", "Ctrl+Shift+C — שלח את הבחירה למסמך הפתוח", () =>
-        void sendToKsav(),
+    const said = presenceSaid(ksav);
+    if (said.canSend) {
+      const send = button(
+        `שלח ${withPrefix("ל", KSAV)}`,
+        "Ctrl+Shift+C — שלח את הבחירה למסמך הפתוח",
+        () => void sendToKsav(),
       );
       send.classList.add("tool-wide");
       bar.append(send);
     } else {
+      // Three states, three sentences, and the transport's own English behind the
+      // hover rather than in the chip. `presenceSaid` decides all of it, so the
+      // toolbar cannot invent a fourth wording.
       const off = document.createElement("span");
       off.className = "tools-note";
-      off.textContent = ksav.state === "stale" ? `כסב — ${ksav.why}` : "כסב אינו פועל";
-      if (ksav.state === "stale") off.classList.add("is-trouble");
+      off.textContent = said.said;
+      if (said.detail) off.title = said.detail;
+      if (said.trouble) off.classList.add("is-trouble");
       bar.append(off);
     }
   }
@@ -957,7 +966,7 @@ async function sendToKsav(): Promise<void> {
     const sent = chosen
       ? await api.sendToKsav(chosen.from, chosen.to, chosen.fromChar, chosen.toChar)
       : await api.sendToKsav(here!, here!, 0, null);
-    say(`נשלח לכסב — ${sent.display}`, false);
+    say(`נשלח ${withPrefix("ל", KSAV)} — ${sent.display}`, false);
   } catch (e) {
     // A refusal from the other side is shown as it came: "Ksav is not running"
     // and "Ksav refused it" are different things to a reader.
