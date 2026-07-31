@@ -63,7 +63,10 @@ struct Asked {
 /// first; if the pairing cannot be opened the window still reads seforim, and
 /// the presence chip says why.
 pub fn open(handle: &tauri::AppHandle) -> Result<Desk, std::io::Error> {
-    let desk = Desk::open(App::Girsa, env!("CARGO_PKG_VERSION"))?;
+    // `mut`, because the desk keeps its serving thread's handle now: dropping it
+    // has to close the listener and not merely withdraw the endpoint file
+    // (sefer-crates 0.5.0).
+    let mut desk = Desk::open(App::Girsa, env!("CARGO_PKG_VERSION"))?;
     let handle = handle.clone();
     desk.serve(move |path, body| answer(&handle, path, body));
     Ok(desk)
