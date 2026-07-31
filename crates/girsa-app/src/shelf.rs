@@ -1026,6 +1026,7 @@ pub(crate) mod tests {
                     ),
                     kind: SegmentKind::Text,
                     text: format!("{slug} {}", path.join(":")),
+                    anchors: Vec::new(),
                 }
             })
             .collect();

@@ -95,6 +95,47 @@ fn usage() -> std::process::ExitCode {
     std::process::ExitCode::from(2)
 }
 
+/// An index built before `girsa-link-types` has no link types in it (B25).
+///
+/// The link facet says *"not built — run girsa-link-types and index again"*, which is
+/// the right thing for it to say and the wrong time to hear it: the reader has
+/// already spent four minutes. So the ordering constraint is checked before the
+/// rebuild starts rather than reported after it finishes.
+///
+/// A root with no link graph at all is fine and is not this — a personal layer has
+/// no `links/` and never will. This is about a corpus that *has* a graph whose types
+/// have never been walked.
+///
+/// # Errors
+///
+/// Exit 2, before anything is written, unless `--without-link-types` is passed.
+fn refuse_an_index_without_link_types(roots: &[String]) -> Result<(), std::process::ExitCode> {
+    if roots.iter().any(|r| r == "--without-link-types") {
+        eprintln!("building without link types, as asked — the link facet will say so");
+        return Ok(());
+    }
+    let wanting: Vec<&String> = roots
+        .iter()
+        .filter(|root| Path::new(root).join("links").is_dir())
+        .filter(|root| !girsa_link::inbound::built(Path::new(root)))
+        .collect();
+    if wanting.is_empty() {
+        return Ok(());
+    }
+    for root in &wanting {
+        eprintln!(
+            "{root} has a link graph whose types have not been walked, so this index would \
+             have no link facet."
+        );
+        eprintln!("  cargo run --release -p girsa-link --bin girsa-link-types -- {root}");
+    }
+    eprintln!(
+        "Run that first, or pass --without-link-types to build anyway. Said now rather than \
+         after four minutes of indexing."
+    );
+    Err(std::process::ExitCode::from(2))
+}
+
 /// A positional root that is not a directory is a mistake, and it is said.
 ///
 /// This is the same family as the guardrail the README says was bought
@@ -227,6 +268,20 @@ struct Tally {
 
 fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
     let started = Instant::now();
+
+    // Two caches with an ordering constraint between them, and nothing was enforcing
+    // it (B25). The link column of a result's facets is filled from what
+    // `girsa-link-types` wrote; an index built before that pass has no link types at
+    // all, and the facet says *not built* — honestly, but a reader who has just
+    // waited four minutes for a rebuild is entitled to have been told first.
+    //
+    // Refused rather than run: `girsa-link-types` walks the whole graph and is its
+    // own job with its own report, and a build that silently ran a second long job
+    // inside itself would be a four-minute command that sometimes takes twelve.
+    // `--without-link-types` is the way to say you meant it.
+    if let Err(code) = refuse_an_index_without_link_types(roots) {
+        return code;
+    }
 
     let mut index = match SearchIndex::rebuild(index_dir) {
         Ok(index) => index,

@@ -6,6 +6,10 @@
 //!
 //! Filled in by W5–W8.
 
+// Sefaria's commentary anchors, mined to spans and out of the text (W34, W33-A).
+// They were indexed as words, which broke phrase search on the most-searched shelf
+// in the corpus.
+pub mod anchors;
 pub mod csv;
 pub mod era;
 pub mod fetch;

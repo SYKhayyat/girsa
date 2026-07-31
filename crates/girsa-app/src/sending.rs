@@ -395,6 +395,7 @@ pub(crate) mod tests {
                     id: SegmentId::new(slug, vec!["1".into(), n.to_string()], Ordinal::root(n)),
                     kind: SegmentKind::Text,
                     text: (*text).to_string(),
+                    anchors: Vec::new(),
                 }
             })
             .collect();

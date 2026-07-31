@@ -35,6 +35,8 @@ fn segment(work: &str, path: &[&str], n: u32, text: &str) -> Segment {
         ),
         kind: SegmentKind::Text,
         text: text.to_string(),
+        // W34's mined anchors: a fixture types its own text, so none.
+        anchors: Vec::new(),
     }
 }
 

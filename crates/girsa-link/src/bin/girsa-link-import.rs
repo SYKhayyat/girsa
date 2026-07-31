@@ -93,7 +93,20 @@ fn main() -> std::process::ExitCode {
     let mut resolver = Resolver::new(&lexicon);
     let mut writer = store::Writer::default();
 
-    let sefaria = import_sefaria(&corpus_root, &mut resolver, &index, &mut writer);
+    // Which of a `commentary` row's two ends is the commentary. Read off the
+    // work index, because the row itself does not say and Sefaria writes it
+    // both ways round — see `girsa_link::orient`.
+    let bases = girsa_link::orient::Bases::of(&works);
+    let mut oriented = girsa_link::orient::Orienting::new(&bases);
+    eprintln!("  {} works declare a base text", bases.declaring());
+
+    let sefaria = import_sefaria(
+        &corpus_root,
+        &mut resolver,
+        &index,
+        &mut writer,
+        &mut oriented,
+    );
     let otzaria = import_otzaria(
         &corpus_root,
         &otzaria_root,
@@ -101,7 +114,9 @@ fn main() -> std::process::ExitCode {
         &mut resolver,
         &index,
         &mut writer,
+        &mut oriented,
     );
+    eprintln!("  {}", oriented.tally().said());
 
     if let Err(e) = writer.flush(&corpus_root) {
         eprintln!("could not write the last of the edges: {e}");
@@ -239,6 +254,7 @@ fn import_sefaria(
     resolver: &mut Resolver<'_>,
     index: &SegmentIndex,
     writer: &mut store::Writer,
+    oriented: &mut girsa_link::orient::Orienting<'_>,
 ) -> Tally {
     let dir = corpus_root.join("sefaria/links");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -260,6 +276,8 @@ fn import_sefaria(
     for (i, path) in files.iter().enumerate() {
         eprint!("\r  sefaria links {}/{}", i + 1, files.len());
         match girsa_link::sefaria::read_file(path, resolver, index, |edge| {
+            let mut edge = edge;
+            oriented.apply(&mut edge);
             writer.push(&edge);
         }) {
             Ok(t) => tally.absorb(t),
@@ -282,6 +300,7 @@ fn import_otzaria(
     resolver: &mut Resolver<'_>,
     index: &SegmentIndex,
     writer: &mut store::Writer,
+    oriented: &mut girsa_link::orient::Orienting<'_>,
 ) -> OtzariaTally {
     let titles = TitleIndex::build(works);
     let links_dir = otzaria_root.join("links");
@@ -322,7 +341,14 @@ fn import_otzaria(
             &mut target_lines,
             resolver,
             index,
-            |edge| writer.push(&edge),
+            |edge| {
+                // Otzaria's rows are already base-first-as-index-1 by
+                // convention, so this mostly confirms rather than corrects —
+                // which is exactly what makes it worth running over them.
+                let mut edge = edge;
+                oriented.apply(&mut edge);
+                writer.push(&edge);
+            },
         ) {
             Ok(t) => tally.absorb(t),
             Err(e) => eprintln!("\n{}: {e}", path.display()),

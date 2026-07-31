@@ -310,11 +310,17 @@ impl Note {
             id: self.id(),
             kind: SegmentKind::Heading,
             text: self.title.clone(),
+            // Sefaria's inline commentary anchors are a property of Sefaria's
+            // markup (W34). You typed this, so there are none — and an empty
+            // vec is the honest answer rather than a reason for the field to
+            // be optional.
+            anchors: Vec::new(),
         }];
         out.extend(self.paras.iter().map(|para| Segment {
             id: para.id.clone(),
             kind: SegmentKind::Text,
             text: para.text.clone(),
+            anchors: Vec::new(),
         }));
         out
     }

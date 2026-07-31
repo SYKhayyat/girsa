@@ -56,6 +56,8 @@ fn segment(slug: &str, n: u32, text: &str) -> Segment {
         id: SegmentId::new(slug, vec![n.to_string()], Ordinal::root(n)),
         kind: SegmentKind::Text,
         text: text.to_string(),
+        // W34's mined anchors: a fixture types its own text, so none.
+        anchors: Vec::new(),
     }
 }
 

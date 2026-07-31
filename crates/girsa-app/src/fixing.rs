@@ -171,6 +171,7 @@ mod tests {
             id: id(),
             kind: SegmentKind::Text,
             text: AS_PRINTED.to_string(),
+            anchors: Vec::new(),
         }];
         Open::corrected(
             crate::shelf::tests::work("mishnah-berurah"),

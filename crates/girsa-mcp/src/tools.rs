@@ -39,7 +39,28 @@ use crate::Server;
 const DEFAULT_LIMIT: usize = 10;
 /// The most any one call will return, however large a `limit` is asked for.
 /// Reported when it bites, like every other cap in this project.
-const MAX_LIMIT: usize = 50;
+///
+/// **Configurable, because 50 is a guess about the caller and not a fact about the
+/// engine** (B24). `GIRSA_MCP_MAX_LIMIT` raises or lowers it: an agent summarising
+/// a sugya wants more rows than a chat turn does, and the honest ceiling depends on
+/// whose context window is on the other end. It is clamped to something sane at
+/// both ends — a limit of zero is a tool that returns nothing, and a limit of a
+/// million is a caller that has not thought about it.
+///
+/// What does **not** change is that the cap says what it cut. `search` came back
+/// `total: 79 · hits: 50 · not_shown: 29` in the audit and that is the one thing
+/// that matters when the caller is a program that cannot complain, so raising the
+/// number must not quietly turn the reporting off.
+fn max_limit() -> usize {
+    std::env::var("GIRSA_MCP_MAX_LIMIT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(MAX_LIMIT_DEFAULT)
+        .clamp(1, 5_000)
+}
+
+/// What the cap is when nothing says otherwise.
+const MAX_LIMIT_DEFAULT: usize = 50;
 
 /// The tools, as `tools/list` describes them.
 #[must_use]
@@ -68,7 +89,7 @@ pub fn catalogue() -> Value {
                         "type": "string",
                         "description": "One of your own tags, to search only what you tagged with it.     Corpus seforim carry no tags; this narrows to your notes."
                     },
-                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
                 },
                 "required": ["query"]
             }
@@ -114,7 +135,7 @@ pub fn catalogue() -> Value {
                 "properties": {
                     "phrase": {"type": "string"},
                     "except": {"type": "string", "description": "A work slug to leave out — the sefer you are already in."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
                 },
                 "required": ["phrase"]
             }
@@ -130,7 +151,7 @@ pub fn catalogue() -> Value {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
                 },
                 "required": ["id"]
             }
@@ -201,7 +222,7 @@ pub fn catalogue() -> Value {
                 "properties": {
                     "text": {"type": "string", "description": "A line as you remember it — not a question."},
                     "sefer": {"type": "string", "description": "A work slug, to look in one sefer."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
                 },
                 "required": ["text"]
             }
@@ -216,7 +237,7 @@ pub fn catalogue() -> Value {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
                 },
                 "required": ["title"]
             }
@@ -284,7 +305,7 @@ fn id_arg(args: &Value, key: &str) -> Result<SegmentId, String> {
 fn limit_of(args: &Value) -> usize {
     args.get("limit")
         .and_then(Value::as_u64)
-        .map_or(DEFAULT_LIMIT, |n| (n as usize).clamp(1, MAX_LIMIT))
+        .map_or(DEFAULT_LIMIT, |n| (n as usize).clamp(1, max_limit()))
 }
 
 /// The shape a segment is named in, everywhere in this file.
@@ -374,6 +395,12 @@ fn search(server: &Server, args: &Value) -> Result<Value, String> {
                 "total": results.total,
                 "showing": hits.len(),
                 "not_shown": results.total.saturating_sub(hits.len()),
+                // What this search could not see (B7). The window's results header
+                // has said it since B7; a program is entitled to the same sentence,
+                // and more so — a `total` of zero over an index that has never seen
+                // your notes reads to an agent as *this is not in the library*, and
+                // an agent cannot ask a follow-up question about it.
+                "did_not_search": server.unindexed().said(),
                 "hits": hits,
                 "note": note,
                 // §9.6: priced, and applied to nothing. The counts are computed

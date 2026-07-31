@@ -131,6 +131,16 @@ pub struct Segment {
     pub id: SegmentId,
     pub kind: SegmentKind,
     pub text: String,
+    /// Where commentaries attach, mined out of the text at ingest (W34, W33-A).
+    ///
+    /// Sefaria writes them inline as empty `<i data-commentator="…"></i>` elements —
+    /// 43,883 of them in Shulchan Arukh Orach Chayim alone, 61% of that file's bytes
+    /// — and they were being **indexed as words**, so a phrase search for a line
+    /// printed in front of the reader missed it. They are `spec.md` §8.4's span
+    /// anchoring, already computed upstream and sitting in the corpus unused; this is
+    /// where they become that rather than noise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anchors: Vec<crate::anchors::Anchor>,
 }
 
 /// A segment before it has been given a name.
@@ -207,12 +217,17 @@ impl ImportedWork {
         let mut segments = Vec::new();
         for ((id, text), kind) in store.iter().zip(kinds) {
             oversized.saw(&id.to_string(), text.chars().count(), &work.slug);
-            let pieces = oversized::pieces(text, oversized::TARGET);
+            // The anchors come out before the length is judged: 61% of a
+            // heavily-commented sefer's bytes are markup, so measuring an
+            // un-mined segment would cut where there is no text to cut.
+            let mined = crate::anchors::mine(text);
+            let pieces = oversized::pieces(&mined.text, oversized::TARGET);
             if pieces.len() == 1 {
                 segments.push(Segment {
                     id: id.clone(),
                     kind,
-                    text: text.to_string(),
+                    text: mined.text,
+                    anchors: mined.anchors,
                 });
                 continue;
             }
@@ -220,12 +235,28 @@ impl ImportedWork {
             // The children, in reading order. The parent id is not written to disk:
             // it is not a segment any more, and `covers` is what keeps it resolvable
             // rather than a record that would be a second copy of the same words.
+            // Each child keeps the anchors that fall inside it, with their offsets
+            // rebased — an anchor is a position in a text, and after a split it is a
+            // position in a different, shorter text.
+            let mut from = 0usize;
             for (child, piece) in id.split(pieces.len()).into_iter().zip(pieces) {
+                let upto = from + piece.chars().count();
+                let anchors = mined
+                    .anchors
+                    .iter()
+                    .filter(|a| a.at >= from && a.at < upto)
+                    .map(|a| crate::anchors::Anchor {
+                        at: a.at - from,
+                        ..a.clone()
+                    })
+                    .collect();
                 segments.push(Segment {
                     id: child,
                     kind,
                     text: piece.to_string(),
+                    anchors,
                 });
+                from = upto;
             }
         }
 

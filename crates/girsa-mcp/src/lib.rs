@@ -74,6 +74,14 @@ pub struct Server {
     /// could get adjacent-by-meaning results out of `search` would have no way
     /// to tell its own caller which kind of answer it had.
     lane: girsa_app::Adjacency,
+    /// What your own layer holds that the index has not seen (B7, B24).
+    ///
+    /// Read once at open, like the catalogue: a program asking `search` is entitled
+    /// to the same sentence the window's results header shows, and a caller that
+    /// cannot complain is exactly who needs it most — a `total` of zero over an
+    /// index that has never seen your notes reads to an agent as *this is not in the
+    /// library*.
+    unindexed: girsa_note::since::Unindexed,
     /// Set once the client has sent `initialize`. A tool call before that is
     /// refused rather than served, because a client that has not handshaken has
     /// not agreed a protocol version and cannot be assumed to read the answer.
@@ -98,6 +106,7 @@ impl Server {
         // `narrow_by: "tag"` has somewhere to narrow to (B18).
         let (notes, _) = girsa_note::note::Notes::open(personal);
         let catalogue = Catalogue::of(shelf.works()).tagged(&notes);
+        let unindexed = girsa_note::since::Unindexed::of(Some(index), personal);
         // Loads a side-loaded model when the lane is on, which is why it is done
         // once here and not per call. With the lane off — the default — this
         // costs nothing at all.
@@ -111,8 +120,15 @@ impl Server {
             shelf,
             timeline,
             lane,
+            unindexed,
             ready: false,
         })
+    }
+
+    /// What your own layer holds that the index has not seen (B7).
+    #[must_use]
+    pub fn unindexed(&self) -> girsa_note::since::Unindexed {
+        self.unindexed
     }
 
     /// The semantic lane, as the `adjacent` tool sees it.
