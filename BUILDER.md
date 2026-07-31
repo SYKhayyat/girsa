@@ -1255,3 +1255,98 @@ something.
 
 **Acceptance.** Walk the shelf to any sefer and every level was a choice between
 things of one kind.
+
+---
+
+### W43 · Choose your mefarshim, then click a line — the Otzaria model, kept beside the split
+
+> *"there should be a way to have mefarshim also open like otzaria (click on
+> text opens checked mefarshim)"* … *"but keep the split too — its also nice"*
+
+**What Otzaria does**, read out of its own source: `CommentatorsActivity` is a
+checkable list of the commentators on the open sefer, persisted per book
+(`Settings.selectedCommentators`, a string set keyed by title). `Ui.kt:82`
+prepends a `◆` to any line carrying commentary from the checked set, and tapping
+such a line opens those commentators' comments **on that line**. The marks come
+from a bitmap per commentator in its `.idx` sidecar — one bit per line — so the
+marker costs nothing to draw.
+
+**What Girsa does today** is one interaction: press `מפרשים · N`, pick **one**
+sefer, and it opens as a whole pane in the split. That is a good interaction and
+it stays. It is a different question, though: *put Rashi beside the Gemara and
+keep the two in step* is not *what do my six mefarshim say about this line*.
+
+**Girsa needs no sidecar for this.** `corpus/links/<slug>/inbound.jsonl` is one
+file per sefer, and reading Berakhot's — 3.4 MB, 21,065 rows — and indexing every
+`comments-on` by target segment takes **0.07s** and yields 3,183 marked segments
+with their commentator sets. Once per open sefer, in memory, is enough for both
+the markers and the click.
+
+    bavli/berakhot/10a:1#418  <-  rashi, rashba, tosafot-harosh, ben-yehoyada,
+                                  chidushei-agadot, steinsaltz
+
+**Build.**
+- `girsa_app::mefarshim` — `Marks`, built from one `inbound::read_back`: which
+  works comment on each segment. Plus the chosen set, persisted per sefer in
+  `Session` beside `where_i_was`.
+- A marker on every line that has commentary **from the chosen set**, not from
+  all of them — otherwise every line on the daf is marked and the marker says
+  nothing.
+- Clicking a marked line opens the chosen mefarshim on that line, and only that
+  line.
+- The checkable list is the same list `מפרשים · N` already opens; checking is
+  what is new.
+
+**Test first, and watch these fail.**
+1. `Marks::of` on `bavli/berakhot` puts `bavli/rashi-on-berakhot` on
+   `bavli/berakhot/10a:1#418` — a fact from the real corpus, so the test fails
+   the day the graph regresses again.
+2. With nothing chosen, no line is marked. With Rashi chosen, the marked set is
+   exactly the segments Rashi comments on — not a superset.
+3. A chosen mefaresh that comments on nothing in this sefer marks nothing and is
+   not an error.
+4. The chosen set survives closing and reopening the sefer, and is per sefer:
+   choosing Rashi on Berakhot does not choose Rashi on Shabbat.
+5. Clicking an unmarked line says so, rather than opening an empty panel.
+
+**Acceptance.** Check six mefarshim on a daf, and the daf shows which lines they
+speak about; click one and read them, on that line. The `מפרשים · N` split still
+works and is untouched.
+
+---
+
+### W44 · Mefarshim keep their folders
+
+> *"it would be nice if meforshim remained in their folders"*
+
+**The mechanism.** The companion list is flat. The corpus already knows the
+structure and it is the structure a person actually uses:
+
+| sefer | its mefarshim group as |
+|---|---|
+| `bavli/berakhot` (34) | Rishonim on Talmud (16), Acharonim on Talmud (16), Modern (2) |
+| `genesis` (67) | Acharonim on Tanakh (17+), Rishonim on Tanakh (5+), and per-author folders under each — Abarbanel, Chida, Avi Ezer, Mechokekei Yehudah |
+| `shulchan-arukh/orach-chayim` (18) | Shulchan Arukh > Commentary (17) |
+
+Rishonim and Acharonim is not a filing convention, it is the first thing a person
+wants to know about a mefaresh. A flat list of 67 throws it away.
+
+**Build.** Group the list by the same shelf `girsa_app::taxonomy` already
+computes — `tree()` over the mefarshim subset rather than over the whole corpus,
+so there is exactly one idea of which shelf a sefer is on (the reason
+`taxonomy.rs` exists at all). The depth is not fixed: the grouping category is
+whichever one says Rishonim / Acharonim / Commentary, which sits at index 2 for
+Talmud and index 1 for Tanakh.
+
+**Test first, and watch these fail.**
+1. The mefarshim of `bavli/berakhot` come back in exactly three groups, and
+   `bavli/rashi-on-berakhot` is under the Rishonim one.
+2. Grouping loses nothing: the leaves summed equal the flat list's length.
+3. A sefer whose mefarshim all share one folder does not get a tree one level
+   deep containing everything — a group of one group is not a group.
+4. The grouping uses `taxonomy::shelf_key_of`, so a shelf the reader has moved
+   or renamed is respected here too. (A source-reading guard: this module does
+   not read `categories` directly.)
+
+**Acceptance.** Open the mefarshim on Genesis and the Rishonim are together,
+under a heading, above the Acharonim.

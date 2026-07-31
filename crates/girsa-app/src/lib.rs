@@ -32,6 +32,7 @@ pub mod export;
 pub mod fixing;
 pub mod lens;
 pub mod links;
+pub mod mefarshim;
 pub mod notes;
 pub mod reading;
 pub mod scanning;
