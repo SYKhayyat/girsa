@@ -117,8 +117,7 @@ impl State {
         if !self.marks.contains_key(slug) {
             let trouble = self.trouble();
             let shelf = self.shelf.as_ref().ok_or(trouble)?;
-            let read =
-                girsa_app::mefarshim::Marks::of(shelf, slug).map_err(|e| e.to_string())?;
+            let read = girsa_app::mefarshim::Marks::of(shelf, slug).map_err(|e| e.to_string())?;
             self.marks.insert(slug.to_string(), read);
         }
         self.marks
@@ -416,6 +415,27 @@ struct HitRow {
 }
 
 /// The words a hit matched, sliced out of its own text.
+/// A hit's words, with the ones that answered the query in runs of their own
+/// (W39).
+///
+/// > *"the search result is not clear (the actual hit)."*
+///
+/// The order matters: mark the text **as printed**, then take the nikud off. The
+/// engine's ranges are byte offsets into the pointed text, so stripping first
+/// would put every mark two or three letters left of the word it meant.
+fn shown(
+    hit: &girsa_search::index::Hit,
+    marker: &girsa_search::bar::Marker,
+    nikud: bool,
+) -> Vec<display::Run> {
+    let marked = display::runs_marking(&hit.text, &marker.marks(hit));
+    if nikud {
+        marked
+    } else {
+        display::unpointed(marked)
+    }
+}
+
 fn marked(marker: &girsa_search::bar::Marker, hit: &girsa_search::index::Hit) -> Vec<String> {
     marker
         .marks(hit)
@@ -534,11 +554,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                             .catalogue()
                             .facts(hit.id.work())
                             .map_or_else(|| hit.id.work().to_string(), |f| f.title.clone()),
-                        runs: display::runs(&if nikud {
-                            hit.text.clone()
-                        } else {
-                            display::without_marks(&hit.text)
-                        }),
+                        runs: shown(hit, &results.marker, nikud),
                         page: scanned(hit).0,
                         by: scanned(hit).1,
                         guessed: scanned(hit).2,
@@ -685,11 +701,7 @@ fn find_rung(
                     .catalogue()
                     .facts(hit.id.work())
                     .map_or_else(|| hit.id.work().to_string(), |f| f.title.clone()),
-                runs: display::runs(&if nikud {
-                    hit.text.clone()
-                } else {
-                    display::without_marks(&hit.text)
-                }),
+                runs: shown(hit, &marker, nikud),
                 page: scanned(hit).0,
                 by: scanned(hit).1,
                 guessed: scanned(hit).2,
@@ -2748,6 +2760,15 @@ fn close_pane(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), Stri
     Ok(())
 }
 
+/// Close a whole tab, from the tab strip, without opening it first (W40).
+#[tauri::command]
+fn close_tab(shared: tauri::State<'_, Shared>, index: usize) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.session.workspace.close_tab(index);
+    state.save();
+    Ok(())
+}
+
 #[tauri::command]
 fn focus(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
@@ -3525,6 +3546,7 @@ pub fn run() {
             scan_copy,
             split,
             close_pane,
+            close_tab,
             focus,
             set_follows,
             set_ratio,

@@ -37,7 +37,7 @@ import { YoursView } from "./yoursview.ts";
 import { KSAV, withPrefix } from "./names.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { presenceSaid } from "./presence.ts";
-import { announces, button, region } from "./controls.ts";
+import { announces, button, glyph, region } from "./controls.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
@@ -511,16 +511,35 @@ function tabBar(): HTMLElement {
   bar.className = "tabs";
   bar.setAttribute("aria-label", "לשוניות");
   state?.workspace.tabs.forEach((open, index) => {
-    const button = document.createElement("button");
-    button.className = "tab" + (index === state?.workspace.active ? " is-active" : "");
-    button.textContent = titleOf(open.panes[0]?.slug ?? "—");
-    button.addEventListener("click", async () => {
+    const named = titleOf(open.panes[0]?.slug ?? "—");
+    const holder = document.createElement("span");
+    holder.className = "tab-holder" + (index === state?.workspace.active ? " is-active" : "");
+    const go = document.createElement("button");
+    go.className = "tab";
+    go.textContent = named;
+    go.addEventListener("click", async () => {
       if (state) state.workspace.active = index;
       const first = open.panes[0];
       if (first) await api.focus(first.id);
       await draw();
     });
-    bar.append(button);
+    // W40: *"needs a way to close tab without going in."* Named after the sefer
+    // it closes, because `×` is a glyph and a glyph is not a name — B14's guard
+    // is about exactly this, and a strip of eight identical × buttons is a strip
+    // a screen reader cannot tell apart.
+    const shut = glyph("×", `סגור ${named}`, () => {
+      void (async () => {
+        await api.closeTab(index);
+        for (const pane of open.panes) {
+          views.delete(pane.id);
+          scans.delete(pane.id);
+        }
+        await reload();
+      })();
+    });
+    shut.classList.add("tab-shut");
+    holder.append(go, shut);
+    bar.append(holder);
   });
   bar.append(button("＋", "פתח ספר (Ctrl+O)", openSomething));
   bar.append(button("מדף", "עיין במדף (Ctrl+B)", browseShelf));

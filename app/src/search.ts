@@ -601,8 +601,12 @@ export class SearchView {
 function runs(list: Run[]): Node[] {
   return list.map((run) => {
     if (run.style === "break") return document.createElement("br");
-    const node = document.createElement("span");
-    node.className = `run run-${run.style}`;
+    // The words that answered the query get a `<mark>` (W39) — the element, not
+    // just a colour, so a screen reader says *highlighted* and a reader can see
+    // at a glance which part of the line is the hit. Which words those are came
+    // from the engine; this does not go looking.
+    const node = document.createElement(run.hit ? "mark" : "span");
+    node.className = run.hit ? `run run-${run.style} is-hit` : `run run-${run.style}`;
     node.textContent = run.text;
     return node;
   });

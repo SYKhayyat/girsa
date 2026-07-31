@@ -272,6 +272,37 @@ impl Workspace {
         }
     }
 
+    /// Close a whole tab, without the reader having to be in it (W40).
+    ///
+    /// > *"needs a way to close tab without going in."*
+    ///
+    /// The only way to shut a tab used to be to activate it and close its panes
+    /// one at a time, which meant reading every sefer in it and moving every pane
+    /// that follows another — work, and a change of place, to throw something
+    /// away.
+    ///
+    /// **Where the reader ends up** is the whole of the decision here, and it is
+    /// three cases: a tab before theirs closing shifts their index down so they
+    /// stay where they were; a tab after theirs changes nothing; and closing the
+    /// one they are in lands them on whatever took its place, because that is what
+    /// is under the cursor. An index past the end is not one of the cases — an
+    /// empty strip is `active == 0` and no active tab.
+    pub fn close_tab(&mut self, index: usize) {
+        if index >= self.tabs.len() {
+            // The window and the model can disagree for a frame; an impatient
+            // second click is not a reason to take the window down.
+            return;
+        }
+        self.tabs.remove(index);
+        if self.tabs.is_empty() {
+            self.active = 0;
+        } else if index < self.active {
+            self.active -= 1;
+        } else {
+            self.active = self.active.min(self.tabs.len() - 1);
+        }
+    }
+
     /// Record where a pane is, and answer with the panes that have to move
     /// because of it.
     ///
@@ -357,6 +388,100 @@ mod tests {
         format!("girsa:bavli/berakhot/2a:{n}#{n}")
             .parse()
             .expect("a segment id")
+    }
+
+    // ── W40: closing a tab without going into it ─────────────────────────────
+    //
+    // > *"needs a way to close tab without going in."*
+    //
+    // There was no way to close a tab at all. `close` takes a pane, so shutting a
+    // tab meant activating it — reading it, redrawing it, moving the panes that
+    // follow — and then closing its panes one at a time.
+
+    #[test]
+    fn a_tab_closes_without_being_opened_first() {
+        let mut w = Workspace::default();
+        w.open_tab("bavli/berakhot", None);
+        w.open_tab("bavli/shabbat", None);
+        w.open_tab("genesis", None);
+        assert_eq!(w.active, 2);
+
+        w.close_tab(0);
+        assert_eq!(w.tabs.len(), 2);
+        assert_eq!(w.tabs[0].panes[0].slug, "bavli/shabbat");
+        // And the reader is still looking at what they were looking at, which is
+        // the whole point of *without going in*.
+        assert_eq!(w.active, 1);
+        assert_eq!(
+            w.active_tab().expect("a tab").panes[0].slug,
+            "genesis",
+            "closing another tab moved the reader"
+        );
+    }
+
+    #[test]
+    fn closing_a_tab_after_the_active_one_leaves_the_reader_alone() {
+        let mut w = Workspace::default();
+        w.open_tab("bavli/berakhot", None);
+        w.open_tab("bavli/shabbat", None);
+        w.open_tab("genesis", None);
+        w.active = 0;
+
+        w.close_tab(2);
+        assert_eq!(w.active, 0);
+        assert_eq!(
+            w.active_tab().expect("a tab").panes[0].slug,
+            "bavli/berakhot"
+        );
+    }
+
+    #[test]
+    fn closing_the_tab_you_are_in_lands_on_a_neighbour() {
+        let mut w = Workspace::default();
+        w.open_tab("bavli/berakhot", None);
+        w.open_tab("bavli/shabbat", None);
+        w.open_tab("genesis", None);
+        w.active = 1;
+
+        w.close_tab(1);
+        assert_eq!(w.tabs.len(), 2);
+        // The one that took its place, not the far end of the strip: a reader
+        // closing what they were reading looks at what is now under the cursor.
+        assert_eq!(w.active, 1);
+        assert_eq!(w.active_tab().expect("a tab").panes[0].slug, "genesis");
+    }
+
+    #[test]
+    fn closing_the_last_tab_leaves_nothing_open_rather_than_an_index_to_nowhere() {
+        let mut w = Workspace::default();
+        w.open_tab("bavli/berakhot", None);
+        w.close_tab(0);
+        assert!(w.tabs.is_empty());
+        assert_eq!(w.active, 0, "and not an index past the end");
+        assert!(w.active_tab().is_none());
+    }
+
+    #[test]
+    fn closing_a_tab_that_is_not_there_does_nothing() {
+        // The window and the model can disagree for one frame — a tab closed
+        // twice by an impatient click. A panic there would take the reader's
+        // window with it.
+        let mut w = Workspace::default();
+        w.open_tab("bavli/berakhot", None);
+        w.close_tab(7);
+        assert_eq!(w.tabs.len(), 1);
+    }
+
+    #[test]
+    fn closing_a_tab_closes_every_pane_in_it() {
+        let mut w = Workspace::default();
+        let gemara = w.open_tab("bavli/berakhot", None);
+        w.split(gemara, Axis::Vertical, "bavli/rashi-on-berakhot", true)
+            .expect("splits");
+        let open = |w: &Workspace| w.tabs.iter().map(|t| t.panes.len()).sum::<usize>();
+        assert_eq!(open(&w), 2);
+        w.close_tab(0);
+        assert_eq!(open(&w), 0, "a pane outlived its tab");
     }
 
     #[test]

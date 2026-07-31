@@ -375,6 +375,10 @@ fn folder(
         edited: arrangement.titles.contains_key(&key) || arrangement.shelves.contains_key(&key),
         children,
         key,
+        // Never here: the mefarshim list already puts the ungrouped ones above the
+        // folders rather than in a folder of their own, because a list of sixty
+        // rows behind one heading is what W44 was for.
+        loose: false,
     })
 }
 

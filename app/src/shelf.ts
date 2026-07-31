@@ -185,18 +185,29 @@ export class ShelfView {
       void this.edit(() => api.shelfPin(parent, branch.key));
     });
 
-    row.append(twist, name, count, pin);
+    // The gathered-seforim child (W42) is not a shelf. It carries its parent's
+    // key so that clicking it lists exactly the loose seforim — and for the same
+    // reason it must not be renamed, pinned or dragged: every one of those would
+    // silently edit the shelf above it.
+    if (!branch.loose) row.append(twist, name, count, pin);
+    else row.append(twist, name, count);
     row.addEventListener("click", () => {
       this.chosen = branch.key;
       this.open.add(branch.key);
       this.drawTree();
       void this.drawList();
     });
-    row.addEventListener("dblclick", () => this.rename(branch, name));
-    row.addEventListener("dragstart", (event) => {
-      this.held = { what: "shelf", id: branch.key, from: parent };
-      event.dataTransfer?.setData("text/plain", branch.key);
-    });
+    if (!branch.loose) {
+      row.addEventListener("dblclick", () => this.rename(branch, name));
+      row.addEventListener("dragstart", (event) => {
+        this.held = { what: "shelf", id: branch.key, from: parent };
+        event.dataTransfer?.setData("text/plain", branch.key);
+      });
+    } else {
+      row.draggable = false;
+      name.classList.add("is-loose");
+      name.title = "הספרים שעומדים על המדף הזה עצמו";
+    }
     this.receives(row, branch.key);
 
     into.append(row);

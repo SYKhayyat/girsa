@@ -42,6 +42,19 @@ pub struct Branch {
     /// see that it was them who moved it.
     pub edited: bool,
     pub children: Vec<Branch>,
+    /// This is not a shelf: it is the seforim standing on its parent, gathered
+    /// so that a level is all folders or all seforim (W42).
+    ///
+    /// > *"i dont like to have folders and files. all files should be put in an
+    /// > other folder if needed."*
+    ///
+    /// Its `key` is its **parent's**, deliberately — so `works_on` finds exactly
+    /// the loose seforim without a second idea of what a shelf key means, and so
+    /// dropping a sefer on it puts that sefer where it already looks like it is.
+    /// What it must not do is be renamed or moved, because it is not a thing the
+    /// reader made; that is what this flag is for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub loose: bool,
 }
 
 /// The shelf a work is on now: the shipped one, unless it was moved.
@@ -164,16 +177,54 @@ fn branch(
     });
 
     let here_count = here.get(key).copied().unwrap_or_default();
+    // Counted before anything is gathered, and used as the total afterwards.
+    // Summing the children *after* the gather would count the gathered seforim
+    // once and the ones it came from not at all.
+    let total = here_count + kids.iter().map(|k| k.count).sum::<usize>();
+
+    // W42. A level with both folders and seforim on it makes a reader scan two
+    // kinds of row for one thing, so the seforim are gathered into a child and
+    // the level becomes all folders.
+    //
+    // First, ahead of the shelves: on שולחן ערוך this is the four chalakim and
+    // the introduction, and the mefarshim are the sibling. The sefer comes before
+    // the commentaries on it.
+    let mut here_count = here_count;
+    if here_count > 0 && !kids.is_empty() {
+        kids.insert(
+            0,
+            Branch {
+                key: key.to_string(),
+                title: SEFORIM.to_string(),
+                here: here_count,
+                count: here_count,
+                mine: false,
+                edited: false,
+                children: Vec::new(),
+                loose: true,
+            },
+        );
+        here_count = 0;
+    }
+
     Branch {
         key: key.to_string(),
         title: arrangement.title_of(key),
         here: here_count,
-        count: here_count + kids.iter().map(|k| k.count).sum::<usize>(),
+        count: total,
         mine: arrangement.made.contains(key),
         edited: arrangement.titles.contains_key(key) || arrangement.shelves.contains_key(key),
         children: kids,
+        loose: false,
     }
 }
+
+/// What the gathered-seforim child is called.
+///
+/// Not `אחר` — that is the top-level catch-all for a category nobody has mapped,
+/// and a reader who saw the same word in both places would reasonably think the
+/// seforim in front of them were unfiled.
+const SEFORIM: &str = "ספרים";
 
 /// Where two shelves sit relative to each other in an order the reader set.
 ///
@@ -188,4 +239,137 @@ fn ordered(arrangement: &Arrangement, parent: &str, a: &str, b: &str) -> std::cm
             .unwrap_or(usize::MAX)
     };
     placed(a).cmp(&placed(b))
+}
+
+#[cfg(test)]
+mod tests {
+    // A panic in a test is a failure report. The workspace denies these in
+    // library code, where a panic would take the reader's window with it.
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+    use super::*;
+
+    fn work_on(slug: &str, categories: &[&str]) -> Work {
+        let mut work = crate::shelf::tests::work(slug);
+        work.categories = categories.iter().map(|c| (*c).to_string()).collect();
+        work
+    }
+
+    fn find<'a>(branches: &'a [Branch], title: &str) -> Option<&'a Branch> {
+        branches.iter().find_map(|b| {
+            if b.title == title {
+                Some(b)
+            } else {
+                find(&b.children, title)
+            }
+        })
+    }
+
+    // ── W42: a level is all folders or all seforim ───────────────────────────
+    //
+    // > *"i dont like to have folders and files. all files should be put in an
+    // > other folder if needed."*
+
+    #[test]
+    fn a_shelf_with_both_folders_and_seforim_gathers_the_seforim_into_a_child() {
+        // The Shulchan Arukh shelf, as the corpus really has it: four chalakim
+        // and an introduction standing on it, and sixty-eight commentaries under
+        // a folder. Two kinds of row for one kind of thing.
+        let works = vec![
+            work_on(
+                "shulchan-arukh/orach-chayim",
+                &["Halakhah", "Shulchan Arukh"],
+            ),
+            work_on("shulchan-arukh/yoreh-deah", &["Halakhah", "Shulchan Arukh"]),
+            work_on(
+                "magen-avraham",
+                &["Halakhah", "Shulchan Arukh", "Commentary"],
+            ),
+        ];
+        let tree = tree(&works, &Arrangement::default());
+        let arukh = find(&tree, "שולחן ערוך").expect("the shelf is there");
+
+        assert_eq!(arukh.here, 0, "nothing stands loose beside a folder");
+        assert_eq!(arukh.count, 3, "and nothing was lost doing that");
+        assert_eq!(arukh.children.len(), 2, "the seforim, and the mefarshim");
+
+        // First, because the sefer comes before the commentaries on it.
+        let gathered = &arukh.children[0];
+        assert!(gathered.loose);
+        assert_eq!(gathered.count, 2);
+        assert_eq!(
+            gathered.key, arukh.key,
+            "its key is its parent's, so `works_on` finds exactly the loose ones"
+        );
+    }
+
+    #[test]
+    fn a_shelf_of_only_seforim_is_left_alone() {
+        // Most shelves. A folder called `ספרים` holding everything, with nothing
+        // beside it, is a click in front of a list.
+        let works = vec![
+            work_on("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"]),
+            work_on("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"]),
+        ];
+        let tree = tree(&works, &Arrangement::default());
+        let zeraim = find(&tree, "סדר זרעים").expect("the seder is there");
+        assert_eq!(zeraim.here, 1);
+        assert!(zeraim.children.is_empty());
+        assert!(!zeraim.loose);
+    }
+
+    #[test]
+    fn a_shelf_of_only_folders_is_left_alone() {
+        let works = vec![
+            work_on("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"]),
+            work_on("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"]),
+        ];
+        let tree = tree(&works, &Arrangement::default());
+        let bavli = find(&tree, "בבלי").expect("the bavli is there");
+        assert_eq!(bavli.here, 0);
+        assert_eq!(bavli.children.len(), 2, "two sedarim and no gathered child");
+        assert!(!bavli.children.iter().any(|b| b.loose));
+    }
+
+    #[test]
+    fn gathering_the_loose_seforim_loses_none_of_them() {
+        // The rule the whole module turns on, and the one W42 could break: the
+        // counts over the roots still come to the number of works.
+        let works = vec![
+            work_on(
+                "shulchan-arukh/orach-chayim",
+                &["Halakhah", "Shulchan Arukh"],
+            ),
+            work_on(
+                "magen-avraham",
+                &["Halakhah", "Shulchan Arukh", "Commentary"],
+            ),
+            work_on("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"]),
+            work_on("nothing-says", &[]),
+        ];
+        let tree = tree(&works, &Arrangement::default());
+        let counted: usize = tree.iter().map(|b| b.count).sum();
+        assert_eq!(counted, works.len());
+    }
+
+    #[test]
+    fn the_gathered_child_is_not_something_the_reader_made() {
+        // So the window can refuse to rename or move it. A folder that renames
+        // its own parent is worse than no folder.
+        let works = vec![
+            work_on(
+                "shulchan-arukh/orach-chayim",
+                &["Halakhah", "Shulchan Arukh"],
+            ),
+            work_on(
+                "magen-avraham",
+                &["Halakhah", "Shulchan Arukh", "Commentary"],
+            ),
+        ];
+        let tree = tree(&works, &Arrangement::default());
+        let arukh = find(&tree, "שולחן ערוך").expect("the shelf is there");
+        let gathered = &arukh.children[0];
+        assert!(gathered.loose);
+        assert!(!gathered.mine, "the reader did not make it");
+        assert!(!gathered.edited, "and has not edited it");
+    }
 }

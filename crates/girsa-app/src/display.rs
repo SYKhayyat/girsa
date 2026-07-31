@@ -44,6 +44,20 @@ pub enum Style {
 pub struct Run {
     pub text: String,
     pub style: Style,
+    /// These are the words that answered a search (W39).
+    ///
+    /// > *"the search result is not clear (the actual hit)."*
+    ///
+    /// A field beside the style rather than another value of it, because a match
+    /// inside a dibur hamatchil is **both** — and a `Style::Hit` would have to
+    /// choose, which is how the bold goes missing from exactly the rows a reader
+    /// is looking hardest at.
+    ///
+    /// Which words those are is the search's own answer (`bar::Marker`), not a
+    /// re-search of the drawn text: on a menukad page, looking for what the
+    /// reader typed finds nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hit: bool,
 }
 
 /// The text as the pane drew it, and where every character of it came from.
@@ -270,23 +284,93 @@ fn entity_at(letters: &[char], at: usize) -> Option<(char, usize)> {
 /// pasuk.
 #[must_use]
 pub fn runs(text: &str) -> Vec<Run> {
+    runs_marking(text, &[])
+}
+
+/// The same, with the words that answered a search in runs of their own (W39).
+///
+/// `marks` are **byte** ranges into `text` — what `girsa_search::bar::Marker`
+/// hands back. They are converted to characters here because that is what a
+/// [`Bit`] is counted in, and getting that wrong would put the mark a nikud point
+/// or two to the left of the word, which is worse than no mark.
+///
+/// A range that does not line up with the text is ignored rather than clamped: a
+/// mark in the wrong place is a lie about which word matched, and no mark is only
+/// a missing hint.
+#[must_use]
+pub fn runs_marking(text: &str, marks: &[(usize, usize)]) -> Vec<Run> {
+    let hit = hit_chars(text, marks);
     let mut out: Vec<Run> = Vec::new();
     for bit in bits(text) {
         match bit {
-            Bit::Letter { ch, style, .. } => match out.last_mut() {
-                Some(last) if last.style == style => last.text.push(ch),
-                _ => out.push(Run {
-                    text: ch.to_string(),
-                    style,
-                }),
-            },
+            Bit::Letter { ch, style, at, len } => {
+                // A whole entity counts as marked if any of it is.
+                let marked = (at..at + len.max(1)).any(|n| hit.contains(&n));
+                match out.last_mut() {
+                    Some(last) if last.style == style && last.hit == marked => last.text.push(ch),
+                    _ => out.push(Run {
+                        text: ch.to_string(),
+                        style,
+                        hit: marked,
+                    }),
+                }
+            }
             Bit::Break => out.push(Run {
                 text: String::new(),
                 style: Style::Break,
+                hit: false,
             }),
         }
     }
     out
+}
+
+/// Which character positions of `text` the byte ranges cover.
+fn hit_chars(text: &str, marks: &[(usize, usize)]) -> std::collections::BTreeSet<usize> {
+    let mut out = std::collections::BTreeSet::new();
+    if marks.is_empty() {
+        return out;
+    }
+    // One walk of the text, so a segment with forty marks costs one pass.
+    let mut byte_to_char = std::collections::BTreeMap::new();
+    for (nth, (byte, _)) in text.char_indices().enumerate() {
+        byte_to_char.insert(byte, nth);
+    }
+    for (from, to) in marks {
+        // `>= to` and not `> to`: a range whose end is the end of the text has no
+        // character starting at it, and dropping those would lose every match on
+        // the last word of a line.
+        let (Some(start), Some(end)) = (
+            byte_to_char.get(from).copied(),
+            byte_to_char
+                .range(to..)
+                .next()
+                .map(|(_, nth)| *nth)
+                .or(Some(text.chars().count())),
+        ) else {
+            continue;
+        };
+        for n in start..end {
+            out.insert(n);
+        }
+    }
+    out
+}
+
+/// The same runs with the nikud taken off, keeping what each run is.
+///
+/// Stripped **after** the marks are placed, not before: `without_marks` shortens
+/// the text, so a byte range worked out against the pointed text would land two
+/// or three letters left of the word it meant.
+#[must_use]
+pub fn unpointed(runs: Vec<Run>) -> Vec<Run> {
+    runs.into_iter()
+        .map(|run| Run {
+            text: without_marks(&run.text),
+            ..run
+        })
+        .filter(|run| run.style == Style::Break || !run.text.is_empty())
+        .collect()
 }
 
 fn style_of(name: &str) -> Option<Style> {
@@ -548,5 +632,102 @@ mod tests {
     fn a_sefer_with_no_nikud_says_so() {
         assert!(has_marks("בְּרֵאשִׁית"));
         assert!(!has_marks("משנה ברורה"));
+    }
+}
+
+#[cfg(test)]
+mod hit_tests {
+    // A panic in a test is a failure report.
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+    use super::*;
+
+    /// The byte range of `word` in `text`, the way `bar::Marker` gives them.
+    fn at(text: &str, word: &str) -> (usize, usize) {
+        let from = text.find(word).expect("the word is in the text");
+        (from, from + word.len())
+    }
+
+    // ── W39: which words answered the search ─────────────────────────────────
+    //
+    // > *"the search result is not clear (the actual hit)."*
+    //
+    // The engine already knew: `bar::Marker::marks` gives byte ranges, and the
+    // window was handed the paragraph without them.
+
+    #[test]
+    fn the_words_that_matched_come_back_in_their_own_run() {
+        let text = "מאימתי קורין את שמע בערבית";
+        let marked = runs_marking(text, &[at(text, "שמע")]);
+        let hit: Vec<&str> = marked
+            .iter()
+            .filter(|r| r.hit)
+            .map(|r| r.text.as_str())
+            .collect();
+        assert_eq!(hit, vec!["שמע"], "{marked:?}");
+        // And nothing is lost putting it in its own element.
+        let whole: String = marked.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(whole, text);
+    }
+
+    #[test]
+    fn a_match_inside_a_dibur_hamatchil_is_still_bold() {
+        // The reason `hit` is a field and not a `Style::Hit`. Sefaria marks the
+        // words being commented on with `<b>`, and a search for one of them would
+        // otherwise arrive with the bold silently removed.
+        let text = "<b>מאימתי קורין</b> מכאן ואילך";
+        let marked = runs_marking(text, &[(3, 3 + "מאימתי".len())]);
+        let both: Vec<&Run> = marked
+            .iter()
+            .filter(|r| r.hit && r.style == Style::Opening)
+            .collect();
+        assert_eq!(both.len(), 1, "{marked:?}");
+        assert_eq!(both[0].text, "מאימתי");
+    }
+
+    #[test]
+    fn a_match_on_the_last_word_of_a_line_is_marked() {
+        // The range ends at the end of the string, so there is no character
+        // starting at its end. An off-by-one here loses every hit that happens to
+        // be the last word, which is a class of result nobody would think to
+        // check.
+        let text = "קורין את שמע";
+        let marked = runs_marking(text, &[at(text, "שמע")]);
+        assert!(
+            marked.iter().any(|r| r.hit && r.text == "שמע"),
+            "{marked:?}"
+        );
+    }
+
+    #[test]
+    fn nothing_marked_draws_what_it_always_drew() {
+        let text = "<b>מאימתי</b> קורין";
+        assert_eq!(runs_marking(text, &[]), runs(text));
+        assert!(!runs(text).iter().any(|r| r.hit));
+    }
+
+    #[test]
+    fn a_range_that_does_not_fit_the_text_marks_nothing() {
+        // Rather than clamping. A mark in the wrong place says *this word
+        // matched* about a word that did not.
+        let text = "קורין את שמע";
+        let marked = runs_marking(text, &[(900, 950)]);
+        assert!(!marked.iter().any(|r| r.hit));
+        let whole: String = marked.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(whole, text, "and the words are all still there");
+    }
+
+    #[test]
+    fn taking_the_nikud_off_keeps_the_marks_where_they_were() {
+        // The order this has to happen in: mark the pointed text, then strip. A
+        // byte range worked out against the pointed text and applied to the
+        // stripped one lands letters away from the word it meant.
+        let text = "שְׁמַע יִשְׂרָאֵל";
+        let marked = unpointed(runs_marking(text, &[at(text, "שְׁמַע")]));
+        let hit: Vec<&str> = marked
+            .iter()
+            .filter(|r| r.hit)
+            .map(|r| r.text.as_str())
+            .collect();
+        assert_eq!(hit, vec!["שמע"], "{marked:?}");
     }
 }

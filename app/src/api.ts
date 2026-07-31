@@ -44,6 +44,10 @@ export interface Branch {
   /** It is not where, or not what, it shipped as. */
   edited: boolean;
   children: Branch[];
+  /** Not a shelf: the seforim standing on its parent, gathered so a level is all
+   * folders or all seforim (W42). Carries its parent's key, so it must not be
+   * renamed, pinned or dragged. */
+  loose?: boolean;
 }
 
 /** What came of dropping files on the window. Both halves are reported. */
@@ -56,6 +60,9 @@ export interface Dropped {
 export interface Run {
   text: string;
   style: "plain" | "opening" | "quiet" | "break";
+  /** These are the words that answered the search (W39). Beside the style and
+   * not one of its values, because a hit inside a dibur hamatchil is both. */
+  hit?: boolean;
 }
 
 /** One correction on a line, as the page shows it (spec.md §7, W20). */
@@ -645,6 +652,7 @@ export const api = {
   split: (pane: PaneId, axis: "vertical" | "horizontal", slug: string, follow: boolean) =>
     call<PaneId | null>("split", { pane, axis, slug, follow }),
   closePane: (pane: PaneId) => call<void>("close_pane", { pane }),
+  closeTab: (index: number) => call<void>("close_tab", { index }),
   focus: (pane: PaneId) => call<void>("focus", { pane }),
   setFollows: (pane: PaneId, leader: PaneId | null) =>
     call<void>("set_follows", { pane, leader }),

@@ -151,10 +151,49 @@ body {
   color: var(--ink);
 }
 
-.tab.is-active {
-  color: var(--ink);
+/* W40. The tab and its close button are one thing on the strip, so the button
+ * sits inside the active tab's box rather than beside it. */
+.tab-holder {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.tab-holder.is-active {
   background: var(--page-raised);
   border-color: var(--rule);
+}
+
+.tab-holder.is-active .tab {
+  color: var(--ink);
+}
+
+.tab-shut {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-quiet);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 6px;
+  margin-inline-end: 5px;
+  cursor: pointer;
+  /* Quiet until wanted: a row of × next to every sefer name is a row of things
+   * to click by accident. */
+  opacity: 0;
+}
+
+.tab-holder:hover .tab-shut,
+.tab-holder.is-active .tab-shut,
+.tab-shut:focus-visible {
+  opacity: 1;
+}
+
+.tab-shut:hover {
+  color: var(--mark);
 }
 
 .tools {
@@ -1120,6 +1159,13 @@ body {
   color: var(--mark);
 }
 
+/* The gathered-seforim child (W42). Quieter than a shelf, because it is not one
+ * — it is the seforim that stand on the shelf above it. */
+.shelf-name.is-loose {
+  color: var(--ink-quiet);
+  font-style: italic;
+}
+
 .shelf-count {
   margin-inline-start: auto;
   font-size: 11px;
@@ -1409,6 +1455,16 @@ body {
   font-family: var(--plain);
   font-size: 12px;
   color: var(--ink-quiet);
+}
+
+/* The hit itself (W39). *"the search result is not clear (the actual hit)"* —
+ * the row showed the whole line and nothing said which words matched. */
+.run.is-hit {
+  background: color-mix(in srgb, var(--mark) 32%, transparent);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: 600;
 }
 
 .find-text {
