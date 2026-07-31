@@ -25,6 +25,7 @@
 
 use std::path::Path;
 
+use girsa_note::since::Unindexed;
 use girsa_scan::reading::Read;
 use girsa_scan::words::{Job, Words};
 
@@ -48,55 +49,100 @@ impl Scanned {
 }
 
 /// What a search over these seforim cannot see.
+///
+/// **Three kinds, so a struct rather than the two-variant enum this was.** The
+/// enum could say one thing — *some scans on this shelf are unread* — and the
+/// other two things a reader's own index cannot see had no variant to be reported
+/// in, so they were reported nowhere. Any combination of the three can be true at
+/// once, which an enum cannot express and which is the state a real reader is in:
+/// two scans half-read, a chaburah written this morning, a typo fixed last night.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Gap {
-    /// Every scan in scope has been read. **Not the same as there being no
-    /// scans** — both are silence in the header, and only one of them would be
-    /// a bug if it were wrong.
-    None,
-    Some {
-        /// The scans with pages nobody has read, worst first.
-        scans: Vec<Scanned>,
-        /// How many pages altogether, which is the number that says whether
-        /// this is a minute of work or an afternoon.
-        pages: usize,
-    },
+pub struct Gap {
+    /// The scans with pages nobody has read, worst first.
+    pub scans: Vec<Scanned>,
+    /// How many scan pages altogether, which is the number that says whether this
+    /// is a minute of work or an afternoon.
+    pub pages: usize,
+    /// What your own layer holds that the index has not seen.
+    ///
+    /// Computed by `girsa-note`, because `girsa-index find` needs the same count
+    /// and reaches it from the other side of a dependency boundary this crate
+    /// deliberately does not cross. See `girsa_note::since`.
+    pub layer: Unindexed,
 }
 
 impl Gap {
+    /// Nothing is missing. **Not the same as there being nothing to miss** — both
+    /// are silence in the header, and only one of them would be a bug if it were
+    /// wrong.
+    #[must_use]
+    pub fn none() -> Self {
+        Self {
+            scans: Vec::new(),
+            pages: 0,
+            layer: Unindexed::none(),
+        }
+    }
+
+    #[must_use]
+    pub fn is_none(&self) -> bool {
+        self.scans.is_empty() && !self.layer.is_a_gap()
+    }
+
     /// The header line, in words. `None` when there is nothing to say.
     ///
-    /// One implementation, because the window's line, the CLI's line and the
-    /// test's expectation drifting apart is how a header comes to promise a
-    /// count the button does not do.
+    /// One implementation, because the window's line, the CLI's line, the MCP
+    /// server's line and the test's expectation drifting apart is how a header
+    /// comes to promise a count the button does not do.
+    ///
+    /// One line, always, however many of the three are true: a header that grows
+    /// into three lines is a header nobody reads.
     #[must_use]
     pub fn said(&self) -> Option<String> {
-        match self {
-            Self::None => None,
-            Self::Some { scans, pages } => Some(format!(
-                "{} on this shelf {} searchable yet — {pages} {}",
-                if scans.len() == 1 {
+        if self.is_none() {
+            return None;
+        }
+        let mut parts = Vec::new();
+        if !self.scans.is_empty() {
+            parts.push(format!(
+                "{} on this shelf {} searchable yet — {} {}",
+                if self.scans.len() == 1 {
                     "1 PDF".to_string()
                 } else {
-                    format!("{} PDFs", scans.len())
+                    format!("{} PDFs", self.scans.len())
                 },
-                if scans.len() == 1 { "isn't" } else { "aren't" },
-                if *pages == 1 { "page" } else { "pages" },
-            )),
+                if self.scans.len() == 1 {
+                    "isn't"
+                } else {
+                    "aren't"
+                },
+                self.pages,
+                if self.pages == 1 { "page" } else { "pages" },
+            ));
         }
+        // The two clauses that had no variant to be reported in, worded by
+        // `girsa-note` so this header and `girsa-index find`'s footer cannot say
+        // different numbers about the same layer.
+        parts.extend(self.layer.said());
+        Some(parts.join(" · "))
     }
 }
 
 /// What is not searchable on the whole shelf.
+///
+/// `index` is where the search index lives, or `None` when there is not one. The
+/// gap now depends on it, because two of the three kinds are *since the index was
+/// built* — so a caller that cannot say where the index is has to say so, rather
+/// than being handed a gap computed against nothing.
 #[must_use]
-pub fn gap(shelf: &Shelf, personal: &Path) -> Gap {
+pub fn gap(shelf: &Shelf, personal: &Path, index: Option<&Path>) -> Gap {
     let slugs: Vec<String> = shelf
         .works()
         .iter()
         .filter(|work| is_scan(work))
         .map(|work| work.slug.clone())
         .collect();
-    gap_over(shelf, personal, &slugs)
+    gap_over(shelf, personal, index, &slugs)
 }
 
 /// What is not searchable among these seforim — the ones a search is scoped to.
@@ -106,7 +152,7 @@ pub fn gap(shelf: &Shelf, personal: &Path) -> Gap {
 /// depend on it. Anything in the list that is not a scan is skipped, so a
 /// caller can hand over the whole scope without filtering first.
 #[must_use]
-pub fn gap_over(shelf: &Shelf, personal: &Path, slugs: &[String]) -> Gap {
+pub fn gap_over(shelf: &Shelf, personal: &Path, index: Option<&Path>, slugs: &[String]) -> Gap {
     let mut scans = Vec::new();
     let mut pages = 0;
     for slug in slugs {
@@ -133,9 +179,6 @@ pub fn gap_over(shelf: &Shelf, personal: &Path, slugs: &[String]) -> Gap {
             read: job.done(),
         });
     }
-    if scans.is_empty() {
-        return Gap::None;
-    }
     // Worst first: the sefer with the most unread pages is the one whose
     // absence is costing the reader the most.
     scans.sort_by(|a, b| {
@@ -143,7 +186,11 @@ pub fn gap_over(shelf: &Shelf, personal: &Path, slugs: &[String]) -> Gap {
             .cmp(&(a.pages - a.read))
             .then(a.slug.cmp(&b.slug))
     });
-    Gap::Some { scans, pages }
+    Gap {
+        scans,
+        pages,
+        layer: Unindexed::of(index, personal),
+    }
 }
 
 /// Every page of a scan that has words, ready for the index.
@@ -161,15 +208,16 @@ pub fn readings(personal: &Path, slug: &str, pages: usize) -> Vec<Read> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+    use girsa_note::since::Written;
 
     #[test]
     fn nothing_to_say_is_said_by_saying_nothing() {
-        assert_eq!(Gap::None.said(), None);
+        assert_eq!(Gap::none().said(), None);
     }
 
     #[test]
     fn the_header_counts_the_seforim_and_the_pages() {
-        let gap = Gap::Some {
+        let gap = Gap {
             scans: vec![
                 Scanned {
                     slug: "user/a".into(),
@@ -185,6 +233,7 @@ mod tests {
                 },
             ],
             pages: 308,
+            ..Gap::none()
         };
         assert_eq!(
             gap.said().as_deref(),
@@ -194,7 +243,7 @@ mod tests {
 
     #[test]
     fn one_of_each_reads_like_english() {
-        let gap = Gap::Some {
+        let gap = Gap {
             scans: vec![Scanned {
                 slug: "user/a".into(),
                 title: "א".into(),
@@ -202,10 +251,59 @@ mod tests {
                 read: 3,
             }],
             pages: 1,
+            ..Gap::none()
         };
         assert_eq!(
             gap.said().as_deref(),
             Some("1 PDF on this shelf isn't searchable yet — 1 page")
         );
+    }
+
+    #[test]
+    fn the_three_clauses_join_into_one_line() {
+        let gap = Gap {
+            scans: vec![Scanned {
+                slug: "user/a".into(),
+                title: "א".into(),
+                pages: 6,
+                read: 0,
+            }],
+            pages: 6,
+            layer: Unindexed {
+                notes: Written::Since(2),
+                fixes: Written::Since(1),
+            },
+        };
+        let said = gap.said().expect("three gaps is a gap");
+        assert!(said.contains("1 PDF"), "{said}");
+        assert!(said.contains("2 notes"), "{said}");
+        assert!(said.contains("1 correction"), "{said}");
+        assert_eq!(said.lines().count(), 1, "one line, not three: {said}");
+    }
+
+    #[test]
+    fn no_index_is_said_once_and_not_twice() {
+        // "There is no search index" is one fact about the machine, not two facts
+        // about notes and corrections.
+        let gap = Gap {
+            layer: Unindexed {
+                notes: Written::NoIndex,
+                fixes: Written::NoIndex,
+            },
+            ..Gap::none()
+        };
+        let said = gap.said().expect("no index is the largest gap there is");
+        assert_eq!(said.matches("no search index").count(), 1, "{said}");
+        assert!(said.contains("girsa-index build"), "{said}");
+    }
+
+    #[test]
+    fn nothing_written_since_the_build_says_nothing() {
+        let gap = Gap {
+            layer: Unindexed::none(),
+            ..Gap::none()
+        };
+        assert_eq!(gap.said(), None);
+        assert!(gap.is_none());
     }
 }

@@ -80,6 +80,10 @@ fn four_pdfs_on_this_shelf_arent_searchable_yet() {
     let dir = scratch("four");
     let (shelf, slugs) = shelf_with_scans(&dir, 4, 12);
     let personal = shelf.personal().to_path_buf();
+    // A built index, so this test is about the scan clause and nothing else. With
+    // no index at all the header says so too, which is B7 and is asserted below.
+    let index = built_index(&dir);
+    let gap = |shelf: &Shelf, personal: &Path| super_gap(shelf, personal, &index);
 
     let said = gap(&shelf, &personal).said();
     assert_eq!(
@@ -109,7 +113,9 @@ fn four_pdfs_on_this_shelf_arent_searchable_yet() {
             words.record(read(page, Reader::Embedded)).expect("writes");
         }
     }
-    assert_eq!(gap(&shelf, &personal), Gap::None);
+    // `None` for the index is a bigger gap than a read scan, so the assertion is
+    // about the scans rather than the whole gap.
+    assert!(gap(&shelf, &personal).scans.is_empty());
 }
 
 #[test]
@@ -127,9 +133,9 @@ fn a_scan_half_read_is_neither_searchable_nor_absent() {
         words.record(read(page, Reader::Embedded)).expect("writes");
     }
 
-    let Gap::Some { scans, pages } = gap(&shelf, &personal) else {
-        panic!("a sefer with 262 unread pages is a gap");
-    };
+    let index = built_index(&dir);
+    let Gap { scans, pages, .. } = gap(&shelf, &personal, Some(&index));
+    assert!(!scans.is_empty(), "a sefer with 262 unread pages is a gap");
     assert_eq!(pages, 262);
     assert_eq!(scans.len(), 1);
     assert_eq!(scans[0].read, 40);
@@ -152,15 +158,25 @@ fn the_header_is_about_the_shelf_the_reader_is_looking_at() {
     let (shelf, slugs) = shelf_with_scans(&dir, 3, 10);
     let personal = shelf.personal().to_path_buf();
 
+    let index = built_index(&dir);
     assert_eq!(
-        gap_over(&shelf, &personal, &slugs[..1]).said().as_deref(),
+        gap_over(&shelf, &personal, Some(&index), &slugs[..1])
+            .said()
+            .as_deref(),
         Some("1 PDF on this shelf isn't searchable yet — 10 pages")
     );
     // A scope with no scans in it says nothing, and a slug that is not a scan
     // is skipped rather than refused — the caller hands over the whole scope.
-    assert_eq!(
-        gap_over(&shelf, &personal, &["bavli/berakhot".to_string()]),
-        Gap::None
+    assert!(
+        gap_over(
+            &shelf,
+            &personal,
+            Some(&index),
+            &["bavli/berakhot".to_string()]
+        )
+        .said()
+        .is_none(),
+        "a scope with no scans in it and a built index says nothing"
     );
 }
 
@@ -264,4 +280,147 @@ fn blank_pdf(pages: usize) -> Vec<u8> {
     let mut out = Vec::new();
     doc.save_to(&mut out).expect("the pdf writes");
     out
+}
+
+// ---------------------------------------------------------------------------
+// The same rule, applied to the two things a reader's own index cannot see that
+// nothing said anything about at all (B7).
+//
+// The mechanism above existed and was applied to one case in three:
+//
+//   | the index cannot see                            | told? |
+//   |-------------------------------------------------|-------|
+//   | an un-OCR'd scan                                | yes   |
+//   | a note written since the last build              | no    |
+//   | a correction made since the last build           | no    |
+//
+// `reading.rs`'s own module note argues it: *"a reader who searches a shelf
+// holding four unread scans and gets forty hits has been told these are the forty
+// places this appears, and the forty-first is on a page nobody has read."* Replace
+// *scans* with *your chaburos* and it is the same sentence — and for a bochur,
+// finding his own writing is most of why he would move.
+
+/// Write a note, and stamp it after the index so it is genuinely newer.
+fn super_gap(shelf: &Shelf, personal: &Path, index: &Path) -> Gap {
+    gap(shelf, personal, Some(index))
+}
+
+fn write_note(personal: &Path, name: &str) {
+    let dir = personal.join("notes");
+    std::fs::create_dir_all(&dir).expect("a notes directory");
+    std::fs::write(dir.join(format!("{name}.md")), "# בדיקה\n\nבדיקת ביקורת\n").expect("a note");
+}
+
+fn write_correction(personal: &Path) {
+    std::fs::create_dir_all(personal).expect("a personal layer");
+    let path = personal.join("corrections.jsonl");
+    let mut body = std::fs::read_to_string(&path).unwrap_or_default();
+    body.push_str("{\"id\":\"girsa:bavli/berakhot/2a:1#1\",\"was\":\"א\",\"now\":\"ב\"}\n");
+    std::fs::write(path, body).expect("a correction");
+}
+
+/// An index directory that looks built, stamped now.
+fn built_index(dir: &Path) -> PathBuf {
+    let index = dir.join("index");
+    std::fs::create_dir_all(&index).expect("an index directory");
+    std::fs::write(index.join("girsa-cache.json"), "{}").expect("a stamp");
+    index
+}
+
+#[test]
+fn a_note_written_since_the_index_was_built_is_not_searchable_and_says_so() {
+    let dir = scratch("notes-since");
+    let (shelf, _) = shelf_with_scans(&dir, 0, 0);
+    let personal = shelf.personal().to_path_buf();
+    let index = built_index(&dir);
+
+    // Nothing written since: nothing to say.
+    assert!(
+        gap_over(&shelf, &personal, Some(&index), &[])
+            .said()
+            .is_none(),
+        "a fresh index over an empty layer has no gap"
+    );
+
+    // A note, written after the index was stamped.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    write_note(&personal, "בדיקה");
+
+    let said = gap_over(&shelf, &personal, Some(&index), &[])
+        .said()
+        .expect("a note written since the build is a gap");
+    assert!(
+        said.contains("1 note") && said.contains("since"),
+        "the sentence names the count and says since when: {said}"
+    );
+
+    // A second one, and it counts rather than repeating itself.
+    write_note(&personal, "בדיקה2");
+    let said = gap_over(&shelf, &personal, Some(&index), &[])
+        .said()
+        .expect("two notes are still a gap");
+    assert!(said.contains("2 notes"), "{said}");
+}
+
+#[test]
+fn a_correction_made_since_the_index_was_built_is_reported_too() {
+    let dir = scratch("fixes-since");
+    let (shelf, _) = shelf_with_scans(&dir, 0, 0);
+    let personal = shelf.personal().to_path_buf();
+    let index = built_index(&dir);
+
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    write_correction(&personal);
+
+    let said = gap_over(&shelf, &personal, Some(&index), &[])
+        .said()
+        .expect("a correction since the build is a gap");
+    assert!(
+        said.contains("1 correction"),
+        "the sentence names corrections: {said}"
+    );
+}
+
+#[test]
+fn with_no_index_at_all_the_silence_would_be_the_worst_of_the_three() {
+    // A fresh install. Nothing the reader writes is findable, and reporting
+    // "0 notes are missing" would be exactly the silence this closes.
+    let dir = scratch("no-index");
+    let (shelf, _) = shelf_with_scans(&dir, 0, 0);
+    let personal = shelf.personal().to_path_buf();
+    write_note(&personal, "בדיקה");
+
+    let said = gap_over(&shelf, &personal, None, &[])
+        .said()
+        .expect("no index is the largest gap there is");
+    assert!(
+        said.contains("no search index") || said.contains("not built"),
+        "it says there is no index rather than counting against nothing: {said}"
+    );
+}
+
+#[test]
+fn the_three_gaps_are_one_sentence_and_not_three_headers() {
+    // All three at once is the state a real reader is in: some scans unread, a
+    // chaburah written this morning, a typo fixed last night. One line, because a
+    // header that becomes three lines is a header nobody reads.
+    let dir = scratch("all-three");
+    let (shelf, _) = shelf_with_scans(&dir, 2, 6);
+    let personal = shelf.personal().to_path_buf();
+    let index = built_index(&dir);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    write_note(&personal, "חבורה");
+    write_correction(&personal);
+
+    let said = gap_over(&shelf, &personal, Some(&index), &shelf_slugs(&shelf))
+        .said()
+        .expect("three gaps is a gap");
+    assert!(said.contains("2 PDFs"), "{said}");
+    assert!(said.contains("1 note"), "{said}");
+    assert!(said.contains("1 correction"), "{said}");
+    assert_eq!(said.lines().count(), 1, "one line: {said}");
+}
+
+fn shelf_slugs(shelf: &Shelf) -> Vec<String> {
+    shelf.works().iter().map(|w| w.slug.clone()).collect()
 }

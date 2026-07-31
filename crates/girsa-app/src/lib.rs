@@ -49,6 +49,7 @@ pub use buffer::{Buffer, BufferError};
 pub use citing::{linkify, who_cites, Citing, Linked};
 pub use export::{export, Exported, Format};
 pub use fixing::{correction, FixHere};
+pub use girsa_note::since::{find_index, is_an_index, Unindexed, Written};
 pub use lens::{Lens, Lenses};
 pub use links::{touching, Link, Touching};
 pub use notes::{collect, note_here, yours, Marked, Wrote, Yours};

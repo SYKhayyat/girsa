@@ -1168,6 +1168,11 @@ struct GapRow {
     said: String,
     pages: usize,
     scans: Vec<ScannedRow>,
+    /// Notes written since the index was built, or `null` when there is no index
+    /// at all — a different answer from zero, and the larger gap of the two.
+    notes: Option<usize>,
+    /// Corrections made since then, same convention.
+    fixes: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -1359,20 +1364,28 @@ fn scan_fix(
     scan_words(shared, slug, page)
 }
 
-/// What a search over this shelf cannot see — spec.md §9.7's results header.
+/// What a search over this shelf cannot see — spec.md §9.7's results header, and
+/// the two things it never used to include (B7).
+///
+/// The header used to be about scans alone, because `Gap` had one variant for
+/// them and none for the reader's own writing. A note written this morning and a
+/// typo fixed last night are equally absent from the index and were equally
+/// unmentioned, which is the state a bochur is in every single day.
 #[tauri::command]
 fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> {
     let state = shared.lock().map_err(|_| "state is poisoned")?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
     let personal = shelf.personal().to_path_buf();
-    let gap = girsa_app::reading::gap(shelf, &personal);
-    let girsa_app::Gap::Some { scans, pages } = &gap else {
-        return Ok(None);
-    };
+    // Where the index is, if it is anywhere: two of the three gaps are *since the
+    // index was built*, so a window that cannot find one has a bigger gap to
+    // report, not a smaller one.
+    let index = girsa_app::find_index(shelf.root());
+    let gap = girsa_app::reading::gap(shelf, &personal, index.as_deref());
     Ok(gap.said().map(|said| GapRow {
         said,
-        pages: *pages,
-        scans: scans
+        pages: gap.pages,
+        scans: gap
+            .scans
             .iter()
             .map(|scan| ScannedRow {
                 slug: scan.slug.clone(),
@@ -1381,6 +1394,8 @@ fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> 
                 read: scan.read,
             })
             .collect(),
+        notes: gap.layer.notes.count(),
+        fixes: gap.layer.fixes.count(),
     }))
 }
 

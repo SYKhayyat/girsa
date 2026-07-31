@@ -26,7 +26,8 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use girsa_app::reading::{gap, Gap};
+use girsa_app::find_index;
+use girsa_app::reading::gap;
 use girsa_app::scanning::{is_scan, pages_of};
 use girsa_app::Shelf;
 use girsa_scan::engine::{Engine, Image, Tesseract};
@@ -140,18 +141,19 @@ fn status(shelf: &Shelf, personal: &Path, slug: Option<&str>) -> Result<(), Stri
 
     // The sentence itself comes from the library, so this, the results header
     // and the test cannot drift into disagreeing about a count.
-    let gap = gap(shelf, personal);
-    match (&gap, gap.said()) {
-        (Gap::Some { scans, .. }, Some(said)) => {
+    let index = find_index(shelf.root());
+    let gap = gap(shelf, personal, index.as_deref());
+    match gap.said() {
+        Some(said) => {
             println!("{said}");
-            for scan in scans {
+            for scan in &gap.scans {
                 println!(
                     "  {} — {} of {} pages read",
                     scan.slug, scan.read, scan.pages
                 );
             }
         }
-        _ => println!("every scan on this shelf has been read"),
+        None => println!("every scan on this shelf has been read, and your own layer is indexed"),
     }
     Ok(())
 }

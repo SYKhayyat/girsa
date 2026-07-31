@@ -551,7 +551,9 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
     // of widening. It is applied here rather than inside the bar because the
     // bar never widens on its own.
     if !rungs.is_empty() {
-        return clicked(&bar, &typed, &chips, &rungs, paging);
+        let code = clicked(&bar, &typed, &chips, &rungs, paging);
+        say_what_is_missing(index_dir, &root);
+        return code;
     }
 
     match bar.ask(&typed, &chips, paging, &Context::default()) {
@@ -568,6 +570,7 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
             if !offers.is_empty() {
                 ladder(&offers);
             }
+            say_what_is_missing(index_dir, &root);
             std::process::ExitCode::SUCCESS
         }
         Answer::Cited(landing) => {
@@ -618,6 +621,23 @@ fn clicked(
         println!("  {}", excerpt(hit, &found.marks(hit)));
     }
     std::process::ExitCode::SUCCESS
+}
+
+/// Never a silent gap, on the command line too (B7).
+///
+/// A reader who writes a chaburah and then searches for it gets
+/// `0 in 5000847 segments · showing 0` and, until this, no hint at all that the
+/// index simply has not seen it yet. The sentence comes from `girsa_note::since`,
+/// which is also where the window's results header gets it, so the two cannot
+/// disagree about a count.
+fn say_what_is_missing(index_dir: &Path, personal: &Path) {
+    let at = girsa_note::since::Unindexed::of(Some(index_dir), personal);
+    if let Some(said) = at.said() {
+        println!(
+            "
+note: {said}"
+        );
+    }
 }
 
 /// One page of results, and the facets under them.

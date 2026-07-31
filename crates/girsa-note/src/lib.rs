@@ -65,6 +65,10 @@ pub mod collection;
 pub mod mark;
 pub mod note;
 pub mod query;
+// What your own layer holds that the index has not seen yet (B7). Here rather
+// than in `girsa-app` because two callers on opposite sides of a deliberate
+// dependency boundary must not disagree about the count; see the module note.
+pub mod since;
 
 use std::collections::BTreeMap;
 use std::path::Path;

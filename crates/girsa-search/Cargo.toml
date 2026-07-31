@@ -19,6 +19,13 @@ girsa-link.workspace = true
 # they are about corrections; the term dictionary they read is this crate's,
 # and `girsa-suspects` is the thin batch job between them.
 girsa-fix.workspace = true
+# Your own layer against the index (B7). A note written since the last build is
+# absent from the results and nothing said so, and the sentence that says it has
+# to be the same sentence the window shows — so it lives in `girsa-note`, under
+# both callers, rather than being written twice. `girsa-app` cannot own it:
+# `gap_over` takes a slice of slugs rather than a `Scope` specifically so this
+# crate need not be a dependency of it, and that call is written down.
+girsa-note.workspace = true
 girsa-ref.workspace = true
 # Scans (spec.md §9.7, W26). One index, two location types: what is on a page
 # of a PDF is read in `girsa-scan` and indexed here, and a result row says which
