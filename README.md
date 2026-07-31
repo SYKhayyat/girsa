@@ -1279,8 +1279,10 @@ which has no test harness, and the endpoint files are per-user, so two builds
 running at once is the one thing a test cannot arrange for itself. Start both
 and press Ctrl+Shift+C; that is the check nobody has run.
 
-The rest of the Ksav loop (W18–W19) is still to come: cite-on-selection, and
-sending your own writing back into the library.
+The rest of the Ksav loop — cite-on-selection (W18) and sending your own writing
+back into the library (W19) — is **built**; the status table above is the one to
+read. This paragraph said *"still to come"* a thousand lines below that table for
+long enough that a 2026-07-30 audit found the contradiction (D-1).
 
 Two things W10 leaves for the orders that own them. A sefer of yours is **not in
 the resolver's lexicon**, so it is opened and filed by title and not yet cited
@@ -2437,8 +2439,9 @@ W1 exists to make routine. Ksav's engine suite is green against it.
 ### The same engine, refusals included
 
 `spec.md` §12 and W28 ask for **MCP on both ends**. Girsa's end is `girsa-mcp`:
-nine tools over stdio — `search`, `read`, `resolve`, `where_from`, `links`,
-`trace`, `path`, `fork`, `seforim`.
+ten tools over stdio — `search`, `read`, `resolve`, `where_from`, `links`,
+`trace`, `path`, `fork`, `adjacent`, `seforim`. (`adjacent` — the semantic lane —
+was added and this sentence said nine for a while, which is D-1's third row.)
 
 Every one of them is a thin call onto the engine the window calls. That
 thinness is the whole design. A second query path written for a caller that
