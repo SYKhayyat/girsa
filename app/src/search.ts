@@ -441,7 +441,7 @@ export class SearchView {
       const where = document.createElement("span");
       where.className = "find-where";
       where.textContent =
-        hit.page === null ? `${hit.he_title} ${hit.address}` : `${hit.he_title} — עמוד ${hit.page}`;
+        hit.page === null ? `${hit.title} ${hit.address}` : `${hit.title} — עמוד ${hit.page}`;
       const text = document.createElement("p");
       text.className = "find-text";
       text.append(...runs(hit.runs));

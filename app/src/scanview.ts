@@ -21,6 +21,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import worker from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 import { api, assetUrl } from "./api.ts";
+import { alsoCalled, sefer } from "./names.ts";
 import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } from "./api.ts";
 import { glyphsOf } from "./glyphs.ts";
 import { sayTrouble } from "./trouble.ts";
@@ -175,9 +176,9 @@ export class ScanView {
   /** Open the scan and draw a page. */
   async show(open: ScanOpen, at: number): Promise<void> {
     this.open = open;
-    this.title_he = open.work.he_title;
-    this.title.textContent = open.work.he_title;
-    this.title.title = open.work.en_title;
+    this.title_he = sefer(open.work);
+    this.title.textContent = sefer(open.work);
+    this.title.title = alsoCalled(open.work);
     this.page = clamp(at, 1, open.pages);
 
     const url = assetUrl(open.file);

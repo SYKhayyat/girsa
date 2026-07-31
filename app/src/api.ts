@@ -15,6 +15,7 @@
 // does not answer.
 
 import type { Glyph } from "./glyphs.ts";
+import type { Language } from "./names.ts";
 
 export type PaneId = number;
 
@@ -104,7 +105,8 @@ export interface PatchRow {
   id: string;
   segment: string;
   work: string;
-  he_title: string;
+  /** The sefer, in the window's language (W41). */
+  title: string;
   address: string;
   kind: "ocr" | "girsa";
   was: string;
@@ -131,7 +133,8 @@ export interface LinkRow {
   outgoing: boolean;
   at: string;
   work: string;
-  he_title: string;
+  /** The sefer at the other end, in the window's language (W41). */
+  title: string;
   address: string;
   said: string;
   method: string;
@@ -186,7 +189,9 @@ export interface SuspectRow {
   how: "letter" | "added" | "dropped" | "swapped";
   at: string | null;
   work: string | null;
-  he_title: string | null;
+  /** The sefer, in the window's language (W41). Absent when the candidate names
+   * a sefer that is not on this shelf. */
+  title: string | null;
   address: string | null;
 }
 
@@ -339,6 +344,8 @@ export interface AppState {
   workspace: Workspace;
   nikud: boolean;
   text_size: number;
+  /** Which language the window is in (W41). Every sefer name follows it. */
+  language: Language;
   positions: Record<string, string>;
   works: number;
   trouble: string | null;
@@ -658,6 +665,7 @@ export const api = {
     call<void>("set_follows", { pane, leader }),
   setRatio: (pane: PaneId, ratio: number) => call<void>("set_ratio", { pane, ratio }),
   setNikud: (on: boolean) => call<void>("set_nikud", { on }),
+  setLanguage: (language: Language) => call<void>("set_language", { language }),
   setTextSize: (percent: number) => call<void>("set_text_size", { percent }),
   moved: (pane: PaneId, at: string) => call<Move[]>("moved", { pane, at }),
 
@@ -937,7 +945,9 @@ export interface Hit {
   id: string;
   address: string;
   work: string;
-  he_title: string;
+  /** What to call the sefer, in the window's language (W41). One title, because
+   * a hit carries a name to print rather than a sefer — Rust chose which. */
+  title: string;
   runs: Run[];
   /** Which page of a scan this is, where it is one — so the row opens the
    * viewer at it rather than a reading pane at a line with no words in it. */
@@ -1055,6 +1065,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       workspace: { tabs: [], active: 0 },
       nikud: true,
       text_size: 100,
+      language: "hebrew",
       positions: {},
       works: 0,
       showing: "fixed",
@@ -1191,6 +1202,8 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       } as T;
     case "ksav_presence":
       return { state: "not_running" } as T;
+    case "set_language":
+      return undefined as T;
     case "set_nikud":
       fixtureState.nikud = Boolean(args?.on);
       return undefined as T;

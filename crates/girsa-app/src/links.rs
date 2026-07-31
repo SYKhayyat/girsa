@@ -46,6 +46,9 @@ pub struct Link {
     /// The sefer at the other end, as the shelf names it.
     pub work: String,
     pub he_title: String,
+    /// The same sefer's other name, so the window can print whichever the reader
+    /// asked for (W41) without going back to the shelf per row.
+    pub en_title: String,
     pub address: String,
     /// Which words of **the segment you are standing on** this link is about
     /// (spec.md §8.4, W24), as characters of the text the pane drew.
@@ -209,14 +212,15 @@ fn link(shelf: &Shelf, repaired: Repaired, outgoing: bool) -> Link {
         repaired.edge.from.clone()
     };
     let work = other.from.work().to_string();
-    let he_title = shelf
-        .work(&work)
-        .map_or_else(|| work.clone(), |w| w.he_title.clone());
+    let named = shelf.work(&work);
+    let he_title = named.map_or_else(|| work.clone(), |w| w.he_title.clone());
+    let en_title = named.map_or_else(|| work.clone(), |w| w.en_title.clone());
     Link {
         address: other.from.path().join(":"),
         other,
         work,
         he_title,
+        en_title,
         outgoing,
         repaired,
         span: None,

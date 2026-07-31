@@ -15,6 +15,7 @@ import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
 import { field } from "./controls.ts";
 import { dock, undock } from "./dock.ts";
+import { sefer } from "./names.ts";
 
 type Opened = (slug: string) => void;
 
@@ -288,7 +289,7 @@ export class ShelfView {
 
     const title = document.createElement("span");
     title.className = "shelf-work-title";
-    title.textContent = card.he_title;
+    title.textContent = sefer(card);
 
     const aside = document.createElement("span");
     aside.className = "shelf-work-aside";

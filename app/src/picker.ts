@@ -8,6 +8,7 @@
 
 import { api, type Card, type Mefarshim } from "./api.ts";
 import { field } from "./controls.ts";
+import { sefer } from "./names.ts";
 import { choices, listed, ticked, type Choice, type Listed } from "./mefarshim.ts";
 
 type Chosen = (slug: string) => void;
@@ -255,7 +256,7 @@ function listedRow(entry: Listed): Row {
 function cardRow(card: Card): Row {
   return {
     slug: card.slug,
-    title: card.he_title,
+    title: sefer(card),
     aside: [card.author, card.era].filter(Boolean).join(" · "),
   };
 }
@@ -270,7 +271,7 @@ function cardRow(card: Card): Row {
 function companionRow(companion: Choice): Row {
   return {
     slug: companion.slug,
-    title: companion.he_title,
+    title: sefer(companion),
     aside: companion.declared
       ? "פירוש"
       : companion.links > 0

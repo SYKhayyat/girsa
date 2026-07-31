@@ -18,6 +18,7 @@
 // the door should say given what is behind it, and which sefer to offer first.
 
 import type { Branch, Comments, Companion, Mefaresh } from "./api.ts";
+import type { Named } from "./names.ts";
 
 /**
  * The declared commentaries, and only those.
@@ -73,11 +74,14 @@ export function doorTitle(companions: Companion[]): string {
   return `${found} · פתח ספר בטור שלצדו (Ctrl+\\)`;
 }
 
-/** One row of the list behind the door: a sefer you can open, tick, or both. */
-export interface Choice {
+/** One row of the list behind the door: a sefer you can open, tick, or both.
+ *
+ * Extends `Named` rather than restating its two fields, so that this module never
+ * mentions either of a sefer's titles — `sources.test.mjs` fails the build if it
+ * does, and the point of that guard is that nothing outside `names.ts` chooses
+ * between them. */
+export interface Choice extends Named {
   slug: string;
-  he_title: string;
-  en_title: string;
   declared: boolean;
   links: number;
   /**
@@ -114,12 +118,9 @@ export interface Choice {
  */
 export function choices(companions: Companion[], can: Mefaresh[]): Choice[] {
   const graph = new Map(can.map((m) => [m.slug, m]));
+  // Spread, so both titles come along without this file naming either.
   const rows: Choice[] = ordered(companions).map((c) => ({
-    slug: c.slug,
-    he_title: c.he_title,
-    en_title: c.en_title,
-    declared: c.declared,
-    links: c.links,
+    ...c,
     tickable: graph.has(c.slug),
     chosen: graph.get(c.slug)?.chosen ?? false,
     shelf: graph.get(c.slug)?.shelf,
@@ -129,14 +130,12 @@ export function choices(companions: Companion[], can: Mefaresh[]): Choice[] {
     .filter((m) => !listed.has(m.slug))
     .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
     .map((m) => ({
-      slug: m.slug,
-      he_title: m.he_title,
-      en_title: m.en_title,
+      ...m,
+      // Nothing declares these — the graph places them and the shelf says they
+      // are commentary, which is `is_commentary_on`'s second half (W45).
       declared: false,
       links: 0,
       tickable: true,
-      chosen: m.chosen,
-      shelf: m.shelf,
     }));
   return [...rows, ...rest];
 }

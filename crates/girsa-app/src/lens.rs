@@ -249,6 +249,8 @@ mod tests {
             other: Anchor::point(id("shulchan-arukh/orach-chayim")),
             work: "shulchan-arukh/orach-chayim".into(),
             he_title: "שולחן ערוך".into(),
+            // Both names, because W41 lets the window print either.
+            en_title: "Shulchan Arukh, Orach Chayim".into(),
             address: "1".into(),
             span: None,
         }

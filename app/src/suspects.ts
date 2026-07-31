@@ -120,7 +120,10 @@ export class SuspectsView {
 
     const where = document.createElement("span");
     where.className = "suspect-where";
-    where.textContent = row.he_title ? `${row.he_title} ${row.address ?? ""}` : "";
+    // A queue row names a sefer that may not be on this shelf at all, so the
+    // title can be absent — and then the row says nothing rather than
+    // `undefined`. Which of the sefer's two names it is was chosen in Rust (W41).
+    where.textContent = row.title ? `${row.title} ${row.address ?? ""}` : "";
 
     const open = document.createElement("button");
     open.className = "tool";

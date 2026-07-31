@@ -59,6 +59,16 @@ pub struct Session {
     /// nothing about where any of them point.
     #[serde(default = "full")]
     pub cite: girsa_cite::CiteStyle,
+    /// Which language the window is in (W41).
+    ///
+    /// > *"hebrew and english ui. all seforim names in hebrew ui should be heb
+    /// > all in english ui should be english."*
+    ///
+    /// A setting and not a guess from the machine's locale: a reader in New York
+    /// whose Windows is in English still wants ברכות to be called ברכות, and the
+    /// one who wants Berakhot wants it everywhere at once.
+    #[serde(default)]
+    pub language: Language,
     /// How much of your correction layer is applied to what you read (W20).
     ///
     /// Remembered like the nikud toggle, and for the same reason: a reader who
@@ -66,6 +76,54 @@ pub struct Session {
     /// until they say otherwise.
     #[serde(default)]
     pub showing: girsa_fix::Showing,
+}
+
+/// Which language the window speaks.
+///
+/// Two, and no `Auto`. A window that picked for itself would be a window whose
+/// language changes when a reader travels, and the corpus has seforim whose
+/// English title is a transliteration nobody says out loud — so which one is
+/// wanted is a decision, not a fact about the machine.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+    #[default]
+    Hebrew,
+    English,
+}
+
+impl Language {
+    /// Which of a sefer's two titles to print.
+    ///
+    /// Falls back to the other when the one asked for is empty, because a row
+    /// with no name on it is worse than a row named in the wrong language — and
+    /// the corpus does have works with one title and not the other.
+    #[must_use]
+    pub fn title_of<'a>(self, he: &'a str, en: &'a str) -> &'a str {
+        let (first, second) = match self {
+            Self::Hebrew => (he, en),
+            Self::English => (en, he),
+        };
+        if first.trim().is_empty() {
+            second
+        } else {
+            first
+        }
+    }
+
+    /// What the document's `lang` and `dir` should be.
+    #[must_use]
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Hebrew => "he",
+            Self::English => "en",
+        }
+    }
+
+    #[must_use]
+    pub const fn rtl(self) -> bool {
+        matches!(self, Self::Hebrew)
+    }
 }
 
 const fn yes() -> bool {
@@ -90,6 +148,7 @@ impl Default for Session {
             nikud: yes(),
             text_size: hundred(),
             cite: full(),
+            language: Language::default(),
             showing: girsa_fix::Showing::default(),
         }
     }
@@ -177,6 +236,44 @@ mod tests {
         format!("girsa:{work}/2a:{n}#{n}")
             .parse()
             .expect("a segment id")
+    }
+
+    #[test]
+    fn the_language_says_which_of_a_sefer_s_two_names_to_print() {
+        assert_eq!(Language::Hebrew.title_of("ברכות", "Berakhot"), "ברכות");
+        assert_eq!(Language::English.title_of("ברכות", "Berakhot"), "Berakhot");
+    }
+
+    #[test]
+    fn a_sefer_with_only_one_name_is_still_named() {
+        // The corpus has works with one title and not the other. A row with no
+        // name on it is worse than a row named in the wrong language.
+        assert_eq!(Language::English.title_of("ברכות", ""), "ברכות");
+        assert_eq!(Language::Hebrew.title_of("   ", "Berakhot"), "Berakhot");
+    }
+
+    #[test]
+    fn hebrew_is_the_default_and_a_session_from_before_the_setting_still_loads() {
+        let dir = std::env::temp_dir().join("girsa-app-session-language");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("session.json");
+        std::fs::write(&path, r#"{"text_size":120}"#).expect("writes");
+
+        let session = Session::load(&path);
+        assert_eq!(session.language, Language::Hebrew);
+        assert_eq!(
+            session.text_size, 120,
+            "the file was read, not fallen back from"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_language_it_is_in_says_which_way_it_reads() {
+        assert!(Language::Hebrew.rtl());
+        assert!(!Language::English.rtl());
+        assert_eq!(Language::Hebrew.tag(), "he");
     }
 
     #[test]

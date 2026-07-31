@@ -151,6 +151,24 @@ impl State {
             .unwrap_or_else(|| "there is no index here".to_string())
     }
 
+    /// What to call a sefer, in the language the window is in (W41).
+    ///
+    /// Here rather than in the window because rows like a search hit or a queue
+    /// candidate carry **one** title — they carry a name to print, not a sefer —
+    /// and which name that is is a decision. `Card`, which carries both, is named
+    /// in the window by `names.ts`; there is one rule (`Language::title_of`) and
+    /// these are its two callers.
+    fn named(&self, slug: &str) -> Option<String> {
+        let shelf = self.shelf.as_ref()?;
+        let work = shelf.work(slug)?;
+        Some(
+            self.session
+                .language
+                .title_of(&work.he_title, &work.en_title)
+                .to_string(),
+        )
+    }
+
     fn save(&self) {
         // A preference file that will not write is not a reason to stop
         // reading. It is a reason to say so once, on the terminal.
@@ -342,6 +360,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> 
         "works": state.shelf.as_ref().map_or(0, |s| s.works().len()),
         "trouble": state.trouble,
         "cite": state.session.cite,
+        "language": state.session.language,
         "pairing": state.no_post,
         "showing": state.session.showing,
         "fixes": state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
@@ -383,7 +402,10 @@ struct HitRow {
     id: String,
     address: String,
     work: String,
-    he_title: String,
+    /// What to call the sefer, in the language the window is in (W41). One
+    /// title and not two, because a hit carries a name to print rather than a
+    /// sefer — and which of the two names that is was decided in Rust.
+    title: String,
     /// The text as printed, cut into runs — the same shape a reading pane
     /// draws, so a result reads like the page it came from and inline markup
     /// never reaches the window as markup.
@@ -522,6 +544,10 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
     state.chips = chips;
     let nikud = state.session.nikud;
     let chips = state.chips.clone();
+    // What to call each sefer, in the window's language (W41). A closure rather
+    // than a field on the row, because a hit carries a name to print and not a
+    // sefer — see `State::named`.
+    let named = |slug: &str| state.named(slug).unwrap_or_else(|| slug.to_string());
     let Some(bar) = state.bar.as_ref() else {
         let why = state.no_search();
         return Ok(FoundPage::refused(&chips, why));
@@ -550,10 +576,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                         id: hit.id.to_string(),
                         address: hit.id.path().join(":"),
                         work: hit.id.work().to_string(),
-                        he_title: bar
-                            .catalogue()
-                            .facts(hit.id.work())
-                            .map_or_else(|| hit.id.work().to_string(), |f| f.title.clone()),
+                        title: named(hit.id.work()),
                         runs: shown(hit, &results.marker, nikud),
                         page: scanned(hit).0,
                         by: scanned(hit).1,
@@ -687,6 +710,7 @@ fn find_rung(
         || girsa_search::bar::Marker::Literal(found.asked.clone()),
         |widening| girsa_search::bar::Marker::Widened(Box::new(widening)),
     );
+    let named = |slug: &str| state.named(slug).unwrap_or_else(|| slug.to_string());
     Ok(FoundPage {
         header,
         note: Some("החל — לחזרה, חפש שוב בלי הצעה".to_string()),
@@ -697,10 +721,7 @@ fn find_rung(
                 id: hit.id.to_string(),
                 address: hit.id.path().join(":"),
                 work: hit.id.work().to_string(),
-                he_title: bar
-                    .catalogue()
-                    .facts(hit.id.work())
-                    .map_or_else(|| hit.id.work().to_string(), |f| f.title.clone()),
+                title: named(hit.id.work()),
                 runs: shown(hit, &marker, nikud),
                 page: scanned(hit).0,
                 by: scanned(hit).1,
@@ -1878,7 +1899,8 @@ struct PatchRow {
     id: String,
     segment: String,
     work: String,
-    he_title: String,
+    /// The sefer, in the window's language (W41).
+    title: String,
     address: String,
     kind: &'static str,
     was: String,
@@ -1894,6 +1916,7 @@ struct PatchRow {
 #[tauri::command]
 fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<PatchRow>, String> {
     let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let language = state.session.language;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let mut rows: Vec<PatchRow> = shelf
         .fixes()
@@ -1903,9 +1926,10 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
             id: p.id.to_string(),
             segment: p.segment.to_string(),
             work: p.segment.work().to_string(),
-            he_title: shelf
-                .work(p.segment.work())
-                .map_or_else(|| p.segment.work().to_string(), |w| w.he_title.clone()),
+            title: shelf.work(p.segment.work()).map_or_else(
+                || p.segment.work().to_string(),
+                |w| language.title_of(&w.he_title, &w.en_title).to_string(),
+            ),
             address: p.segment.path().join(":"),
             kind: p.kind.as_str(),
             was: p.was.clone(),
@@ -1939,7 +1963,8 @@ struct LinkRow {
     outgoing: bool,
     at: String,
     work: String,
-    he_title: String,
+    /// The sefer at the other end, in the window's language (W41).
+    title: String,
     address: String,
     said: String,
     /// `sefaria-seed`, `otzaria-seed`, `by-hand`.
@@ -2017,6 +2042,7 @@ fn links(
             .unwrap_or_default()
     };
 
+    let language = state.session.language;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let touching = girsa_app::touching(shelf, shelf.repairs(), &at);
     let mut links = touching.links;
@@ -2042,7 +2068,7 @@ fn links(
     }
 
     Ok(Links {
-        links: links.iter().map(LinkRow::of).collect(),
+        links: links.iter().map(|l| LinkRow::of(l, language)).collect(),
         incoming_unknown: touching.incoming_unknown,
         types: EDGE_TYPES.iter().map(|t| t.as_str()).collect(),
         lenses: lenses
@@ -2095,7 +2121,7 @@ const EDGE_TYPES: [girsa_link::EdgeType; 9] = [
 ];
 
 impl LinkRow {
-    fn of(link: &girsa_app::Link) -> Self {
+    fn of(link: &girsa_app::Link, language: girsa_app::session::Language) -> Self {
         Self {
             edge: girsa_link::repair::name_of(
                 link.repaired
@@ -2108,7 +2134,7 @@ impl LinkRow {
             outgoing: link.outgoing,
             at: link.other.from.to_string(),
             work: link.work.clone(),
-            he_title: link.he_title.clone(),
+            title: language.title_of(&link.he_title, &link.en_title).to_string(),
             address: link.address.clone(),
             said: link.said(),
             method: link.repaired.edge.method.as_str(),
@@ -2328,7 +2354,9 @@ struct SuspectRow {
     /// Where to go and look: the first place, with the sefer named.
     at: Option<String>,
     work: Option<String>,
-    he_title: Option<String>,
+    /// The sefer, in the window's language (W41). Absent when the candidate
+    /// names a sefer that is not on this shelf.
+    title: Option<String>,
     address: Option<String>,
 }
 
@@ -2340,6 +2368,7 @@ struct SuspectRow {
 #[tauri::command]
 fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<SuspectRow>, String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let language = state.session.language;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let (queue, trouble) = girsa_fix::suspect::Queue::open(shelf.personal());
     for line in trouble {
@@ -2360,7 +2389,11 @@ fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<Suspec
                 how: suspect.how.as_str(),
                 at: at.map(ToString::to_string),
                 work: at.map(|id| id.work().to_string()),
-                he_title: at.and_then(|id| shelf.work(id.work()).map(|w| w.he_title.clone())),
+                title: at.and_then(|id| {
+                    shelf
+                        .work(id.work())
+                        .map(|w| language.title_of(&w.he_title, &w.en_title).to_string())
+                }),
                 address: at.map(|id| id.path().join(":")),
             }
         })
@@ -2801,6 +2834,21 @@ fn set_ratio(shared: tauri::State<'_, Shared>, pane: PaneId, ratio: u16) -> Resu
 fn set_nikud(shared: tauri::State<'_, Shared>, on: bool) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
     state.session.nikud = on;
+    state.save();
+    Ok(())
+}
+
+/// Which language the window is in (W41).
+///
+/// Every sefer name in the window follows it, so the whole reason it is one
+/// setting and not a per-row choice is that a shelf half in each is unreadable.
+#[tauri::command]
+fn set_language(
+    shared: tauri::State<'_, Shared>,
+    language: girsa_app::session::Language,
+) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    state.session.language = language;
     state.save();
     Ok(())
 }
@@ -3551,6 +3599,7 @@ pub fn run() {
             set_follows,
             set_ratio,
             set_nikud,
+            set_language,
             set_text_size,
             moved,
             shelf_tree,

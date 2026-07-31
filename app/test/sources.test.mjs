@@ -109,6 +109,27 @@ export async function run() {
   }
   check("no glyph is used as a button's name", glyphs, []);
 
+  // ------------------------------------------------ one place decides what a sefer is called
+  //
+  // > *"hebrew and english ui. all seforim names in hebrew ui should be heb all
+  // > in english ui should be english."*
+  //
+  // There was nothing to switch, because fifteen places each reached for
+  // `he_title` themselves. `names.ts` is the funnel now — `sefer()` and
+  // `alsoCalled()` — and this is what keeps a sixteenth from appearing. `api.ts`
+  // is exempt: it declares the shape of what Rust sends, and declaring a field is
+  // not choosing between two of them.
+  const reaching = [];
+  for (const [f, body] of files) {
+    if (f === "names.ts" || f === "api.ts") continue;
+    body.split("\n").forEach((line, i) => {
+      if (isComment(line)) return;
+      const NAMED = new RegExp("(he_title|en_title)");
+      if (NAMED.test(line)) reaching.push(`${f}:${i + 1}`);
+    });
+  }
+  check("no module outside names.ts picks a sefer's language for itself", reaching, []);
+
   // One `button`, not four. There were four — `main.ts`, `scanview.ts`,
   // `linksview.ts` and `writing.ts` — which is the "two readers of one value" shape
   // this project bans, applied to the thing every screen is made of.

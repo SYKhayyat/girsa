@@ -5,6 +5,7 @@
 // asks Rust.
 
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
+import { alsoCalled, sefer } from "./names.ts";
 
 /** How many lines are put on the page at once, and how many more at an edge. */
 const WINDOW = 400;
@@ -109,10 +110,11 @@ export class PaneView {
 
   show(text: Text, at: string | null): void {
     this.text = text;
-    this.title_he = text.work.he_title;
+    this.title_he = sefer(text.work);
     this.byId = new Map(text.lines.map((line, i) => [line.id, i]));
-    this.title.textContent = text.work.he_title;
-    this.title.title = text.work.en_title;
+    this.title.textContent = sefer(text.work);
+    // The other name a hover away, rather than gone.
+    this.title.title = alsoCalled(text.work);
     const start = at ? (this.byId.get(at) ?? 0) : 0;
     this.render(start);
     if (at) this.scrollTo([at], false);
@@ -191,8 +193,9 @@ export class PaneView {
     for (const one of said) {
       const block = el("div", "said");
       const who = el("p", "said-who");
-      who.textContent = one.address ? `${one.he_title} ${one.address}` : one.he_title;
-      who.title = one.en_title;
+      const named = sefer(one);
+      who.textContent = one.address ? `${named} ${one.address}` : named;
+      who.title = alsoCalled(one);
       block.append(who);
       for (const line of one.lines) {
         const words = el("p", "said-line");

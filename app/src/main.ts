@@ -34,7 +34,7 @@ import { LanePanel } from "./laneview.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
-import { KSAV, withPrefix } from "./names.ts";
+import { KSAV, sefer, speak, withPrefix } from "./names.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { presenceSaid } from "./presence.ts";
 import { announces, button, glyph, region } from "./controls.ts";
@@ -145,7 +145,7 @@ async function whenDropped(paths: string[]): Promise<void> {
   const dropped = await api.addMine(paths);
   await shelf.refresh();
 
-  const added = dropped.added.map((card) => card.he_title).join(", ");
+  const added = dropped.added.map(sefer).join(", ");
   // Both halves, always. A drop that half-worked and said nothing leaves a
   // reader believing a sefer is on the shelf when it is not.
   const refused = dropped.refused.map((r) => r.why).join(" · ");
@@ -166,6 +166,10 @@ async function openTab(slug: string): Promise<void> {
 async function reload(): Promise<void> {
   state = await api.state();
   document.documentElement.style.setProperty("--reading-size", `${state.text_size}%`);
+  // The language the window is in (W41), set once from the session so that every
+  // `sefer()` in every module answers the same way. Rust holds the setting; this
+  // is the one place the window is told.
+  speak(state.language);
   await draw();
 }
 
@@ -239,7 +243,7 @@ async function draw(): Promise<void> {
     // because a PDF opened into the reading pane is a sefer of blank lines,
     // which is what this window did until W25.
     const text = await api.openSefer(pane.slug);
-    titles.set(pane.slug, text.work.he_title);
+    titles.set(pane.slug, sefer(text.work));
     // The tab was drawn before the title was known.
     redrawTabs();
 
@@ -627,6 +631,26 @@ function toolBar(): HTMLElement {
   showing.classList.add("tool-wide");
   if ((state?.fixes ?? 0) === 0) showing.classList.add("is-quiet");
 
+  // W41. *"hebrew and english ui. all seforim names in hebrew ui should be heb
+  // all in english ui should be english."* The control names the language it
+  // switches **to**, because a button labelled with the state you are already in
+  // is a button nobody can predict.
+  const language = button(
+    state?.language === "english" ? "עברית" : "English",
+    state?.language === "english"
+      ? "החזר את שמות הספרים לעברית"
+      : "name every sefer in English",
+    async () => {
+      if (!state) return;
+      await api.setLanguage(state.language === "english" ? "hebrew" : "english");
+      // Every pane's header carries a sefer's name, so they are all redrawn.
+      views.clear();
+      scans.clear();
+      await reload();
+    },
+  );
+  language.classList.add("tool-wide");
+
   const smaller = button("א−", "Ctrl+-", () => resize(-10));
   const bigger = button("א+", "Ctrl+=", () => resize(10));
 
@@ -640,7 +664,7 @@ function toolBar(): HTMLElement {
     if (!isShell()) where.textContent += " · דפדפן, נתוני דוגמה";
   }
 
-  bar.append(nikud, showing, smaller, bigger, where);
+  bar.append(nikud, language, showing, smaller, bigger, where);
 
   // Presence (spec.md §10.6): the affordance is never offered when it would
   // fail. Live, it is a button; not live, it is a word saying which of the two
