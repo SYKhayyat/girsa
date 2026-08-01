@@ -34,7 +34,8 @@
 //!
 //! | Shulchan Arukh, Orach Chayim | size | answers *which segments light up?* |
 //! |---|---|---|
-//! | `touching.jsonl` | 1.15 MB | no — no work slug |
+//! | `touching.jsonl` before | 1.15 MB | no — no work slug |
+//! | `touching.jsonl` after | 4.14 MB | **yes — 652 seforim, one streaming pass** |
 //! | `inbound.jsonl` | 27.3 MB | yes, by reading all 156,076 edges |
 //!
 //! On a phone with a 192 MB heap that is the difference between opening שולחן ערוך
@@ -45,7 +46,9 @@
 //! the 0.69 GB of `inbound.jsonl` this file exists to avoid.** A summary the size of
 //! the thing it summarises is not a summary. With the works on one row the anchor
 //! and the type are written once for the two hundred seforim that comment on a
-//! se'if.
+//! se'if, and the layer lands at **471 MB — 68% of `inbound`, largest file 4.56 MB**.
+//! Bigger than the 261 MB it was, which is the price of answering the question at
+//! all, and 165 MB cheaper than the shape that did not think about it.
 //!
 //! The field is **optional on read**: files exist without it, and a reader that
 //! refused them would mean a re-import to open a sefer. A row that does not say
@@ -122,7 +125,8 @@ pub struct Row {
     /// summary layer went from 261 MB to **636 MB, which is 92.4% of the 0.69 GB of
     /// `inbound.jsonl` it exists to avoid.** A summary the size of the thing it
     /// summarises is not a summary. Grouped, the anchor and the type are written
-    /// once for the two hundred seforim that comment on a se'if.
+    /// once for the two hundred seforim that comment on a se'if, and the layer lands
+    /// at 471 MB — 68% of `inbound` rather than 92%.
     ///
     /// Empty in files written before W31, and empty means *this row does not say* —
     /// never *nothing comments here*.
