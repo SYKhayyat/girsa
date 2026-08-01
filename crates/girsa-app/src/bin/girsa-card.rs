@@ -41,10 +41,8 @@ fn main() {
         // shows the same spelling the settings panel does. Two spellings of one
         // binding in two places a reader looks is exactly the drift this is here to
         // prevent.
-        let keys = Press::parse(action.default).map_or_else(
-            || action.default.to_string(),
-            |press| press.said(),
-        );
+        let keys = Press::parse(action.default)
+            .map_or_else(|| action.default.to_string(), |press| press.said());
         // Only the pipe. A backslash inside a code span is a backslash — markdown
         // reads no escapes in there — so doubling it printed `Ctrl+\\`, which is a
         // key nobody has. The pipe does have to go, or the row loses a column.

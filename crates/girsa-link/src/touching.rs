@@ -15,11 +15,42 @@
 //!
 //! ```jsonl
 //! corpus/links/bavli/berakhot/touching.jsonl
-//! {"a":"girsa:bavli/berakhot/2a:1#1","t":"comments-on"}
+//! {"a":"girsa:bavli/berakhot/2a:1#1","t":"comments-on","w":["bavli/rashi-on-berakhot","bavli/tosafot-on-berakhot"]}
 //! ```
 //!
 //! One row per (endpoint, type) an edge puts on this work, from **both** ends —
-//! which is the whole point, and why it is not simply a copy of `edges.jsonl`.
+//! which is the whole point, and why it is not simply a copy of `edges.jsonl` — and
+//! since W31 the row also names **which seforim** those links came from.
+//!
+//! # `w` — which sefer the link came from (W31)
+//!
+//! Filed from OtzariaSonim, the keypad-phone reader, on its first day against this
+//! corpus. The row used to be endpoint plus type, and **no consumer asks whether a
+//! segment has a `comments-on`.** They ask whether it has one *from the mefarshim
+//! currently selected* — the per-book commentator filter, which is also spec.md
+//! §8.5's lenses and §8.4's gutter density map. That question needs the source
+//! work, and it was the one field not stored, so the only way to answer was the
+//! file this one exists to avoid:
+//!
+//! | Shulchan Arukh, Orach Chayim | size | answers *which segments light up?* |
+//! |---|---|---|
+//! | `touching.jsonl` | 1.15 MB | no — no work slug |
+//! | `inbound.jsonl` | 27.3 MB | yes, by reading all 156,076 edges |
+//!
+//! On a phone with a 192 MB heap that is the difference between opening שולחן ערוך
+//! and an `OutOfMemoryError`.
+//!
+//! **Grouped onto the row, and that was measured.** One row per work is the obvious
+//! encoding; it took the summary layer from 261 MB to **636 MB, which is 92.4% of
+//! the 0.69 GB of `inbound.jsonl` this file exists to avoid.** A summary the size of
+//! the thing it summarises is not a summary. With the works on one row the anchor
+//! and the type are written once for the two hundred seforim that comment on a
+//! se'if.
+//!
+//! The field is **optional on read**: files exist without it, and a reader that
+//! refused them would mean a re-import to open a sefer. A row that does not say
+//! comes back with an empty list — *this row does not record which sefer* — and
+//! never as a guess.
 //!
 //! # It is a cache, and it may be missing
 //!
@@ -84,6 +115,19 @@ pub struct Row {
     pub a: String,
     /// The edge type, as [`EdgeType::as_str`] writes it.
     pub t: String,
+    /// The seforim at the **other** end — the ones whose links these are (W31).
+    ///
+    /// A list, and grouped onto the `(anchor, type)` row rather than given a row
+    /// each. One row per work was the obvious encoding and it was measured: the
+    /// summary layer went from 261 MB to **636 MB, which is 92.4% of the 0.69 GB of
+    /// `inbound.jsonl` it exists to avoid.** A summary the size of the thing it
+    /// summarises is not a summary. Grouped, the anchor and the type are written
+    /// once for the two hundred seforim that comment on a se'if.
+    ///
+    /// Empty in files written before W31, and empty means *this row does not say* —
+    /// never *nothing comments here*.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub w: Vec<String>,
 }
 
 /// Collects both ends of every edge and writes one file per work touched.
@@ -93,7 +137,12 @@ pub struct Row {
 /// what the **last** run left would double every count silently.
 #[derive(Debug, Default)]
 pub struct Writer {
-    by_work: BTreeMap<String, BTreeSet<String>>,
+    /// work → (anchor, type) → the seforim at the other end.
+    ///
+    /// A map and not a set of serialised lines since W31: the works have to be
+    /// gathered onto one row before anything is written, or the grouping that keeps
+    /// this file a summary cannot happen.
+    by_work: BTreeMap<String, BTreeMap<(String, String), BTreeSet<String>>>,
     written: usize,
     opened: BTreeSet<String>,
 }
@@ -105,9 +154,11 @@ impl Writer {
     /// built from the stored direction alone would tell a reader that nothing
     /// comments on Berakhot.
     pub fn push(&mut self, edge: &Edge) {
-        for anchor in [&edge.from, &edge.to] {
-            self.record(anchor.from.work(), &anchor.to_string(), edge.edge_type);
-        }
+        let (near, far) = (edge.from.from.work(), edge.to.from.work());
+        // Each end's row names the **other** work: a row filed under the Mishnah
+        // Berurah saying `mishnah-berurah` tells a reader standing in it nothing.
+        self.record(near, &edge.from.to_string(), edge.edge_type, far);
+        self.record(far, &edge.to.to_string(), edge.edge_type, near);
     }
 
     /// One end, by the work it lands in.
@@ -115,19 +166,20 @@ impl Writer {
     /// Deduplicated within the buffer: thousands of edges land on one daf and
     /// they are the same row. What survives across a flush is deduplicated on
     /// read instead — see [`read_back`].
-    pub fn record(&mut self, slug: &str, anchor: &str, edge_type: EdgeType) {
-        let Ok(line) = serde_json::to_string(&Row {
-            a: anchor.to_string(),
-            t: edge_type.as_str().to_string(),
-        }) else {
-            return;
-        };
-        if self
+    pub fn record(&mut self, slug: &str, anchor: &str, edge_type: EdgeType, from_work: &str) {
+        let works = self
             .by_work
             .entry(slug.to_string())
             .or_default()
-            .insert(line)
-        {
+            .entry((anchor.to_string(), edge_type.as_str().to_string()))
+            .or_default();
+        // A self-edge would say a sefer is its own source, which is true and
+        // useless; the filter asks *which other sefer*, so it is left off.
+        if from_work == slug {
+            self.written += 1;
+            return;
+        }
+        if works.insert(from_work.to_string()) {
             self.written += 1;
         }
     }
@@ -136,7 +188,15 @@ impl Writer {
     /// becomes the reason the run did not finish.
     #[must_use]
     pub fn buffered(&self) -> usize {
-        self.by_work.values().map(BTreeSet::len).sum()
+        self.by_work
+            .values()
+            .map(|rows| {
+                rows.values()
+                    .map(BTreeSet::len)
+                    .sum::<usize>()
+                    .max(rows.len())
+            })
+            .sum()
     }
 
     #[must_use]
@@ -168,8 +228,15 @@ impl Writer {
                 .truncate(first_touch)
                 .open(&path)?;
             let mut body = String::new();
-            for row in rows {
-                body.push_str(&row);
+            for ((anchor, edge_type), works) in rows {
+                let Ok(line) = serde_json::to_string(&Row {
+                    a: anchor,
+                    t: edge_type,
+                    w: works.into_iter().collect(),
+                }) else {
+                    continue;
+                };
+                body.push_str(&line);
                 body.push('\n');
             }
             file.write_all(body.as_bytes())?;
@@ -185,28 +252,44 @@ impl Writer {
 /// If the file exists and cannot be read. A work with no file is a work no
 /// edge touches, which is not an error — and is **not** what the facet reports
 /// when the cache was never built. That difference is the index's to keep.
-pub fn read_back(root: &Path, slug: &str) -> Result<Vec<(Anchor, EdgeType)>, std::io::Error> {
+pub fn read_back(
+    root: &Path,
+    slug: &str,
+) -> Result<Vec<(Anchor, EdgeType, Vec<String>)>, std::io::Error> {
     let path = types_path(root, slug);
     if !path.is_file() {
         return Ok(Vec::new());
     }
     let body = fs::read_to_string(&path)?;
-    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
-    let mut out = Vec::new();
+    // Merged on `(anchor, type)`, and the **works are unioned** rather than the
+    // second row dropped. A run is many flushes, so one se'if's works can be split
+    // across two rows of the same file — keeping the first and discarding the rest
+    // would be the filter answering wrongly rather than slowly, which is the worse
+    // of the two failures.
+    let mut merged: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+    let mut order: Vec<(String, String)> = Vec::new();
     for line in body.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(row) = serde_json::from_str::<Row>(line) else {
             continue;
         };
-        if !seen.insert((row.a.clone(), row.t.clone())) {
-            continue;
+        let key = (row.a, row.t);
+        if !merged.contains_key(&key) {
+            order.push(key.clone());
         }
-        let Some(anchor) = parse_anchor(&row.a) else {
+        merged.entry(key).or_default().extend(row.w);
+    }
+    let mut out = Vec::new();
+    for key in order {
+        let Some(works) = merged.remove(&key) else {
             continue;
         };
-        let Some(edge_type) = type_named(&row.t) else {
+        let Some(anchor) = parse_anchor(&key.0) else {
             continue;
         };
-        out.push((anchor, edge_type));
+        let Some(edge_type) = type_named(&key.1) else {
+            continue;
+        };
+        out.push((anchor, edge_type, works.into_iter().collect()));
     }
     Ok(out)
 }
@@ -217,11 +300,14 @@ pub fn read_back(root: &Path, slug: &str) -> Result<Vec<(Anchor, EdgeType)>, std
 /// touches gets an empty set, not a missing entry — the caller is indexing
 /// every segment either way.
 #[must_use]
-pub fn by_segment(rows: &[(Anchor, EdgeType)], ordered: &[SegmentId]) -> Vec<BTreeSet<EdgeType>> {
+pub fn by_segment(
+    rows: &[(Anchor, EdgeType, Vec<String>)],
+    ordered: &[SegmentId],
+) -> Vec<BTreeSet<EdgeType>> {
     let position: std::collections::HashMap<&SegmentId, usize> =
         ordered.iter().enumerate().map(|(i, id)| (id, i)).collect();
     let mut out = vec![BTreeSet::new(); ordered.len()];
-    for (anchor, edge_type) in rows {
+    for (anchor, edge_type, _) in rows {
         let Some(range) = span_of(anchor, |id| position.get(id).copied()) else {
             continue;
         };
@@ -330,6 +416,7 @@ mod tests {
         let rows = vec![(
             Anchor::span(ordered[1].clone(), ordered[3].clone()),
             EdgeType::CommentsOn,
+            vec!["bavli/rashi-on-berakhot".to_string()],
         )];
         let touched = by_segment(&rows, &ordered);
         let counts: Vec<usize> = touched.iter().map(BTreeSet::len).collect();
@@ -342,6 +429,7 @@ mod tests {
         let rows = vec![(
             Anchor::point(id("bavli/berakhot", 9, 9)),
             EdgeType::CommentsOn,
+            Vec::new(),
         )];
         assert!(by_segment(&rows, &ordered).iter().all(BTreeSet::is_empty));
     }
@@ -390,6 +478,121 @@ mod tests {
         }
         let back = read_back(&root, "bavli/berakhot").expect("reads");
         assert_eq!(back.len(), 1, "one segment, one kind of link");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_row_says_which_sefer_the_link_came_from() {
+        // W31, filed from OtzariaSonim on its first day against this corpus. A row
+        // was `{"a": …, "t": "comments-on"}` — segment plus edge *type* — and no
+        // consumer asks *does this segment have a `comments-on`*. They ask **does
+        // it have one from the mefarshim I have selected**, which is the per-book
+        // commentator filter, spec.md §8.5's lenses and §8.4's gutter density map.
+        //
+        // Without the source work the only way to answer was `inbound.jsonl`: on
+        // Shulchan Arukh, Orach Chayim that is 27.3 MB and 156,076 edges against
+        // this file's 1.15 MB. On a phone with a 192 MB heap that is the difference
+        // between opening the sefer and an `OutOfMemoryError`.
+        let root = dir("girsa-touching-source-work");
+        let mut writer = Writer::default();
+        writer.push(&edge(
+            Anchor::point(id("mishnah-berurah", 1, 3)),
+            Anchor::point(id("shulchan-arukh/orach-chayim", 1, 1)),
+            EdgeType::CommentsOn,
+        ));
+        writer.flush(&root).expect("writes");
+
+        let rows = read_back(&root, "shulchan-arukh/orach-chayim").expect("reads");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].2,
+            vec!["mishnah-berurah".to_string()],
+            "the row cannot say which mefaresh it came from"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_far_end_says_where_the_link_landed_not_where_it_started() {
+        // Both ends get a row, and each row names the **other** work — otherwise
+        // the row filed under Mishnah Berurah would say `mishnah-berurah`, which
+        // tells a reader standing in it precisely nothing.
+        let root = dir("girsa-touching-source-both");
+        let mut writer = Writer::default();
+        writer.push(&edge(
+            Anchor::point(id("mishnah-berurah", 1, 3)),
+            Anchor::point(id("shulchan-arukh/orach-chayim", 1, 1)),
+            EdgeType::CommentsOn,
+        ));
+        writer.flush(&root).expect("writes");
+
+        let mine = read_back(&root, "mishnah-berurah").expect("reads");
+        assert_eq!(mine.len(), 1);
+        assert_eq!(
+            mine[0].2,
+            vec!["shulchan-arukh/orach-chayim".to_string()],
+            "a row must name the sefer at the other end"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn two_mefarshim_on_one_line_are_two_rows_and_one_mefaresh_twice_is_one() {
+        // The dedup key gained a field, and this is what that has to mean: the
+        // facet still counts *segments* per kind, and the filter now needs *which
+        // work* — so `(anchor, type, work)` is the key. Deduplicating on
+        // `(anchor, type)` would keep one of the two mefarshim and lose the other,
+        // which is the filter answering wrongly rather than slowly.
+        let root = dir("girsa-touching-source-dedup");
+        let mut writer = Writer::default();
+        for (work, seif) in [
+            ("mishnah-berurah", 1),
+            ("magen-avraham", 1),
+            ("mishnah-berurah", 2),
+        ] {
+            writer.push(&edge(
+                Anchor::point(id(work, seif, seif)),
+                Anchor::point(id("shulchan-arukh/orach-chayim", 1, 1)),
+                EdgeType::CommentsOn,
+            ));
+            // Flushed each time, so the duplicate crosses a flush boundary.
+            writer.flush(&root).expect("writes");
+        }
+        let rows = read_back(&root, "shulchan-arukh/orach-chayim").expect("reads");
+        // One row for the se'if, carrying both mefarshim — the grouping that keeps
+        // this file a summary. Split across three flushes and merged on read.
+        assert_eq!(rows.len(), 1, "one (segment, type) row: {rows:?}");
+        assert_eq!(
+            rows[0].2,
+            vec!["magen-avraham".to_string(), "mishnah-berurah".to_string()],
+            "both mefarshim, and Mishnah Berurah once"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_row_written_before_w31_still_reads() {
+        // 261 MB of these files exist on disk without the field. A reader that
+        // refused them would mean a re-import to open a sefer, and the honest
+        // answer for a row that does not say is **`None`** — *this row does not
+        // record which sefer* — rather than a guess.
+        let root = dir("girsa-touching-old-row");
+        let path = types_path(&root, "bavli/berakhot");
+        fs::create_dir_all(path.parent().expect("a parent")).expect("dir");
+        fs::write(
+            &path,
+            "{\"a\":\"girsa:bavli/berakhot/2a:1#1\",\"t\":\"comments-on\"}
+",
+        )
+        .expect("writes");
+
+        let rows = read_back(&root, "bavli/berakhot").expect("reads");
+        assert_eq!(rows.len(), 1, "an older row was refused");
+        assert_eq!(rows[0].1, EdgeType::CommentsOn);
+        assert!(
+            rows[0].2.is_empty(),
+            "it does not say, and must not pretend to"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 

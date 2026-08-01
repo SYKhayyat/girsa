@@ -1487,3 +1487,106 @@ Megadim among them.
 
 A reader working through search results reads one, goes back, reads the next. If
 the jump closes the panel, the second result costs the whole search again.
+
+---
+
+### W35 · The answer: not yet, and here is the condition
+
+W35 asks whether `segments.jsonl` should become `text.txt` plus a sidecar, so that
+spec.md §4.1's four claims — *greppable, diffable, backup-able, outlives the app* —
+become true rather than aspirational. It is a fair question about a real gap between
+a stated principle and a file format, and it was filed carefully: it says plainly
+that its own line-addressed format is unacceptable here, and asks only for the half
+that is not in tension with permanent ids.
+
+**The answer is no, not now — because the split does not buy the thing it is for.**
+Measured, on Shulchan Arukh, Orach Chayim:
+
+```
+segments:                              4,171
+containing inline markup ('<'):        4,170   (100.0%)
+containing a newline:                      0
+grep -c "יתגבר כארי" segments.jsonl:       0
+```
+
+The last line is the whole argument. That phrase is in the sefer; `grep` cannot find
+it — and **moving the text into a `.txt` would not change that by one hit**, because
+what defeats the grep is not the JSON envelope. It is `<b>`, `<i>` and `<span>`
+sitting between the words, in **every single segment**. A `text.txt` built today
+would be one segment per line and still unsearchable by a person with `grep`, which
+is the claim the change exists to make true.
+
+So of the four gains:
+
+| claim | delivered by the split alone? |
+|---|---|
+| greppable | **no** — measured above. The markup is the obstacle, not the JSON |
+| diffable | half. A diff would show the sentence *and* its markup, which is better than a re-serialised line and is not clean |
+| `sed` / `awk` / `wc` | yes |
+| outlives the app | marginal. JSONL is already plain text a person can read in fifty years |
+
+Two files per work, an asymmetric half-failure mode, and an import-time invariant to
+maintain, in exchange for one and a half of four. That is not a good trade **today**.
+
+**The condition under which it becomes the right change: after W34.** W34 already
+has to take the commentary anchors out of the text and hold them beside it. The same
+pass is what would take the presentational markup out — into the run/span sidecar the
+reading pane already consumes (`display::runs` reconstructs it from a description
+rather than from tags). Once the text of a segment is *the words and nothing else*,
+`text.txt` is genuinely greppable, the diff is genuinely the sentence that changed,
+and every one of the four claims lands. The split stops being a reshuffle and
+becomes the last step of a change that was happening anyway.
+
+**Two things W35 got right that are worth recording**, because they are load-bearing
+for whoever does this later:
+
+- **No segment in Orach Chayim contains a newline** — 0 of 4,171. The worry that a
+  text file cannot hold a segment with a newline in it is real in principle and empty
+  in this corpus, so the "prose lives in the text file, exotic kinds stay in JSON"
+  fallback is a contingency and not a design constraint.
+- **The line-count invariant is the right guard** and should be written the day the
+  format changes, not after: `text.txt`'s line count equals the sidecar's row count,
+  asserted at import, is what makes a half-failed ingest loud instead of silently
+  off-by-one for every segment after the break.
+
+**What is filed instead:** W34 gains a clause. When it strips the anchors, it strips
+the presentational markup into the same sidecar, and states the segment-text
+invariant *the text of a segment contains no `<`*. That is testable, it is the thing
+that unblocks W35, and it is worth doing for its own sake — a search index built over
+text with tags in it is an index whose tokens include `b` and `span`.
+
+---
+
+### W34a · Strip the markup with the anchors, and say the text has none
+
+**A clause on W34, added when W35 was answered.** W34 already has to take the
+commentary anchors out of a segment's text at ingest. This says: take the
+presentational markup out in the same pass, and assert what is left.
+
+**Why it belongs to W34 and not to W35.** Two reasons, and the second is the one that
+matters:
+
+1. It is the same walk over the same strings. `display::bits` already parses every
+   tag and records where each character came from, and `display::runs` already
+   rebuilds the styling from that description rather than from the tags — so the
+   window does not need the tags in the text and has not for some time.
+2. **A search index built over text with tags in it is an index whose tokens include
+   `b` and `span`.** That is true today, in 100% of Orach Chayim's segments, and it
+   is a defect in the searching rather than a matter of taste about file formats.
+
+**The invariant, which is the deliverable:** the `text` of a segment contains no `<`.
+Assert it at import over every work, and the assertion is what makes W35 possible
+later — a `text.txt` of segments that are only words is greppable, and one full of
+`<b>` is not, which is the measurement in W35's answer.
+
+**Test first.**
+1. A segment ingested from a Sefaria record with `<b>…</b>` in it has no `<` in its
+   text, and the run description says which characters were bold.
+2. The words are unchanged: strip the markup from the old text and it equals the new
+   text, character for character, over a whole work.
+3. `grep` for a phrase that spans a tag boundary in the old text finds it in the new
+   one. That is the acceptance criterion and it is the one W35 actually wants.
+4. Nothing loses a dibur hamatchil: `run_opening` still marks the same characters,
+   asserted against the same segments before and after.
+
+**Not required for W35 to be reconsidered — required for it to be worth doing.**

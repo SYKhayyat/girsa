@@ -95,8 +95,11 @@ fn main() -> std::process::ExitCode {
                 unparsed += 1;
                 continue;
             };
-            writer.record(from, &row.from, edge_type);
-            writer.record(to, &row.to, edge_type);
+            // Each end's row names the **other** work (W31), so a consumer can
+            // ask *which of my selected mefarshim speak here* off 1 MB instead of
+            // reading 27 MB of `inbound.jsonl`.
+            writer.record(from, &row.from, edge_type, to);
+            writer.record(to, &row.to, edge_type, from);
             // The line as it stands, not a re-serialisation of it: the inbound
             // cache is the same rows in the same shape, read back by the same
             // reader (see `girsa_link::inbound`).
@@ -226,8 +229,10 @@ mod tests {
         let mut writer = touching::Writer::default();
         let from = "girsa:bavli/rashi-on-berakhot/2a:1:3#3";
         let to = "girsa:bavli/berakhot/2a:1#1";
-        writer.record(work_of(from).expect("a slug"), from, EdgeType::CommentsOn);
-        writer.record(work_of(to).expect("a slug"), to, EdgeType::CommentsOn);
+        let from_work = work_of(from).expect("a slug");
+        let to_work = work_of(to).expect("a slug");
+        writer.record(from_work, from, EdgeType::CommentsOn, to_work);
+        writer.record(to_work, to, EdgeType::CommentsOn, from_work);
         writer.flush(&root).expect("writes");
 
         assert_eq!(
