@@ -236,8 +236,16 @@ export interface Mefaresh {
 /** The tick-list, and which lines carry a marker given what is ticked. */
 export interface Mefarshim {
   works: Mefaresh[];
+  /** Seforim that keep this one's order without commenting on it — the Shulchan
+   * Arukh under the Tur, the Arukh HaShulchan under the Shulchan Arukh. Its own
+   * list, drawn as its own group, and never folded into `works`: *a mefaresh on
+   * this* and *a sefer that follows this* are different claims and the reader is
+   * the one who knows which they wanted. Ticked and marked exactly like a
+   * mefaresh; only the heading differs. Empty for most seforim. */
+  alongside: Mefaresh[];
   /** Rishonim, acharonim, and the authors with more than one sefer among them
-   * (W44). Empty when there is nothing worth grouping. */
+   * (W44). Empty when there is nothing worth grouping. Over `works` only —
+   * `alongside` is drawn flat. */
   folders: Branch[];
   marked: string[];
   /** How many lines of this sefer anybody comments on, so *you have ticked
@@ -1153,7 +1161,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // is the truth here — there are no edges in a fixture — so the door says
     // *nobody comments on this* rather than pretending six people do.
     case "mefarshim":
-      return { works: [], folders: [], marked: [], touched: 0 } as T;
+      return { works: [], alongside: [], folders: [], marked: [], touched: 0 } as T;
     case "choose_mefaresh":
       return [] as unknown as T;
     case "mefarshim_at":

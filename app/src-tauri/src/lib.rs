@@ -1079,6 +1079,19 @@ struct Mefaresh {
 #[derive(Serialize)]
 struct Mefarshim {
     works: Vec<Mefaresh>,
+    /// Seforim that keep this one's order without commenting on it: the Shulchan
+    /// Arukh under the Tur, the Arukh HaShulchan under the Shulchan Arukh, the
+    /// Rambam's hilchos beside the chelek of Yoreh De'ah on the same subject.
+    ///
+    /// Its own list because it is its own claim. These were thrown away before —
+    /// not by a decision, but because the rule that found mefarshim answered a
+    /// bool, and *not a commentary* and *nothing to do with this sefer* had to
+    /// share the one `false`.
+    ///
+    /// Drawn flat, and no folders: there are two of these on Orach Chayim and
+    /// four on the Tur, and a tree over four rows is what W44 already calls
+    /// worse than the rows.
+    alongside: Vec<Mefaresh>,
     /// The folders they stand in — rishonim, acharonim, and the authors with
     /// more than one sefer among them (W44). Empty when there is nothing worth
     /// grouping, and then the list is drawn flat.
@@ -1099,32 +1112,35 @@ fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
     let marks = state.marks(&slug)?;
     let commentators = marks.commentators();
+    let alongside = marks.alongside();
     let touched = marks.segments_touched();
     let marked: Vec<String> = marks.marked(&chosen).into_iter().collect();
 
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     // The folders they stand in, over the same works the list offers — through
     // `taxonomy::tree`'s idea of a shelf, so a sefer is in one place here and on
-    // the bookcase.
+    // the bookcase. Only the mefarshim: the seforim running alongside are drawn
+    // flat, so grouping them would be a tree nobody asked for.
     let works: Vec<girsa_corpus::work::Work> = commentators
         .iter()
         .filter_map(|slug| shelf.work(slug).cloned())
         .collect();
     let folders = girsa_app::mefarshim::folders(&works, shelf.arrangement());
+    // One naming, both lists. Two copies would drift the day one of them learns
+    // to say something the other does not.
+    let named = |work: String| {
+        let found = shelf.work(&work);
+        Mefaresh {
+            he_title: found.map_or_else(|| work.clone(), |w| w.he_title.clone()),
+            en_title: found.map_or_else(|| work.clone(), |w| w.en_title.clone()),
+            chosen: chosen.contains(&work),
+            shelf: folders.of.get(&work).cloned(),
+            slug: work,
+        }
+    };
     Ok(Mefarshim {
-        works: commentators
-            .into_iter()
-            .map(|work| {
-                let named = shelf.work(&work);
-                Mefaresh {
-                    he_title: named.map_or_else(|| work.clone(), |w| w.he_title.clone()),
-                    en_title: named.map_or_else(|| work.clone(), |w| w.en_title.clone()),
-                    chosen: chosen.contains(&work),
-                    shelf: folders.of.get(&work).cloned(),
-                    slug: work,
-                }
-            })
-            .collect(),
+        works: commentators.into_iter().map(&named).collect(),
+        alongside: alongside.into_iter().map(&named).collect(),
         folders: folders.tree,
         marked,
         touched,

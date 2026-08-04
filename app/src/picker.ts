@@ -9,7 +9,7 @@
 import { api, type Card, type Mefarshim } from "./api.ts";
 import { field } from "./controls.ts";
 import { sefer } from "./names.ts";
-import { choices, listed, ticked, type Choice, type Listed } from "./mefarshim.ts";
+import { choices, following, listed, ticked, type Choice, type Listed } from "./mefarshim.ts";
 
 type Chosen = (slug: string) => void;
 
@@ -39,7 +39,7 @@ export class Picker {
   private cursor = 0;
   private chosen: Chosen = () => {};
   private beside: string | null = null;
-  private mefarshim: Mefarshim = { works: [], folders: [], marked: [], touched: 0 };
+  private mefarshim: Mefarshim = { works: [], alongside: [], folders: [], marked: [], touched: 0 };
   private tick: (work: string, on: boolean) => void = () => {};
   /** The sentence under the list: how much of the sefer has commentary at all. */
   private readonly said: HTMLElement;
@@ -115,12 +115,15 @@ export class Picker {
       // for one.
       const rows = choices(await api.companions(this.beside), this.mefarshim.works);
       this.fill(
-        listed(rows, this.mefarshim.folders).map(listedRow),
+        listed(rows, this.mefarshim.folders, following(this.mefarshim.alongside)).map(listedRow),
         "אין ספר שהחיבור מעיד עליו — חפש אחד",
       );
+      // Both groups tick, so both groups count. Reporting only the mefarshim
+      // would tell a reader who has ticked the Arukh HaShulchan that they have
+      // ticked nobody.
       this.said.textContent = ticked(
         this.mefarshim.touched,
-        this.mefarshim.works.filter((w) => w.chosen).length,
+        [...this.mefarshim.works, ...this.mefarshim.alongside].filter((w) => w.chosen).length,
       );
       return;
     }

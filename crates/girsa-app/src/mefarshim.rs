@@ -33,10 +33,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use girsa_corpus::segment::SegmentId;
-use girsa_corpus::taxonomy::rank_of;
+use girsa_corpus::taxonomy::{rank_of, Stands};
 use girsa_corpus::work::Work;
 use girsa_link::{inbound, EdgeType};
 use serde::Serialize;
+
+/// How much a sefer has to say here before saying it counts as commenting.
+///
+/// Only ever consulted for [`Stands::AskTheEdges`] — a commentary that declares
+/// no base and whose shelf sits above a whole division, where the shelf permits
+/// the answer and cannot give it.
+///
+/// Bartenura on Torah puts 330 comments into Bereshis, 289 into Shemos and none
+/// at all anywhere in Kesuvim; the works that turn up with one or two are quoting
+/// in passing. The gap between those is three orders of magnitude, so the exact
+/// line matters much less than having one, and this is deliberately near the
+/// bottom of it: a real mefaresh with only a dozen comments on a sefer is still
+/// a mefaresh, and a stray reference does not reach a dozen.
+const SAYS_ENOUGH_TO_BE_A_MEFARESH: usize = 12;
 
 use crate::arrangement::Arrangement;
 use crate::taxonomy::{shelf_key_of, Branch};
@@ -48,6 +62,14 @@ pub struct Marks {
     /// Every work that comments anywhere in this sefer, so the chooser can be
     /// drawn from the same read.
     works: BTreeSet<String>,
+    /// Seforim that keep this one's order without commenting on it: the Shulchan
+    /// Arukh under the Tur, the Arukh HaShulchan under the Shulchan Arukh.
+    ///
+    /// Its own set, and drawn as its own group, because the two claims are
+    /// different and the reader is the one who knows which they wanted. Folding
+    /// these into `works` would call a code a commentary; dropping them, as this
+    /// module did until now, threw away a relationship without saying so.
+    alongside: BTreeSet<String>,
     /// Works with commentary edges landing here that are **not** commentaries on
     /// this sefer.
     ///
@@ -103,36 +125,70 @@ impl Marks {
             // Not on this shelf. Nothing to draw a marker on, so nothing to say.
             return Ok(marks);
         };
-        for edge in inbound::read_back(shelf.root(), slug)? {
-            if edge.edge_type != EdgeType::CommentsOn {
-                continue;
-            }
-            let from = edge.from.from.work().to_string();
+
+        // One read, one pass to gather, one pass to place. The gather is what
+        // lets a work be judged by **how much it says here** — which is the only
+        // evidence there is for a commentary that declares no base and names no
+        // section, and which costs nothing because these edges are already in
+        // hand. See `Stands::AskTheEdges`.
+        let edges: Vec<_> = inbound::read_back(shelf.root(), slug)?
+            .into_iter()
+            .filter(|edge| edge.edge_type == EdgeType::CommentsOn)
             // The far end is the commentary; this end is us. Which is only true
             // because `girsa_link::orient` made it true — before that, half of
             // these edges pointed the other way and this whole module would have
             // indexed the sefer as a commentary on its own mefarshim.
-            if from == slug {
-                continue;
-            }
-            // …and being at the far end of a `comments-on` edge does not make a
-            // sefer a mefaresh on this one. Tur has commentary edges landing in
-            // it from forty works and four commentaries; the first version of
-            // this module offered all forty, so Rashi on Berakhot was a mefaresh
-            // on the Tur and Shabbos one on the Shulchan Arukh. That is inferring
-            // a relationship between two seforim from the existence of an edge,
-            // which is BUILDER.md rule 6, and asking `is_commentary_on` is the
-            // whole of not doing it.
-            let is_mefaresh = shelf
-                .work(&from)
-                .is_some_and(|w| girsa_corpus::taxonomy::is_commentary_on(w, base));
-            if !is_mefaresh {
-                marks.refused.insert(from);
-                continue;
-            }
-            marks.works.insert(from.clone());
+            .filter(|edge| edge.from.from.work() != slug)
+            .collect();
+
+        let mut said_here: BTreeMap<&str, usize> = BTreeMap::new();
+        for edge in &edges {
+            *said_here.entry(edge.from.from.work()).or_default() += 1;
+        }
+
+        // Being at the far end of a `comments-on` edge does not make a sefer a
+        // mefaresh on this one. Tur has commentary edges landing in it from forty
+        // works and five commentaries; the first version of this module offered
+        // all forty, so Rashi on Berakhot was a mefaresh on the Tur and Shabbos
+        // one on the Shulchan Arukh. That is inferring a relationship between two
+        // seforim from the existence of an edge, which is BUILDER.md rule 6.
+        let mut standing: BTreeMap<&str, Stands> = BTreeMap::new();
+        for (work, count) in &said_here {
+            let verdict = shelf.work(work).map_or(Stands::Apart, |w| {
+                match girsa_corpus::taxonomy::stands(w, base) {
+                    // The shelf allows it and cannot choose. What it says here is
+                    // the corpus's own statement about where it speaks: Bartenura
+                    // on Torah puts 330 comments into Bereshis and none anywhere
+                    // in Kesuvim, and a work with a handful is passing through.
+                    Stands::AskTheEdges => {
+                        if *count >= SAYS_ENOUGH_TO_BE_A_MEFARESH {
+                            Stands::On
+                        } else {
+                            Stands::Apart
+                        }
+                    }
+                    settled => settled,
+                }
+            });
+            standing.insert(work, verdict);
+        }
+
+        for edge in &edges {
+            let from = edge.from.from.work();
+            match standing.get(from).copied().unwrap_or(Stands::Apart) {
+                Stands::On => marks.works.insert(from.to_string()),
+                // Listed apart from the mefarshim — but indexed exactly like
+                // them, because the reader who ticks the Arukh HaShulchan wants
+                // the marker and the click, not a name in a list. Which group it
+                // is drawn in is the only difference, and that is the point.
+                Stands::Alongside => marks.alongside.insert(from.to_string()),
+                Stands::Apart | Stands::AskTheEdges => {
+                    marks.refused.insert(from.to_string());
+                    continue;
+                }
+            };
             let spoken = Spoken {
-                work: from,
+                work: from.to_string(),
                 at: edge.from.from.clone(),
                 to: edge.from.to.clone(),
             };
@@ -172,8 +228,16 @@ impl Marks {
         self.by_segment.len()
     }
 
-    /// The works that link here as commentary and are not commentaries on this
-    /// sefer. For a test and for a diagnostic, never for the list.
+    /// The seforim that keep this one's order without commenting on it — its own
+    /// group in the window, never mixed into [`Self::commentators`].
+    #[must_use]
+    pub fn alongside(&self) -> Vec<String> {
+        self.alongside.iter().cloned().collect()
+    }
+
+    /// The works that link here as commentary and are neither commentaries on
+    /// this sefer nor running alongside it. For a test and for a diagnostic,
+    /// never for the list.
     #[must_use]
     pub fn refused(&self) -> Vec<String> {
         self.refused.iter().cloned().collect()
@@ -925,17 +989,106 @@ mod tests {
                 let Some(work) = shelf.work(&offered) else {
                     panic!("{slug} offers {offered}, which is not on the shelf");
                 };
+                let verdict = girsa_corpus::taxonomy::stands(work, base);
                 assert!(
-                    girsa_corpus::taxonomy::is_commentary_on(work, base),
-                    "{slug} offers {offered} as a mefaresh and it is not a commentary on it"
+                    matches!(verdict, Stands::On | Stands::AskTheEdges),
+                    "{slug} offers {offered} as a mefaresh and it stands {verdict:?} to it"
+                );
+            }
+            // And nothing is in two places at once: a sefer is a mefaresh or it
+            // runs alongside, never drawn in both groups.
+            for beside in marks.alongside() {
+                assert!(
+                    !marks.commentators().contains(&beside),
+                    "{slug} draws {beside} as both a mefaresh and alongside"
                 );
             }
             println!(
-                "{slug}: {} mefarshim, {} works refused",
+                "{slug}: {} mefarshim, {} alongside, {} refused",
                 marks.commentators().len(),
+                marks.alongside().len(),
                 marks.refused().len()
             );
         }
+    }
+
+    #[test]
+    fn the_mefarshim_a_person_would_look_for_are_actually_offered() {
+        // The half the suite did not have, and the reason a filter bug could sit
+        // in the corpus for a release with every test green: everything checked
+        // that nothing *wrong* was offered, and nothing checked that anything
+        // *right* was. W43 tightened the rule from 40 mefarshim on the Tur to 5;
+        // an over-tightening would have looked exactly as clean.
+        //
+        // Named seforim, not counts. A count goes green again the day it changes
+        // for an unrelated reason.
+        let root = corpus_or_skip!();
+        let shelf = real_shelf(&root);
+
+        let genesis = Marks::of(&shelf, "genesis").expect("reads");
+        for wanted in [
+            // Filed `["Tanakh","Rishonim on Tanakh"]` with no division named, so
+            // the shelf sits over the whole of Tanakh and only the graph settles
+            // it. Every one of these was refused before.
+            "bartenura-on-torah",
+            "beit-halevi-on-torah",
+            "chatam-sofer-on-torah",
+            "chanukat-hatorah",
+            "em-lamikra",
+            // Otzaria's, filed in Hebrew. Refused because the comparison ran over
+            // `categories` as written and his are not in English.
+            "ר-חננאל-על-בראשית",
+        ] {
+            assert!(
+                genesis.commentators().iter().any(|w| w == wanted),
+                "{wanted} is not offered as a mefaresh on Bereshis: {:?}",
+                genesis.refused()
+            );
+        }
+
+        // And the guard on all of the above: a commentary on the Chumash does not
+        // thereby become one on Tehillim. This is what the division test and the
+        // edge threshold are for, and it is the failure this fix could plausibly
+        // have introduced.
+        let psalms = Marks::of(&shelf, "psalms").expect("reads");
+        for not_here in ["bartenura-on-torah", "chatam-sofer-on-torah", "em-lamikra"] {
+            assert!(
+                !psalms.commentators().iter().any(|w| w == not_here),
+                "{not_here} is offered as a mefaresh on Tehillim"
+            );
+        }
+    }
+
+    #[test]
+    fn a_code_that_keeps_the_order_is_listed_apart_from_the_mefarshim() {
+        // W44b's whole point, and the thing a bool could not say. The Shulchan
+        // Arukh keeps the Tur's order and is not a commentary on it; the Arukh
+        // HaShulchan does the same to the Shulchan Arukh. Both were thrown away
+        // before — not by a decision, but by the shape of their categories.
+        let root = corpus_or_skip!();
+        let shelf = real_shelf(&root);
+
+        let tur = Marks::of(&shelf, "tur").expect("reads");
+        assert!(
+            tur.alongside()
+                .iter()
+                .any(|w| w.starts_with("shulchan-arukh/")),
+            "the Shulchan Arukh does not run alongside the Tur: {:?}",
+            tur.alongside()
+        );
+        assert!(
+            !tur.commentators()
+                .iter()
+                .any(|w| w.starts_with("shulchan-arukh/")),
+            "and it is not listed among the Tur's mefarshim"
+        );
+
+        let arukh = Marks::of(&shelf, "shulchan-arukh/orach-chayim").expect("reads");
+        assert!(
+            arukh.alongside().iter().any(|w| w == "arukh-hashulchan"),
+            "the Arukh HaShulchan does not run alongside Orach Chayim: {:?}",
+            arukh.alongside()
+        );
     }
 
     #[test]

@@ -132,12 +132,27 @@ export function choices(companions: Companion[], can: Mefaresh[]): Choice[] {
     .map((m) => ({
       ...m,
       // Nothing declares these — the graph places them and the shelf says they
-      // are commentary, which is `is_commentary_on`'s second half (W45).
+      // are commentary, which is `stands`'s second half (W45).
       declared: false,
       links: 0,
       tickable: true,
     }));
   return [...rows, ...rest];
+}
+
+/**
+ * The `על סדר הספר` rows, in the shape the list draws.
+ *
+ * Same shape as a mefaresh row and deliberately so — these tick, mark and open
+ * exactly like one. `declared: false` because none of them declares this sefer
+ * as a base text and saying otherwise would be a claim the corpus has not made;
+ * `tickable: true` because the graph places their comments, which is the only
+ * thing a tick-box needs to be honest.
+ */
+export function following(alongside: Mefaresh[]): Choice[] {
+  return [...alongside]
+    .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
+    .map((m) => ({ ...m, declared: false, links: 0, tickable: true }));
 }
 
 /** A heading, or a sefer — one row of the list behind the door. */
@@ -151,20 +166,31 @@ export type Listed =
  *
  * > *"it would be nice if meforshim remained in their folders"*
  *
- * Three sections and they are three different claims, which is why they are not
+ * Four sections and they are four different claims, which is why they are not
  * one list of sixty rows:
  *
  * 1. the mefarshim the corpus places on this sefer's lines, in their folders —
  *    rishonim together, acharonim together, because that is the first thing
  *    anybody wants to know about a mefaresh;
- * 2. the commentaries the corpus **declares** but whose comments it cannot place
+ * 2. **`על סדר הספר`** — seforim that keep this one's order without commenting on
+ *    it: the Shulchan Arukh under the Tur, the Arukh HaShulchan under the
+ *    Shulchan Arukh, the Rambam's hilchos beside the chelek of Yoreh De'ah on the
+ *    same ground. They tick and mark like a mefaresh and they are not one, and
+ *    saying so is the whole of this section;
+ * 3. the commentaries the corpus **declares** but whose comments it cannot place
  *    on a line, so they can be opened beside but not ticked;
- * 3. the seforim that merely share links, under a heading that says so — the Beit
+ * 4. the seforim that merely share links, under a heading that says so — the Beit
  *    Yosef cites Berakhot 815 times and is not a commentary on it.
  *
+ * Section 2 is new and it is the one the old shape could not hold: `stands`
+ * answered a bool, so *follows this sefer's order* and *nothing to do with this
+ * sefer* both came back `false` and the first was thrown away with the second.
+ *
  * The folders come from Rust, so there is one idea of which shelf a sefer is on.
+ * They cover section 1 only — section 2 is drawn flat, because there are two of
+ * these on Orach Chayim and four on the Tur.
  */
-export function listed(rows: Choice[], folders: Branch[]): Listed[] {
+export function listed(rows: Choice[], folders: Branch[], alongside: Choice[] = []): Listed[] {
   const out: Listed[] = [];
   const shown = new Set<string>();
   const sefer = (choice: Choice): Listed => {
@@ -187,6 +213,20 @@ export function listed(rows: Choice[], folders: Branch[]): Listed[] {
     }
   };
   walk(folders, 0);
+
+  // The seforim that keep this one's order without commenting on it. Directly
+  // under the mefarshim, because they tick and mark exactly like one and are the
+  // second thing a person reaching for a mefaresh actually wants — not down with
+  // the merely-linked, which is where a bool had quietly filed them.
+  // Filtered against what is already drawn: a sefer the corpus also declares a
+  // companion would otherwise appear twice, once in its folder and once here,
+  // and a list that shows the same sefer under two headings is a list that has
+  // stopped meaning anything.
+  const following = alongside.filter((r) => !shown.has(r.slug));
+  if (following.length > 0) {
+    out.push({ kind: "folder", title: "על סדר הספר", depth: 0, count: following.length });
+    for (const row of following) out.push(sefer(row));
+  }
 
   const rest = rows.filter((r) => !shown.has(r.slug));
   const declared = rest.filter((r) => r.declared);

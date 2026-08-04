@@ -178,13 +178,47 @@ const RANK: [&str; 8] = [
 /// Prefixes, because Sefaria writes the base into the name: `Rishonim on
 /// Talmud`, `Acharonim on Mishnah`, `Modern Commentary on Tanakh`, `Commentary on
 /// Minor Tractates`, `Commentary of the Rosh`. Twenty-three distinct values in
-/// the shipped corpus and all of them start with one of these five.
-const COMMENTARY: [&str; 5] = [
+/// the shipped corpus and all of them start with one of the five English ones.
+///
+/// The Hebrew five are Otzaria's, and leaving them out is what made a
+/// Hebrew-categorized rishon invisible: `ר חננאל על בראשית` is filed
+/// `["תנך","ראשונים","רבינו חננאל","תורה"]`, matched none of the English
+/// prefixes, and so was not *filed as commentary at all* — which took it out of
+/// the mefarshim on Bereshis without anything saying so. Both corpora write this
+/// shelf and the module note says they are one shelf; this list was half of it.
+const COMMENTARY: [&str; 10] = [
     "Commentary",
     "Rishonim",
     "Acharonim",
     "Modern Commentary",
     "Targum",
+    "מפרשים",
+    "ראשונים",
+    "אחרונים",
+    "מחברי זמננו",
+    "תרגום",
+];
+
+/// The divisions a sefer belongs to *within* its shelf.
+///
+/// These are what settle the case the shelf cannot: a commentary filed
+/// `["Tanakh","Rishonim on Tanakh"]` sits above the whole of Tanakh, so its
+/// shelf permits Bereshis and Tehillim alike. When both it and the base name one
+/// of these, they have to name the same one.
+///
+/// In the canonical Hebrew, because that is what both vocabularies map onto —
+/// which is the whole reason [`stands`] compares canonical paths and not the
+/// `categories` the corpus happened to write.
+const SECTION: [&str; 9] = [
+    "תורה",
+    "נביאים",
+    "כתובים",
+    "סדר זרעים",
+    "סדר מועד",
+    "סדר נשים",
+    "סדר נזיקין",
+    "סדר קדשים",
+    "סדר טהרות",
 ];
 
 /// Whether a work stands on a shelf of commentary, and what is above it.
@@ -201,45 +235,142 @@ pub fn commentary_shelf(work: &Work) -> Option<&[String]> {
     Some(&work.categories[..at])
 }
 
-/// Whether one work is a commentary **on another**.
+/// How one sefer stands to another.
+///
+/// A bool could say *mefaresh* or *not*, and that turned out to be the wrong
+/// number of answers twice over. The Shulchan Arukh keeps the Tur's order and is
+/// not a commentary on it; a Tanakh commentary with no section named sits over
+/// Bereshis and Tehillim alike and the shelf cannot tell you which. Both came
+/// back as a flat `false`, which read as *unrelated* and was not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stands {
+    /// A mefaresh: written **about** this sefer, keyed to its words.
+    On,
+    /// Its own sefer, following this one's order. The Shulchan Arukh on the Tur,
+    /// the Arukh HaShulchan on the Shulchan Arukh, the Mishneh Torah's hilchos
+    /// beside the chelek of Yoreh De'ah that covers the same ground.
+    Alongside,
+    /// Nowhere near it. The Yerushalmi is not a mefaresh on the Tur, whatever
+    /// the twenty-six `comments-on` edges between them say.
+    Apart,
+    /// The shelf permits it and cannot settle it — only where its edges land
+    /// can. `תנ״ך/ראשונים` is above the whole of Tanakh, so Bartenura on Torah
+    /// and Ibn Ezra on Tehillim have the same shelf-above and different answers.
+    ///
+    /// Returned rather than guessed, because guessing here is BUILDER.md rule 6.
+    /// The caller holds the graph; this module holds the shelf.
+    AskTheEdges,
+}
+
+/// How one work stands to another — mefaresh, alongside, or neither.
 ///
 /// This is the question W43's tick-list, and anything else that says *these are
 /// the mefarshim on this sefer*, has to ask. It is not the same question as
 /// *does an edge join them*: `comments-on` is a type on one of 4.18M edges and
 /// Sefaria's link data is not careful enough for that to be a claim about two
 /// seforim. Tur has commentary edges landing in it from forty works and is
-/// commented on by four.
+/// commented on by five.
 ///
-/// Two ways to be one, and both of them are the corpus's own statement:
+/// Two ways to be a mefaresh, and both of them are the corpus's own statement:
 ///
 /// - it **declares** the base — `commentary_on`, which is Sefaria's
 ///   `base_text_titles`;
-/// - or it stands on a **commentary shelf** whose shelf-above is the shelf the
-///   sefer itself stands on. The Kaf HaChayim declares nothing and is the largest
-///   commentary on Orach Chayim; the Beit Yosef declares nothing and is *the*
-///   commentary on the Tur. Keeping only the declared ones would drop both.
+/// - or it stands on a **commentary shelf** whose shelf-above is at or over the
+///   shelf the sefer itself stands on, agreeing on the section where both name
+///   one. The Kaf HaChayim declares nothing and is the largest commentary on
+///   Orach Chayim; the Beit Yosef declares nothing and is *the* commentary on
+///   the Tur. Keeping only the declared ones would drop both.
+///
+/// Compared over **canonical** paths, not over `categories`. The corpus has two
+/// vocabularies (see this module's note) and a raw string compare quietly means
+/// *English only*.
 ///
 /// Never from a slug or a title — BUILDER.md rule 6, which is what the first
 /// version of this got wrong by not asking the question at all.
 #[must_use]
-pub fn is_commentary_on(commentary: &Work, base: &Work) -> bool {
+pub fn stands(commentary: &Work, base: &Work) -> Stands {
     if commentary.slug == base.slug {
-        return false;
+        return Stands::Apart;
     }
     if commentary
         .commentary_on
         .iter()
         .any(|declared| declared.slug == base.slug)
     {
-        return true;
+        return Stands::On;
     }
     // A declaration that names some *other* sefer is a statement about what this
     // is a commentary on, and it did not name this one. The shelf is only asked
     // of a work that has said nothing.
     if !commentary.commentary_on.is_empty() {
-        return false;
+        return Stands::Apart;
     }
-    commentary_shelf(commentary).is_some_and(|above| above == base.categories.as_slice())
+
+    let theirs = canonical_path(&base.categories);
+    let Some(above) = commentary_shelf(commentary) else {
+        // Not filed as commentary at all. It is not a mefaresh — but a sefer on
+        // the same top shelf, with commentary edges into this one, is running
+        // *alongside* it: the Shulchan Arukh keeps the Tur's order, the Arukh
+        // HaShulchan keeps the Shulchan Arukh's. Saying `Apart` there threw away
+        // a relationship the reader wants; saying `On` would call a code a
+        // commentary. So it is neither, and it says so.
+        let mine = canonical_path(&commentary.categories);
+        return match (mine.first(), theirs.first()) {
+            (Some(mine), Some(theirs)) if mine == theirs => Stands::Alongside,
+            _ => Stands::Apart,
+        };
+    };
+
+    let above = canonical_path(above);
+    // The shelf directly above the commentary *is* the base's shelf: the Kaf
+    // HaChayim under `הלכה/שולחן ערוך/מפרשים`, Orach Chayim on `הלכה/שולחן ערוך`.
+    if above == theirs {
+        return Stands::On;
+    }
+    // Not above it at all — being *a* commentary is not being a commentary on
+    // *this*.
+    if !theirs.starts_with(&above) {
+        return Stands::Apart;
+    }
+    // Above it, but higher up than its own shelf: `תנ״ך/ראשונים` sits over the
+    // whole of Tanakh. Whether it reaches *this* sefer is what the section
+    // settles, and where neither names one, only the graph can.
+    match (
+        section_of(&canonical_path(&commentary.categories)),
+        section_of(&theirs),
+    ) {
+        (Some(mine), Some(theirs)) if mine == theirs => Stands::On,
+        (Some(_), Some(_)) => Stands::Apart,
+        _ => Stands::AskTheEdges,
+    }
+}
+
+/// The section a canonical shelf path names, if it names one.
+fn section_of(path: &[String]) -> Option<&str> {
+    path.iter()
+        .map(String::as_str)
+        .find(|part| SECTION.contains(part))
+}
+
+/// One work's categories, in the canonical vocabulary — the shelf without the
+/// W46 commentary step, which is about where a sefer is *drawn* and not about
+/// what it is.
+fn canonical_path(categories: &[String]) -> Vec<String> {
+    let categories: Vec<&str> = categories
+        .iter()
+        .map(String::as_str)
+        .filter(|c| !c.trim().is_empty())
+        .collect();
+    let (mut shelf, consumed) = top_of(&categories);
+    let said: Vec<&str> = categories.iter().take(consumed.max(1)).copied().collect();
+    for part in categories.iter().skip(consumed) {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        shelf.push(term_of(trimmed, &said));
+    }
+    shelf
 }
 
 /// The shelf a work sits on, as a path from the top.
@@ -248,25 +379,9 @@ pub fn is_commentary_on(commentary: &Work, base: &Work) -> bool {
 /// — a sefer with no shelf is a sefer a reader cannot browse to.
 #[must_use]
 pub fn shelf_of(work: &Work) -> Vec<String> {
-    let categories: Vec<&str> = work
-        .categories
-        .iter()
-        .map(String::as_str)
-        .filter(|c| !c.trim().is_empty())
-        .collect();
-
-    let (mut shelf, consumed) = top_of(&categories);
-    // What the corpus called the shelf before it was mapped. `Acharonim on
-    // Talmud` sheds its `on Talmud` because `Talmud` is one of these.
-    let said: Vec<&str> = categories.iter().take(consumed.max(1)).copied().collect();
-
-    for part in categories.iter().skip(consumed) {
-        let trimmed = part.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        shelf.push(term_of(trimmed, &said));
-    }
+    // The same mapping [`stands`] compares over. One implementation, because two
+    // would put a sefer on one shelf in the bookcase and judge it by another.
+    let mut shelf = canonical_path(&work.categories);
 
     // W46. A sefer that **declares** itself a commentary and whose categories put
     // it on its own base's shelf is filed one level down, with the commentaries.
@@ -281,6 +396,16 @@ pub fn shelf_of(work: &Work) -> Vec<String> {
     // stronger statement and it wins, which is the precedence the rest of this
     // codebase already uses everywhere else.
     if !work.commentary_on.is_empty() && commentary_shelf(work).is_none() {
+        // What the corpus called the shelf before it was mapped, which is what
+        // `term_of` strips an `on Y` against.
+        let categories: Vec<&str> = work
+            .categories
+            .iter()
+            .map(String::as_str)
+            .filter(|c| !c.trim().is_empty())
+            .collect();
+        let (_, consumed) = top_of(&categories);
+        let said: Vec<&str> = categories.iter().take(consumed.max(1)).copied().collect();
         shelf.push(term_of("Commentary", &said));
     }
     shelf
@@ -457,7 +582,7 @@ mod tests {
             &["bavli/berakhot"],
         );
         let berakhot = work_of("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[]);
-        assert!(is_commentary_on(&rashi, &berakhot));
+        assert_eq!(stands(&rashi, &berakhot), Stands::On);
     }
 
     #[test]
@@ -471,7 +596,7 @@ mod tests {
             &["bavli/berakhot"],
         );
         let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
-        assert!(!is_commentary_on(&rashi, &tur));
+        assert_eq!(stands(&rashi, &tur), Stands::Apart);
     }
 
     #[test]
@@ -483,11 +608,13 @@ mod tests {
             &["Halakhah", "Shulchan Arukh"],
             &[],
         );
-        assert!(!is_commentary_on(&shabbat, &arukh));
-        // And the Shulchan Arukh is not a commentary on the Tur, though it has
-        // 697 commentary edges into it.
+        assert_eq!(stands(&shabbat, &arukh), Stands::Apart);
+        // And the Shulchan Arukh is not a *commentary* on the Tur, though it has
+        // 697 commentary edges into it. It is not unrelated to it either: it
+        // keeps the Tur's order, siman for siman, which is the whole reason the
+        // edges exist. A bool had to call that `false` and mean two things.
         let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
-        assert!(!is_commentary_on(&arukh, &tur));
+        assert_eq!(stands(&arukh, &tur), Stands::Alongside);
     }
 
     #[test]
@@ -508,14 +635,14 @@ mod tests {
             &["Halakhah", "Shulchan Arukh"],
             &[],
         );
-        assert!(is_commentary_on(&kaf, &arukh));
+        assert_eq!(stands(&kaf, &arukh), Stands::On);
 
         // The Beit Yosef on the Tur, same shape — and this one the old
         // declared-only reading would have dropped from the Tur entirely,
         // 18,353 edges of the sefer that is *the* commentary on it.
         let beit_yosef = work_of("beit-yosef", &["Halakhah", "Tur", "Commentary"], &[]);
         let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
-        assert!(is_commentary_on(&beit_yosef, &tur));
+        assert_eq!(stands(&beit_yosef, &tur), Stands::On);
     }
 
     #[test]
@@ -528,7 +655,123 @@ mod tests {
             &[],
         );
         let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
-        assert!(!is_commentary_on(&kaf, &tur));
+        assert_eq!(stands(&kaf, &tur), Stands::Apart);
+    }
+
+    #[test]
+    fn a_rishon_filed_in_hebrew_reaches_the_sefer_he_wrote_about() {
+        // F2. `ר חננאל על בראשית` comes from Otzaria and is filed in Otzaria's
+        // vocabulary. The old rule compared `categories` as written, so a work
+        // whose shelf was in Hebrew could never equal a base whose shelf was in
+        // English — Rabbeinu Chananel was not a mefaresh on Bereshis, and
+        // nothing said why.
+        //
+        // Two things fix it and both are in this module already: `ראשונים` joins
+        // the commentary prefixes, and the comparison runs over canonical paths.
+        let rabbeinu_chananel = work_of(
+            "ר-חננאל-על-בראשית",
+            &["תנך", "ראשונים", "רבינו חננאל", "תורה"],
+            &[],
+        );
+        let genesis = work_of("genesis", &["Tanakh", "Torah"], &[]);
+        assert_eq!(stands(&rabbeinu_chananel, &genesis), Stands::On);
+
+        // And he does not thereby become a mefaresh on Tehillim: he names תורה
+        // and Tehillim names כתובים.
+        let psalms = work_of("psalms", &["Tanakh", "Writings"], &[]);
+        assert_eq!(stands(&rabbeinu_chananel, &psalms), Stands::Apart);
+    }
+
+    #[test]
+    fn a_commentary_over_a_whole_division_is_referred_to_the_graph() {
+        // F1. Bartenura on Torah declares no base and its shelf is
+        // `תנ״ך/ראשונים` — above the *whole* of Tanakh. So the shelf permits
+        // Bereshis and Tehillim alike and can choose neither, and the old rule's
+        // equality test answered `false` to both, which read as *unrelated* and
+        // silently emptied the Chumash of its acharonim.
+        //
+        // The honest answer is that this module does not know. It says so, and
+        // the caller — which holds the graph — settles it: 330 comments into
+        // Bereshis, none anywhere in Kesuvim.
+        let bartenura = work_of("bartenura-on-torah", &["Tanakh", "Rishonim on Tanakh"], &[]);
+        let genesis = work_of("genesis", &["Tanakh", "Torah"], &[]);
+        assert_eq!(stands(&bartenura, &genesis), Stands::AskTheEdges);
+
+        // Not a licence to roam: a different top shelf is still `Apart` without
+        // anybody consulting anything.
+        let berakhot = work_of("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[]);
+        assert_eq!(stands(&bartenura, &berakhot), Stands::Apart);
+    }
+
+    #[test]
+    fn a_commentary_that_names_its_division_is_settled_without_the_graph() {
+        // The other half of the rule above, and the reason `AskTheEdges` is rare
+        // rather than the usual answer: where both name a division, the shelf is
+        // enough and the graph is never asked.
+        let ibn_ezra = work_of(
+            "ibn-ezra-on-psalms",
+            &["Tanakh", "Rishonim on Tanakh", "Ibn Ezra", "Writings"],
+            &[],
+        );
+        let psalms = work_of("psalms", &["Tanakh", "Writings"], &[]);
+        let genesis = work_of("genesis", &["Tanakh", "Torah"], &[]);
+        assert_eq!(stands(&ibn_ezra, &psalms), Stands::On);
+        assert_eq!(stands(&ibn_ezra, &genesis), Stands::Apart);
+    }
+
+    #[test]
+    fn a_code_that_keeps_another_codes_order_stands_alongside_it() {
+        // F4. The Arukh HaShulchan follows the Shulchan Arukh siman for siman
+        // and is not a commentary on it; the Shulchan Arukh HaRav likewise. Both
+        // were refused on the *shape* of their categories rather than by any
+        // decision, which is the sort of accident this whole module exists to
+        // stop.
+        let orach_chayim = work_of(
+            "shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        for slug_and_shelf in [
+            ("arukh-hashulchan", &["Halakhah"][..]),
+            (
+                "shulchan-arukh-harav",
+                &["Halakhah", "Shulchan Arukh HaRav"][..],
+            ),
+        ] {
+            let (slug, categories) = slug_and_shelf;
+            let code = work_of(slug, categories, &[]);
+            assert_eq!(
+                stands(&code, &orach_chayim),
+                Stands::Alongside,
+                "{slug} should run alongside Orach Chayim"
+            );
+        }
+    }
+
+    #[test]
+    fn running_alongside_does_not_reach_across_the_bookcase() {
+        // The guard on `Alongside`, which is a looser claim than `On` and so
+        // needs one. A masechta is not *alongside* the Shulchan Arukh and
+        // Vayikra is not alongside Yoreh De'ah, however many `comments-on` edges
+        // the graph holds between them — they are not even on the same shelf.
+        let yoreh_deah = work_of(
+            "shulchan-arukh/yoreh-deah",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        let shabbat = work_of("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"], &[]);
+        let leviticus = work_of("leviticus", &["Tanakh", "Torah"], &[]);
+        assert_eq!(stands(&shabbat, &yoreh_deah), Stands::Apart);
+        assert_eq!(stands(&leviticus, &yoreh_deah), Stands::Apart);
+
+        // But the Mishneh Torah's hilchos on the same subject *are* alongside:
+        // same shelf, its own sefer, covering the ground in its own order.
+        let rambam = work_of(
+            "mishneh-torah/forbidden-foods",
+            &["Halakhah", "Mishneh Torah", "Sefer Kedushah"],
+            &[],
+        );
+        assert_eq!(stands(&rambam, &yoreh_deah), Stands::Alongside);
     }
 
     #[test]
@@ -538,7 +781,7 @@ mod tests {
             &["Halakhah", "Shulchan Arukh"],
             &[],
         );
-        assert!(!is_commentary_on(&arukh, &arukh));
+        assert_eq!(stands(&arukh, &arukh), Stands::Apart);
     }
 
     #[test]
@@ -552,7 +795,7 @@ mod tests {
             &["berakhot-a-different-sefer"],
         );
         let berakhot = work_of("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[]);
-        assert!(!is_commentary_on(&looks_right, &berakhot));
+        assert_eq!(stands(&looks_right, &berakhot), Stands::Apart);
     }
 
     #[test]

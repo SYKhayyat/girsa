@@ -364,7 +364,7 @@ async function mefarshimFor(slug: string): Promise<Mefarshim> {
   } catch {
     // No link graph, or a sefer with no inbound cache. An empty tick-list is the
     // honest answer and `ticked()` says which kind of empty it is.
-    return { works: [], folders: [], marked: [], touched: 0 };
+    return { works: [], alongside: [], folders: [], marked: [], touched: 0 };
   }
 }
 
