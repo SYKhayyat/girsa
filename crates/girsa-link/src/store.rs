@@ -24,6 +24,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::slug_dir;
+use girsa_corpus::standing::Standing;
 
 use crate::{Anchor, Edge, EdgeType, Method};
 
@@ -169,29 +170,166 @@ pub fn read_back(root: &Path, slug: &str) -> Result<Vec<Edge>, std::io::Error> {
 /// If the file exists and cannot be read. A file that is not there is no edges,
 /// which is not an error.
 pub fn read_edges(path: &Path) -> Result<Vec<Edge>, std::io::Error> {
+    read_edges_landing(path, &Landing::everything())
+}
+
+/// One row, understood. `None` for a line that will not parse, which costs that
+/// edge and not the file.
+fn edge_of(line: &str) -> Option<Edge> {
+    let row = serde_json::from_str::<Row>(line).ok()?;
+    let (from, to) = (parse_anchor(&row.from)?, parse_anchor(&row.to)?);
+    Some(Edge {
+        from,
+        to,
+        edge_type: EdgeType::from_sefaria(&row.label),
+        method: if row.method == Method::OtzariaSeed.as_str() {
+            Method::OtzariaSeed
+        } else {
+            Method::SefariaSeed
+        },
+        source_label: row.label,
+    })
+}
+
+/// Which rows are worth building an [`Edge`] out of.
+///
+/// The panel reads a shard, turns every row into an `Edge`, and keeps the ones
+/// that name the line you are on: 63 of 159,273 for a se'if of Orach Chayim. The
+/// other 159,210 cost a JSON parse, two [`girsa_corpus::segment::SegmentId`] parses and three
+/// allocations each, and are then dropped. This is the gate that lets them be
+/// skipped as text.
+///
+/// # It is deliberately generous
+///
+/// A row this admits is still tested by [`Anchor::names`] afterwards, so a
+/// **false positive costs one parse** and changes no answer. A false negative
+/// loses a link silently, which is the failure this whole crate is arranged
+/// against. Every judgement call below is therefore resolved towards admitting.
+///
+/// # What it looks for
+///
+/// The ordinal, spelled the way a row spells it. An id's text ends at the
+/// ordinal, and [`girsa_corpus::segment::SegmentId::is_well_formed`] bans `#` from the work slug and
+/// from every section name, so the ordinal is whatever follows the last `#` —
+/// and it is followed either by the closing quote of the JSON string, or by `-`
+/// where the id is the near end of a run. So `#7"` and `#7-`, which cannot be
+/// satisfied by `#7.1` or by `#17`.
+///
+/// **The ordinal and not the whole id**, because the path is the human address
+/// and the ordinal is the durable name (spec.md §3): an edge written down before
+/// upstream re-sectioned a work still carries the old address. The work is not
+/// compared at all, because the end being gated on is always in this file's own
+/// work — a shard holds the edges a work points *from*, and `inbound.jsonl` the
+/// ones that land *in* it.
+///
+/// **And every row carrying `-girsa:` is admitted whatever it says**, because a
+/// run covers what sorts between its ends and need not name this place at
+/// either of them. That is 2,041 rows of Orach Chayim's 159,273 — 1.3%, and the
+/// price of not having to think about whether a daf-wide citation was missed.
+///
+/// # Searched over the whole line, not over the `to` field
+///
+/// Finding a field would mean scanning to its closing quote, and a Sefaria
+/// section name really can carry an ASCII `"` — Hebrew abbreviations are full of
+/// them — which JSON escapes and a naive scan would stop at. Getting that wrong
+/// drops rows. Searching the raw line cannot: at worst the ordinal matches on
+/// the other end of the edge, and that row gets parsed and then rejected on the
+/// merits.
+#[derive(Debug, Clone)]
+pub struct Landing {
+    /// `#7"` and `#7-`, for every name the place answers to.
+    needles: Vec<String>,
+    /// Read everything, because something has moved and the gate cannot know
+    /// where without looking. See [`Landing::also_moved`].
+    everything: bool,
+}
+
+impl Landing {
+    /// The rows that might name this place.
+    #[must_use]
+    pub fn naming(standing: &Standing) -> Self {
+        let mut needles = Vec::with_capacity(standing.len() * 2);
+        for name in standing.names() {
+            let ordinal = name.ordinal().to_string();
+            needles.push(format!("#{ordinal}\""));
+            needles.push(format!("#{ordinal}-"));
+        }
+        Self {
+            needles,
+            everything: false,
+        }
+    }
+
+    /// No gate at all — build every row.
+    #[must_use]
+    pub fn everything() -> Self {
+        Self {
+            needles: Vec::new(),
+            everything: true,
+        }
+    }
+
+    /// Also admit the edge a repair moved, named as it is filed —
+    /// `"{from} → {to}"` of the edge as it was shipped.
+    ///
+    /// A [`crate::repair::Repair::Reanchored`] re-points an edge, so one whose
+    /// stored ends are nowhere near this line can have been moved **onto** it by
+    /// hand. Gating without this would silently drop exactly the links a reader
+    /// edited themselves, which would be the worst possible thing to lose.
+    /// Every ordinal in the filed name is added, because a repair may move
+    /// either end.
+    pub fn also_moved(&mut self, name: &str) {
+        let mut rest = name;
+        while let Some(at) = rest.find('#') {
+            rest = &rest[at + 1..];
+            let ordinal: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            if ordinal.is_empty() {
+                continue;
+            }
+            self.needles.push(format!("#{ordinal}\""));
+            self.needles.push(format!("#{ordinal}-"));
+        }
+    }
+
+    /// Whether a raw row is worth parsing.
+    #[must_use]
+    pub fn admits(&self, line: &str) -> bool {
+        if self.everything {
+            return true;
+        }
+        // A run, whichever end it names. See the note on runs above.
+        if line.contains("-girsa:") {
+            return true;
+        }
+        self.needles.iter().any(|needle| line.contains(needle))
+    }
+}
+
+/// The edges of one file that might name a place, without building the rest.
+///
+/// Same reader and same rows as [`read_edges`] — it *is* `read_edges` with a
+/// gate in front — so the two cannot come to mean different things. Handing it
+/// [`Landing::everything`] gives exactly `read_edges`.
+///
+/// # Errors
+///
+/// If the file exists and cannot be read.
+pub fn read_edges_landing(path: &Path, wanted: &Landing) -> Result<Vec<Edge>, std::io::Error> {
     if !path.is_file() {
         return Ok(Vec::new());
     }
     let body = fs::read_to_string(path)?;
     let mut out = Vec::new();
     for line in body.lines().filter(|l| !l.trim().is_empty()) {
-        let Ok(row) = serde_json::from_str::<Row>(line) else {
+        if !wanted.admits(line) {
             continue;
-        };
-        let (Some(from), Some(to)) = (parse_anchor(&row.from), parse_anchor(&row.to)) else {
-            continue;
-        };
-        out.push(Edge {
-            from,
-            to,
-            edge_type: EdgeType::from_sefaria(&row.label),
-            method: if row.method == Method::OtzariaSeed.as_str() {
-                Method::OtzariaSeed
-            } else {
-                Method::SefariaSeed
-            },
-            source_label: row.label,
-        });
+        }
+        if let Some(edge) = edge_of(line) {
+            out.push(edge);
+        }
     }
     Ok(out)
 }
@@ -281,6 +419,195 @@ mod tests {
         assert_eq!(back, anchor);
         assert_eq!(back.from, a);
         assert_eq!(back.to, Some(b));
+    }
+
+    /// The row `Writer` would write for an edge landing on `#n` of this work.
+    ///
+    /// The far end sits at an ordinal nothing else here uses, because the gate
+    /// searches the whole line and would otherwise be admitting these rows on
+    /// the commentary's ordinal rather than the one under test — see
+    /// [`tests::the_far_end_can_admit_a_row_and_that_is_the_cheap_mistake`].
+    fn row_landing_on(to: &SegmentId) -> String {
+        serde_json::to_string(&Row::of(&Edge {
+            from: Anchor::point(id("mishnah-berurah", 1, 50_000)),
+            to: Anchor::point(to.clone()),
+            edge_type: EdgeType::CommentsOn,
+            method: Method::SefariaSeed,
+            source_label: "commentary".into(),
+        }))
+        .expect("serializes")
+    }
+
+    fn standing_on(to: &SegmentId) -> girsa_corpus::standing::Standing {
+        girsa_corpus::standing::Standing::just(to.clone())
+    }
+
+    #[test]
+    fn an_ordinal_is_not_admitted_by_a_name_that_merely_starts_with_it() {
+        // `#7` against `#7.1` — a cut piece, or a se'if upstream inserted — and
+        // against `#17`. The gate matches on the ordinal *and its terminator*
+        // for exactly this reason; a bare `contains("#7")` would admit both, and
+        // while a false positive is only a wasted parse, being wrong here at
+        // scale is the difference between skipping a shard and reading it.
+        let seven = id("shulchan-arukh/orach-chayim", 1, 7);
+        let wanted = Landing::naming(&standing_on(&seven));
+
+        assert!(wanted.admits(&row_landing_on(&seven)));
+        for other in [
+            SegmentId::new(
+                "shulchan-arukh/orach-chayim",
+                vec!["1".into(), "7".into()],
+                Ordinal::root(7).child(1),
+            ),
+            id("shulchan-arukh/orach-chayim", 1, 17),
+            id("shulchan-arukh/orach-chayim", 1, 70),
+        ] {
+            assert!(
+                !wanted.admits(&row_landing_on(&other)),
+                "{other} is a different place from {seven}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_run_is_admitted_whatever_it_names() {
+        // `Rashi on Berakhot 2a` covers a daf, and a run covers what sorts
+        // between its ends — so it can land on this line while naming neither
+        // it nor anything like it. 2,041 of Orach Chayim's 159,273 inbound rows
+        // are runs; admitting all of them is the price of never having to work
+        // out whether one was missed.
+        let far = Anchor::span(id("bavli/berakhot", 1, 400), id("bavli/berakhot", 9, 900));
+        let row = serde_json::to_string(&Row::of(&Edge {
+            from: Anchor::point(id("rashi/berakhot", 1, 1)),
+            to: far,
+            edge_type: EdgeType::CommentsOn,
+            method: Method::SefariaSeed,
+            source_label: "commentary".into(),
+        }))
+        .expect("serializes");
+
+        let elsewhere = id("bavli/berakhot", 5, 500);
+        assert!(Landing::naming(&standing_on(&elsewhere)).admits(&row));
+    }
+
+    #[test]
+    fn a_stale_address_with_the_right_ordinal_is_admitted() {
+        // The ordinal is the durable name and the path is the human address
+        // (spec.md §3), so an edge written down before upstream re-sectioned the
+        // work carries the old address against the same ordinal. Matching the
+        // whole id text would drop it — which is the failure the gate is most
+        // at risk of, because it would look like a link that was simply never
+        // there.
+        let now = SegmentId::new(
+            "shulchan-arukh/orach-chayim",
+            vec!["4".into(), "2".into()],
+            Ordinal::root(11),
+        );
+        let then = SegmentId::new(
+            "shulchan-arukh/orach-chayim",
+            vec!["3".into(), "9".into()],
+            Ordinal::root(11),
+        );
+        assert_ne!(then.to_string(), now.to_string(), "the addresses differ");
+        assert!(Landing::naming(&standing_on(&now)).admits(&row_landing_on(&then)));
+    }
+
+    #[test]
+    fn a_link_moved_by_hand_survives_the_gate() {
+        // `Repair::Reanchored` puts an edge somewhere its stored ends do not
+        // say it is. The gate cannot know that without reading the rows, so the
+        // filed name of every moved edge is fed back into it. Without this, the
+        // links a reader edited themselves would be the ones the panel dropped.
+        let stored = id("shulchan-arukh/orach-chayim", 9, 900);
+        let here = id("shulchan-arukh/orach-chayim", 1, 1);
+        let mut wanted = Landing::naming(&standing_on(&here));
+        assert!(!wanted.admits(&row_landing_on(&stored)), "not yet");
+
+        wanted.also_moved(&format!(
+            "{} → {}",
+            Anchor::point(id("mishnah-berurah", 1, 1)),
+            Anchor::point(stored.clone())
+        ));
+        assert!(wanted.admits(&row_landing_on(&stored)));
+    }
+
+    #[test]
+    fn the_far_end_can_admit_a_row_and_that_is_the_cheap_mistake() {
+        // The gate searches the raw line rather than picking the `to` field out
+        // of it, because a Sefaria section name can carry an ASCII `"` — Hebrew
+        // abbreviations are full of them — and scanning to a closing quote would
+        // stop early and drop the row. The cost of not parsing JSON to gate JSON
+        // is that the *other* end's ordinal can admit a row too.
+        //
+        // That is the mistake worth making. This row is parsed and then rejected
+        // by `names`, so the answer is unchanged and the bill is one parse. The
+        // opposite trade — a tighter gate that occasionally drops a row — would
+        // lose a link with nothing anywhere saying so.
+        let here = id("shulchan-arukh/orach-chayim", 1, 3);
+        let elsewhere = id("shulchan-arukh/orach-chayim", 9, 900);
+        let row = serde_json::to_string(&Row::of(&Edge {
+            // The commentary happens to sit at ordinal 3 of its own sefer.
+            from: Anchor::point(id("mishnah-berurah", 1, 3)),
+            to: Anchor::point(elsewhere.clone()),
+            edge_type: EdgeType::CommentsOn,
+            method: Method::SefariaSeed,
+            source_label: "commentary".into(),
+        }))
+        .expect("serializes");
+
+        let standing = standing_on(&here);
+        assert!(
+            Landing::naming(&standing).admits(&row),
+            "admitted on the far end's ordinal"
+        );
+        let edge = edge_of(&row).expect("parses");
+        assert!(
+            !edge.to.names(&standing) && !edge.from.names(&standing),
+            "and then rejected on the merits, which is the only thing that decides"
+        );
+    }
+
+    #[test]
+    fn the_gate_and_no_gate_read_the_same_file_the_same_way() {
+        // `read_edges` *is* `read_edges_landing` with everything admitted, so
+        // the two cannot drift into meaning different things — which is the same
+        // argument the module note makes about the outgoing shard and the
+        // inbound cache sharing one reader.
+        let dir = std::env::temp_dir().join("girsa-link-store-gate");
+        let _ = fs::remove_dir_all(&dir);
+        let mut writer = Writer::default();
+        let here = id("mishnah/berakhot", 1, 1);
+        for n in 1..=20 {
+            writer.push(&Edge {
+                from: Anchor::point(id("mishnah/berakhot", 1, n)),
+                to: Anchor::point(id("rambam/berakhot", 1, n)),
+                edge_type: EdgeType::CommentsOn,
+                method: Method::SefariaSeed,
+                source_label: "commentary".into(),
+            });
+        }
+        writer.flush(&dir).expect("writes");
+        let path = edges_path(&dir, "mishnah/berakhot");
+
+        let all = read_edges(&path).expect("reads");
+        assert_eq!(all.len(), 20);
+        let ungated = read_edges_landing(&path, &Landing::everything()).expect("reads");
+        assert_eq!(ungated, all);
+
+        let standing = standing_on(&here);
+        let gated = read_edges_landing(&path, &Landing::naming(&standing)).expect("reads");
+        let kept: Vec<_> = all
+            .iter()
+            .filter(|edge| edge.from.names(&standing))
+            .cloned()
+            .collect();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            gated.iter().filter(|e| e.from.names(&standing)).count(),
+            kept.len(),
+            "the gate kept everything the real test would have"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

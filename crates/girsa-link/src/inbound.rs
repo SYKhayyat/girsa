@@ -180,6 +180,25 @@ pub fn read_back(root: &Path, slug: &str) -> Result<Vec<Edge>, std::io::Error> {
     crate::store::read_edges(&inbound_path(root, slug))
 }
 
+/// The same, keeping only the rows that might land on one place.
+///
+/// This file is the reason the gate exists. It holds every edge in the corpus
+/// that lands anywhere in the work — 159,273 of them for Orach Chayim — and a
+/// reader standing on a line wants the sixty-odd that name it. Building the
+/// other 159,210 and dropping them was 43% of the wait before a panel appeared.
+/// See [`crate::store::Landing`], which is generous on purpose.
+///
+/// # Errors
+///
+/// If the file exists and cannot be read.
+pub fn read_landing(
+    root: &Path,
+    slug: &str,
+    wanted: &crate::store::Landing,
+) -> Result<Vec<Edge>, std::io::Error> {
+    crate::store::read_edges_landing(&inbound_path(root, slug), wanted)
+}
+
 /// Every edge touching a work, each exactly once: the ones it makes and the
 /// ones made onto it.
 ///

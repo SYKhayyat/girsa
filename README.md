@@ -2227,12 +2227,45 @@ stand out:
 - `Row` → `Edge` is 318,546 `SegmentId::from_str` calls, each allocating a work
   string, a path vector and an ordinal vector. Sixty-three of them are wanted.
 
-The filter cannot simply move to the front, because `Repair::Reanchored` can move
-an edge *onto* the line you are standing on — so a correct version tests the raw
-rows first and unions in the handful the repair layer re-pointed. Not fixed here:
-this is a separate piece of work with its own measurement, and the honest state
-of it is written down rather than left for somebody to rediscover with a
-profiler.
+So three things, in the order they cost:
+
+**The repair layer stopped charging for repairs nobody made.** `Repairs::about`
+built its `format!` key before discovering the map was empty, and `Repairs::over`
+cloned every `Edge` to fill a field that stays `None` unless a repair applied.
+Both now check first. A reader who has never judged a link — which is every
+reader on their first day — pays neither.
+
+**Nothing is built out of a row until the row might matter.**
+`girsa_link::store::Landing` gates the raw text: the ordinal spelled as a row
+spells it, `#7"` and `#7-`, which `#7.1` and `#17` cannot satisfy. It is
+**deliberately generous** — it searches the whole line rather than picking out the
+`to` field, because a Sefaria section name can carry an ASCII `"` and scanning to
+a closing quote would stop early and drop rows. So the other end's ordinal can
+admit a row too, and that row is parsed and then rejected on the merits. A false
+positive costs one parse; a false negative loses a link, and only one of those is
+recoverable.
+
+**And the links you moved by hand still arrive.** This is the part that makes the
+gate safe rather than fast: `Repair::Reanchored` puts an edge somewhere its
+stored ends do not mention, so filtering on stored text alone would silently drop
+exactly the links a reader placed themselves. Every re-anchored edge's filed name
+is fed back into the gate. `a_link_you_moved_by_hand_is_not_lost_by_the_thing_that_skips_rows`
+fails if that loop is removed — checked by removing it.
+
+| | Orach Chayim | Yoreh De'ah | Even HaEzer | Choshen Mishpat |
+|---|---|---|---|---|
+| a line, before | 2667 ms | 1035 ms | 437 ms | 1114 ms |
+| a line, now | **311 ms** | **125 ms** | **76 ms** | **153 ms** |
+| | 8.6× | 8.3× | 5.7× | 7.3× |
+| links found | unchanged | unchanged | unchanged | unchanged |
+
+Absolute numbers on a loaded laptop, so the ratios are the reliable half; the
+link counts are identical either side, which is the half that had to be.
+
+**What is left is reading the file at all.** Both files still come off disk whole
+on every click — 95 ms a line of pure bytes for Orach Chayim, against a 311 ms
+panel — and no amount of care above that line gets under it. Only an index from
+ordinal to byte offset would, and that is a new file rather than a change to one.
 
 ### A chaburah is a list, and the order is the chaburah
 

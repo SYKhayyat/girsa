@@ -104,15 +104,32 @@ fn main() {
         }
         let panel = began.elapsed();
 
-        // The same clicks, reading the two files and doing nothing else — so a
-        // slow panel is attributed to the thing actually spending the time
-        // rather than to whichever code changed most recently.
+        // The same clicks with no gate — every row turned into an `Edge` and
+        // then dropped, which is what the panel did before. Kept as the
+        // before-number rather than described, so a regression here shows up as
+        // the two converging.
         let began = Instant::now();
-        for _ in clicks {
+        for _ in clicks.clone() {
             let _ = girsa_link::store::read_back(root, slug).unwrap_or_default();
             let _ = girsa_link::inbound::read_back(root, slug).unwrap_or_default();
         }
-        let reading = began.elapsed();
+        let ungated = began.elapsed();
+
+        // And the floor underneath the gate: both files off disk, no parsing at
+        // all. Whatever is left between this and the panel is the gate scanning
+        // text, and what is left under it can only be got at by not reading the
+        // whole file — which would be a format, not a change.
+        let began = Instant::now();
+        let mut bytes = 0usize;
+        for _ in clicks {
+            for file in [
+                girsa_link::store::edges_path(root, slug),
+                girsa_link::inbound::inbound_path(root, slug),
+            ] {
+                bytes += std::fs::read(&file).map(|b| b.len()).unwrap_or_default();
+            }
+        }
+        let off_disk = began.elapsed();
 
         println!("\n{slug}");
         println!(
@@ -144,9 +161,16 @@ fn main() {
             panel.as_secs_f64() * 1000.0 / clicked as f64
         );
         println!(
-            "    of which reading {:>7.1?} — {:.0}% of it, and none of it this question",
-            reading,
-            reading.as_secs_f64() / panel.as_secs_f64() * 100.0
+            "    ungated, as it was {:>7.1?} — {:.0} ms a line, {:.1}× the above",
+            ungated,
+            ungated.as_secs_f64() * 1000.0 / clicked as f64,
+            ungated.as_secs_f64() / panel.as_secs_f64()
+        );
+        println!(
+            "    the files alone    {:>7.1?} — {:.0} ms a line, {} MB read, and the floor",
+            off_disk,
+            off_disk.as_secs_f64() * 1000.0 / clicked as f64,
+            bytes >> 20
         );
     }
 

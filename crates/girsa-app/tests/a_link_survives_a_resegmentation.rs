@@ -93,16 +93,26 @@ fn link_from(root: &Path, from: &SegmentId) {
     let mut writer = girsa_link::store::Writer::default();
     writer.push(&Edge {
         from: Anchor::point(from.clone()),
-        to: Anchor::point(SegmentId::new(
-            MEFARESH,
-            vec!["1".into(), "1".into()],
-            girsa_corpus::segment::Ordinal::root(1),
-        )),
+        to: Anchor::point(far_end()),
         edge_type: EdgeType::CommentsOn,
         method: Method::SefariaSeed,
         source_label: "commentary".into(),
     });
     writer.flush(root).expect("the shard writes");
+}
+
+/// The commentary's end of every link here.
+///
+/// At an ordinal nothing else in this file uses, because the gate in
+/// `girsa_link::store` searches the whole row: a mefaresh sitting at `#1` would
+/// admit its rows whenever a test stood on se'if 1, and the reanchor test below
+/// would pass without the thing it is testing.
+fn far_end() -> SegmentId {
+    SegmentId::new(
+        MEFARESH,
+        vec!["1".into(), "500".into()],
+        girsa_corpus::segment::Ordinal::root(500),
+    )
 }
 
 /// The id of the se'if whose text is this, as the shelf has it now.
@@ -242,4 +252,66 @@ fn an_edge_onto_a_seif_this_importer_cut_up_reaches_every_piece() {
     }
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_link_you_moved_by_hand_is_not_lost_by_the_thing_that_skips_rows() {
+    // The panel no longer builds an `Edge` out of every row in a shard — it
+    // gates them as text first, because 63 of Orach Chayim's 159,273 inbound
+    // rows are wanted and the other 159,210 cost three allocations each.
+    //
+    // `Repair::Reanchored` is what makes that dangerous. It puts an edge
+    // somewhere its stored ends do not mention, so a gate reading only the
+    // stored text would skip the row and the link would vanish — and it would
+    // be a link the reader moved there themselves, which is the worst thing in
+    // the corpus to lose silently.
+    let root = scratch("moved");
+    let personal = scratch("moved-personal");
+    catalogue(&root);
+
+    let imported = import(&root, vec![seif(1, "אלף"), seif(2, "בית"), seif(3, "גימל")]);
+    let third = id_saying(&imported, "גימל");
+    let first = id_saying(&imported, "אלף");
+    link_from(&root, &third);
+
+    let shipped = Edge {
+        from: Anchor::point(third.clone()),
+        to: Anchor::point(far_end()),
+        edge_type: EdgeType::CommentsOn,
+        method: Method::SefariaSeed,
+        source_label: "commentary".into(),
+    };
+
+    // Nothing moved yet: the link is on se'if 3 and se'if 1 is not its business.
+    let shelf = Shelf::open(&root, &personal).expect("the shelf opens");
+    assert_eq!(links_on(&shelf, &third), 1);
+    assert_eq!(links_on(&shelf, &first), 0);
+    drop(shelf);
+
+    // The reader says the corpus put it in the wrong place.
+    let (mut repairs, trouble) = girsa_link::repair::Repairs::open(&personal);
+    assert!(trouble.is_empty(), "{trouble:?}");
+    repairs
+        .reanchor(
+            &shipped,
+            Anchor::point(first.clone()),
+            Anchor::point(far_end()),
+            "the test",
+        )
+        .expect("the layer takes it");
+
+    let shelf = Shelf::open(&root, &personal).expect("the shelf reopens");
+    assert_eq!(
+        links_on(&shelf, &first),
+        1,
+        "the link is where the reader put it, and the gate let its row through"
+    );
+    assert_eq!(
+        links_on(&shelf, &third),
+        0,
+        "and it is no longer where the corpus had it"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&personal);
 }

@@ -96,8 +96,22 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &Standing) -> Touching {
     let root = shelf.root();
     let mut links = Vec::new();
 
+    // Which rows are worth understanding. Both files are read whole either way —
+    // the cost that mattered was never the disk, it was building an `Edge` out
+    // of every row in a 27 MB shard to keep sixty of them. The gate is text and
+    // is generous; `names` below is still the only thing that decides.
+    //
+    // A repair that re-anchored an edge can have moved it onto this line from
+    // somewhere its stored ends do not mention, so those rows are let through by
+    // name and re-tested after the layer is applied. Skipping that would drop
+    // exactly the links a reader moved by hand.
+    let mut wanted = store::Landing::naming(at);
+    for moved in repairs.moved_from() {
+        wanted.also_moved(moved);
+    }
+
     // Outgoing: one file, the shard of the sefer you are reading.
-    let mine = read_shard(root, at.at().work());
+    let mine = read_shard(root, at.at().work(), &wanted);
     for repaired in repairs.apply(mine) {
         if !repaired.edge.from.names(at) {
             continue;
@@ -113,7 +127,7 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &Standing) -> Touching {
     // would tell a reader "nothing links here" when the truth is "I have not
     // been told what does".
     let incoming_unknown = !inbound::built(root);
-    let onto = inbound::read_back(root, at.at().work()).unwrap_or_default();
+    let onto = inbound::read_landing(root, at.at().work(), &wanted).unwrap_or_default();
     for repaired in repairs.apply(onto) {
         if !repaired.edge.to.names(at) {
             continue;
@@ -185,8 +199,8 @@ fn commentary_first(kind: &girsa_link::EdgeType) -> u8 {
     }
 }
 
-fn read_shard(root: &Path, slug: &str) -> Vec<girsa_link::Edge> {
-    store::read_back(root, slug).unwrap_or_default()
+fn read_shard(root: &Path, slug: &str, wanted: &store::Landing) -> Vec<girsa_link::Edge> {
+    store::read_edges_landing(&store::edges_path(root, slug), wanted).unwrap_or_default()
 }
 
 /// Which words of the segment you are standing on a link is about, where

@@ -222,7 +222,47 @@ impl Repairs {
     /// What you have said about one edge.
     #[must_use]
     pub fn about(&self, edge: &Edge) -> &[Record] {
+        // The key is a `format!` of both anchors, and for a reader who has never
+        // judged a link there is nowhere for it to land. The panel asks this
+        // once per edge in a shard — 159,273 of them for a line of Orach Chayim
+        // — so building the key first cost 297 ms and 16.3 MB of throwaway
+        // string to look up an empty map.
+        if self.by_edge.is_empty() {
+            return &[];
+        }
         self.by_edge.get(&name_of(edge)).map_or(&[], Vec::as_slice)
+    }
+
+    /// Whether any repair moves an edge to a different place.
+    ///
+    /// Asked by a caller that wants to skip rows without reading them: a
+    /// [`Repair::Reanchored`] is the one repair that can put an edge somewhere
+    /// its stored anchors do not say it is, so a gate that has not accounted for
+    /// them is a gate that can drop a link you moved by hand.
+    #[must_use]
+    pub fn moves_anything(&self) -> bool {
+        self.records()
+            .any(|record| matches!(record.repair, Repair::Reanchored { .. }))
+    }
+
+    /// The name each moved edge is filed under — `"{from} → {to}"` of the edge
+    /// as it was **shipped**, which is how a row still on disk spells it.
+    ///
+    /// Empty for every reader who has not moved a link, which is why the gate
+    /// can be cheap without being wrong.
+    pub fn moved_from(&self) -> impl Iterator<Item = &str> {
+        self.by_edge
+            .iter()
+            .filter(|(_, records)| {
+                records
+                    .iter()
+                    .any(|record| matches!(record.repair, Repair::Reanchored { .. }))
+            })
+            .map(|(name, _)| name.as_str())
+    }
+
+    fn records(&self) -> impl Iterator<Item = &Record> {
+        self.by_edge.values().flatten()
     }
 
     /// Confirm or reject a link.
@@ -448,6 +488,14 @@ impl Repairs {
 
     fn over(&self, shipped: Edge) -> Repaired {
         let records = self.about(&shipped);
+        // Nothing to put over it, which is every edge in the corpus for a reader
+        // who has repaired nothing. The clone below exists to keep the shipped
+        // edge beside the repaired one; with no repair there is nothing to
+        // compare it against, and cloning here charged a 27 MB shard's worth of
+        // `SegmentId`s for a field that would stay `None`.
+        if records.is_empty() {
+            return Repaired::of(shipped);
+        }
         let mut repaired = Repaired::of(shipped.clone());
         for record in records {
             match &record.repair {
