@@ -132,6 +132,25 @@ fn main() -> std::process::ExitCode {
         shards.len()
     );
 
+    // Sorted by where its rows land, and indexed, so the panel can read the
+    // kilobytes that matter instead of the file that holds them. Last, because
+    // it rewrites what the walk just wrote; the pass counts its own rows and
+    // refuses to write a file it would have shortened.
+    let mut indexed = (0usize, 0usize, 0usize);
+    for path in inbound_paths(&links) {
+        match girsa_link::inbound::sort_and_index_at(&path) {
+            Ok(0) => {}
+            Ok(places) => {
+                indexed.0 += 1;
+                indexed.1 += places;
+            }
+            Err(e) => {
+                indexed.2 += 1;
+                eprintln!("  {}: not indexed — {e}", path.display());
+            }
+        }
+    }
+
     println!("two caches written beside the edges:");
     println!("  shards read        {done}");
     println!("  edges              {edges}");
@@ -145,9 +164,19 @@ fn main() -> std::process::ExitCode {
         inbound.internal()
     );
     println!(
+        "  landing index      {} works, {} places   (inbound sorted by where its rows land)",
+        indexed.0, indexed.1
+    );
+    println!(
         "  took               {:.0}s",
         started.elapsed().as_secs_f64()
     );
+    if indexed.2 > 0 {
+        println!(
+            "  not indexed        {}   (read the slower way, and named above)",
+            indexed.2
+        );
+    }
     if unreadable > 0 {
         println!("  shards unreadable  {unreadable}");
     }
@@ -169,6 +198,15 @@ fn main() -> std::process::ExitCode {
 
 /// Every `edges.jsonl` under the links tree.
 fn shard_paths(links: &Path) -> Vec<PathBuf> {
+    named_files(links, "edges.jsonl")
+}
+
+/// Every `inbound.jsonl` under the tree, for the sorting pass.
+fn inbound_paths(links: &Path) -> Vec<PathBuf> {
+    named_files(links, "inbound.jsonl")
+}
+
+fn named_files(links: &Path, name: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![links.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -179,7 +217,7 @@ fn shard_paths(links: &Path) -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.file_name().is_some_and(|n| n == "edges.jsonl") {
+            } else if path.file_name().is_some_and(|n| n == name) {
                 out.push(path);
             }
         }

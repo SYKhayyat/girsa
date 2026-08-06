@@ -126,8 +126,22 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &Standing) -> Touching {
     // lists anything for this sefer, and answering the first with the second
     // would tell a reader "nothing links here" when the truth is "I have not
     // been told what does".
+    //
+    // The index knows where rows land and can read a few kilobytes instead of
+    // twenty-seven megabytes — but it knows it from the rows as *stored*, and a
+    // re-anchored edge is precisely one that is not where its row says. So a
+    // reader who has moved a link by hand takes the gate over the whole file,
+    // which finds it. Slower for them, and the same answers for everyone: both
+    // paths hand what they find to the same `names` test below.
     let incoming_unknown = !inbound::built(root);
-    let onto = inbound::read_landing(root, at.at().work(), &wanted).unwrap_or_default();
+    let onto = if repairs.moves_anything() {
+        None
+    } else {
+        inbound::read_at(root, at.at().work(), at)
+    };
+    let onto = onto.unwrap_or_else(|| {
+        inbound::read_landing(root, at.at().work(), &wanted).unwrap_or_default()
+    });
     for repaired in repairs.apply(onto) {
         if !repaired.edge.to.names(at) {
             continue;

@@ -2262,10 +2262,45 @@ fails if that loop is removed — checked by removing it.
 Absolute numbers on a loaded laptop, so the ratios are the reliable half; the
 link counts are identical either side, which is the half that had to be.
 
-**What is left is reading the file at all.** Both files still come off disk whole
-on every click — 95 ms a line of pure bytes for Orach Chayim, against a 311 ms
-panel — and no amount of care above that line gets under it. Only an index from
-ordinal to byte offset would, and that is a new file rather than a change to one.
+**And then the file stopped being read whole.** Everything above was still paying
+95 ms a line just to get Orach Chayim's 27 MB off the disk, and nothing done to
+rows already in hand gets under that. So `inbound.jsonl` is now **sorted by where
+its rows land** — runs first, then points in landing order — with a small index
+beside it:
+
+```jsonl
+corpus/links/shulchan-arukh/orach-chayim/inbound.landing
+{"runs":352104}
+{"at":[1],"from":352104,"len":1871}
+```
+
+Sorting is what makes the index small. Rows landing on one segment become
+contiguous, so there is one entry per **distinct landing place** — 4,171 against
+159,273 rows — and a lookup is `binary_search` over a slice in memory rather than
+a hand-rolled seek over a file, which is the kind of thing that goes subtly wrong
+and loses links quietly. The runs sit in a block at the head because a run covers
+what sorts between its ends and so lands on places it does not name; there is no
+ordinal to file it under, so all 1.3% of them are read every time.
+
+| a line | Orach Chayim | Yoreh De'ah | Even HaEzer | Choshen Mishpat |
+|---|---|---|---|---|
+| before | 1753 ms | 975 ms | 368 ms | 1184 ms |
+| after | **26 ms** | **36 ms** | **23 ms** | **74 ms** |
+| | 68.7× | 26.8× | 16.1× | 16.1× |
+
+816 links on Orach Chayim's twenty sampled lines, which is what every run before
+it said too. Over the whole shelf the pass took **125 s for 5,317 works and
+845,274 landing places**, and `find corpus/links -name inbound.jsonl | cat | wc -l`
+reads 4,131,100 rows before and after — the sort refuses to write a file it would
+have shortened, counted rather than trusted.
+
+**Two read paths, and only one of them can be wrong about anything.** The index
+is a cache of a cache (§4.1): missing, or disagreeing with itself, and the text
+gate does the work instead. And the index knows where rows land *as stored*,
+which a hand-re-anchored edge is precisely not — so a reader who has moved a link
+takes the gate over the whole file, which finds it. Slower for them; the same
+answers for everyone, because both paths hand what they find to the same `names`
+test.
 
 ### A chaburah is a list, and the order is the chaburah
 

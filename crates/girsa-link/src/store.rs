@@ -175,7 +175,7 @@ pub fn read_edges(path: &Path) -> Result<Vec<Edge>, std::io::Error> {
 
 /// One row, understood. `None` for a line that will not parse, which costs that
 /// edge and not the file.
-fn edge_of(line: &str) -> Option<Edge> {
+pub(crate) fn edge_of(line: &str) -> Option<Edge> {
     let row = serde_json::from_str::<Row>(line).ok()?;
     let (from, to) = (parse_anchor(&row.from)?, parse_anchor(&row.to)?);
     Some(Edge {
