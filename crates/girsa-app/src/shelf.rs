@@ -220,7 +220,8 @@ impl Shelf {
         if work.version.is_none() {
             work.version = read.work.version.clone();
         }
-        let open = Open::corrected(work, read.segments, &self.fixes, self.showing);
+        let open = Open::corrected(work, read.segments, &self.fixes, self.showing)
+            .redirected_by(&read.redirects);
         // A scan the reader has paged is addressed by what is printed on its
         // pages (W25). One place decides that, and this is it.
         Ok(match self.scans.of(slug) {
@@ -705,6 +706,14 @@ pub struct Open {
     /// the panes would disagree with the links.
     index: SegmentIndex,
     position: HashMap<SegmentId, usize>,
+    /// Names this work no longer has live, and where the importer said the
+    /// words went — `redirects.jsonl`, read back (spec.md §3).
+    ///
+    /// Empty for a work nothing has ever re-segmented or cut, which is most of
+    /// them. It is here rather than looked up per lookup because the failure it
+    /// guards against is a link, a correction or a citation in somebody's Ksav
+    /// document quietly resolving to nothing after a corpus update.
+    redirects: HashMap<SegmentId, Vec<SegmentId>>,
     /// For a scan, what the reader has said its pages are called (W25).
     ///
     /// # Why an address of a scan is read through this and not through `index`
@@ -774,8 +783,24 @@ impl Open {
             corrections,
             index,
             position,
+            redirects: HashMap::new(),
             paging: None,
         }
+    }
+
+    /// The same, told where the names this work no longer has live went.
+    ///
+    /// Set by [`Shelf::read`] from what `read_back` found beside the segments,
+    /// and by nothing else — what an id of a sefer resolves to may be decided in
+    /// one place.
+    #[must_use]
+    pub fn redirected_by(mut self, redirects: &[girsa_corpus::import::Redirect]) -> Self {
+        self.redirects = redirects
+            .iter()
+            .filter(|row| !row.to.is_empty())
+            .map(|row| (row.from.clone(), row.to.clone()))
+            .collect();
+        self
     }
 
     /// The same, knowing what the reader has said this scan's pages are called.
@@ -838,8 +863,15 @@ impl Open {
 
     /// Where every segment an id covers sits, in reading order.
     ///
-    /// Itself, if it is live. Its children, if it was split. Empty if it names
-    /// nothing here — never the nearest thing.
+    /// Itself, if it is live. Its children, if it was split. Where the importer
+    /// said the words went, if upstream re-segmented the work under it. Empty if
+    /// it names nothing here — never the nearest thing.
+    ///
+    /// The three are tried in that order and it is the order of how much is
+    /// known. An id that is live is a fact; ancestry is a fact about the name;
+    /// a redirect is a judgement the importer recorded and can be read back and
+    /// argued with. What is never done is picking the closest surviving segment,
+    /// which would resolve cleanly to somebody else's words.
     #[must_use]
     pub fn covered_by(&self, id: &SegmentId) -> Vec<usize> {
         if let Some(at) = self.position.get(id).copied() {
@@ -851,7 +883,47 @@ impl Open {
             .filter(|(live, _)| id.covers(live))
             .map(|(_, at)| *at)
             .collect();
+        if out.is_empty() {
+            out = self.redirected(id, 0);
+        }
         out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Follow `redirects.jsonl` for a name this work no longer has live.
+    ///
+    /// Chained, because two corpus updates can move the same words twice, and
+    /// depth-capped for the same reason [`girsa_corpus::store::SegmentStore`]
+    /// caps its own: a hand-edited overlay that built a cycle should cost the
+    /// reader an empty answer, not a frozen window.
+    fn redirected(&self, id: &SegmentId, depth: usize) -> Vec<usize> {
+        /// A chain longer than this is a cycle somebody built by hand.
+        const MAX_DEPTH: usize = 32;
+        if depth > MAX_DEPTH {
+            return Vec::new();
+        }
+        let Some(row) = self.redirects.get(id) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for to in row {
+            if let Some(at) = self.position.get(to).copied() {
+                out.push(at);
+                continue;
+            }
+            let covered: Vec<usize> = self
+                .position
+                .iter()
+                .filter(|(live, _)| to.covers(live))
+                .map(|(_, at)| *at)
+                .collect();
+            if covered.is_empty() {
+                out.extend(self.redirected(to, depth + 1));
+            } else {
+                out.extend(covered);
+            }
+        }
         out
     }
 

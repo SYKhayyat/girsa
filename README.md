@@ -202,7 +202,7 @@ built.** All four verify commands green in all three repositories.
 | **W3** · `girsa-ref` | The resolver. **100.00% exact on 2,970 real citations**, 0 wrong. Lexicon of 6,594 works and 24,731 spellings, built from Sefaria's schemas. |
 | **W4** · `girsa-source` | The Source Packet. Ksav compiles it, and an arriving quote is put through the **real Typst compiler** rather than merely deserialized. |
 | **W5** · fetch | 12,826 files, 3.4 GB on disk. Resumable — killed at 47%, resumed with nothing refetched. |
-| **W6** · segment IDs | `girsa:mishnah-berurah/1:1#7`. One typo fix, 501 links: **line numbers moved 501, permanent ids moved 0.** |
+| **W6** · segment IDs | `girsa:mishnah-berurah/1:1#7`. One typo fix, 501 links: **line numbers moved 501, permanent ids moved 0.** And across a **re-import**: one se'if added upstream to a 4,182-se'if sefer renames nothing and mints one name. Run over the whole shelf — **7,189 works, all 5,000,545 ids kept, none minted, none moved.** |
 | **W7** · import | Sefaria spine, Otzaria fill. **7,189 works · 5,000,545 segments**, each named once and never again. Mishnah Berurah 18,120/701 and Shulchan Arukh O.C. 697/4,171 — `spec.md` §2's numbers, exactly. |
 | **W8** · links | The graph, on segment ids rather than line numbers. **4,182,344 edges** from 5,108,893 rows — 81.9%, and **92.6%** of the rows whose sefer is on the shelf at all. Every dropped row counted under why, and **nothing left ambiguous**. Mishnah Berakhot 1:1 → the Rambam on it, end to end. |
 | **W9** · the workspace | Tabs, splits, RTL, nikud toggle, per-sefer position memory — and **a commentary column that follows the text**. Berakhot open with Rashi beside it: move the Gemara to 2a:6 and the Rashi column moves to 2a:6:1. **1,718 of Berakhot's 2,749 lines have a Rashi**; on the other 1,031 the column says *אין כאן* and stays where it is. |
@@ -2006,6 +2006,125 @@ the test in `crates/girsa-app/tests/a_note_is_a_node.rs` splits the first
 mishnah of Berakhot in two and asserts the note, the highlight and the chaburah
 folder are on both halves. That is W6's 501-link test, asked about the one kind
 of anchor that is yours rather than the corpus's.
+
+### And the second time you run the importer
+
+Everything above is about a correction *you* make. The other direction is the
+corpus itself changing under all of it, and for a long time the answer to that
+was a promise rather than a mechanism.
+
+`spec.md` §3 calls permanent ids *"the single most important decision in this
+document"* and *"close to impossible to retrofit"*. Three doc comments —
+`store.rs`, `segment.rs`, `BUILDER.md` W6 — promised a **redirect table** that
+absorbs an upstream re-segmentation. `SegmentStore` really did have one. It was
+in memory, `import::write` emitted `work.json` and `segments.jsonl` and nothing
+else, and a store round-tripped through disk lost every row it held.
+
+Which meant the thing underneath it was worse. `SegmentStore::import` handed out
+`Ordinal::root(i + 1)` from enumeration position, with a doc comment saying *"it
+happens once in the life of a work"* — a claim about the world, not about the
+code. `girsa-import` runs over the whole catalogue on every invocation and
+`write` is an unconditional overwrite. So:
+
+> Sefaria adds one se'if to siman 1 of Orach Chayim. You re-run `girsa-import`.
+> **4,170 segments renumber by one.**
+
+Not a broken link. The wrong text, silently — which is T1 verbatim, at import
+granularity instead of line granularity, in a tool called `girsa-import`. The
+permanence held exactly as long as you never re-imported. `--metadata-only`
+exists because somebody expected the importer to be re-run; somebody noticed
+re-importing was expensive and nobody noticed it was also destructive.
+
+**A name is now matched on the words, not on the address.** An anchor names
+words, so that is the evidence that two records are the same place:
+
+| what upstream did | what happens |
+|---|---|
+| inserted a se'if at 1:3 | every other text is unchanged, so every other name is kept; one name is minted **between** its neighbours — `#2.1`, not `#3` |
+| re-sectioned the whole work | every address changed and no words did: **nothing is renamed** |
+| fixed a typo | that text changed and its neighbours did not, so they pin the gap and the address settles it inside — corroborated by the opening word, because an address alone is how `1:3` ends up being a *different* se'if wearing the old one's name |
+| folded se'if 3 into se'if 2 | `#3` is redirected at the record that absorbed its words; anchors on it still resolve |
+| deleted a se'if | `#4` redirects to **nothing**, and says so. Its name is never handed to different words |
+
+Unique texts anchor the alignment, the longest run of those that goes forward on
+both sides is kept so the matching cannot cross itself, and addresses settle
+what is left inside each gap. `crates/girsa-corpus/src/import/continuity.rs`.
+
+`redirects.jsonl` sits beside `segments.jsonl` and is where the rows live:
+
+```jsonl
+{"from":"girsa:…/1:1#32","to":["girsa:…/1:1#32.1","girsa:…/1:1#32.2"],"why":"cut"}
+{"from":"girsa:…/1:5#5","to":["girsa:…/1:4#4"],"why":"resegmented"}
+{"from":"girsa:…/1:9#9","to":[],"why":"gone"}
+```
+
+Three events, one mechanism, because from an anchor's point of view they are the
+same event: *what I named is over there now*. The `cut` rows are the oversized
+cutter's own (B12) and they are what makes this file exercised by real data
+rather than a slot nothing ever fills — they are also how the *next* import
+knows those three records were one se'if. `gone` carries an empty `to` on
+purpose: a place this edition does not have is a different answer from an id
+nobody ever minted, and it is the difference between a reader being told *this
+is not in the edition you have* and being shown somebody else's words.
+
+The reader follows it. `Open::covered_by` resolves live → ancestry → redirect,
+in that order, which is the order of how much is known — and never picks the
+nearest surviving segment, which would resolve cleanly and be wrong.
+
+What the importer prints after a re-import:
+
+```
+permanent ids across the re-import:
+  re-imported        7189 works already on the shelf
+  kept their id      5000545
+  newly minted       0 (between their neighbours; nothing moved)
+```
+
+And what it would do before you run it, without a network or an Otzaria tree:
+
+```sh
+cargo run --release -p girsa-corpus --example measure-continuity -- corpus
+```
+
+```
+  re-imported        7189 works already on the shelf
+  kept their id      5000545
+  newly minted       0 (between their neighbours; nothing moved)
+
+no permanent id would change the words it names.
+```
+
+**The whole shelf. All 5,000,545.** Not a sample and not a synthetic fixture —
+`spec.md` §2's number, re-imported against itself, with every permanent id
+landing on the words it already named.
+
+It did not start there. The first run over the real corpus lost 5,868 names
+across 1,500 works, and both causes were things no synthetic fixture would ever
+have contained:
+
+- **Text on disk written before W34 mined the anchors out.** `tosefta-shabbat-lieberman`
+  and about 1,500 others still carry `<i data-commentator…></i>` in their `text`,
+  because they were imported before that landed and nothing has re-imported them
+  since. A freshly mined text matches none of it — so the works most in need of a
+  re-import would have been exactly the ones it renamed. `places_of` mines the
+  previous run's text too; mining is idempotent and costs a substring scan.
+- **18 segments in `tur` whose entire content is one anchor**, and so are empty
+  once it is mined. Two texts with no words in them now agree: the failure being
+  guarded against is an old name landing on new *words*, and a segment with no
+  words cannot be wrong about which ones it has.
+
+The extra cost is one read of each work's own `segments.jsonl` — the file the
+import is about to overwrite anyway.
+
+**What this does not reach yet.** The reading pane follows the table; the link
+graph does not. `corpus/links/` holds 4.18M edges addressed by segment id, and
+an edge whose endpoint was re-segmented would resolve through `covers` and not
+through `redirects.jsonl` — so it survives a cut and would not survive a
+re-segmentation. That is the same one-line change in `girsa_link::store`, and it
+is not made here because nothing has re-segmented yet and a change to how 4.18M
+edges resolve wants its own measurement. Said out loud rather than left to be
+discovered: it is the difference between the promise holding for a reader's own
+anchors and holding for everything.
 
 ### A chaburah is a list, and the order is the chaburah
 

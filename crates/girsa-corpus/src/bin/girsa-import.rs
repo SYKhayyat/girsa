@@ -108,6 +108,17 @@ fn main() -> std::process::ExitCode {
             eprintln!("{line}");
         }
     }
+    // What the second and every later run of this tool costs the shelf. Silent
+    // on a first import, because there was no name to keep; loud after that,
+    // because this is the number spec.md §3 is about.
+    if imported.continuity.is_empty() {
+        eprintln!("first import — every permanent id is new");
+    } else {
+        eprintln!("permanent ids across the re-import:");
+        for line in imported.continuity.said() {
+            eprintln!("{line}");
+        }
+    }
 
     // From `imported.works`, never from `catalogue.works()`. The catalogue is
     // built from the schemas and has not opened a text file, so it does not
@@ -226,6 +237,14 @@ struct Imported {
     /// standard this project already holds itself to — 5,733 segments over 10,000
     /// characters, the largest 1,275,307, were counted nowhere at all.
     oversized: girsa_corpus::oversized::Tally,
+    /// How many permanent ids this pass kept, and how many it had to mint.
+    ///
+    /// The number that says whether spec.md §3 held. Every link, correction,
+    /// mark and Ksav citation on the shelf names an id this pass either kept or
+    /// did not, and a re-import that renamed 4,170 segments is not a slow import
+    /// — it is a silently wrong one, so it gets a line in the report rather than
+    /// being something you find out about from a reader.
+    continuity: girsa_corpus::import::continuity::Continuity,
     /// In catalogue order, and only the works that were actually written. A
     /// work that could not be read has no text on disk, so a line for it in
     /// the index would be a sefer the shelf offers and then fails to open.
@@ -241,6 +260,9 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
     let done = Arc::new(AtomicUsize::new(0));
     let failed = Arc::new(AtomicUsize::new(0));
     let oversized = Arc::new(Mutex::new(girsa_corpus::oversized::Tally::default()));
+    let continuity = Arc::new(Mutex::new(
+        girsa_corpus::import::continuity::Continuity::default(),
+    ));
     let counts = Arc::new(Mutex::new(Counts::default()));
     let written = Arc::new(Mutex::new(Vec::<(usize, Work)>::with_capacity(total)));
 
@@ -251,25 +273,33 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
             let failed = Arc::clone(&failed);
             let counts = Arc::clone(&counts);
             let oversized = Arc::clone(&oversized);
+            let continuity = Arc::clone(&continuity);
             let written = Arc::clone(&written);
             scope.spawn(move || loop {
                 let Some((at, work)) = queue.lock().ok().and_then(|mut q| q.pop()) else {
                     return;
                 };
-                match import::read(&work).and_then(|imported| {
+                // `read_over`, not `read`: the work may already be on the shelf,
+                // and a name it was given then is inside links, corrections and
+                // Ksav documents that this pass does not get to see. spec.md §3.
+                match import::read_over(root, &work).and_then(|imported| {
                     let c = imported.counts();
                     let big = imported.oversized.clone();
+                    let kept = imported.continuity.clone();
                     import::write(root, &imported)?;
                     // `imported.work`, not `work`: this is the one that has
                     // been told which edition it was read out of.
-                    Ok((c, big, imported.work))
+                    Ok((c, big, kept, imported.work))
                 }) {
-                    Ok((c, big, as_written)) => {
+                    Ok((c, big, kept, as_written)) => {
                         if let Ok(mut total) = counts.lock() {
                             total.absorb(c);
                         }
                         if let Ok(mut total) = oversized.lock() {
                             total.absorb(&big);
+                        }
+                        if let Ok(mut total) = continuity.lock() {
+                            total.absorb(&kept);
                         }
                         if let Ok(mut written) = written.lock() {
                             written.push((at, as_written));
@@ -301,6 +331,7 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
     works.sort_by_key(|(at, _)| *at);
     Imported {
         oversized: oversized.lock().map(|t| t.clone()).unwrap_or_default(),
+        continuity: continuity.lock().map(|c| c.clone()).unwrap_or_default(),
         counts: counts.lock().map(|c| *c).unwrap_or_default(),
         works: works.into_iter().map(|(_, w)| w).collect(),
     }

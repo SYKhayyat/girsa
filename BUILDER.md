@@ -289,6 +289,23 @@ storing a line number after this order lands.
 **Acceptance.** The 501-link test above, green. And: no line number is persisted
 anywhere as a durable reference — prove it with a grep in the commit message.
 
+**Amended after the fact, because the acceptance above was passed by a design
+that did not hold it.** All three scenarios were tested in memory, on a
+`SegmentStore` that was never written down. `import::write` emitted `work.json`
+and `segments.jsonl` and had no slot for a redirect table, so the third scenario
+— *"and for an upstream re-segmentation via the redirect table"* — was green
+against a table that could not survive the process exiting. Underneath it,
+`SegmentStore::import` derived ordinals from enumeration position on **every**
+run of `girsa-import`, so re-importing after Sefaria added one se'if renamed
+4,170 segments: T1, at import granularity, inside the order that exists to
+prevent T1.
+
+So the acceptance is now: **run the importer twice**, with one se'if inserted
+between the runs, and assert through `write`/`read_back` that every other name
+still resolves to the same words. An in-memory assertion does not count here;
+the disk is the whole point. `crates/girsa-corpus/tests/a_reimport_keeps_every_name.rs`,
+and `--example measure-continuity` is the same check over the real corpus.
+
 ### W7 · Import texts
 
 **Goal.** Sefaria spine + Otzaria fill, one model (`spec.md` §2.3b).

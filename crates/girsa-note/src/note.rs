@@ -702,6 +702,11 @@ impl Notes {
             // characters, so there is nothing oversized to count (B12). Default
             // rather than measured, because measuring would be measuring zero.
             oversized: girsa_corpus::oversized::Tally::default(),
+            // A note's paragraph ids are minted by the note itself and kept in
+            // its own file (W27), so re-shelving one never renames anything and
+            // there is never anywhere for a name to have gone.
+            redirects: Vec::new(),
+            continuity: girsa_corpus::import::continuity::Continuity::default(),
         };
         girsa_corpus::import::write(&self.personal, &imported)
             .map_err(|e| NoteError::Refused(e.to_string()))?;

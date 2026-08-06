@@ -22,7 +22,25 @@
 //! is readable; but the name is *in* the line, so sorting, re-ordering,
 //! inserting and deleting are all safe, and a split writes `#30.1` and `#30.2`
 //! wherever it likes.
+//!
+//! # The second file, and why it is not optional
+//!
+//! `redirects.jsonl` sits beside `segments.jsonl` and says where the names that
+//! are no longer live went:
+//!
+//! ```jsonl
+//! {"from":"girsa:shulchan-arukh/orach-chayim/1:1#32","to":["…#32.1","…#32.2"],"why":"cut"}
+//! {"from":"girsa:shulchan-arukh/orach-chayim/1:5#5","to":["…/1:4#4"],"why":"resegmented"}
+//! {"from":"girsa:shulchan-arukh/orach-chayim/1:9#9","to":[],"why":"gone"}
+//! ```
+//!
+//! Without it the format has nowhere to keep the one thing spec.md §3 says the
+//! design rests on. `SegmentStore` has held a redirect table since W6 and lost
+//! every row of it the moment the work was written to disk, so the promise in
+//! its doc comment — *"a Ksav document written last year still opens"* — held
+//! exactly as long as nobody re-ran the importer. See [`continuity`].
 
+pub mod continuity;
 pub mod mine;
 pub mod otzaria;
 pub mod sefaria;
@@ -34,7 +52,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::oversized;
 use crate::segment::SegmentId;
-use crate::store::SegmentStore;
 use crate::work::{Source, Work};
 
 /// What a segment is, as far as the reader is concerned.
@@ -43,7 +60,7 @@ use crate::work::{Source, Work};
 /// Berurah as *"18,120 lines with 701 headings"*, which is only checkable if
 /// the two are told apart; and a search hit inside a heading is a different
 /// kind of result from one inside the text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SegmentKind {
     Text,
@@ -143,6 +160,78 @@ pub struct Segment {
     pub anchors: Vec<crate::anchors::Anchor>,
 }
 
+/// Why a permanent id stopped being live.
+///
+/// Named rather than inferred. `places_of` has to tell a cut apart from a
+/// re-segmentation to reassemble what a previous run judged, and a reader
+/// deserves to know whether the place it is looking for was divided or is
+/// simply not in this edition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Why {
+    /// Too long to name a place, so this importer cut it into places (B12).
+    /// `to` is its children and their texts concatenate back to its own.
+    Cut,
+    /// Upstream re-drew the boundaries and the words are in `to` now.
+    Resegmented,
+    /// Upstream does not have this place at all any more. `to` is empty, and
+    /// that is an answer: an anchor on it resolves to nothing *and can say
+    /// why*, which is not the same as an id nobody ever minted.
+    Gone,
+}
+
+/// Where a name that is no longer live points now.
+///
+/// One mechanism for three events, because from an anchor's point of view they
+/// are the same one: *what I named is over there now*.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Redirect {
+    pub from: SegmentId,
+    pub to: Vec<SegmentId>,
+    pub why: Why,
+}
+
+/// What the last import left on disk for this work, ready to be kept faith with.
+///
+/// [`Previous::none`] is a first import and costs nothing: the ordinals come out
+/// of enumeration position exactly as they always did, because there is no
+/// earlier promise to keep.
+#[derive(Debug, Clone, Default)]
+pub struct Previous {
+    places: Vec<continuity::Place>,
+    redirects: Vec<Redirect>,
+}
+
+impl Previous {
+    /// Nothing on the shelf yet.
+    #[must_use]
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// Read what is on the shelf for `slug`, or nothing if it is not there.
+    ///
+    /// A work that will not parse reads as nothing rather than failing the
+    /// import: the alternative is refusing to re-import a shelf that a half-
+    /// written file has damaged, and the names in a damaged file are not names
+    /// worth keeping anyway. It is counted by the caller either way.
+    #[must_use]
+    pub fn on_the_shelf(root: &Path, slug: &str) -> Self {
+        match read_back(root, slug) {
+            Ok(previous) => Self {
+                places: continuity::places_of(&previous.segments, &previous.redirects),
+                redirects: previous.redirects,
+            },
+            Err(_) => Self::none(),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.places.is_empty()
+    }
+}
+
 /// A segment before it has been given a name.
 ///
 /// What the two source parsers produce. Ordinals are assigned in exactly one
@@ -165,6 +254,17 @@ pub struct ImportedWork {
     /// Counted on the way through `assemble`, so the number in the import's report
     /// is the number the importer acted on rather than a second measurement.
     pub oversized: oversized::Tally,
+    /// Every name that is no longer live, and where it went.
+    ///
+    /// Written to `redirects.jsonl` and read back by the next import and by the
+    /// reading pane. Never empty for a work with a cut segment in it, which is
+    /// what keeps this file exercised by real data rather than being a slot
+    /// nothing ever fills.
+    pub redirects: Vec<Redirect>,
+    /// How many of this work's places kept the name they had (spec.md §3).
+    ///
+    /// All zero for a first import: there was no name to keep.
+    pub continuity: continuity::Continuity,
 }
 
 /// What an import found, for asserting against spec.md §2.
@@ -202,30 +302,76 @@ impl ImportedWork {
     ///
     /// The tally of what was cut goes on `oversized`, so the import reports it the
     /// way it reports everything else.
+    ///
+    /// A cut is also written down. `#32` covering `#32.1 #32.2 #32.3` is what
+    /// keeps an anchor on the parent working *inside one run*, and it is not
+    /// enough on its own: the next import has to be able to see that those three
+    /// records were one se'if, or it will compare a whole se'if against a third
+    /// of one and match neither. So the cut goes to disk as a [`Why::Cut`] row.
     #[must_use]
     pub fn assemble(work: Work, raw: Vec<RawSegment>) -> Self {
-        let kinds: Vec<SegmentKind> = raw.iter().map(|r| r.kind).collect();
-        let store = SegmentStore::import(
-            work.slug.clone(),
-            raw.into_iter().map(|r| (r.path, r.text)).collect(),
-        );
+        Self::assemble_after(work, raw, &Previous::none())
+    }
 
-        // `SegmentStore` is ordered by ordinal, and the ordinals were handed
-        // out in the order the segments were given — so this zip is reading
-        // order against reading order. Nothing else here may assume that.
+    /// The same, keeping every name the previous import already handed out.
+    ///
+    /// # Why this is not a nicety
+    ///
+    /// spec.md §3 is about T1: an id derived from position means inserting one
+    /// line silently re-points every anchor below it. `assemble` derives the id
+    /// from position. It did so once per work and called that *"once in the life
+    /// of a work"*, which was a claim about the world rather than about the
+    /// code — `girsa-import` runs over the whole catalogue on every invocation
+    /// and [`write`] is an unconditional overwrite. Sefaria adding one se'if to
+    /// siman 1 of Orach Chayim renumbered 4,170 segments by one, which is T1
+    /// verbatim at import granularity, and `--metadata-only` exists precisely
+    /// because somebody expected the importer to be re-run.
+    ///
+    /// So the names come from [`continuity::align`] when there is a previous run
+    /// to keep faith with, and from enumeration position only when there is not.
+    #[must_use]
+    pub fn assemble_after(work: Work, raw: Vec<RawSegment>, previous: &Previous) -> Self {
+        // Mined first, and once. 61% of a heavily-commented sefer's bytes are
+        // markup, so both the length judgement and the text the alignment
+        // matches on have to be the mined text — the previous run's file holds
+        // the mined text and nothing else.
+        let mined: Vec<crate::anchors::Mined> =
+            raw.iter().map(|r| crate::anchors::mine(&r.text)).collect();
+        let fresh: Vec<continuity::Fresh<'_>> = raw
+            .iter()
+            .zip(&mined)
+            .map(|(r, m)| continuity::Fresh {
+                path: &r.path,
+                kind: r.kind,
+                text: &m.text,
+            })
+            .collect();
+
+        let Named {
+            ordinals,
+            carried,
+            went,
+            mut tally,
+        } = name_them(&fresh, previous);
+        if !previous.is_empty() {
+            tally.over(&work.slug);
+        }
+
+        let mut redirects: Vec<Redirect> = Vec::new();
         let mut oversized = oversized::Tally::default();
         let mut segments = Vec::new();
-        for ((id, text), kind) in store.iter().zip(kinds) {
-            oversized.saw(&id.to_string(), text.chars().count(), &work.slug);
-            // The anchors come out before the length is judged: 61% of a
-            // heavily-commented sefer's bytes are markup, so measuring an
-            // un-mined segment would cut where there is no text to cut.
-            let mined = crate::anchors::mine(text);
+        // Where each place's live ids ended up, so a redirect away from an old
+        // place can point at records that exist rather than at a name.
+        let mut live_of: Vec<Vec<SegmentId>> = Vec::with_capacity(fresh.len());
+        for ((raw, mined), ordinal) in raw.into_iter().zip(mined).zip(ordinals) {
+            let id = SegmentId::new(work.slug.clone(), raw.path, ordinal);
+            oversized.saw(&id.to_string(), mined.text.chars().count(), &work.slug);
             let pieces = oversized::pieces(&mined.text, oversized::TARGET);
             if pieces.len() == 1 {
+                live_of.push(vec![id.clone()]);
                 segments.push(Segment {
-                    id: id.clone(),
-                    kind,
+                    id,
+                    kind: raw.kind,
                     text: mined.text,
                     anchors: mined.anchors,
                 });
@@ -238,8 +384,15 @@ impl ImportedWork {
             // Each child keeps the anchors that fall inside it, with their offsets
             // rebased — an anchor is a position in a text, and after a split it is a
             // position in a different, shorter text.
+            let children = id.split(pieces.len());
+            live_of.push(children.clone());
+            redirects.push(Redirect {
+                from: id,
+                to: children.clone(),
+                why: Why::Cut,
+            });
             let mut from = 0usize;
-            for (child, piece) in id.split(pieces.len()).into_iter().zip(pieces) {
+            for (child, piece) in children.into_iter().zip(pieces) {
                 let upto = from + piece.chars().count();
                 let anchors = mined
                     .anchors
@@ -252,7 +405,7 @@ impl ImportedWork {
                     .collect();
                 segments.push(Segment {
                     id: child,
-                    kind,
+                    kind: raw.kind,
                     text: piece.to_string(),
                     anchors,
                 });
@@ -260,10 +413,37 @@ impl ImportedWork {
             }
         }
 
+        // The rows that could only be written once the new records existed:
+        // where a place upstream no longer has sent its anchors. `went` names
+        // the places by their position in this run; the ids they turned out to
+        // be on disk are only knowable after the cutter has had its say, so a
+        // re-segmented se'if that was then cut into three redirects to all
+        // three rather than to a name with no record behind it.
+        for (from, at) in went {
+            let to: Vec<SegmentId> = at.iter().flat_map(|i| live_of[*i].clone()).collect();
+            let why = if to.is_empty() {
+                Why::Gone
+            } else {
+                Why::Resegmented
+            };
+            redirects.push(Redirect { from, to, why });
+        }
+        // Rows the previous run wrote, kept last so that anything this run
+        // decided about the same name wins. A carried row whose name is live
+        // again — upstream restored a se'if it had dropped — is not carried:
+        // the name resolves to itself now and a redirect over the top of it
+        // would send a reader somewhere else.
+        let live: std::collections::BTreeSet<&SegmentId> = segments.iter().map(|s| &s.id).collect();
+        redirects.extend(carried.into_iter().filter(|row| !live.contains(&row.from)));
+        redirects.sort_by(|a, b| a.from.cmp(&b.from));
+        redirects.dedup_by(|a, b| a.from == b.from);
+
         Self {
             work,
             segments,
             oversized,
+            redirects,
+            continuity: tally,
         }
     }
 
@@ -287,6 +467,171 @@ impl ImportedWork {
     }
 }
 
+/// What [`name_them`] decided, before anything has been cut or written.
+struct Named {
+    /// One per place in the run, in reading order.
+    ordinals: Vec<crate::segment::Ordinal>,
+    /// Rows the previous run wrote, to be kept unless this one overrules them.
+    carried: Vec<Redirect>,
+    /// A previous place with no continuation, and the places in *this* run its
+    /// words turned up in — by position, because the ids they will be on disk
+    /// as are not decided until the oversized cutter has run.
+    went: Vec<(SegmentId, Vec<usize>)>,
+    tally: continuity::Continuity,
+}
+
+/// Hand out this run's permanent names.
+///
+/// One name per place, and the only two ways a place can get one:
+///
+/// - it is the continuation of a place the previous run named, and keeps that
+///   name — whatever its address is now;
+/// - it is new, and gets a name minted **between its neighbours**, which the
+///   dotted ordinal can always express and which moves nothing.
+///
+/// There is no third way, and in particular no name is ever handed out twice.
+/// `taken` is seeded with every ordinal the previous run used *including the
+/// ones nothing continued*: a se'if upstream dropped may still be named by a
+/// link, a correction or a Ksav document on somebody else's disk, and giving
+/// its name to different words is the exact failure spec.md §3 exists to
+/// prevent — worse than the anchor resolving to nothing, because it is silent.
+fn name_them(fresh: &[continuity::Fresh], previous: &Previous) -> Named {
+    // A first import. The names come out of reading order, once, which is what
+    // §3 asks for and what this has always done.
+    if previous.is_empty() {
+        return Named {
+            ordinals: (1..=fresh.len())
+                .map(|n| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    crate::segment::Ordinal::root(n as u32)
+                })
+                .collect(),
+            carried: previous.redirects.clone(),
+            went: Vec::new(),
+            tally: continuity::Continuity::default(),
+        };
+    }
+
+    let aligned = continuity::align(&previous.places, fresh);
+    let mut taken: std::collections::BTreeSet<crate::segment::Ordinal> = previous
+        .places
+        .iter()
+        .map(|p| p.ordinal.clone())
+        .chain(previous.redirects.iter().map(|r| r.from.ordinal().clone()))
+        .collect();
+
+    let mut tally = continuity::Continuity::default();
+    let mut ordinals: Vec<Option<crate::segment::Ordinal>> = vec![None; fresh.len()];
+    for (at, was) in aligned.for_fresh.iter().enumerate() {
+        if let Some(was) = was {
+            ordinals[at] = Some(previous.places[*was].ordinal.clone());
+            tally.kept += 1;
+        }
+    }
+
+    // Runs of consecutive new places, each between the two kept names that
+    // bracket it. Done a run at a time so five inserted se'ifim read as
+    // `#5.1 … #5.5` rather than nesting five deep.
+    let mut at = 0usize;
+    while at < ordinals.len() {
+        if ordinals[at].is_some() {
+            at += 1;
+            continue;
+        }
+        let from = at;
+        while at < ordinals.len() && ordinals[at].is_none() {
+            at += 1;
+        }
+        let low = from.checked_sub(1).and_then(|i| ordinals[i].clone());
+        let high = ordinals.get(at).cloned().flatten();
+        let minted = continuity::mint_between(low.as_ref(), high.as_ref(), at - from, &mut taken);
+        tally.minted += minted.len();
+        for (slot, name) in ordinals[from..at].iter_mut().zip(minted) {
+            *slot = Some(name);
+        }
+    }
+
+    // Where the places nothing continued should send their anchors. Searched
+    // only inside the stretch of this run that the alignment already narrowed
+    // them to — a text matching somewhere else entirely in the sefer is a
+    // coincidence, and following it would be exactly the silent wrongness this
+    // is all arranged against.
+    let kept: Vec<(usize, usize)> = aligned
+        .for_fresh
+        .iter()
+        .enumerate()
+        .filter_map(|(at, was)| was.map(|w| (w, at)))
+        .collect();
+    let mut went = Vec::new();
+    for orphan in &aligned.orphaned {
+        let old = &previous.places[*orphan];
+        let within = gap_around(*orphan, &kept, fresh.len());
+        let at = continuity::went_to(old, fresh, within);
+        if at.is_empty() {
+            tally.gone += 1;
+        } else {
+            tally.resegmented += 1;
+        }
+        // Every id the place was on disk as, not only its own name: a se'if
+        // that was cut into three has three names in circulation and all three
+        // have to be told where the words went.
+        for id in &old.ids {
+            went.push((id.clone(), at.clone()));
+        }
+    }
+
+    // One name per place, and the count has to come out right. `flatten` here
+    // would drop a segment on the floor and hand back a shorter sefer, which is
+    // the shape of failure `read_back` refuses a malformed line for.
+    let mut out = Vec::with_capacity(ordinals.len());
+    for slot in ordinals {
+        match slot {
+            Some(name) => out.push(name),
+            // Unreachable — the loop above fills every run. Total anyway.
+            None => out.extend(continuity::mint_between(out.last(), None, 1, &mut taken)),
+        }
+    }
+    Named {
+        ordinals: out,
+        carried: previous.redirects.clone(),
+        went,
+        tally,
+    }
+}
+
+/// How far a re-segmentation is allowed to have moved a place's words.
+///
+/// A gap wider than this is not upstream redrawing a boundary; it is a work
+/// that was replaced, and searching it would be O(orphans × segments) text
+/// comparisons — 328 million of them on a Mishnah Berurah whose alignment found
+/// nothing. Past the cap the answer is [`Why::Gone`], which is the honest one:
+/// nothing here says where those words went.
+const A_RESEGMENTATION_IS_LOCAL: usize = 64;
+
+/// The stretch of this run that a previous place at `orphan` could have gone
+/// into: from the nearest kept name before it to the nearest kept one after,
+/// **including both**.
+///
+/// Including them is the merge case and it is the common one. Upstream folding
+/// se'if 3 into se'if 2 leaves se'if 2 matched — same address, same opening —
+/// and se'if 3's words are inside it. A range that stopped short of the
+/// brackets would look at the one place the words are not and report `gone`
+/// over an anchor that still resolves perfectly.
+///
+/// `kept` is `(previous position, position in this run)` for every place that
+/// kept its name, ascending in both — which is what [`continuity::align`]
+/// guarantees, and is why this can be a binary search rather than a scan.
+fn gap_around(orphan: usize, kept: &[(usize, usize)], len: usize) -> std::ops::Range<usize> {
+    let after = kept.partition_point(|(was, _)| *was < orphan);
+    let from = after.checked_sub(1).map_or(0, |i| kept[i].1);
+    let to = kept.get(after).map_or(len, |(_, at)| at + 1).min(len);
+    let to = to.max(from);
+    if to - from > A_RESEGMENTATION_IS_LOCAL {
+        return from..from;
+    }
+    from..to
+}
+
 impl Counts {
     pub fn absorb(&mut self, other: Counts) {
         self.works += other.works;
@@ -297,12 +642,33 @@ impl Counts {
     }
 }
 
-/// Read one work from whichever corpus supplies it.
+/// Read one work from whichever corpus supplies it, as a first import.
+///
+/// Prefer [`read_over`] anywhere the work might already be on the shelf: this
+/// one hands out names from reading order, which is only right the first time.
 ///
 /// # Errors
 ///
 /// If the source file cannot be read or does not hold what its schema says.
 pub fn read(work: &Work) -> Result<ImportedWork, ImportError> {
+    read_with(work, &Previous::none())
+}
+
+/// Read one work, keeping every name the shelf at `root` already gave it.
+///
+/// This is what `girsa-import` calls. The extra cost is one read of the work's
+/// own `segments.jsonl`, which is the file about to be overwritten anyway.
+///
+/// # Errors
+///
+/// If the source file cannot be read or does not hold what its schema says. A
+/// shelf that will not read back is not an error: it is a work with no names
+/// worth keeping, and it is counted rather than fatal.
+pub fn read_over(root: &Path, work: &Work) -> Result<ImportedWork, ImportError> {
+    read_with(work, &Previous::on_the_shelf(root, &work.slug))
+}
+
+fn read_with(work: &Work, previous: &Previous) -> Result<ImportedWork, ImportError> {
     let mut work = work.clone();
     let raw = match work.source {
         Source::Sefaria => {
@@ -318,7 +684,7 @@ pub fn read(work: &Work) -> Result<ImportedWork, ImportError> {
         // else here (spec.md §4.1: the file on disk is the truth).
         Source::Mine => mine::read(&work)?,
     };
-    Ok(ImportedWork::assemble(work, raw))
+    Ok(ImportedWork::assemble_after(work, raw, previous))
 }
 
 /// Why a work could not be read.
@@ -403,11 +769,21 @@ fn sanitize_component(part: &str) -> String {
     out
 }
 
-/// Write a work: its metadata, and its segments one per line.
+/// Write a work: its metadata, its segments one per line, and where the names
+/// that are no longer live went.
+///
+/// # Why the third file is deleted rather than written empty
+///
+/// A work with nothing redirected has no `redirects.jsonl`, and one that stops
+/// having anything redirected loses the one it had. Leaving a stale file would
+/// be worse than having none: `Previous` reads it, and a row saying a name was
+/// cut when it is live again would send a reader to records that no longer
+/// exist. The slot in the format is [`read_back`]'s to know about, not the
+/// filesystem's.
 ///
 /// # Errors
 ///
-/// If the directory cannot be created or either file cannot be written.
+/// If the directory cannot be created or a file cannot be written.
 pub fn write(root: &Path, imported: &ImportedWork) -> Result<(), ImportError> {
     let dir = work_dir(root, &imported.work.slug);
     fs::create_dir_all(&dir).map_err(ImportError::io(&dir))?;
@@ -426,8 +802,29 @@ pub fn write(root: &Path, imported: &ImportedWork) -> Result<(), ImportError> {
         body.push('\n');
     }
     fs::write(&segments_path, body).map_err(ImportError::io(&segments_path))?;
-    Ok(())
+
+    let redirects_path = dir.join(REDIRECTS);
+    if imported.redirects.is_empty() {
+        if redirects_path.exists() {
+            fs::remove_file(&redirects_path).map_err(ImportError::io(&redirects_path))?;
+        }
+        return Ok(());
+    }
+    let mut body = String::new();
+    for redirect in &imported.redirects {
+        let line = serde_json::to_string(redirect)
+            .map_err(|e| ImportError::malformed(&redirects_path, e.to_string()))?;
+        body.push_str(&line);
+        body.push('\n');
+    }
+    fs::write(&redirects_path, body).map_err(ImportError::io(&redirects_path))
 }
+
+/// Where the names that are no longer live say they went.
+///
+/// Beside `segments.jsonl`, one row per name, the same shape and the same
+/// rules: the row carries the name rather than implying it from its position.
+pub const REDIRECTS: &str = "redirects.jsonl";
 
 /// Put one work in your own catalogue — `personal/works/index.jsonl`.
 ///
@@ -511,6 +908,19 @@ pub fn read_back(root: &Path, slug: &str) -> Result<ImportedWork, ImportError> {
             .map_err(|e| ImportError::malformed(&segments_path, e.to_string()))?;
         segments.push(segment);
     }
+    // A work imported by a build older than the redirect table has no such file,
+    // and that is not a failure — it is a work nothing has redirected yet. The
+    // 7,189 directories already on disk read as exactly that.
+    let redirects_path = dir.join(REDIRECTS);
+    let mut redirects = Vec::new();
+    if let Ok(body) = fs::read_to_string(&redirects_path) {
+        for line in body.lines().filter(|l| !l.trim().is_empty()) {
+            let redirect: Redirect = serde_json::from_str(line)
+                .map_err(|e| ImportError::malformed(&redirects_path, e.to_string()))?;
+            redirects.push(redirect);
+        }
+    }
+
     // Measured on the way back in, so `read_back` reports what is on disk rather
     // than what the last import happened to do — which is what makes it usable as
     // a check over a corpus imported by an older build.
@@ -526,6 +936,11 @@ pub fn read_back(root: &Path, slug: &str) -> Result<ImportedWork, ImportError> {
         work,
         segments,
         oversized,
+        redirects,
+        // Not a measurement of what is on disk. This says what the *last import*
+        // kept, and reading a work back is not an import — reporting a number
+        // here would be reporting one nothing computed.
+        continuity: continuity::Continuity::default(),
     })
 }
 

@@ -130,8 +130,13 @@ const MAX_REDIRECT_DEPTH: usize = 32;
 impl SegmentStore {
     /// Import: assign every segment an ordinal, once, in reading order.
     ///
-    /// This is the only place ordinals are ever handed out from a position, and
-    /// it happens once in the life of a work.
+    /// **This is a first import and nothing else.** Ordinals come out of
+    /// enumeration position here, which is only right when there is no earlier
+    /// promise to keep; the doc comment used to say *"it happens once in the
+    /// life of a work"*, which was a claim about the world rather than about the
+    /// code, and `girsa-import` refuted it on every invocation. What a re-import
+    /// does is [`crate::import::continuity`]'s, and it is the caller's job to
+    /// route through [`crate::import::read_over`] rather than this.
     #[must_use]
     pub fn import(work: impl Into<String>, segments: Vec<(Vec<String>, String)>) -> Self {
         let work = work.into();
@@ -192,12 +197,51 @@ impl SegmentStore {
 
     /// Record where a segment went, for an upstream re-segmentation.
     ///
-    /// The importer calls this when a new release of a work has different
-    /// boundaries. Everything anchored to the old ID keeps working, which is
-    /// the promise that lets a Ksav document written last year still open.
+    /// Everything anchored to the old ID keeps working, which is the promise
+    /// that lets a Ksav document written last year still open.
+    ///
+    /// The importer's own re-segmentation rows go through
+    /// [`crate::import::continuity`] and reach disk as `redirects.jsonl`; this
+    /// is the in-memory half of the same fact, and [`SegmentStore::from_disk`]
+    /// is what makes the two one thing rather than two.
     pub fn redirect(&mut self, from: SegmentId, to: Vec<SegmentId>) {
         self.live.remove(&from);
         self.redirects.insert(from, to);
+    }
+
+    /// Every redirect this store holds, for writing down.
+    ///
+    /// Without this a store round-tripped through disk lost every row it had —
+    /// which is what happened for the whole of W6 through W44, because the
+    /// on-disk form had no slot for them.
+    pub fn redirects(&self) -> impl Iterator<Item = (&SegmentId, &[SegmentId])> {
+        self.redirects
+            .iter()
+            .map(|(from, to)| (from, to.as_slice()))
+    }
+
+    /// A store built from what an import wrote, redirects and all.
+    ///
+    /// The round trip `import::write` → `import::read_back` → here is lossless,
+    /// and that is the property spec.md §3 rests on: a redirect that only lives
+    /// in memory absorbs an upstream re-segmentation exactly until the process
+    /// exits.
+    #[must_use]
+    pub fn from_disk(imported: &crate::import::ImportedWork) -> Self {
+        Self {
+            work: imported.work.slug.clone(),
+            live: imported
+                .segments
+                .iter()
+                .map(|s| (s.id.clone(), s.text.clone()))
+                .collect(),
+            redirects: imported
+                .redirects
+                .iter()
+                .filter(|row| !row.to.is_empty())
+                .map(|row| (row.from.clone(), row.to.clone()))
+                .collect(),
+        }
     }
 
     /// Split a segment in two at `at` bytes in.

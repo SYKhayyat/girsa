@@ -119,6 +119,17 @@ impl Ordinal {
     pub fn depth(&self) -> usize {
         self.0.len()
     }
+
+    /// The component at `level`, outermost first. `#7.2` at level 1 is `2`.
+    ///
+    /// What [`crate::import::continuity`] needs to work out whether there is
+    /// room to mint a name between two others: given `#7` and `#7.2`, the only
+    /// available names are `#7.0` and `#7.1`, and that is a fact about this one
+    /// component.
+    #[must_use]
+    pub fn at(&self, level: usize) -> Option<u32> {
+        self.0.get(level).copied()
+    }
 }
 
 impl fmt::Display for Ordinal {

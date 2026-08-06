@@ -183,3 +183,111 @@ fn an_address_that_named_the_parent_names_every_child() {
         assert!(parent.covers(id), "{id}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// The other half of the same promise: upstream re-segmentation
+// ---------------------------------------------------------------------------
+
+/// A shelf holding one work, imported over whatever is already there.
+fn shelve(root: &Path, lines: &[(&str, &str)]) -> ImportedWork {
+    let raw = lines
+        .iter()
+        .map(|(address, text)| RawSegment {
+            path: vec!["2a".into(), (*address).to_string()],
+            kind: SegmentKind::Text,
+            text: (*text).to_string(),
+        })
+        .collect();
+    let previous = girsa_corpus::import::Previous::on_the_shelf(root, "bavli/berakhot");
+    let imported = ImportedWork::assemble_after(a_work("bavli/berakhot"), raw, &previous);
+    std::fs::create_dir_all(root.join("works")).expect("a works dir");
+    let line = serde_json::to_string(&imported.work).expect("serializes");
+    std::fs::write(root.join("works/index.jsonl"), format!("{line}\n")).expect("a catalogue");
+    girsa_corpus::import::write(root, &imported).expect("the sefer writes");
+    imported
+}
+
+#[test]
+fn an_anchor_on_a_seif_upstream_merged_away_opens_the_words_that_absorbed_it() {
+    // A cut is Girsa's own doing and `Ordinal::covers` handles it. This is the
+    // case the corpus does *to* Girsa: Sefaria folds one se'if into the one
+    // before it. Nothing about the ordinal can express that, which is what
+    // `redirects.jsonl` is for — and until it existed, the anchor in a Ksav
+    // document written last year resolved to nothing at all.
+    let root = scratch("redirected");
+    shelve(&root, &[("1", "ראשון"), ("2", "שני"), ("3", "שלישי")]);
+
+    // What a document written before the corpus update carries.
+    let anchor: SegmentId = "girsa:bavli/berakhot/2a:2#2".parse().expect("an id");
+
+    let imported = shelve(&root, &[("1", "ראשון שני"), ("2", "שלישי")]);
+    assert!(
+        imported
+            .redirects
+            .iter()
+            .any(|r| r.from == anchor && !r.to.is_empty()),
+        "the merged se'if is redirected: {:?}",
+        imported.redirects
+    );
+
+    let shelf = Shelf::open(&root, &root.join("personal")).expect("the shelf opens");
+    let open = shelf.read("bavli/berakhot").expect("it opens");
+    assert!(
+        !open.segments.iter().any(|s| s.id == anchor),
+        "the id is not a record any more — that is the premise"
+    );
+
+    let at = open
+        .position_of(&anchor)
+        .expect("the anchor still finds its words");
+    assert_eq!(
+        open.segments[at].text, "ראשון שני",
+        "and they are the words that absorbed it"
+    );
+}
+
+#[test]
+fn an_anchor_on_a_seif_upstream_deleted_finds_nothing_rather_than_the_nearest_thing() {
+    // The failure this is all arranged against is not a broken link. It is a
+    // link that resolves cleanly to somebody else's words. A place upstream no
+    // longer has must come back empty.
+    let root = scratch("deleted");
+    shelve(&root, &[("1", "ראשון"), ("2", "שני"), ("3", "שלישי")]);
+    let anchor: SegmentId = "girsa:bavli/berakhot/2a:2#2".parse().expect("an id");
+
+    shelve(&root, &[("1", "ראשון"), ("2", "שלישי")]);
+
+    let shelf = Shelf::open(&root, &root.join("personal")).expect("the shelf opens");
+    let open = shelf.read("bavli/berakhot").expect("it opens");
+    assert_eq!(open.position_of(&anchor), None);
+    assert!(open.covered_by(&anchor).is_empty());
+
+    // And nothing on the shelf has taken over its name, which is the part that
+    // would have been silent.
+    assert!(
+        open.segments
+            .iter()
+            .all(|s| s.id.ordinal() != anchor.ordinal()),
+        "the name of a deleted se'if was handed to different words"
+    );
+}
+
+#[test]
+fn a_redirect_that_was_redirected_again_is_followed_the_whole_way() {
+    // Two corpus updates in a row. The first sends `#2` at `#1`; the second
+    // merges `#1` into what is left. An anchor from before either of them has
+    // to follow both hops.
+    let root = scratch("chained");
+    shelve(&root, &[("1", "ראשון"), ("2", "שני"), ("3", "שלישי")]);
+    let anchor: SegmentId = "girsa:bavli/berakhot/2a:2#2".parse().expect("an id");
+
+    shelve(&root, &[("1", "ראשון שני"), ("2", "שלישי")]);
+    shelve(&root, &[("1", "ראשון שני שלישי")]);
+
+    let shelf = Shelf::open(&root, &root.join("personal")).expect("the shelf opens");
+    let open = shelf.read("bavli/berakhot").expect("it opens");
+    let at = open
+        .position_of(&anchor)
+        .expect("two hops is still an answer");
+    assert_eq!(open.segments[at].text, "ראשון שני שלישי");
+}
