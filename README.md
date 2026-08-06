@@ -2196,11 +2196,43 @@ it tested — once in `Anchor::covers` and again inside `SegmentId::covers` — 
 the set lookup compares it once. Building the `Standing` is 229 µs for 200
 lines, about a microsecond each.
 
-And one thing the measuring found that has nothing to do with any of this:
-opening the panel costs **524 ms a line** in Orach Chayim, of which **70% is
-re-reading `inbound.jsonl`** — 159,273 rows, off disk, on every click. Not new,
-not this, and written down because a number nobody prints is a number nobody
-knows.
+### What the panel is actually waiting for
+
+Measuring the above turned up something with nothing to do with it: opening the
+links panel on a line of Orach Chayim costs **524 ms warm and 2.2 s cold**. The
+first attribution was *"70% of it is inside `read_back`"*, which is true and
+useless — `read_back` covers a 27 MB `read_to_string`, 159,273 JSON parses,
+318,546 segment-id parses and a `Repaired` built for every row. Naming the
+function is not naming the cost. Split it apart
+(`--example why-the-panel-waits -p girsa-link`, cold, Orach Chayim's 159,273
+inbound rows):
+
+| | | |
+|---|---|---|
+| read off disk | 59 ms | **3%** |
+| JSON → `Row` | 356 ms | 16% |
+| `Row` → `Edge` | 835 ms | 38% |
+| `repairs.apply` | 938 ms | **43%** |
+| the filter | 15 ms | 1% → **63 rows kept of 159,273** |
+
+**The disk is 3% of it.** The pipeline reads everything, parses everything,
+decorates everything, and then keeps four hundredths of one percent. Two things
+stand out:
+
+- `repairs.apply` is the largest slice **on an empty repair layer** — a reader
+  who has never judged a link. It builds `format!("{} → {}", from, to)` for every
+  edge to look up a map with nothing in it (297 ms and 16.3 MB of throwaway key
+  on its own), deep-clones every `Edge` to serve the rare case where a repair
+  changed one, and allocates two `Vec`s per row it is about to discard.
+- `Row` → `Edge` is 318,546 `SegmentId::from_str` calls, each allocating a work
+  string, a path vector and an ordinal vector. Sixty-three of them are wanted.
+
+The filter cannot simply move to the front, because `Repair::Reanchored` can move
+an edge *onto* the line you are standing on — so a correct version tests the raw
+rows first and unions in the handful the repair layer re-pointed. Not fixed here:
+this is a separate piece of work with its own measurement, and the honest state
+of it is written down rather than left for somebody to rediscover with a
+profiler.
 
 ### A chaburah is a list, and the order is the chaburah
 
