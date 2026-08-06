@@ -24,6 +24,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use serde::{Deserialize, Serialize};
 
 /// One thing in a folder.
@@ -163,13 +164,14 @@ impl Collection {
     /// Whether a place is in this folder — either named outright, or by way of
     /// the sefer it is in.
     ///
-    /// `covers`, so a place put in before a correction split the line is still
-    /// in the folder after it (spec.md §3).
+    /// A place put in before a cut carved the line up is still in the folder
+    /// after it (spec.md §3); a se'if upstream inserted beside it never was.
+    /// See [`Standing`].
     #[must_use]
-    pub fn holds(&self, at: &SegmentId) -> bool {
+    pub fn holds(&self, at: &Standing) -> bool {
         self.members.iter().any(|member| match member {
-            Member::Place(id) => id.covers(at),
-            Member::Work(slug) => slug == at.work(),
+            Member::Place(id) => at.named_by(id),
+            Member::Work(slug) => slug == at.at().work(),
             Member::Query(_) => false,
         })
     }
@@ -265,7 +267,7 @@ impl Collections {
     /// The folders a place is in — what the reading pane asks so it can say
     /// *this line is in your Thursday chaburah*.
     #[must_use]
-    pub fn holding(&self, at: &SegmentId) -> Vec<&Collection> {
+    pub fn holding(&self, at: &Standing) -> Vec<&Collection> {
         self.all().filter(|folder| folder.holds(at)).collect()
     }
 
@@ -397,13 +399,21 @@ mod tests {
     fn a_folder_holds_a_place_named_outright_and_one_named_by_its_sefer() {
         let mut folder = Collection::new("thursday", "חבורה");
         folder.put(Member::Place(place(1)));
-        assert!(folder.holds(&place(1)));
-        assert!(!folder.holds(&place(2)));
-        // And after a correction splits the line it was put in on.
-        assert!(folder.holds(&place(1).split(2).remove(1)));
+        assert!(folder.holds(&Standing::just(place(1))));
+        assert!(!folder.holds(&Standing::just(place(2))));
+        // And after a cut carves up the line it was put in on: the piece
+        // inherits the name because the cut took the parent off the shelf.
+        let piece = place(1).split(2).remove(1);
+        assert!(folder.holds(&Standing::of(piece.clone(), [place(1)])));
+        // But a se'if merely *named* below it — what upstream inserting one
+        // after `#1` is spelled like — was never put in any folder.
+        assert!(!folder.holds(&Standing::just(piece)));
 
         folder.put(Member::Work("bavli/berakhot".to_string()));
-        assert!(folder.holds(&place(2)), "the whole sefer is in the folder");
+        assert!(
+            folder.holds(&Standing::just(place(2))),
+            "the whole sefer is in the folder"
+        );
     }
 
     #[test]
@@ -418,7 +428,7 @@ mod tests {
         let (back, trouble) = Collections::open(&dir);
         assert!(trouble.is_empty(), "{trouble:?}");
         assert_eq!(back.count(), 1);
-        assert_eq!(back.holding(&place(1)).len(), 1);
+        assert_eq!(back.holding(&Standing::just(place(1))).len(), 1);
         assert_eq!(
             back.get("thursday").map(|f| f.members.len()),
             Some(2),

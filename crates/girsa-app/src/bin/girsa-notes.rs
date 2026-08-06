@@ -149,8 +149,22 @@ fn show(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
 
 /// The links on a line — **including what you wrote**, from the one call.
 fn on(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
-    let at = place(shelf, rest)?;
-    let touching = girsa_app::touching(shelf, shelf.repairs(), &at);
+    let asked = place(shelf, rest)?;
+    let sefer = shelf.read(asked.work()).map_err(|e| e.to_string())?;
+    // A name typed at a prompt may be one this sefer no longer has live — the
+    // parent of a cut, or a se'if upstream folded away. Resolve it to a place
+    // that exists before asking what touches it, because *what links to
+    // somewhere that is not somewhere* has no honest answer.
+    let nth = sefer
+        .position_of(&asked)
+        .ok_or_else(|| format!("{asked} names nothing in this sefer"))?;
+    let at = sefer
+        .segments
+        .get(nth)
+        .map(|segment| segment.id.clone())
+        .unwrap_or(asked);
+    let standing = sefer.standing(&at);
+    let touching = girsa_app::touching(shelf, shelf.repairs(), &standing);
     println!("{at}");
     if touching.incoming_unknown {
         println!("  (no companions cache — the incoming half is missing)");
@@ -167,9 +181,8 @@ fn on(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
     }
     println!("{} links, {mine} of them yours", touching.links.len());
 
-    let sefer = shelf.read(at.work()).map_err(|e| e.to_string())?;
     let text = sefer.as_printed(&at);
-    let yours = girsa_app::yours(shelf, &at, text);
+    let yours = girsa_app::yours(shelf, &standing, text);
     for marked in &yours.marks {
         let where_it_is = match &marked.placed {
             Placed::Whole => "the whole line".to_string(),

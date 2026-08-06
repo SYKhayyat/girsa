@@ -65,6 +65,14 @@ fn first_mishnah(shelf: &Shelf) -> SegmentId {
         .expect("Mishnah Berakhot 1:1 is on the shelf")
 }
 
+/// The place, as the sefer on disk describes it: every name those words have
+/// carried. This is what the window builds before asking what touches a line,
+/// and going through it here is the point — a test that made its own
+/// [`Standing`] would not be exercising `Open::standing`.
+fn standing(shelf: &Shelf, at: &SegmentId) -> girsa_corpus::standing::Standing {
+    shelf.read(at.work()).expect("the sefer opens").standing(at)
+}
+
 #[test]
 fn what_i_wrote_and_who_quotes_it_come_back_from_one_call() {
     let root = corpus_or_skip!();
@@ -72,7 +80,7 @@ fn what_i_wrote_and_who_quotes_it_come_back_from_one_call() {
     let mut shelf = Shelf::open(&root, &personal).expect("the shelf opens");
     let at = first_mishnah(&shelf);
 
-    let before = girsa_app::touching(&shelf, shelf.repairs(), &at);
+    let before = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
     let rambam = before
         .links
         .iter()
@@ -100,7 +108,7 @@ fn what_i_wrote_and_who_quotes_it_come_back_from_one_call() {
         "writing a note took {took:?} — §7.5's guardrail is about how this feels"
     );
 
-    let after = girsa_app::touching(&shelf, shelf.repairs(), &at);
+    let after = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
     assert_eq!(
         after.links.len(),
         before.links.len() + 1,
@@ -220,8 +228,14 @@ fn a_note_survives_the_line_it_is_on_being_split() {
     girsa_app::collect(&mut shelf, "thursday", "חבורה יום ה", &at).expect("collects");
 
     // Somebody corrects a typo in a way that splits the line in two.
+    // Said as a cut rather than derived from the shelf, because the corpus on
+    // disk has not been re-imported: a cut is exactly the event that takes the
+    // parent off the shelf and hands its name to the pieces, and this is that
+    // fact stated. `a_link_survives_a_resegmentation.rs` runs the same claim end
+    // to end through a corpus that really was cut.
     for child in at.split(2) {
-        let found = girsa_app::touching(&shelf, shelf.repairs(), &child);
+        let cut = girsa_corpus::standing::Standing::of(child.clone(), [at.clone()]);
+        let found = girsa_app::touching(&shelf, shelf.repairs(), &cut);
         assert!(
             found
                 .links
@@ -229,7 +243,7 @@ fn a_note_survives_the_line_it_is_on_being_split() {
                 .any(|link| link.work.starts_with("note/")),
             "the note is still on {child}"
         );
-        let yours = girsa_app::yours(&shelf, &child, "");
+        let yours = girsa_app::yours(&shelf, &cut, "");
         assert_eq!(yours.notes.len(), 1, "and it is still listed as yours");
         assert_eq!(yours.marks.len(), 1, "so is the highlight");
         assert_eq!(yours.folders, vec!["thursday".to_string()]);

@@ -429,15 +429,20 @@ impl Repairs {
         edges.into_iter().map(|edge| self.over(edge)).collect()
     }
 
-    /// The links you drew that touch a segment, in either direction.
+    /// The links you drew that touch a place, in either direction.
     ///
     /// Both directions, because a link you drew *to* this place is as much a
     /// link on this place as one you drew from it — spec.md §8.2 stores an edge
     /// once and derives the inverse, and this is where it is derived.
+    ///
+    /// Takes a [`Standing`] and not an id: you drew these links against the
+    /// names the places had at the time, and a corpus update since then may have
+    /// moved them. Same reason as [`Anchor::names`], and the links you drew
+    /// yourself are the ones it would be least forgivable to lose.
     #[must_use]
-    pub fn drawn_touching(&self, at: &girsa_corpus::segment::SegmentId) -> Vec<Repaired> {
+    pub fn drawn_touching(&self, at: &girsa_corpus::standing::Standing) -> Vec<Repaired> {
         self.drawn()
-            .filter(|link| link.edge.from.covers(at) || link.edge.to.covers(at))
+            .filter(|link| link.edge.from.names(at) || link.edge.to.names(at))
             .collect()
     }
 
@@ -501,7 +506,12 @@ impl Repairs {
     }
 
     /// Every link you drew.
-    fn drawn(&self) -> impl Iterator<Item = Repaired> + '_ {
+    ///
+    /// Public for the chain walker, whose question is *does this edge touch the
+    /// anchor I am on* — anchor against anchor, with no shelf and no reader
+    /// standing anywhere, so [`Repairs::drawn_touching`] would be the wrong
+    /// filter rather than a slower one.
+    pub fn drawn(&self) -> impl Iterator<Item = Repaired> + '_ {
         self.by_edge.values().flatten().filter_map(|record| {
             let Repair::Drawn {
                 from,

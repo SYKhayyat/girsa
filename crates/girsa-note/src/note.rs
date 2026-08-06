@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::{Segment, SegmentKind};
 use girsa_corpus::segment::{Ordinal, SegmentId};
+use girsa_corpus::standing::Standing;
 use girsa_corpus::work::{self, Source, Version, Work};
 use girsa_link::{Anchor, Edge, EdgeType, Method};
 
@@ -745,13 +746,16 @@ impl Notes {
 
     /// The notes about a place.
     ///
-    /// `covers`, not equality: an anchor on `#7` still names the words `#7`
-    /// became when a correction split it (spec.md §3), so a note written before
-    /// the split is still a note on the sugya after it.
+    /// Asked of a [`Standing`] and not of an id, because a note is anchored
+    /// under the name the place had **when you wrote it** — which is the promise
+    /// spec.md §3 is for, and the one it would be worst to break, since nobody
+    /// else has a copy of your notes. A note on `#7` is still a note on the
+    /// sugya after a cut carves `#7` into pieces, and is *not* a note on a se'if
+    /// upstream inserted after it and named `#7.1`.
     #[must_use]
-    pub fn touching(&self, at: &SegmentId) -> Vec<&Note> {
+    pub fn touching(&self, at: &Standing) -> Vec<&Note> {
         self.all()
-            .filter(|note| note.on.iter().any(|on| on.covers(at)))
+            .filter(|note| note.on.iter().any(|on| at.named_by(on)))
             .collect()
     }
 
@@ -762,10 +766,10 @@ impl Notes {
     /// that answers *who quotes this Rishon* answers *what have I written about
     /// this* with the same code.
     #[must_use]
-    pub fn edges_touching(&self, at: &SegmentId) -> Vec<Edge> {
+    pub fn edges_touching(&self, at: &Standing) -> Vec<Edge> {
         self.all()
             .flat_map(Note::edges)
-            .filter(|edge| edge.to.covers(at) || edge.from.covers(at))
+            .filter(|edge| edge.to.names(at) || edge.from.names(at))
             .collect()
     }
 
@@ -949,8 +953,13 @@ pub(crate) mod tests {
         let mut notes = Notes::nowhere();
         notes.write(note()).expect("takes");
         let child = sugya().split(2).remove(1);
-        assert_eq!(notes.touching(&child).len(), 1);
-        assert_eq!(notes.edges_touching(&child).len(), 1);
+        let standing = Standing::of(child.clone(), [sugya()]);
+        assert_eq!(notes.touching(&standing).len(), 1);
+        assert_eq!(notes.edges_touching(&standing).len(), 1);
+        // And not on a se'if that merely sorts under the sugya's name.
+        let beside = Standing::just(child);
+        assert_eq!(notes.touching(&beside).len(), 0);
+        assert_eq!(notes.edges_touching(&beside).len(), 0);
     }
 
     #[test]

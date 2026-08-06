@@ -26,6 +26,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use serde::{Deserialize, Serialize};
 
 /// What a mark is.
@@ -354,15 +355,28 @@ impl Marks {
         self.by_segment.values().flatten()
     }
 
-    /// The marks on a segment, in reading order.
+    /// The marks on a place, in reading order.
     ///
-    /// `covers`, so a mark made before a correction split the line is still on
-    /// what the line became (spec.md §3).
+    /// A mark made before a cut carved the line up is still on what the line
+    /// became (spec.md §3), and a mark made before upstream folded the line into
+    /// its neighbour is still on the words — both because a [`Standing`] answers
+    /// to every name those words have carried.
+    ///
+    /// # One direction, where there were two
+    ///
+    /// This used to also ask `at.covers(id)` — the reader's id being the
+    /// *coarser* one, catching marks made on pieces of where they stand. That
+    /// arm could only fire when an id and something below it were both places at
+    /// once, and a cut deletes its parent, so the only thing it ever caught was
+    /// a se'if upstream had **inserted** below the line — someone else's words.
+    /// A caller holding a name that is no longer a place resolves it through
+    /// `Open::covered_by` first; asking about somewhere that is not somewhere is
+    /// the wrong question one level up.
     #[must_use]
-    pub fn on(&self, at: &SegmentId) -> Vec<&Mark> {
+    pub fn on(&self, at: &Standing) -> Vec<&Mark> {
         self.by_segment
             .iter()
-            .filter(|(id, _)| id.covers(at) || at.covers(id))
+            .filter(|(id, _)| at.named_by(id))
             .flat_map(|(_, marks)| marks)
             .collect()
     }
@@ -568,8 +582,16 @@ mod tests {
         marks
             .add(Mark::highlight(at(), 6..10, "כארי", "me"))
             .expect("takes");
+        // A cut deletes its parent, so the piece answers to the name the mark
+        // was made under. A se'if inserted below a line that is still there
+        // does not — see `girsa_corpus::standing`.
         let child = at().split(2).remove(0);
-        assert_eq!(marks.on(&child).len(), 1);
+        assert_eq!(marks.on(&Standing::of(child.clone(), [at()])).len(), 1);
+        assert_eq!(
+            marks.on(&Standing::just(child)).len(),
+            0,
+            "a name below a line that is still on the shelf is somewhere else"
+        );
     }
 
     #[test]

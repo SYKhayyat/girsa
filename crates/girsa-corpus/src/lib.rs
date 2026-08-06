@@ -21,6 +21,10 @@ pub mod index;
 pub mod oversized;
 pub mod segment;
 pub mod span;
+// A dotted name means two opposite things — a piece a cut carved out, or a
+// se'if upstream inserted — and a prefix test says yes to both. What separates
+// them is that a cut deletes its parent.
+pub mod standing;
 pub mod store;
 pub mod taxonomy;
 pub mod work;

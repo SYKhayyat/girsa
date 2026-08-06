@@ -20,6 +20,12 @@ use girsa_corpus::segment::SegmentId;
 use girsa_link::repair::Verdict;
 use girsa_link::EdgeType;
 
+/// The place, as the sefer on disk describes it: every name those words have
+/// carried. What the window builds before asking what touches a line.
+fn standing(shelf: &Shelf, at: &SegmentId) -> girsa_corpus::standing::Standing {
+    shelf.read(at.work()).expect("the sefer opens").standing(at)
+}
+
 const MISHNAH: &str = "mishnah-berakhot";
 const RAMBAM: &str = "rambam-on-mishnah-berakhot";
 
@@ -68,7 +74,7 @@ fn standing_on_the_first_mishnah_of_berakhot_shows_the_rambam_on_it() {
     let at = first_mishnah(&shelf);
 
     let began = std::time::Instant::now();
-    let touching = girsa_app::touching(&shelf, shelf.repairs(), &at);
+    let touching = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
     let took = began.elapsed();
     println!(
         "{} links on {at}, in {} ms",
@@ -140,7 +146,7 @@ fn standing_on_the_first_mishnah_of_berakhot_shows_the_rambam_on_it() {
             .expect("the edge I repaired is still in the list")
     };
 
-    let touching = girsa_app::touching(&shelf, shelf.repairs(), &at);
+    let touching = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
     let rambam = named(&touching);
     assert_eq!(rambam.repaired.edge.edge_type, EdgeType::CommentsOn);
     assert!(rambam.repaired.confirmed);
@@ -163,13 +169,13 @@ fn standing_on_the_first_mishnah_of_berakhot_shows_the_rambam_on_it() {
         .repairs_mut()
         .judge_named(&name, Verdict::Rejected, who)
         .expect("rejects");
-    let touching = girsa_app::touching(&shelf, shelf.repairs(), &at);
+    let touching = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
     let rambam = named(&touching);
     assert!(rambam.repaired.rejected);
     assert!(!rambam.repaired.is_curated());
 
     shelf.repairs_mut().undo_named(&name).expect("undoes");
-    let touching = girsa_app::touching(&shelf, shelf.repairs(), &at);
+    let touching = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
     let rambam = named(&touching);
     assert!(rambam.repaired.changed.is_empty());
     assert!(rambam.repaired.shipped.is_none());
@@ -188,7 +194,7 @@ fn a_link_you_draw_shows_up_beside_the_shipped_ones() {
         .map(|s| s.id.clone())
         .expect("it has segments");
 
-    let before = girsa_app::touching(&shelf, shelf.repairs(), &at)
+    let before = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at))
         .links
         .len();
     shelf
@@ -201,7 +207,7 @@ fn a_link_you_draw_shows_up_beside_the_shipped_ones() {
         )
         .expect("draws");
 
-    let touching = girsa_app::touching(&shelf, shelf.repairs(), &at);
+    let touching = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
     assert_eq!(touching.links.len(), before + 1);
     let mine = touching
         .links
@@ -292,7 +298,7 @@ fn a_link_on_other_words_is_left_out_and_one_on_the_whole_line_is_not() {
     let root = corpus_or_skip!();
     let shelf = Shelf::open(&root, &scratch("words")).expect("the shelf opens");
     let at = first_mishnah(&shelf);
-    let mut links = girsa_app::touching(&shelf, shelf.repairs(), &at).links;
+    let mut links = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at)).links;
     assert!(links.len() >= 2, "the first mishnah has links");
 
     // One link pinned to the first ten characters, one left as it came.

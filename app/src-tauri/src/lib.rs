@@ -2060,21 +2060,25 @@ fn links(
 
     // The line itself, as the pane drew it, because a span is in those
     // characters (W20's two coordinate systems, again).
-    let base = {
+    // …and, from the same read, every name these words have carried, so an edge
+    // stored under the name this place had before a corpus update still finds
+    // it (see `girsa_corpus::standing`).
+    let (base, standing) = {
         let sefer = state.sefer(at.work())?;
         let nth = sefer
             .position_of(&at)
             .ok_or_else(|| format!("{at} is not in this sefer"))?;
-        sefer
+        let text = sefer
             .segments
             .get(nth)
             .map(|segment| segment.text.clone())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        (text, sefer.standing(&at))
     };
 
     let language = state.session.language;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let touching = girsa_app::touching(shelf, shelf.repairs(), &at);
+    let touching = girsa_app::touching(shelf, shelf.repairs(), &standing);
     let mut links = touching.links;
 
     // The words each link is about, where anything says — and the far end's
@@ -4004,19 +4008,22 @@ fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> 
 
     // The line as the pane drew it — corrected, and with the nikud the reader
     // has on — because that is the string a highlight's offsets are against.
-    let base = {
+    let (base, standing) = {
         let sefer = state.sefer(at.work())?;
-        sefer
+        let text = sefer
             .position_of(&at)
             .and_then(|nth| sefer.segments.get(nth))
             .map(|segment| segment.text.clone())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Your notes, highlights and folders are anchored under the name this
+        // place had when you wrote them, which a corpus update may have moved.
+        (text, sefer.standing(&at))
     };
     let nikud = state.session.nikud;
     let drawn = display::Shown::of(&base, nikud).text().to_string();
 
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let found = girsa_app::yours(shelf, &at, &drawn);
+    let found = girsa_app::yours(shelf, &standing, &drawn);
     Ok(Yours {
         notes: found
             .notes

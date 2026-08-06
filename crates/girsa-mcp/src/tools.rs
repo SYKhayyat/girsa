@@ -501,7 +501,15 @@ fn where_from(server: &Server, args: &Value) -> Result<Value, String> {
 fn links(server: &Server, args: &Value) -> Result<Value, String> {
     let id = id_arg(args, "id")?;
     let limit = limit_of(args);
-    let touching = girsa_app::links::touching(&server.shelf, server.shelf.repairs(), &id);
+    // Read the sefer to ask it what this place has been called: an edge is
+    // stored under the name its endpoint had when the row was written, and only
+    // the work on disk knows whether a corpus update has moved it since.
+    let sefer = server
+        .shelf
+        .read(id.work())
+        .map_err(|e| format!("{} will not open: {e}", id.work()))?;
+    let at = sefer.standing(&id);
+    let touching = girsa_app::links::touching(&server.shelf, server.shelf.repairs(), &at);
     let shown: Vec<Value> = touching
         .links
         .iter()

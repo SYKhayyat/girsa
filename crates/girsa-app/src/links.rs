@@ -29,6 +29,7 @@
 use std::path::Path;
 
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use girsa_link::repair::{Repaired, Repairs};
 use girsa_link::{inbound, store, Anchor};
 
@@ -84,15 +85,21 @@ pub struct Touching {
 /// Sorted the way a reader wants to see them — the strongest claim first, then
 /// by the sefer's name, so the list is stable between two openings of the same
 /// line.
+///
+/// `at` is a [`Standing`] rather than an id, and that is the whole of W6's
+/// promise reaching the graph: an edge is stored under the name its endpoint had
+/// when the row was written, and a corpus update can cut that segment into
+/// pieces, fold it into its neighbour, or put a new se'if beside it whose name
+/// is spelled like one of its pieces. `Open::standing` is what knows which.
 #[must_use]
-pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
+pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &Standing) -> Touching {
     let root = shelf.root();
     let mut links = Vec::new();
 
     // Outgoing: one file, the shard of the sefer you are reading.
-    let mine = read_shard(root, at.work());
+    let mine = read_shard(root, at.at().work());
     for repaired in repairs.apply(mine) {
-        if !repaired.edge.from.covers(at) {
+        if !repaired.edge.from.names(at) {
             continue;
         }
         links.push(link(shelf, repaired, true));
@@ -106,9 +113,9 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
     // would tell a reader "nothing links here" when the truth is "I have not
     // been told what does".
     let incoming_unknown = !inbound::built(root);
-    let onto = inbound::read_back(root, at.work()).unwrap_or_default();
+    let onto = inbound::read_back(root, at.at().work()).unwrap_or_default();
     for repaired in repairs.apply(onto) {
-        if !repaired.edge.to.covers(at) {
+        if !repaired.edge.to.names(at) {
             continue;
         }
         links.push(link(shelf, repaired, false));
@@ -116,7 +123,7 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
 
     // …the ones you drew, which are in no shard at all…
     for repaired in repairs.drawn_touching(at) {
-        let outgoing = repaired.edge.from.covers(at);
+        let outgoing = repaired.edge.from.names(at);
         links.push(link(shelf, repaired, outgoing));
     }
 
@@ -131,7 +138,7 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &SegmentId) -> Touching {
     // Through `repairs.apply` like everything else, so a note's edge can be
     // retyped or rejected by W23's layer; and `mine`, because you wrote it.
     for repaired in repairs.apply(shelf.notes().edges_touching(at)) {
-        let outgoing = repaired.edge.from.covers(at);
+        let outgoing = repaired.edge.from.names(at);
         let mut repaired = repaired;
         repaired.mine = true;
         links.push(link(shelf, repaired, outgoing));

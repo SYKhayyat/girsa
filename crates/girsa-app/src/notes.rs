@@ -18,6 +18,7 @@
 //! asking which notebook, no anchor to choose, because you are standing on it.
 
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use girsa_note::mark::Placed;
 use girsa_note::{Collection, Mark, Note, NoteError};
 
@@ -89,7 +90,7 @@ impl Yours {
 /// against. Handing this the text off the disk instead would place every
 /// highlight in a corrected sefer a few characters out.
 #[must_use]
-pub fn yours(shelf: &Shelf, at: &SegmentId, text: &str) -> Yours {
+pub fn yours(shelf: &Shelf, at: &Standing, text: &str) -> Yours {
     let mut notes: Vec<Wrote> = shelf
         .notes()
         .touching(at)
@@ -234,7 +235,7 @@ mod tests {
         assert_eq!(note.title, "וצריך עיון מה שכתב הרמ\"א כאן");
         assert_eq!(note.paras().len(), 1);
 
-        let yours = yours(&shelf, &at(), LINE);
+        let yours = yours(&shelf, &Standing::just(at()), LINE);
         assert_eq!(yours.notes.len(), 1);
         assert_eq!(yours.notes[0].slug, note.slug);
         assert!(yours.notes[0].opening.starts_with("וצריך עיון"));
@@ -254,7 +255,7 @@ mod tests {
             .add(Mark::highlight(at(), 6..10, "כארי", "me"))
             .expect("takes");
 
-        let before = yours(&shelf, &at(), LINE);
+        let before = yours(&shelf, &Standing::just(at()), LINE);
         assert_eq!(before.marks.len(), 1);
         assert_eq!(
             before.marks[0].placed,
@@ -267,7 +268,7 @@ mod tests {
         // The same mark against a corrected line, which is what the pane will
         // actually be holding.
         let corrected = format!("וכן {LINE}");
-        let after = yours(&shelf, &at(), &corrected);
+        let after = yours(&shelf, &Standing::just(at()), &corrected);
         assert_eq!(
             after.marks[0].placed,
             Placed::At {
@@ -282,7 +283,7 @@ mod tests {
         let mut shelf = shelf("girsa-notes-folders");
         collect(&mut shelf, "thursday", "חבורה יום ה", &at()).expect("collects");
         collect(&mut shelf, "thursday", "חבורה יום ה", &at()).expect("twice is once");
-        let yours = yours(&shelf, &at(), LINE);
+        let yours = yours(&shelf, &Standing::just(at()), LINE);
         assert_eq!(yours.folders, vec!["thursday".to_string()]);
         assert_eq!(
             shelf.collections().get("thursday").map(|f| f.members.len()),

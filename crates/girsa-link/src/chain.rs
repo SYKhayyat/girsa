@@ -311,7 +311,11 @@ impl<'a> Graph<'a> {
             .iter()
             .filter_map(|repaired| far_end(at, repaired))
             .collect();
-        for repaired in self.repairs.drawn_touching(&at.from) {
+        // Filtered by `far_end` alone, which asks whether the two anchors
+        // overlap — a stricter test than a pre-filter on the near end, and the
+        // right one here: a chain hops anchor to anchor and nobody is standing
+        // on a segment for a [`girsa_corpus::standing::Standing`] to be about.
+        for repaired in self.repairs.drawn() {
             if let Some(hop) = far_end(at, &repaired) {
                 out.push(hop);
             }

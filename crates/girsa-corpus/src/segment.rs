@@ -109,9 +109,32 @@ impl Ordinal {
     ///
     /// This is what makes an old anchor keep working: a link that pointed at
     /// `#7` before the split still covers `#7.1` and `#7.2` after it.
+    ///
+    /// # Not sufficient on its own
+    ///
+    /// Descent is *necessary* evidence and not sufficient, because [`child`]
+    /// has two callers that mean opposite things by it — a cut carving `#7`
+    /// into pieces, and [`crate::import::continuity::mint_between`] naming a
+    /// se'if upstream inserted after `#7`. Both produce `#7.1`; only the first
+    /// is `#7`'s words. What tells them apart is that a cut **deletes its
+    /// parent** and an insertion does not, which is a fact about the shelf and
+    /// not about the name. Ask [`crate::standing::Standing`], which knows both.
+    ///
+    /// [`child`]: Ordinal::child
     #[must_use]
     pub fn covers(&self, other: &Self) -> bool {
         other.0.starts_with(&self.0)
+    }
+
+    /// The ordinal one level up. `#7.1` → `#7`; a root has none.
+    #[must_use]
+    pub fn parent(&self) -> Option<Self> {
+        if self.0.len() <= 1 {
+            return None;
+        }
+        let mut v = self.0.clone();
+        v.pop();
+        Some(Self(v))
     }
 
     /// How deep the ordinal is. A root segment is 1; a child of a split is 2.
@@ -247,9 +270,26 @@ impl SegmentId {
 
     /// Whether an anchor on `self` still covers `other` — true for `other`
     /// itself and for anything a split of `self` produced.
+    ///
+    /// See [`Ordinal::covers`] for why descent alone is not proof, and
+    /// [`crate::standing::Standing`] for the question a reader is actually
+    /// asking.
     #[must_use]
     pub fn covers(&self, other: &Self) -> bool {
         self.work == other.work && self.ordinal.covers(&other.ordinal)
+    }
+
+    /// The id one level up. `#7.1` → `#7`; a root segment has none.
+    ///
+    /// The section path rides along unchanged: a cut child sits at the same
+    /// address as the segment it came out of, and only the ordinal descends.
+    #[must_use]
+    pub fn parent(&self) -> Option<Self> {
+        Some(Self {
+            work: self.work.clone(),
+            path: self.path.clone(),
+            ordinal: self.ordinal.parent()?,
+        })
     }
 
     /// The citation this segment sits at, dropping the ordinal.

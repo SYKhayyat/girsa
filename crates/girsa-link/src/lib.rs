@@ -31,6 +31,7 @@ pub mod store;
 pub mod touching;
 
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 
 /// Edge types (spec.md §8.2). Directed; the inverse is derived, never stored
 /// twice.
@@ -139,11 +140,37 @@ impl Anchor {
         self.to.is_some()
     }
 
-    /// Whether this anchor lands on a segment.
+    /// Whether this anchor names the words a reader is standing on.
+    ///
+    /// **This is the question the panels ask**, and [`Anchor::covers`] is not
+    /// it. An edge is stored under the name its endpoint had when the row was
+    /// written, and a corpus update can cut that segment up, fold it into its
+    /// neighbour, or insert a se'if beside it whose name is spelled like one of
+    /// its pieces. Only the shelf knows which happened, and a [`Standing`]
+    /// carries what it knows — see [`girsa_corpus::standing`].
+    ///
+    /// A run is still settled by **reading order**, because a run names a
+    /// stretch of a sefer rather than one place, and what sorts inside that
+    /// stretch is inside it however it got there. Asked of every name the place
+    /// answers to, so a run written against the old numbering still lands.
+    #[must_use]
+    pub fn names(&self, standing: &Standing) -> bool {
+        let Some(to) = &self.to else {
+            return standing.named_by(&self.from);
+        };
+        standing
+            .names()
+            .any(|name| name.work() == self.from.work() && self.from <= *name && *name <= *to)
+    }
+
+    /// Whether this anchor lands on a segment, by name alone.
     ///
     /// A run covers everything between its ends in **reading order**, which is
-    /// ordinal order and so includes the children a split minted (§3) — an edge
-    /// onto `#7` still lands after `#7` becomes `#7.1` and `#7.2`.
+    /// ordinal order. A point covers what descends from it — which is *necessary
+    /// and not sufficient* evidence that it names those words, so a caller
+    /// standing on a live segment wants [`Anchor::names`] instead. This one is
+    /// for comparing two anchors to each other ([`Anchor::overlaps`]), where
+    /// there is no shelf in the question.
     #[must_use]
     pub fn covers(&self, id: &SegmentId) -> bool {
         if self.from.work() != id.work() {

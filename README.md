@@ -2067,9 +2067,11 @@ purpose: a place this edition does not have is a different answer from an id
 nobody ever minted, and it is the difference between a reader being told *this
 is not in the edition you have* and being shown somebody else's words.
 
-The reader follows it. `Open::covered_by` resolves live → ancestry → redirect,
-in that order, which is the order of how much is known — and never picks the
-nearest surviving segment, which would resolve cleanly and be wrong.
+The reader follows it. `Open::covered_by` resolves live → **cut out of** →
+redirect, in that order, which is the order of how much is known — and never
+picks the nearest surviving segment, which would resolve cleanly and be wrong.
+That middle step used to be *descended from*, which is a different claim and a
+wrong one; the next section is why.
 
 What the importer prints after a re-import:
 
@@ -2116,15 +2118,89 @@ have contained:
 The extra cost is one read of each work's own `segments.jsonl` — the file the
 import is about to overwrite anyway.
 
-**What this does not reach yet.** The reading pane follows the table; the link
-graph does not. `corpus/links/` holds 4.18M edges addressed by segment id, and
-an edge whose endpoint was re-segmented would resolve through `covers` and not
-through `redirects.jsonl` — so it survives a cut and would not survive a
-re-segmentation. That is the same one-line change in `girsa_link::store`, and it
-is not made here because nothing has re-segmented yet and a change to how 4.18M
-edges resolve wants its own measurement. Said out loud rather than left to be
-discovered: it is the difference between the promise holding for a reader's own
-anchors and holding for everything.
+### The same question, asked by everything that is anchored
+
+The reading pane followed that table. Nothing else did. The links panel, your
+notes, your highlights and your folders each asked `SegmentId::covers` — six
+characters of `starts_with` on the ordinal — which is a fact about the **name**,
+and it answers a different question from the one being asked. It was wrong in
+two directions:
+
+| what upstream did | the anchor says | `covers` said | the truth |
+|---|---|---|---|
+| folded se'if 3 into se'if 2 | `#3` | nothing here | those are se'if 2's words now |
+| inserted a se'if after 1 | `#1` | **this is your line** | it has never seen those words |
+
+The first was named in the last commit. The second was not, and it is the worse
+one. `Ordinal::child` has two callers that mean opposite things by it: the
+oversized cutter carving `#1` into pieces, and `mint_between` naming a se'if
+upstream inserted after `#1` — the only name that sorts between `#1` and `#2`.
+Both are spelled `#1.1`. A prefix test says yes to both, so every comment ever
+written on se'if 1 shows on a se'if that did not exist when they were written.
+Not a missing link — an **invented** one, which is rule 6 with the sign flipped,
+and the same defect reached notes and highlights through `Note::insert_after`,
+where the anchors are yours and nobody else has a copy.
+
+**What separates the two is that a cut deletes its parent.** `import::assemble`
+says so where it does it — *"The parent id is not written to disk: it is not a
+segment any more"* — and `mint_between` is handed a `low` that kept its name and
+is still on the shelf. So the shelf already knew which event minted a name, and
+it needed no new file to say it:
+
+> An ancestor names a descendant's words only if the ancestor is **not itself
+> live**. Walk up, and stop at the first name still on the shelf.
+
+Stopping matters as much as walking. `#7` cut into `#7.1` and `#7.2`, then a
+se'if inserted after `#7.2`, is named `#7.2.1`: its parent is live, so the walk
+stops there and `#7` does not reach it either — correct, because those words
+were never in `#7`.
+
+`girsa_corpus::standing::Standing` is a place under every name its words have
+carried: the ancestors it was carved out of, and the dead names `redirects.jsonl`
+points here, walked **backwards** — *which old names lead to where I am*, rather
+than the forward walk `covered_by` uses to find text. One set, built once per
+question, and one membership test over it. The six consumers that each had their
+own idea of coverage now ask it, and a bare live id is no longer something any of
+them can hand to the ancestry-only test.
+
+**And a second defect underneath it.** `Open`'s segment → position map was a
+`HashMap`, and `SegmentId`'s `Hash` takes in the section path where its `Ord`
+does not — because the path is descriptive and the ordinal is the durable name.
+So an anchor written before upstream re-sectioned a work, which is the case §3
+exists for, looked up as **absent**. That map was also what decided whether a
+name was live, so the first version of this fix passed every synthetic test and
+still leaked links onto inserted se'ifim: the parent looked absent, so the
+insertion looked like a cut. It is a `BTreeMap` now, and what caught it was the
+test that re-imports a real work over itself rather than asserting the rule
+against a fixture built to agree with it.
+
+Measured over `corpus/` — `cargo run --release --example measure-standing -p
+girsa-app`, the four Shulchan Arukh volumes, 200 lines each:
+
+| | Orach Chayim | Yoreh De'ah | Even HaEzer | Choshen Mishpat |
+|---|---|---|---|---|
+| edges tested | 759,000 | 740,600 | 432,400 | 1,018,000 |
+| the old predicate | 13.6 ms | 20.1 ms | 6.8 ms | 18.9 ms |
+| the new one | **8.9 ms** | **13.2 ms** | **4.2 ms** | **12.7 ms** |
+| links found, old → new | 262 → 262 | 311 → 311 | 425 → 425 | 552 → 552 |
+
+**The same answers, and about a third faster.** The same answers because nothing
+on the shelf has been re-segmented yet: 0 inherited names across the 800 lines
+sampled, which is the redirect table being empty, which is what the previous
+section's `newly minted 0` already said. This is a fix for the next import, not
+this one — and it is checked in *before* that import rather than after somebody
+notices a comment on a se'if that did not exist.
+
+Faster because `Anchor::covers` compared the work slug **twice** for every edge
+it tested — once in `Anchor::covers` and again inside `SegmentId::covers` — and
+the set lookup compares it once. Building the `Standing` is 229 µs for 200
+lines, about a microsecond each.
+
+And one thing the measuring found that has nothing to do with any of this:
+opening the panel costs **524 ms a line** in Orach Chayim, of which **70% is
+re-reading `inbound.jsonl`** — 159,273 rows, off disk, on every click. Not new,
+not this, and written down because a number nobody prints is a number nobody
+knows.
 
 ### A chaburah is a list, and the order is the chaburah
 

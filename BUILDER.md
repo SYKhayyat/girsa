@@ -306,6 +306,28 @@ still resolves to the same words. An in-memory assertion does not count here;
 the disk is the whole point. `crates/girsa-corpus/tests/a_reimport_keeps_every_name.rs`,
 and `--example measure-continuity` is the same check over the real corpus.
 
+**Amended a second time, one level over, for the same reason.** The acceptance
+says *"assert every one of those 501 links still resolves to the same text"* —
+and that was asserted of the store and of the importer. The thing a reader
+actually looks at was never in the room. `girsa_app::touching` matched a stored
+anchor against the line you are standing on with `SegmentId::covers`, a prefix
+test on the ordinal, which never opens `redirects.jsonl`. So it lost an edge to a
+merge. Worse, it says yes to `#1.1` whether a cut carved it out of `#1` or
+`mint_between` named a se'if upstream **inserted** after `#1` — both are spelled
+the same — so it *gained* edges onto se'ifim that did not exist when the edge was
+written. A missing link looks thin; an invented one is a claim nobody made, which
+is rule 6 with the sign flipped. Notes, highlights, folders and hand-drawn links
+each had their own copy of the same predicate and so the same two faults.
+
+What tells a cut from an insertion needs no new file: **a cut deletes its parent
+and an insertion does not**. So the acceptance is now also: re-import a work with
+a se'if inserted, and one with a se'if folded away, and **ask the panel** rather
+than the store. `crates/girsa-app/tests/a_link_survives_a_resegmentation.rs`, and
+`--example measure-standing -p girsa-app` is the same question over the real
+4.18M-edge graph. There is one predicate now — `girsa_corpus::standing::Standing`
+— because six implementations of *does this anchor name these words* is five too
+many, and the disagreement between them is invisible from the reader's chair.
+
 ### W7 · Import texts
 
 **Goal.** Sefaria spine + Otzaria fill, one model (`spec.md` §2.3b).

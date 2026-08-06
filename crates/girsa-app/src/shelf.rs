@@ -13,12 +13,13 @@
 //! importer truncates the file it owns, so a sefer of yours filed in it would
 //! be gone at the next corpus update and nothing would say so.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::{self, Segment};
 use girsa_corpus::index::{SegmentIndex, WorkSegments};
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use girsa_corpus::work::{Source, Work};
 use girsa_fix::Showing;
 use girsa_ref::{Address, Ref};
@@ -705,7 +706,20 @@ pub struct Open {
     /// address name" would drift from the one the graph was built with, and
     /// the panes would disagree with the links.
     index: SegmentIndex,
-    position: HashMap<SegmentId, usize>,
+    /// Segment → where it sits in reading order.
+    ///
+    /// A `BTreeMap` and deliberately not a `HashMap`. [`SegmentId`]'s `Ord` is
+    /// work then **ordinal** and its `Hash` also takes in the section path, so a
+    /// hashed lookup answers *is there a segment at this address with this
+    /// name*, which is one question too many: the path is descriptive and the
+    /// ordinal is the durable name (see [`SegmentId::path`]). An anchor written
+    /// down before upstream re-sectioned a work carries the old address, and a
+    /// hashed map says that place is not here.
+    ///
+    /// It was also, until [`Standing`], quietly deciding what counts as *live* —
+    /// so the parent of a se'if upstream had inserted looked absent, and the
+    /// new se'if inherited every link, note and highlight on the line above it.
+    position: BTreeMap<SegmentId, usize>,
     /// Names this work no longer has live, and where the importer said the
     /// words went — `redirects.jsonl`, read back (spec.md §3).
     ///
@@ -713,7 +727,18 @@ pub struct Open {
     /// them. It is here rather than looked up per lookup because the failure it
     /// guards against is a link, a correction or a citation in somebody's Ksav
     /// document quietly resolving to nothing after a corpus update.
-    redirects: HashMap<SegmentId, Vec<SegmentId>>,
+    redirects: BTreeMap<SegmentId, Vec<SegmentId>>,
+    /// The same table read backwards: a live name, and the dead ones that lead
+    /// to it.
+    ///
+    /// `redirects` answers *where did these words go*, which is what the reading
+    /// pane asks when a stale id has to find text. Standing on a line and asking
+    /// *what was this called before* is the other direction, and it is the one
+    /// every anchored thing needs — a link, a note, a highlight and a folder are
+    /// all stored under the name the place had when they were written. Derived
+    /// once here rather than by scanning the table per question, because the
+    /// links panel asks it against every edge in a shard.
+    redirected_from: BTreeMap<SegmentId, Vec<SegmentId>>,
     /// For a scan, what the reader has said its pages are called (W25).
     ///
     /// # Why an address of a scan is read through this and not through `index`
@@ -783,7 +808,8 @@ impl Open {
             corrections,
             index,
             position,
-            redirects: HashMap::new(),
+            redirects: BTreeMap::new(),
+            redirected_from: BTreeMap::new(),
             paging: None,
         }
     }
@@ -800,7 +826,59 @@ impl Open {
             .filter(|row| !row.to.is_empty())
             .map(|row| (row.from.clone(), row.to.clone()))
             .collect();
+        // And the same rows the other way up. A `Why::Gone` row has nowhere to
+        // point and so appears in neither map — an anchor on it names no words
+        // here, which is the honest answer and not the same as an id nobody
+        // minted.
+        // Keyed the same way, and for the same reason: a redirect row names
+        // the place by the address it had *then*, and the ordinal is what makes
+        // the two records one place.
+        self.redirected_from = BTreeMap::new();
+        for (from, to) in &self.redirects {
+            for target in to {
+                self.redirected_from
+                    .entry(target.clone())
+                    .or_default()
+                    .push(from.clone());
+            }
+        }
         self
+    }
+
+    /// The place at `id`, under every name those words have carried.
+    ///
+    /// The one derivation of [`Standing`], because this is the one place that
+    /// holds both halves of the evidence: which names are still segments on disk
+    /// (so a dotted name can be told from a cut apart from an insertion), and
+    /// `redirects.jsonl` (so a name upstream moved can be followed back). Every
+    /// consumer that used to ask [`SegmentId::covers`] asks this instead.
+    #[must_use]
+    pub fn standing(&self, id: &SegmentId) -> Standing {
+        Standing::derived(
+            id,
+            |name| self.position.contains_key(name),
+            |name| self.redirected_from.get(name).cloned().unwrap_or_default(),
+        )
+    }
+
+    /// Whether `at` is something `ancestor` was carved into, rather than
+    /// something merely inserted below it.
+    ///
+    /// A cut deletes its parent, so a name still on the shelf between the two
+    /// means these words were never the ancestor's — see [`Standing`]. Walked
+    /// rather than prefix-tested for exactly that reason.
+    fn carved_from(&self, ancestor: &SegmentId, at: &SegmentId) -> bool {
+        let mut rung = at.parent();
+        while let Some(up) = rung {
+            if up == *ancestor {
+                return true;
+            }
+            if self.position.contains_key(&up) {
+                return false;
+            }
+            rung = up.parent();
+        }
+        false
     }
 
     /// The same, knowing what the reader has said this scan's pages are called.
@@ -863,15 +941,20 @@ impl Open {
 
     /// Where every segment an id covers sits, in reading order.
     ///
-    /// Itself, if it is live. Its children, if it was split. Where the importer
-    /// said the words went, if upstream re-segmented the work under it. Empty if
-    /// it names nothing here — never the nearest thing.
+    /// Itself, if it is live. The pieces it was cut into, if it was cut. Where
+    /// the importer said the words went, if upstream re-segmented the work under
+    /// it. Empty if it names nothing here — never the nearest thing.
     ///
     /// The three are tried in that order and it is the order of how much is
-    /// known. An id that is live is a fact; ancestry is a fact about the name;
-    /// a redirect is a judgement the importer recorded and can be read back and
-    /// argued with. What is never done is picking the closest surviving segment,
-    /// which would resolve cleanly to somebody else's words.
+    /// known. An id that is live is a fact; being cut out of something is a fact
+    /// about the shelf; a redirect is a judgement the importer recorded and can
+    /// be read back and argued with. What is never done is picking the closest
+    /// surviving segment, which would resolve cleanly to somebody else's words.
+    ///
+    /// Note the middle one is *cut out of*, not *descended from*. `#7.1` is what
+    /// a cut of `#7` mints and also what upstream inserting a se'if after `#7`
+    /// is named, and only the first is `#7`'s words — see
+    /// [`girsa_corpus::standing`].
     #[must_use]
     pub fn covered_by(&self, id: &SegmentId) -> Vec<usize> {
         if let Some(at) = self.position.get(id).copied() {
@@ -880,7 +963,7 @@ impl Open {
         let mut out: Vec<usize> = self
             .position
             .iter()
-            .filter(|(live, _)| id.covers(live))
+            .filter(|(live, _)| self.carved_from(id, live))
             .map(|(_, at)| *at)
             .collect();
         if out.is_empty() {
@@ -915,7 +998,7 @@ impl Open {
             let covered: Vec<usize> = self
                 .position
                 .iter()
-                .filter(|(live, _)| to.covers(live))
+                .filter(|(live, _)| self.carved_from(to, live))
                 .map(|(_, at)| *at)
                 .collect();
             if covered.is_empty() {
