@@ -1,0 +1,20 @@
+# Windows/MSVC build tuning. Nothing here changes *what* is compiled — only how
+# quickly the toolchain gets through it. Safe to delete; the build works without
+# it, just slower.
+
+[target.x86_64-pc-windows-msvc]
+# `link.exe` is the slowest part of a debug build on this platform by a wide
+# margin, and it is the part that balloons to ~1 GB of working set per test
+# binary. `rust-lld` ships inside the rustup toolchain — no install, and the
+# bare name resolves because rustc looks in its own self-contained bin dir.
+#
+# If a link ever fails in a way that smells like the linker rather than the
+# code, comment this line out first; that isolates it in one step.
+linker = "rust-lld.exe"
+
+[build]
+# The i7-1280P is a 28 W part. It cannot hold turbo across all 20 threads, so
+# the default `-j 20` does not buy proportional throughput — it just multiplies
+# concurrent linkers, and *those* are what make the machine unusable to type on
+# while a build runs. 12 keeps the laptop responsive at negligible cost.
+jobs = 12

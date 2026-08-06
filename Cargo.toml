@@ -66,8 +66,37 @@ unsafe_code = "forbid"
 unwrap_used = "deny"
 expect_used = "deny"
 
+# The dev profile is split on purpose. On the Windows/MSVC toolchain the build
+# time of this workspace is dominated by `link.exe` and by the debug info it has
+# to chew through — not by codegen. A flat `opt-level = 1` across the graph paid
+# optimization cost on all 298 dependencies on a profile that also carried full
+# debug info, and the result was ~1 GB of linker working set per test binary and
+# a 50 GB target directory.
+#
+# The split follows what actually gets rebuilt: dependencies are compiled once
+# and cached, so they can afford everything. The nine workspace crates are
+# recompiled on every edit, so they pay for every setting here every time.
 [profile.dev]
-opt-level = 1        # ingest and indexing are unusable at opt-level 0
+opt-level = 0
+debug = "line-tables-only"   # backtraces keep file:line; the full PDB is what
+                             # made the linker the bottleneck
+
+# Built once, then cached forever — so optimize them properly. This is where the
+# ingest and indexing throughput actually comes from: tantivy, tokenizers,
+# candle, lopdf and zip are all on this side of the line, as are the path
+# dependencies from sefer-crates (they are dependencies, not workspace members).
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# ...except these two, which are ours and sit on the ingest/indexing hot path.
+# This is the old `opt-level = 1` note, kept where it is genuinely needed instead
+# of applied to the entire dependency graph.
+[profile.dev.package.girsa-corpus]
+opt-level = 2
+
+[profile.dev.package.girsa-search]
+opt-level = 2
 
 [profile.release]
 opt-level = 3
