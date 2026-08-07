@@ -106,6 +106,14 @@ pub(crate) struct State {
     /// shards, which move on a re-import, and the two works' segment positions,
     /// which corrections do not touch. Dropped with the seforim themselves.
     joined: HashMap<(String, String), girsa_app::Joined>,
+    /// Slug → what has been read off the pages of that scan (W26).
+    ///
+    /// Held for the same reason `marks` is. `Words::open` parses the whole
+    /// append-only log to answer about one page, and the shell called it
+    /// **twice per page read** — `scan_read_page` opened it to record, then
+    /// called `scan_reading`, which opened it again to count. Six call sites,
+    /// six parses.
+    words: HashMap<String, girsa_scan::Words>,
     /// When the session was last written, so that a scroll does not write it.
     ///
     /// `Session::save` serialises the whole workspace **plus the remembered
@@ -221,6 +229,30 @@ impl State {
         if self.saved_at.elapsed() >= SAVE_SCROLL_EVERY {
             self.save();
         }
+    }
+
+    /// What has been read off a scan's pages, parsed once per session.
+    ///
+    /// # Errors
+    ///
+    /// If there is no shelf to find the personal layer under.
+    fn words(&mut self, slug: &str) -> Result<&mut girsa_scan::Words, String> {
+        if !self.words.contains_key(slug) {
+            let personal = self
+                .shelf
+                .as_ref()
+                .ok_or("there is no shelf here")?
+                .personal()
+                .to_path_buf();
+            let (words, trouble) = girsa_scan::Words::open(&personal, slug);
+            for line in trouble {
+                eprintln!("{line}");
+            }
+            self.words.insert(slug.to_string(), words);
+        }
+        self.words
+            .get_mut(slug)
+            .ok_or_else(|| "no words read".to_string())
     }
 
     /// Work out how two open seforim are joined, once.
@@ -1496,11 +1528,11 @@ fn scan_reading(shared: tauri::State<'_, Shared>, slug: String) -> Result<Readin
         .to_path_buf();
     let sefer = state.open.get(&slug).ok_or("not open")?;
     let pages = girsa_app::scanning::pages_of(sefer);
-    let (words, trouble) = girsa_scan::Words::open(&personal, &slug);
-    for line in trouble {
-        eprintln!("{line}");
-    }
-    let job = girsa_scan::Job::of(&slug, pages, &words);
+    // Held, not re-opened. `Words::open` parses the whole log to answer about
+    // one page, and this command is called *again* by `scan_read_page` and
+    // `scan_ocr_page` the moment either of them has recorded something.
+    let words = state.words(&slug)?;
+    let job = girsa_scan::Job::of(&slug, pages, words);
     Ok(ReadingRow {
         slug,
         pages,
@@ -1522,15 +1554,12 @@ fn scan_read_page(
     height: f32,
     glyphs: Vec<DrawnRow>,
 ) -> Result<ReadingRow, String> {
-    let personal = {
+    // The shelf has to be there, and this is where that is refused — the
+    // personal path itself is `State::words`'s to find now.
+    {
         let state = shared.lock().map_err(|_| "state is poisoned")?;
-        state
-            .shelf
-            .as_ref()
-            .ok_or("there is no shelf here")?
-            .personal()
-            .to_path_buf()
-    };
+        state.shelf.as_ref().ok_or("there is no shelf here")?;
+    }
     if width <= 0.0 || height <= 0.0 {
         return Err("a page with no size on it".to_string());
     }
@@ -1557,14 +1586,17 @@ fn scan_read_page(
             grouped.refused
         );
     }
-    let (mut words, _) = girsa_scan::Words::open(&personal, &slug);
-    words
-        .record(girsa_scan::Read::new(
-            page,
-            girsa_scan::Reader::Embedded,
-            grouped.words,
-        ))
-        .map_err(|e| e.to_string())?;
+    {
+        let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+        state
+            .words(&slug)?
+            .record(girsa_scan::Read::new(
+                page,
+                girsa_scan::Reader::Embedded,
+                grouped.words,
+            ))
+            .map_err(|e| e.to_string())?;
+    }
     scan_reading(shared, slug)
 }
 
@@ -1591,8 +1623,13 @@ fn scan_ocr_page(
         .ok_or_else(|| girsa_scan::EngineError::NoEngine.to_string())?;
     let read = girsa_scan::Engine::read(&engine, page, &girsa_scan::Image { png, width, height })
         .map_err(|e| e.to_string())?;
-    let (mut words, _) = girsa_scan::Words::open(&personal, &slug);
-    words.record(read).map_err(|e| e.to_string())?;
+    {
+        let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+        state
+            .words(&slug)?
+            .record(read)
+            .map_err(|e| e.to_string())?;
+    }
     scan_reading(shared, slug)
 }
 
@@ -1603,16 +1640,8 @@ fn scan_words(
     slug: String,
     page: usize,
 ) -> Result<Option<PageWordsRow>, String> {
-    let personal = {
-        let state = shared.lock().map_err(|_| "state is poisoned")?;
-        state
-            .shelf
-            .as_ref()
-            .ok_or("there is no shelf here")?
-            .personal()
-            .to_path_buf()
-    };
-    let (words, _) = girsa_scan::Words::open(&personal, &slug);
+    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let words = state.words(&slug)?;
     Ok(words.page(page).map(|read| PageWordsRow {
         page: read.page,
         by: Some(read.by.name().to_string()),
@@ -1634,33 +1663,27 @@ fn scan_fix(
     word: usize,
     says: String,
 ) -> Result<Option<PageWordsRow>, String> {
-    let personal = {
-        let state = shared.lock().map_err(|_| "state is poisoned")?;
-        state
-            .shelf
-            .as_ref()
-            .ok_or("there is no shelf here")?
-            .personal()
-            .to_path_buf()
-    };
-    let (mut words, _) = girsa_scan::Words::open(&personal, &slug);
-    let was = words
-        .as_read(page)
-        .ok_or_else(|| format!("nobody has read page {page} of {slug}"))?
-        .words
-        .get(word)
-        .ok_or_else(|| format!("page {page} has no word {word} on it"))?
-        .clone();
-    words
-        .fix(
-            page,
-            girsa_scan::Fix {
-                at: was.at,
-                was: was.text,
-                says,
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    {
+        let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+        let words = state.words(&slug)?;
+        let was = words
+            .as_read(page)
+            .ok_or_else(|| format!("nobody has read page {page} of {slug}"))?
+            .words
+            .get(word)
+            .ok_or_else(|| format!("page {page} has no word {word} on it"))?
+            .clone();
+        words
+            .fix(
+                page,
+                girsa_scan::Fix {
+                    at: was.at,
+                    was: was.text,
+                    says,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+    }
     scan_words(shared, slug, page)
 }
 
@@ -3825,6 +3848,7 @@ pub fn run() {
                     order: Vec::new(),
                     marks: HashMap::new(),
                     joined: HashMap::new(),
+                    words: HashMap::new(),
                     saved_at: std::time::Instant::now(),
                 }),
             );

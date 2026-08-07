@@ -63,6 +63,9 @@ pub struct Words {
     fixes_path: Option<PathBuf>,
     by_page: BTreeMap<usize, Read>,
     fixes: BTreeMap<usize, Vec<Fix>>,
+    /// Lines in the log, live and superseded — what tells a log that has grown
+    /// from one that has not.
+    written: usize,
 }
 
 impl Words {
@@ -81,11 +84,13 @@ impl Words {
         let mut trouble = Vec::new();
 
         let mut by_page = BTreeMap::new();
+        let mut lines = 0usize;
         if let Ok(body) = std::fs::read_to_string(&path) {
             for (line, text) in body.lines().enumerate() {
                 if text.trim().is_empty() {
                     continue;
                 }
+                lines += 1;
                 match serde_json::from_str::<Read>(text) {
                     // Last line for a page wins: this is a log, not a table.
                     Ok(read) => {
@@ -112,6 +117,7 @@ impl Words {
             Self {
                 path: Some(path),
                 fixes_path: Some(fixes_path),
+                written: lines,
                 by_page,
                 fixes,
             },
@@ -223,8 +229,41 @@ impl Words {
                 .open(&path)
                 .map_err(WordsError::io(&path))?;
             writeln!(file, "{line}").map_err(WordsError::io(&path))?;
+            self.written += 1;
         }
         self.by_page.insert(read.page, read);
+        self.compact_if_it_has_grown()
+    }
+
+    /// Rewrite the log when it has grown past twice what it holds.
+    ///
+    /// The same rule `girsa_personal::Log` uses, and for the same reason: this
+    /// is an append-only log keyed by page, a later line for a page wins, and
+    /// **re-reading a page appends another copy of it forever**. Reading page
+    /// *k* of a 500-page masechta with a better engine parsed every superseded
+    /// read of every page on the way. A page is not a small record — it is
+    /// every word on it and where each one sits.
+    ///
+    /// Written beside and renamed over, so a machine that stops mid-compaction
+    /// has either the old log or the new one.
+    fn compact_if_it_has_grown(&mut self) -> Result<(), WordsError> {
+        let Some(path) = self.path.clone() else {
+            return Ok(());
+        };
+        if self.written <= self.by_page.len() * 2 {
+            return Ok(());
+        }
+        let mut body = String::new();
+        for read in self.by_page.values() {
+            let line =
+                serde_json::to_string(read).map_err(|e| WordsError::Malformed(e.to_string()))?;
+            body.push_str(&line);
+            body.push(0x0a as char);
+        }
+        let temp = path.with_extension("jsonl.writing");
+        std::fs::write(&temp, body).map_err(WordsError::io(&temp))?;
+        std::fs::rename(&temp, &path).map_err(WordsError::io(&path))?;
+        self.written = self.by_page.len();
         Ok(())
     }
 

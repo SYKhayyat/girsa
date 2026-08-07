@@ -45,6 +45,8 @@ export class PaneView {
   /** Set while a following pane is being moved, so its own scroll handler does
    * not report the move back and start the two panes chasing each other. */
   private quiet = false;
+  /** The frame a coalesced scroll is waiting for, or `null`. */
+  private pending: number | null = null;
 
   constructor(
     id: PaneId,
@@ -68,7 +70,25 @@ export class PaneView {
     this.body.tabIndex = 0;
     this.element.append(this.body);
 
-    this.body.addEventListener("scroll", () => this.scrolled(), { passive: true });
+    // One run per frame, not one per scroll event.
+    //
+    // `{ passive: true }` keeps this off the scroll thread and does nothing
+    // about what is inside it: `extend` writes up to 300 line elements and then
+    // reads `scrollHeight` to put the reader back where they were, which is a
+    // forced synchronous layout, and a trackpad fires scroll events faster than
+    // the compositor draws. Coalescing to a frame does the work once for the
+    // burst.
+    this.body.addEventListener(
+      "scroll",
+      () => {
+        if (this.pending !== null) return;
+        this.pending = requestAnimationFrame(() => {
+          this.pending = null;
+          this.scrolled();
+        });
+      },
+      { passive: true },
+    );
     this.body.addEventListener("pointerdown", () => this.onFocus(this.id));
     this.body.addEventListener("focus", () => this.onFocus(this.id));
     this.body.addEventListener("click", (event) => this.clicked(event));
@@ -278,14 +298,25 @@ export class PaneView {
    * `.line` and not any child, because an open block of commentary (W43) sits
    * between two lines and is not one. Returning it would report a position with
    * no segment id, which is how a following pane gets told to scroll to "".
+   *
+   * **Binary search, not a walk.** Lines are in document order and stack
+   * vertically, so *is this line's bottom below the fold* is monotonic — false
+   * for every line above the answer and true for every line at or below it.
+   * This read up to 400 `getBoundingClientRect()`s per scroll event to find the
+   * one that flips; it reads about nine.
    */
   private topLine(): HTMLElement | null {
-    const top = this.body.getBoundingClientRect().top;
-    for (const child of this.body.querySelectorAll<HTMLElement>(":scope > .line")) {
-      const box = child.getBoundingClientRect();
-      if (box.bottom > top + 8) return child;
+    const top = this.body.getBoundingClientRect().top + 8;
+    const lines = [...this.body.querySelectorAll<HTMLElement>(":scope > .line")];
+    let low = 0;
+    let high = lines.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      const line = lines[middle];
+      if (line && line.getBoundingClientRect().bottom > top) high = middle;
+      else low = middle + 1;
     }
-    return null;
+    return lines[low] ?? null;
   }
 
   /** Move this pane because the pane it follows moved. */
