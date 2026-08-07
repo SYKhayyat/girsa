@@ -49,8 +49,12 @@ use girsa_corpus::standing::Standing;
 use serde::{Deserialize, Serialize};
 
 /// What a patch claims.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+///
+/// Spelled once — see [`girsa_corpus::spelled`]. This type used to carry
+/// `as_str`, `named` **and** `#[serde(rename_all = "lowercase")]`, with
+/// `as_str`'s own doc saying *"one implementation, so the word in the file, the
+/// word on the button and the word the tests use cannot drift."*
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// The scanner, or the typist, got a letter wrong. A repair: nobody thinks
     /// the sefer says this.
@@ -61,34 +65,16 @@ pub enum Kind {
     Girsa,
 }
 
-impl Kind {
-    /// What the window calls it. One implementation, so the word in the file,
-    /// the word on the button and the word the tests use cannot drift.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Ocr => "ocr",
-            Self::Girsa => "girsa",
-        }
-    }
-
-    /// Read back what [`Kind::as_str`] wrote.
-    #[must_use]
-    pub fn named(word: &str) -> Option<Self> {
-        match word {
-            "ocr" => Some(Self::Ocr),
-            "girsa" => Some(Self::Girsa),
-            _ => None,
-        }
-    }
-}
+girsa_corpus::spelled!(Kind {
+    Ocr => "ocr",
+    Girsa => "girsa",
+});
 
 /// Which corrections are applied to the text being read.
 ///
 /// Three states rather than two, because "corrected" is two different questions
 /// (see [`Kind`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Showing {
     /// The sefer as it is shipped. Corrections are still reported, so a reader
     /// can see there is one without it being applied.
@@ -100,26 +86,13 @@ pub enum Showing {
     FixedWithVariants,
 }
 
+girsa_corpus::spelled!(Showing {
+    AsPrinted => "as_printed",
+    Fixed => "fixed",
+    FixedWithVariants => "fixed_with_variants",
+});
+
 impl Showing {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::AsPrinted => "as_printed",
-            Self::Fixed => "fixed",
-            Self::FixedWithVariants => "fixed_with_variants",
-        }
-    }
-
-    #[must_use]
-    pub fn named(word: &str) -> Option<Self> {
-        match word {
-            "as_printed" => Some(Self::AsPrinted),
-            "fixed" => Some(Self::Fixed),
-            "fixed_with_variants" => Some(Self::FixedWithVariants),
-            _ => None,
-        }
-    }
-
     /// Whether a patch of this kind is applied under this setting.
     #[must_use]
     pub const fn applies(self, kind: Kind) -> bool {

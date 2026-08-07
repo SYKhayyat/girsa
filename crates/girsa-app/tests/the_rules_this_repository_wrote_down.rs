@@ -249,3 +249,83 @@ fn a_number_a_reader_can_change_is_clamped_in_one_place() {
         );
     }
 }
+
+#[test]
+fn a_wire_format_is_spelled_once_and_not_derived_from_an_identifier() {
+    // `girsa_fix::Kind::as_str`:
+    //
+    //   What the window calls it. One implementation, so the word in the file,
+    //   the word on the button and the word the tests use cannot drift.
+    //
+    // …on a type that also carried `#[serde(rename_all = "lowercase")]`. Two
+    // spellings of one wire format, on one type, under a sentence about there
+    // being one.
+    //
+    // The root is wider than the two that were doubled. `rename_all` derives
+    // the **file format from the identifier**, so renaming a variant —
+    // `FixedWithVariants` → `WithVariants` — silently changes what is on disk,
+    // and the corrections a reader made last year stop reading. Eleven fieldless
+    // enums across seven crates were spelled that way.
+    //
+    // So: a fieldless enum states its spellings, through
+    // `girsa_corpus::spelled!`. Two shapes are deliberately *not* caught, and
+    // both are right —
+    //
+    //   * a **tagged** union (`#[serde(tag = "does", rename_all = …)]`) has
+    //     variants with fields and no `as_str`; the rename is about its tag.
+    //   * `#[serde(other)]` is a catch-all: an unknown word becomes that
+    //     variant on purpose, and `spelled!` refuses unknown words by design.
+    //     Converting `work::Mapping` would have turned a tolerated Sefaria
+    //     value into a work that will not parse.
+    let root = repo();
+    let mut wrong = Vec::new();
+    for (named, body) in sources(&root) {
+        if named.ends_with(SELF) || named.ends_with("girsa-corpus/src/lib.rs") {
+            continue;
+        }
+        let lines: Vec<&str> = body.lines().collect();
+        for (at, line) in lines.iter().enumerate() {
+            let line = line.trim();
+            if !line.starts_with("#[serde(rename_all") || !line.ends_with(")]") {
+                continue;
+            }
+            // A tagged union renames its tag, which is a different fact.
+            if line.contains("tag") {
+                continue;
+            }
+            let Some(head) = lines[at + 1..]
+                .iter()
+                .map(|l| l.trim())
+                .find(|l| !l.is_empty() && !l.starts_with("///"))
+            else {
+                continue;
+            };
+            if !head.contains("enum ") {
+                continue;
+            }
+            let body_of: String = lines[at..]
+                .iter()
+                .take_while(|l| !l.trim_start().starts_with('}'))
+                .copied()
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                );
+            // Variants with fields, or a catch-all: not this rule's business.
+            if body_of.contains('(') || body_of.contains("#[serde(other)]") {
+                continue;
+            }
+            wrong.push(format!("{named}: {head}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a fieldless enum whose wire spelling is derived from its variant names:
+  {}
+
+         Rename one of those variants and the file format changes with it.          `girsa_corpus::spelled!` states the spellings and generates `as_str`,          `named`, `Serialize` and `Deserialize` from that one list.",
+        wrong.join("
+  ")
+    );
+}

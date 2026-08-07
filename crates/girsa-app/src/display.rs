@@ -25,8 +25,7 @@ pub fn without_marks(text: &str) -> String {
 }
 
 /// How a run of words is set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style {
     Plain,
     /// The dibur hamatchil — the words being commented on, which Sefaria marks
@@ -38,6 +37,13 @@ pub enum Style {
     /// A line break inside a segment. Carries no text.
     Break,
 }
+
+girsa_corpus::spelled!(Style {
+    Plain => "plain",
+    Opening => "opening",
+    Quiet => "quiet",
+    Break => "break",
+});
 
 /// A stretch of text and how it is set.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

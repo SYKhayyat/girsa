@@ -30,8 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Anchor, Edge, EdgeType, Method};
 
 /// What somebody said about a link when they looked at it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     /// Looked at, and right. This is what turns an untyped seed into something
     /// a reader may be shown as a fact.
@@ -40,6 +39,11 @@ pub enum Verdict {
     /// rejection is yours to take back.
     Rejected,
 }
+
+girsa_corpus::spelled!(Verdict {
+    Confirmed => "confirmed",
+    Rejected => "rejected",
+});
 
 /// One thing you said about one edge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

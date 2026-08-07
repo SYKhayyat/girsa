@@ -31,8 +31,7 @@ use girsa_personal::Log;
 use serde::{Deserialize, Serialize};
 
 /// What a mark is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// On some words.
     Highlight,
@@ -40,24 +39,10 @@ pub enum Kind {
     Bookmark,
 }
 
-impl Kind {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Highlight => "highlight",
-            Self::Bookmark => "bookmark",
-        }
-    }
-
-    #[must_use]
-    pub fn named(word: &str) -> Option<Self> {
-        match word {
-            "highlight" => Some(Self::Highlight),
-            "bookmark" => Some(Self::Bookmark),
-            _ => None,
-        }
-    }
-}
+girsa_corpus::spelled!(Kind {
+    Highlight => "highlight",
+    Bookmark => "bookmark",
+});
 
 /// What names a mark.
 ///

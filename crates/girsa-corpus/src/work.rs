@@ -36,8 +36,7 @@ use serde_json::Value;
 /// One per work, forever — see the module note. The field is recorded on disk
 /// so that a reader looking at a passage can be told where it came from, which
 /// spec.md §13 asks for and which costs nothing now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     /// Text and structure from `gs://sefaria-export`.
     Sefaria,
@@ -50,16 +49,13 @@ pub enum Source {
     Mine,
 }
 
-impl Source {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Sefaria => "sefaria",
-            Self::Otzaria => "otzaria",
-            Self::Mine => "mine",
-        }
-    }
-}
+crate::spelled!(Source {
+    Sefaria => "sefaria",
+    Otzaria => "otzaria",
+    Mine => "mine",
+});
+
+impl Source {}
 
 /// One work in the union, before its text has been read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

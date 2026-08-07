@@ -98,13 +98,17 @@ pub struct Session {
 /// language changes when a reader travels, and the corpus has seforim whose
 /// English title is a transliteration nobody says out loud — so which one is
 /// wanted is a decision, not a fact about the machine.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Language {
     #[default]
     Hebrew,
     English,
 }
+
+girsa_corpus::spelled!(Language {
+    Hebrew => "hebrew",
+    English => "english",
+});
 
 impl Language {
     /// Which of a sefer's two titles to print.
@@ -146,8 +150,7 @@ impl Language {
 /// `prefers-color-scheme: light` override, so the operating system decided and a
 /// reader who wanted the other one could not have it. *Follow the system* is a
 /// perfectly good answer and it is now one of the three rather than the only one.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Theme {
     #[default]
     System,
@@ -155,16 +158,11 @@ pub enum Theme {
     Dark,
 }
 
-impl Theme {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::Light => "light",
-            Self::Dark => "dark",
-        }
-    }
-}
+girsa_corpus::spelled!(Theme {
+    System => "system",
+    Light => "light",
+    Dark => "dark",
+});
 
 /// How the reading looks (B13).
 ///

@@ -9,6 +9,81 @@
 // Sefaria's commentary anchors, mined to spans and out of the text (W34, W33-A).
 // They were indexed as words, which broke phrase search on the most-searched shelf
 // in the corpus.
+/// Spell a fieldless enum **once**, for the file and for the code.
+///
+/// # The shape this exists to stop
+///
+/// `girsa_fix::Kind` had `as_str`, `named`, *and* `#[derive(Serialize,
+/// Deserialize)] #[serde(rename_all = "lowercase")]` — with `as_str`'s own doc
+/// comment saying *"one implementation, so the word in the file, the word on
+/// the button and the word the tests use cannot drift."* Two spellings of one
+/// wire format, on one type, under a sentence about there being one.
+///
+/// They agreed. That is not the point: `rename_all` is a rule about *how to
+/// derive* a spelling and `as_str` is the spelling, so the day a variant is
+/// renamed — `FixedWithVariants` → `WithVariants` — the derive follows the
+/// identifier and `as_str` does not, and a corrections file written by one
+/// build stops reading in the next with nothing anywhere saying so.
+///
+/// ```ignore
+/// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// pub enum Kind { Ocr, Girsa }
+///
+/// girsa_corpus::spelled!(Kind { Ocr => "ocr", Girsa => "girsa" });
+/// ```
+///
+/// `as_str`, `named`, `SPELLINGS`, `Serialize` and `Deserialize` all come off
+/// that one list. A word this project never writes deserialises as an **error
+/// naming the words it does** — not as a fallback variant, because a value
+/// invented on read is a claim nobody made.
+#[macro_export]
+macro_rules! spelled {
+    ($t:ident { $($variant:ident => $word:literal),+ $(,)? }) => {
+        impl $t {
+            /// Every variant and the word it is written as, in declared order.
+            pub const SPELLINGS: &'static [(Self, &'static str)] =
+                &[$((Self::$variant, $word)),+];
+
+            /// What this is called — in a file, on a button, and in a test.
+            #[must_use]
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $word),+
+                }
+            }
+
+            /// Read back what [`Self::as_str`] wrote.
+            ///
+            /// `None` for a word this project does not write. Never a fallback
+            /// variant: a value invented on read is a claim nobody made.
+            #[must_use]
+            pub fn named(word: &str) -> Option<Self> {
+                match word {
+                    $($word => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+        }
+
+        impl ::serde::Serialize for $t {
+            fn serialize<S: ::serde::Serializer>(&self, into: S) -> Result<S::Ok, S::Error> {
+                into.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> ::serde::Deserialize<'de> for $t {
+            fn deserialize<D: ::serde::Deserializer<'de>>(from: D) -> Result<Self, D::Error> {
+                let word = <::std::string::String as ::serde::Deserialize>::deserialize(from)?;
+                Self::named(&word)
+                    .ok_or_else(|| <D::Error as ::serde::de::Error>::unknown_variant(
+                        &word,
+                        &[$($word),+],
+                    ))
+            }
+        }
+    };
+}
+
 pub mod anchors;
 pub mod csv;
 pub mod era;

@@ -47,8 +47,7 @@ use crate::index::Counts;
 use crate::scope::Scope;
 
 /// What a facet is counted by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dimension {
     Sefer,
     Shelf,
@@ -67,6 +66,15 @@ pub enum Dimension {
     /// is a work on the shelf.
     Tag,
 }
+
+girsa_corpus::spelled!(Dimension {
+    Sefer => "sefer",
+    Shelf => "shelf",
+    Era => "era",
+    Author => "author",
+    Link => "link",
+    Tag => "tag",
+});
 
 impl Dimension {
     /// Every dimension, in the order spec.md §9.8 lists them.

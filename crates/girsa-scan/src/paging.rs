@@ -52,8 +52,7 @@
 use girsa_ref::{daf, Address, Level};
 
 /// What a page of a scan carries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Scheme {
     /// One **amud** to the page — a scan of one side of a leaf at a time, which
     /// is what nearly every Shas PDF is. Page 5 is `ב.`, page 6 is `ב:`.
@@ -66,6 +65,12 @@ pub enum Scheme {
     /// divisions happen to run one to a page.
     Numbered,
 }
+
+girsa_corpus::spelled!(Scheme {
+    Amud => "amud",
+    Daf => "daf",
+    Numbered => "numbered",
+});
 
 impl Scheme {
     /// The name it goes by on the wire and in the file.
@@ -80,15 +85,6 @@ impl Scheme {
 
     /// Read one back.
     #[must_use]
-    pub fn named(name: &str) -> Option<Self> {
-        match name {
-            "amud" => Some(Self::Amud),
-            "daf" => Some(Self::Daf),
-            "numbered" => Some(Self::Numbered),
-            _ => None,
-        }
-    }
-
     /// How the levels of this scheme are counted: `2a` is 4 and `2b` is 5 when
     /// the unit is an amud; a daf is its own number; a printed number is itself.
     ///

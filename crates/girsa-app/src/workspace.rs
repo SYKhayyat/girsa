@@ -27,8 +27,7 @@ use serde::{Deserialize, Serialize};
 pub struct PaneId(pub u32);
 
 /// Which way a split divides its space.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Axis {
     /// Side by side. **In an RTL window the first child is the right one** —
     /// the Gemara opens on the right and the commentary goes to its left,
@@ -37,6 +36,11 @@ pub enum Axis {
     /// One above the other.
     Horizontal,
 }
+
+girsa_corpus::spelled!(Axis {
+    Vertical => "vertical",
+    Horizontal => "horizontal",
+});
 
 /// How a tab's panes divide the window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

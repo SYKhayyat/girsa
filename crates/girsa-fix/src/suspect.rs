@@ -156,8 +156,7 @@ impl Vocabulary {
 /// appeared out of nowhere beside a very common short word is a much weaker
 /// claim, and on the real corpus there are thousands of those — see the
 /// weights below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edit {
     /// One letter read as another.
     Letter,
@@ -168,6 +167,13 @@ pub enum Edit {
     /// Two letters the wrong way round.
     Swapped,
 }
+
+girsa_corpus::spelled!(Edit {
+    Letter => "letter",
+    Added => "added",
+    Dropped => "dropped",
+    Swapped => "swapped",
+});
 
 impl Edit {
     /// How much a finding of this shape is worth, in tenths.
@@ -184,21 +190,10 @@ impl Edit {
             Self::Added | Self::Dropped => 5,
         }
     }
-
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Letter => "letter",
-            Self::Added => "added",
-            Self::Dropped => "dropped",
-            Self::Swapped => "swapped",
-        }
-    }
 }
 
 /// What was done about a suspect. `None` until somebody looks at it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
     /// Not an error — a real word, a name, an unusual spelling.
     Dismissed,
@@ -206,6 +201,11 @@ pub enum Decision {
     /// remembering not to ask again.
     Fixed,
 }
+
+girsa_corpus::spelled!(Decision {
+    Dismissed => "dismissed",
+    Fixed => "fixed",
+});
 
 /// One candidate: a rare word, the common word it is one letter from, and
 /// everything the reader needs in order to decide.
