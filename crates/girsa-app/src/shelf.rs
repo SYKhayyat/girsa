@@ -77,6 +77,15 @@ pub struct Shelf {
     /// about — an arrangement file that would not read, so far.
     trouble: Option<String>,
     works: Vec<Work>,
+    /// Each work's title in the form the search box compares against, in
+    /// `works` order: the Hebrew through `girsa_hebrew::normalize`, the English
+    /// lowercased.
+    ///
+    /// Built on the first search and dropped whenever the shelf changes.
+    /// `Shelf::search` normalized **all 7,189 of them on every keystroke** —
+    /// and recomputed `query.to_lowercase()` inside the loop, so once per work
+    /// as well — in the most-typed-into box in the application.
+    titles: std::sync::OnceLock<Vec<(String, String)>>,
     by_slug: HashMap<String, usize>,
     /// Base work slug → the works that declare themselves commentaries on it.
     commentaries: HashMap<String, Vec<usize>>,
@@ -163,6 +172,7 @@ impl Shelf {
         }
 
         Ok(Self {
+            titles: std::sync::OnceLock::new(),
             linked: read_companions(root),
             root: root.to_path_buf(),
             personal: personal.to_path_buf(),
@@ -328,6 +338,7 @@ impl Shelf {
                 self.works.push(work);
             }
         }
+        self.titles_changed();
         Ok(written)
     }
 
@@ -349,6 +360,7 @@ impl Shelf {
             // work is taken out by rebuilding the index rather than by leaving
             // a hole every later slug would point past.
             self.works.retain(|work| work.slug != slug);
+            self.titles_changed();
             self.by_slug = self
                 .works
                 .iter()
@@ -464,6 +476,7 @@ impl Shelf {
         let slug = added.work.slug.clone();
         self.by_slug.insert(slug.clone(), self.works.len());
         self.works.push(added.work);
+        self.titles_changed();
         Ok(slug)
     }
 
@@ -546,11 +559,17 @@ impl Shelf {
         if needle.is_empty() {
             return Vec::new();
         }
+        // Once per keystroke, not once per work. Both of these used to be
+        // inside the loop below — `query.to_lowercase()` 7,189 times for one
+        // keypress, and `normalize` over every title in the catalogue.
+        let lower = query.to_lowercase();
+        let titles = self.titles();
         let mut hits: Vec<(u8, usize, &Work)> = Vec::new();
-        for work in &self.works {
-            let he = girsa_hebrew::normalize(&work.he_title);
-            let en = work.en_title.to_lowercase();
-            let lower = query.to_lowercase();
+        for (at, work) in self.works.iter().enumerate() {
+            let Some((he, en)) = titles.get(at) else {
+                continue;
+            };
+            let (he, en) = (he.as_str(), en.as_str());
             // Rank by where the match is, not by how long the title is: a
             // reader typing `ברכות` wants Berakhot, not the forty seforim with
             // it somewhere in the middle of their name.
@@ -571,6 +590,31 @@ impl Shelf {
                 .then(a.2.slug.cmp(&b.2.slug))
         });
         hits.into_iter().take(limit).map(|(_, _, w)| w).collect()
+    }
+
+    /// The catalogue's titles in the form [`Shelf::search`] compares against,
+    /// normalized once.
+    fn titles(&self) -> &[(String, String)] {
+        self.titles.get_or_init(|| {
+            self.works
+                .iter()
+                .map(|work| {
+                    (
+                        girsa_hebrew::normalize(&work.he_title),
+                        work.en_title.to_lowercase(),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    /// The catalogue changed, so the normalized titles are no longer about it.
+    ///
+    /// Called wherever `works` is, which is the same four places `by_slug` is
+    /// maintained — the two have to move together or the search box ranks a
+    /// sefer by another sefer's name.
+    fn titles_changed(&mut self) {
+        self.titles = std::sync::OnceLock::new();
     }
 
     #[must_use]
@@ -1179,6 +1223,7 @@ pub(crate) mod tests {
         let (queries, _) = girsa_note::Queries::open(personal);
         let (collections, _) = girsa_note::Collections::open(personal);
         Shelf {
+            titles: std::sync::OnceLock::new(),
             root: PathBuf::new(),
             personal: personal.to_path_buf(),
             arrangement,
@@ -1293,5 +1338,38 @@ pub(crate) mod tests {
         let beside_rashi = shelf.companions("bavli/rashi-on-berakhot");
         assert_eq!(beside_rashi.len(), 1);
         assert_eq!(beside_rashi[0].slug, "bavli/berakhot");
+    }
+
+    #[test]
+    fn adding_a_sefer_changes_what_the_search_box_can_find() {
+        // The normalized titles are cached, so the four places that change
+        // `works` have to drop them — `by_slug` is maintained at exactly those
+        // four and the two must move together, or the box ranks one sefer by
+        // another's name.
+        let dir = std::env::temp_dir().join("girsa-shelf-titles");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a personal root");
+        let mut shelf = shelf_of(Vec::new(), &dir);
+        assert!(
+            shelf.search("חבורה", 5).is_empty(),
+            "nothing on the shelf yet"
+        );
+
+        let file = dir.join("חבורה.txt");
+        std::fs::write(
+            &file,
+            "ראשית חכמה
+",
+        )
+        .expect("a sefer of mine");
+        shelf.add_mine(&file, None).expect("it is added");
+
+        let found = shelf.search("חבורה", 5);
+        assert_eq!(
+            found.len(),
+            1,
+            "the search box is still answering out of the catalogue it cached"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

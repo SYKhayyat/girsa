@@ -100,8 +100,17 @@ impl Job {
 
     /// Say a segment is embedded. Called after the vector is recorded, never
     /// before — the file is the progress record and this is its shadow.
+    ///
+    /// **Binary search, because `wanted` is built ascending.** `of` above walks
+    /// `work.segments` in order and pushes each index it keeps, so the vector is
+    /// sorted by construction and `position` was reading half of it per call.
+    /// Mishnah Berurah is 18,120 segments: **164 million comparisons** to embed
+    /// one sefer, and a million-segment work would not finish.
+    ///
+    /// The sortedness is asserted below rather than assumed, since it is a
+    /// property of a loop forty lines up and nothing else says so.
     pub fn did(&mut self, at: usize) {
-        if let Some(place) = self.wanted.iter().position(|wanted| *wanted == at) {
+        if let Ok(place) = self.wanted.binary_search(&at) {
             if let Some(slot) = self.done.get_mut(place) {
                 *slot = true;
             }
@@ -261,5 +270,53 @@ mod tests {
         assert_eq!(job.wanted(), 0);
         assert!(job.is_finished(), "finished, rather than stuck");
         assert!(job.next(10).is_empty());
+    }
+
+    #[test]
+    fn what_is_wanted_is_in_order_so_did_can_binary_search_it() {
+        // `did` looks a segment up by binary search, which is only correct
+        // because `Job::of` walks `work.segments` in order and pushes each index
+        // it keeps. That is a property of a loop forty lines above it and
+        // nothing else said so.
+        //
+        // It matters: `position` read half the vector per call, which is 164
+        // million comparisons to embed Mishnah Berurah's 18,120 segments and
+        // does not finish for a million-segment work.
+        // A heading between the text, so the kept indices are not 0,1,2,3 —
+        // otherwise "ascending" would be true of any list and prove nothing.
+        let work = work(
+            "x",
+            &[
+                (SegmentKind::Text, "ראשון"),
+                (SegmentKind::Heading, "סימן"),
+                (SegmentKind::Text, "שני"),
+                (SegmentKind::Page, ""),
+                (SegmentKind::Text, "שלישי"),
+            ],
+        );
+        let job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
+        assert!(job.wanted() > 2, "the fixture has to have something in it");
+
+        let mut ascending = job.wanted.clone();
+        ascending.sort_unstable();
+        assert_eq!(job.wanted, ascending, "`wanted` is not in order");
+        ascending.dedup();
+        assert_eq!(
+            job.wanted.len(),
+            ascending.len(),
+            "`wanted` repeats an index"
+        );
+
+        // And the lookup finds what it should, at both ends and in the middle.
+        for at in job.wanted.clone() {
+            let mut job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
+            let before = job.done();
+            job.did(at);
+            assert_eq!(job.done(), before + 1, "{at} was not marked done");
+        }
+        // A segment this job does not want changes nothing.
+        let mut job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
+        job.did(usize::MAX);
+        assert_eq!(job.done(), 0);
     }
 }

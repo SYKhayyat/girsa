@@ -124,7 +124,13 @@ pub enum Answer {
 pub struct Bar {
     index: SearchIndex,
     catalogue: Catalogue,
-    citations: Option<Citations>,
+    /// The citation resolver, **read on first use and not before**.
+    ///
+    /// 3.7 MB of `lexicon.tsv`, walked twice — once by `read_spellings` and
+    /// once by `Lexicon::from_tsv` — and it was read in `Bar::new`, so every
+    /// `girsa-index find` in every one of the five modes paid for Citation
+    /// mode. Four of them never look at it.
+    citations: std::sync::OnceLock<Option<Citations>>,
     root: PathBuf,
 }
 
@@ -133,7 +139,7 @@ impl std::fmt::Debug for Bar {
         f.debug_struct("Bar")
             .field("index", &self.index)
             .field("seforim", &self.catalogue.len())
-            .field("citations", &self.citations.is_some())
+            .field("citations", &self.citations.get().map(Option::is_some))
             .finish()
     }
 }
@@ -150,9 +156,20 @@ impl Bar {
         Self {
             index,
             catalogue,
-            citations: Citations::open(root).ok(),
+            citations: std::sync::OnceLock::new(),
             root: root.to_path_buf(),
         }
+    }
+
+    /// The citation resolver, reading the lexicon if this is the first ask.
+    ///
+    /// `None` when there is no lexicon, which is a shelf that has not been
+    /// imported — and Citation mode then refuses **with the reason** rather
+    /// than resolving nothing and looking like an empty library.
+    fn citations(&self) -> Option<&Citations> {
+        self.citations
+            .get_or_init(|| Citations::open(&self.root).ok())
+            .as_ref()
     }
 
     #[must_use]
@@ -275,7 +292,7 @@ impl Bar {
 
     /// Citation: type a mareh makom, jump.
     fn cited(&self, text: &str, context: &Context) -> Answer {
-        let Some(citations) = &self.citations else {
+        let Some(citations) = self.citations() else {
             return Answer::Refused(format!(
                 "there is no lexicon under {} — citations cannot be resolved until girsa-import \
                  has run",

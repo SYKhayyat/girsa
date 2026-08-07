@@ -138,7 +138,14 @@ impl EdgeType {
 /// The end is inclusive, and `None` means the run is one segment long. Reading
 /// order is ordinal order (see [`SegmentId`]), so a run is expressible as its
 /// two ends and does not have to be listed out.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// **Ordered, and by that same reading order** — the work, then the ordinal.
+/// Derived so a tiebreak between two anchors need not go through their printed
+/// form: `chain::rank` compared `a.to_string().cmp(&b.to_string())` on the
+/// *final* tiebreak of an `O(n log n)` sort, so it fired on most comparisons —
+/// and a printed id sorts its section path lexicographically, which puts siman
+/// 10 before siman 9.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Anchor {
     pub from: SegmentId,
     pub to: Option<SegmentId>,

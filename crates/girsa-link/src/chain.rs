@@ -441,7 +441,12 @@ fn rank(candidates: &mut [(Anchor, Repaired, When)], here: &When) {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .then_with(|| gap(here, &a.2).cmp(&gap(here, &b.2)))
-            .then_with(|| a.0.to_string().cmp(&b.0.to_string()))
+            // `Anchor: Ord`, not two `String`s. This is the *final* tiebreak of
+            // an `O(n log n)` sort, so it fires on most comparisons — and
+            // `to_string` sorts a section path lexicographically, which puts
+            // siman 10 before siman 9. `SegmentId`'s own order is the ordinal,
+            // which is reading order.
+            .then_with(|| a.0.cmp(&b.0))
     });
 }
 
