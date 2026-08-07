@@ -329,3 +329,32 @@ fn a_wire_format_is_spelled_once_and_not_derived_from_an_identifier() {
   ")
     );
 }
+
+#[test]
+fn one_answer_has_one_highlighting_rule() {
+    // `girsa_search::torat_emet` states the hazard, about a different pair:
+    //
+    //   two descriptions of one rule drift
+    //
+    // `Found::marks` and `bar::Marker` were two descriptions of *this* rule —
+    // character-identical, four lines each — and each had its own caller:
+    // `girsa-index find` highlighted its results through one and the window
+    // through the other. A widened hit is marked on the word that answered
+    // (`וכשהמלך`) and not on the three letters the reader typed, and that
+    // sentence was true twice.
+    //
+    // `Found::marker` is the one description now, and `Found::marks` calls it.
+    let root = repo();
+    let index = std::fs::read_to_string(root.join("crates/girsa-search/src/index.rs"))
+        .unwrap_or_else(|e| panic!("index.rs reads: {e}"));
+    assert!(
+        !index.contains("matches_word"),
+        "`index.rs` walks tokens against a widening itself again. That rule is          `bar::Marker`, and `Found::marker` is how this file reaches it."
+    );
+    let bar = std::fs::read_to_string(root.join("crates/girsa-search/src/bar.rs"))
+        .unwrap_or_else(|e| panic!("bar.rs reads: {e}"));
+    assert!(
+        bar.contains("found.marker()"),
+        "`Bar::results` builds a `Marker` out of `Found`'s two fields itself          again. `Found::marker` is that."
+    );
+}

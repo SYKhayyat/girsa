@@ -281,21 +281,30 @@ pub struct Found {
 }
 
 impl Found {
-    /// Where in a hit's printed text the words that answered the query sit.
+    /// The rule that says what to highlight in these hits.
     ///
     /// Routed through the widening when there is one, so a hit found by peeling
     /// a prefix is marked on `וכשהמלך` — the word that actually answered the
     /// question — rather than on the three letters of it the reader typed.
+    ///
+    /// **One description of that rule.** `Found::marks` and
+    /// [`crate::bar::Marker`] were two, character-identical, and each had its
+    /// own caller: `girsa-index find` marked its results through one and the
+    /// window through the other. `torat_emet.rs:196` states the hazard for a
+    /// different pair — *"two descriptions of one rule drift"* — and it applies
+    /// here exactly.
+    #[must_use]
+    pub fn marker(&self) -> crate::bar::Marker {
+        self.widening.as_ref().map_or_else(
+            || crate::bar::Marker::Literal(self.asked.clone()),
+            |widening| crate::bar::Marker::Widened(Box::new(widening.clone())),
+        )
+    }
+
+    /// Where in a hit's printed text the words that answered the query sit.
     #[must_use]
     pub fn marks(&self, hit: &Hit) -> Vec<(usize, usize)> {
-        let Some(widening) = &self.widening else {
-            return hit.marks(&self.asked);
-        };
-        girsa_hebrew::tokenize(&hit.text)
-            .into_iter()
-            .filter(|token| widening.matches_word(&token.text))
-            .map(|token| (token.start, token.end))
-            .collect()
+        self.marker().marks(hit)
     }
 }
 

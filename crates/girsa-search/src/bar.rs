@@ -448,11 +448,17 @@ impl Bar {
         found: &Found,
         prepared: Option<&Prepared>,
     ) -> Result<Results, String> {
-        let marker = found.widening.as_ref().map_or_else(
-            || Marker::Literal(found.asked.clone()),
-            |w| Marker::Widened(Box::new(w.clone())),
-        );
-        self.assembled(header, found.hits.clone(), found.total, marker, prepared)
+        // `Found::marker`, not a second reading of the same two fields. This
+        // was four lines here and four more in `Found::marks`, and each had a
+        // caller: `girsa-index find` highlighted through one, the window
+        // through the other.
+        self.assembled(
+            header,
+            found.hits.clone(),
+            found.total,
+            found.marker(),
+            prepared,
+        )
     }
 
     fn assembled(
