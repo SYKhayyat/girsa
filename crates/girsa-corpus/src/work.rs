@@ -214,6 +214,12 @@ pub fn match_key(title: &str) -> String {
 /// the lexicon maps a citation onto a slug and the importer names segments
 /// after one, so a second implementation that drifted by a hyphen would resolve
 /// citations onto works that do not exist.
+///
+/// That sentence was here, correct, for a week, with a byte-identical copy of
+/// this function thirty-seven lines beneath it in `examples/build-lexicon.rs`.
+/// It is now `slug_of_has_one_implementation` in
+/// `crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs`, because
+/// writing an invariant down is not enforcing it.
 #[must_use]
 pub fn slug_of(title: &str, categories: &[String]) -> String {
     let mut prefix = String::new();

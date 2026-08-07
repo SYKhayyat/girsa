@@ -18,6 +18,18 @@ use std::path::Path;
 
 use serde_json::Value;
 
+// **The** `slug_of`, not one of two.
+//
+// This example carried its own copy — byte-identical, thirty-seven lines —
+// beside a doc comment on the original saying *"this is the same function the
+// lexicon is built with… a second implementation that drifted by a hyphen would
+// resolve citations onto works that do not exist."* The lexicon maps a citation
+// onto a slug and the importer names segments after one; they have to be the
+// same letters or a resolved ref points at a work that is not on the shelf.
+//
+// The comment was right and the copy was under it.
+use girsa_corpus::work::slug_of;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let (Some(schema_dir), Some(out)) = (args.next(), args.next()) else {
@@ -142,43 +154,6 @@ fn clean(s: &str) -> String {
         }
     }
     out.trim().to_string()
-}
-
-/// The ref slug for a work.
-///
-/// A comma in a Sefaria title separates a work from its volume — `Shulchan
-/// Arukh, Orach Chayim` — and that is exactly the `/` of a ref work path, which
-/// is why spec.md §4.2 writes `girsa:shulchan-arukh/orach-chayim`.
-///
-/// Talmud is the exception worth handling: Sefaria titles a masechta `Berakhot`
-/// and puts `Bavli` in its categories, but a ref has to say which Talmud —
-/// there is a Yerushalmi Berakhot too, and they are different seforim.
-fn slug_of(title: &str, categories: &[String]) -> String {
-    let mut prefix = String::new();
-    if categories.first().is_some_and(|c| c == "Talmud") {
-        match categories.get(1).map(String::as_str) {
-            Some("Bavli") => prefix.push_str("bavli/"),
-            Some("Yerushalmi") => prefix.push_str("yerushalmi/"),
-            _ => {}
-        }
-    }
-
-    let mut slug = String::with_capacity(title.len());
-    for c in title.chars() {
-        match c {
-            ',' => slug.push('/'),
-            ' ' | '_' => slug.push('-'),
-            c if c.is_ascii_alphanumeric() => slug.push(c.to_ascii_lowercase()),
-            c if c == '-' || c == '/' => slug.push(c),
-            _ => {}
-        }
-    }
-
-    // `Shulchan Arukh, Orach Chayim` becomes `shulchan-arukh/-orach-chayim`
-    // because of the space after the comma, and doubled separators read badly
-    // in every ref that work ever appears in.
-    let slug = slug.replace("/-", "/").replace("--", "-");
-    format!("{prefix}{}", slug.trim_matches(['-', '/']))
 }
 
 #[cfg(test)]
