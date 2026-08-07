@@ -1970,6 +1970,28 @@ reported. *"3 PDFs aren't searchable yet"* over a sefer that is two-thirds done
 would send a reader to run a job that is nearly finished; *"searchable"* over
 the same sefer would be a lie about a hundred pages.
 
+**And the fourth hole, found on 6 August 2026.** `girsa_note::since` had a table
+of what the index cannot see — an un-OCR'd scan, a note written since the build,
+a correction made since the build — and the fourth row was missing: **a word
+corrected on a scan.** The index build *does* apply scan corrections; it reads
+each page through `Words::page`, which re-finds every fix by its ink. But an
+index is a snapshot, so a fix made after it holds the misreading — and the
+reader who fixed a word could not find what they fixed and could still find what
+they unfixed, with nothing saying so. It says so now, in the same sentence as
+the other three:
+
+```
+words you corrected on 1 scan are still findable by the misreading
+and not by the correction
+```
+
+Counted in scans rather than in words, deliberately: counting the words would
+mean `girsa-note` opening `girsa-scan`'s file, and a modification time answers
+the question the reader is asking. `pages.jsonl` is **not** counted here, because
+a page OCR'd since the build is already reported — the index holds it as a page
+with no words, so *"not searchable yet"* is exactly true of it, and saying it
+twice would be two sentences about one silence.
+
 ### The job is one page at a time, and that is the promise
 
 `spec.md` §6.3 asks for OCR that is *optional, off during onboarding,

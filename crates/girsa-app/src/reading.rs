@@ -272,6 +272,7 @@ mod tests {
             layer: Unindexed {
                 notes: Written::Since(2),
                 fixes: Written::Since(1),
+                scans: Written::Since(1),
             },
         };
         let said = gap.said().expect("three gaps is a gap");
@@ -289,6 +290,7 @@ mod tests {
             layer: Unindexed {
                 notes: Written::NoIndex,
                 fixes: Written::NoIndex,
+                scans: Written::NoIndex,
             },
             ..Gap::none()
         };

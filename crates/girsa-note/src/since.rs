@@ -11,6 +11,15 @@
 //! | a note written since the last build         | **no** |
 //! | a correction made since the last build      | **no** |
 //!
+//! It was four rows, and the fourth was found on 6 August 2026: **a word
+//! corrected on a scan since the last build.** The index build *does* apply
+//! scan corrections — `girsa-index` reads pages through `Words::page`, which
+//! re-finds each fix by its ink — but the index is a snapshot, and a fix made
+//! after it holds the misreading. So the reader corrects a word, searches for
+//! the word they corrected, finds nothing, and can still find the misreading
+//! they fixed. Exactly the corrections row, one layer over, and it was not
+//! being counted.
+//!
 //! Its own module note argues the case: *"a reader who searches a shelf holding
 //! four unread scans and gets forty hits has been told these are the forty places
 //! this appears, and the forty-first is on a page nobody has read."* Replace
@@ -80,6 +89,14 @@ impl Written {
 pub struct Unindexed {
     pub notes: Written,
     pub fixes: Written,
+    /// Scans carrying word corrections the index has not seen.
+    ///
+    /// Counted in **scans**, not in words, and that is not laziness: counting
+    /// the fixes would mean this crate parsing `girsa-scan`'s file, which is
+    /// the cross-crate string surgery the `fixes` field above already commits
+    /// and which is a finding of its own. A modification time answers the
+    /// question the reader is actually asking.
+    pub scans: Written,
 }
 
 impl Unindexed {
@@ -89,6 +106,7 @@ impl Unindexed {
         Self {
             notes: Written::Since(0),
             fixes: Written::Since(0),
+            scans: Written::Since(0),
         }
     }
 
@@ -99,12 +117,13 @@ impl Unindexed {
         Self {
             notes: notes_since(personal, built),
             fixes: fixes_since(personal, built),
+            scans: scan_fixes_since(personal, built),
         }
     }
 
     #[must_use]
     pub fn is_a_gap(&self) -> bool {
-        self.notes.is_a_gap() || self.fixes.is_a_gap()
+        self.notes.is_a_gap() || self.fixes.is_a_gap() || self.scans.is_a_gap()
     }
 
     /// The clause a reader sees, or `None` when there is nothing to say.
@@ -119,7 +138,10 @@ impl Unindexed {
         }
         // "There is no search index" is one fact about the machine, not two facts
         // about notes and corrections, so it is said once and instead of both.
-        if self.notes == Written::NoIndex || self.fixes == Written::NoIndex {
+        if self.notes == Written::NoIndex
+            || self.fixes == Written::NoIndex
+            || self.scans == Written::NoIndex
+        {
             return Some(
                 "there is no search index yet, so nothing you have written is findable — \
                  run girsa-index build"
@@ -142,6 +164,14 @@ impl Unindexed {
                     "{n} {} made since then {} findable by the typo and not by the fix",
                     if n == 1 { "correction" } else { "corrections" },
                     if n == 1 { "is still" } else { "are still" },
+                ));
+            }
+        }
+        if let Written::Since(n) = self.scans {
+            if n > 0 {
+                parts.push(format!(
+                    "words you corrected on {n} {} still findable by the misreading                      and not by the correction",
+                    if n == 1 { "scan are" } else { "scans are" },
                 ));
             }
         }
@@ -273,6 +303,41 @@ fn when_after(line: &str, built: SystemTime) -> bool {
         return true;
     };
     seconds > built_secs
+}
+
+/// Scans whose word corrections are newer than the index.
+///
+/// `personal/words/<slug>/fixes.json`, one per scan. A modification time and
+/// nothing else — this crate does not open the file, because the shape inside
+/// it is `girsa-scan`'s and a fourth crate reading a third crate's format by
+/// hand is how the `fixes` counter above ended up doing string surgery.
+///
+/// **Deliberately not `pages.jsonl`.** A page read since the build is already
+/// reported, honestly, by the un-OCR'd count: the index holds it as a page with
+/// no words, so *"not searchable yet"* is exactly true of it. Counting it here
+/// as well would say the same gap twice.
+fn scan_fixes_since(personal: &Path, built: Option<SystemTime>) -> Written {
+    let Some(built) = built else {
+        return Written::NoIndex;
+    };
+    let mut found = 0usize;
+    let mut stack = vec![personal.join("words")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().is_some_and(|n| n == "fixes.json")
+                && newer_than(&path, built)
+            {
+                found += 1;
+            }
+        }
+    }
+    Written::Since(found)
 }
 
 fn newer_than(path: &Path, built: SystemTime) -> bool {
@@ -415,5 +480,67 @@ mod tests {
             find_index(&corpus).as_deref(),
             Some(dir.join("index").as_path())
         );
+    }
+
+    /// A word corrected on a scan since the index was built.
+    #[test]
+    fn a_scan_correction_made_since_the_build_is_a_gap_and_says_which_way_round() {
+        // The row this table was missing. `girsa-index` *does* apply scan
+        // corrections when it builds — it reads pages through `Words::page` —
+        // so the failure is not that they are never applied. It is that the
+        // index is a snapshot: correct a word afterwards and you cannot find
+        // what you fixed, and you can still find what you unfixed. Nothing said
+        // so.
+        let dir = scratch("scan-fixes");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let words = dir.join("personal").join("words").join("user").join("a");
+        std::fs::create_dir_all(&words).unwrap();
+        std::fs::write(words.join("fixes.json"), "{\"3\":[]}").unwrap();
+
+        let at = Unindexed::of(Some(&dir.join("index")), &dir.join("personal"));
+        assert_eq!(at.scans, Written::Since(1));
+        let said = at
+            .said()
+            .expect("a scan correction since the build is a gap");
+        assert!(said.contains("1 scan"), "{said}");
+        assert!(
+            said.contains("misreading") && said.contains("correction"),
+            "the sentence has to say which way round it is wrong: {said}"
+        );
+    }
+
+    #[test]
+    fn a_scan_correction_older_than_the_index_is_not_a_gap() {
+        let dir = scratch("scan-fixes-old");
+        let words = dir.join("personal").join("words").join("user").join("a");
+        std::fs::create_dir_all(&words).unwrap();
+        std::fs::write(words.join("fixes.json"), "{}").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(dir.join("index").join(CACHE_STAMP_NAME), "{}").unwrap();
+
+        let at = Unindexed::of(Some(&dir.join("index")), &dir.join("personal"));
+        assert_eq!(at.scans, Written::Since(0));
+        assert_eq!(at.said(), None);
+    }
+
+    #[test]
+    fn a_page_read_since_the_build_is_not_counted_here_because_it_is_counted_there() {
+        // `pages.jsonl` newer than the index means a page was OCR'd since. That
+        // gap is already reported, and honestly: the index holds the page with
+        // no words, so *"not searchable yet"* is exactly true of it. Saying it
+        // twice would be two sentences about one silence.
+        let dir = scratch("scan-pages");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let words = dir.join("personal").join("words").join("user").join("a");
+        std::fs::create_dir_all(&words).unwrap();
+        std::fs::write(
+            words.join("pages.jsonl"),
+            "{}
+",
+        )
+        .unwrap();
+
+        let at = Unindexed::of(Some(&dir.join("index")), &dir.join("personal"));
+        assert_eq!(at.scans, Written::Since(0));
     }
 }
