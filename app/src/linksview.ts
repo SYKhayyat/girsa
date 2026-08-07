@@ -10,26 +10,26 @@
 // about the texts (`curated`) is answered in Rust, because it is a rule about
 // evidence and not about a stylesheet.
 
-import { api, type LinkRow, type Links } from "./api.ts";
+import { api, type LinkKind, type LinkRow, type Links } from "./api.ts";
+
+/**
+ * What a kind of link is called, out of the labelled list Rust sent.
+ *
+ * There used to be a lookup table here with a `?? kind` fallback, so **a tenth
+ * edge type printed an English slug into a Hebrew interface** and nothing said
+ * so. `girsa_app::links::kinds` is the list now — twenty lines below where this
+ * file already draws the lenses from a labelled list and asks nothing about what
+ * a lens is.
+ *
+ * A key the list does not carry cannot happen: it is built from
+ * `EdgeType::ALL`. If it does, the key is shown, which is at least a bug a
+ * reader can report.
+ */
+function said(kinds: LinkKind[], key: string): string {
+  return kinds.find((kind) => kind.key === key)?.title ?? key;
+}
 import { sayTrouble } from "./trouble.ts";
 import { button, choice } from "./controls.ts";
-
-/** What each type is called on the page. */
-const TYPES: Record<string, string> = {
-  "comments-on": "מפרש",
-  quotes: "מצטט",
-  paraphrases: "מביא",
-  codifies: "פוסק",
-  disputes: "חולק",
-  emends: "מגיה",
-  "parallel-to": "מקביל",
-  translates: "מתרגם",
-  references: "קשור",
-};
-
-function said(kind: string): string {
-  return TYPES[kind] ?? kind;
-}
 
 export class LinksView {
   readonly element: HTMLElement;
@@ -159,14 +159,14 @@ export class LinksView {
     return button;
   }
 
-  private row(link: LinkRow, types: string[]): HTMLElement {
+  private row(link: LinkRow, types: LinkKind[]): HTMLElement {
     const row = document.createElement("div");
     row.className = "link" + (link.rejected ? " is-rejected" : "");
     if (link.mine) row.classList.add("is-mine");
 
     const kind = document.createElement("span");
     kind.className = "link-kind" + (link.curated ? "" : " is-uncurated");
-    kind.textContent = said(link.kind);
+    kind.textContent = said(types, link.kind);
     kind.title = link.curated
       ? "טענה על הטקסטים"
       : "הקורפוס לא אמר איזה קשר — לא מוצג כעובדה";
@@ -208,13 +208,13 @@ export class LinksView {
     summary.title = "מאיפה הקישור, ומה עשית לו";
     const work = document.createElement("span");
     work.className = "link-work";
-    work.textContent = provenance(link).join(" · ");
+    work.textContent = provenance(link, types).join(" · ");
     shown.append(summary, work, this.actions(link, types));
     row.append(shown);
     return row;
   }
 
-  private actions(link: LinkRow, types: string[]): HTMLElement {
+  private actions(link: LinkRow, types: LinkKind[]): HTMLElement {
     const box = document.createElement("span");
     box.className = "link-actions";
 
@@ -239,9 +239,9 @@ export class LinksView {
     retype.append(keep);
     for (const type of types) {
       const option = document.createElement("option");
-      option.value = type;
-      option.textContent = said(type);
-      option.selected = type === link.kind;
+      option.value = type.key;
+      option.textContent = type.title;
+      option.selected = type.key === link.kind;
       retype.append(option);
     }
     retype.addEventListener("change", () => {
@@ -303,13 +303,13 @@ export class LinksView {
  * Behind a disclosure since W37, and unchanged in content: a link layer that
  * cannot show its work is a link layer you have to take on faith.
  */
-function provenance(link: LinkRow): string[] {
+function provenance(link: LinkRow, kinds: LinkKind[]): string[] {
   const bits = [`${Math.round(link.confidence * 100)}%`, link.method];
   // Which words, and who says so — the dibur hamatchil the commentary itself
   // declares, or a span you pinned (spec.md §8.4).
   if (link.span_from) bits.push(link.span_from === "pinned" ? "על מילים (שלך)" : "על מילים");
   if (link.label) bits.push(`"${link.label}"`);
-  if (link.was && link.was !== link.kind) bits.push(`היה: ${said(link.was)}`);
+  if (link.was && link.was !== link.kind) bits.push(`היה: ${said(kinds, link.was)}`);
   if (link.changed.length > 0) bits.push(link.changed.join(", "));
   if (link.who) bits.push(link.who);
   return bits;

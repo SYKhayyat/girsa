@@ -124,6 +124,12 @@ export type Showing = "as_printed" | "fixed" | "fixed_with_variants";
  *
  * Everything a repair UI has to show its work with: which end, what the corpus
  * said, how it was found, how much to believe it, and which of that was you. */
+/** One kind of link, and what a reader is shown for it. */
+export interface LinkKind {
+  key: string;
+  title: string;
+}
+
 export interface LinkRow {
   /** What names this edge in your layer — handed back to repair it. */
   edge: string;
@@ -162,7 +168,14 @@ export interface Links {
   /** No companions cache, so the incoming half is missing — said, never
    * swallowed. */
   incoming_unknown: boolean;
-  types: string[];
+  /**
+   * The kinds of link, **labelled**, in the order they are offered.
+   *
+   * From `girsa_app::links::kinds`. `linksview.ts` used to hold the Hebrew in a
+   * lookup table with a `?? kind` fallback, so a tenth edge type printed an
+   * English slug into a Hebrew interface and nothing said so.
+   */
+  types: LinkKind[];
   /** Your lenses (spec.md §8.5): saved filters, not hardcoded lists. */
   lenses: { key: string; title: string }[];
   lens: string | null;

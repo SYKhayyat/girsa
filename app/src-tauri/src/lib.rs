@@ -2078,8 +2078,12 @@ struct Links {
     /// sidebar quietly short of half its links reads as a sefer nobody comments
     /// on.
     incoming_unknown: bool,
-    /// The types a link may be retyped to, in the order they are offered.
-    types: Vec<&'static str>,
+    /// The types a link may be retyped to, **labelled**, in the order they are
+    /// offered. From `girsa_app::links::kinds`, which is where the Hebrew for a
+    /// kind of link lives — it used to be a lookup table in `linksview.ts` with
+    /// a `?? kind` fallback, so a tenth edge type printed an English slug into a
+    /// Hebrew interface and said nothing.
+    types: Vec<girsa_app::links::Named>,
     /// Your lenses (§8.5, W24): saved filters, not hardcoded lists.
     lenses: Vec<LensRow>,
     /// Which one is on, if any.
@@ -2159,7 +2163,7 @@ fn links(
             .map(|l| LinkRow::of(l, language, first_words(&state, l, nikud)))
             .collect(),
         incoming_unknown: touching.incoming_unknown,
-        types: EDGE_TYPES.iter().map(|t| t.as_str()).collect(),
+        types: girsa_app::links::kinds(),
         lenses: lenses
             .lenses
             .iter()
@@ -2194,20 +2198,6 @@ fn link_pin(
         .pin_named(&edge, &at, from_char..to_char, &who)
         .map_err(|e| e.to_string())
 }
-
-/// The types a reader may set, strongest claim first — the order `EdgeType` is
-/// declared in, which is the order the facets list them in too.
-const EDGE_TYPES: [girsa_link::EdgeType; 9] = [
-    girsa_link::EdgeType::CommentsOn,
-    girsa_link::EdgeType::Quotes,
-    girsa_link::EdgeType::Paraphrases,
-    girsa_link::EdgeType::Codifies,
-    girsa_link::EdgeType::Disputes,
-    girsa_link::EdgeType::Emends,
-    girsa_link::EdgeType::ParallelTo,
-    girsa_link::EdgeType::Translates,
-    girsa_link::EdgeType::References,
-];
 
 /// The first words at the other end of a link, where that sefer is already read
 /// (W37).

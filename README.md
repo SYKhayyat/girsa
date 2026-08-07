@@ -73,11 +73,11 @@ is supposed to be **nothing that decides anything**. Where a pane lands, what ma
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
 is **23**<!--=window-modules--> TypeScript modules and one stylesheet of
-**2,504**<!--=styles-lines--> lines — no framework, three runtime dependencies,
+**2,510**<!--=styles-lines--> lines — no framework, three runtime dependencies,
 and no fossils.
 
 That is the design and it is not yet the measurement. Of the shell's
-**4,686**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
+**4,676**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
 pass-through; the rest decides cache policy,
 sort orders, truncation lengths and patch provenance, and one block of it is a
 second implementation of the placement rule `Beside::between` is tested for. The

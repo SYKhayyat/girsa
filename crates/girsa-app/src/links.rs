@@ -31,7 +31,7 @@ use std::path::Path;
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::standing::Standing;
 use girsa_link::repair::{Repaired, Repairs};
-use girsa_link::{inbound, store, Anchor};
+use girsa_link::{inbound, store, Anchor, EdgeType};
 
 use crate::shelf::Shelf;
 
@@ -349,4 +349,47 @@ mod tests {
         assert_eq!(incoming.work, "mishnah/berakhot");
         assert_eq!(incoming.address, "1:1");
     }
+}
+
+/// One kind of link, and what a reader is shown for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct Named {
+    /// The word on the wire — [`EdgeType::as_str`].
+    pub key: &'static str,
+    /// What it is called in the window.
+    pub title: &'static str,
+}
+
+/// Every kind of link, labelled, strongest claim first.
+///
+/// # Why the labels are here and not in the window
+///
+/// `linksview.ts` held them, as a lookup table with a `?? kind` fallback — so
+/// **a tenth edge type would print an English slug into a Hebrew interface**,
+/// silently, and the first anyone knew of it would be `parallel-to` in a
+/// sidebar. Twenty lines above that table, the same file draws the lenses from
+/// a labelled list Rust sends, and asks nothing about what a lens is.
+///
+/// This is that list. The window draws whatever is on it; adding a kind is one
+/// row of `EdgeType::ALL` and one line here, and there is no third place that
+/// has to hear about it.
+#[must_use]
+pub fn kinds() -> Vec<Named> {
+    EdgeType::ALL
+        .into_iter()
+        .map(|kind| Named {
+            key: kind.as_str(),
+            title: match kind {
+                EdgeType::CommentsOn => "מפרש",
+                EdgeType::Quotes => "מצטט",
+                EdgeType::Paraphrases => "מביא",
+                EdgeType::Codifies => "פוסק",
+                EdgeType::Disputes => "חולק",
+                EdgeType::Emends => "מגיה",
+                EdgeType::ParallelTo => "מקביל",
+                EdgeType::Translates => "מתרגם",
+                EdgeType::References => "קשור",
+            },
+        })
+        .collect()
 }
