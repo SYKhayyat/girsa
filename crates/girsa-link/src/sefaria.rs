@@ -472,6 +472,10 @@ pub fn read_file(
             to: to_anchor(to_run),
             edge_type: EdgeType::from_sefaria(label),
             method: Method::SefariaSeed,
+            // Not known here — this reader has two citations and a label, and
+            // the label is exactly what does not say which is which. The
+            // orienting pass stamps it.
+            direction: crate::Direction::NotRecorded,
             source_label: label.trim().to_string(),
         });
     }

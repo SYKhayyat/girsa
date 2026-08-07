@@ -15,7 +15,7 @@
 //! also makes the whole operation reversible: the previous store is left as
 //! `links.superseded` rather than deleted.
 //!
-//! Idempotent, because [`girsa_link::orient::Bases::orient`] is: running it
+//! Idempotent, because [`girsa_link::orient::Orienting::apply`] is: running it
 //! twice reports everything already right and writes the same bytes.
 //!
 //! ```text
@@ -89,7 +89,7 @@ fn main() -> std::process::ExitCode {
     }
 
     let mut writer = store::Writer::default();
-    let mut tally = orient::Tally::default();
+    let mut orienting = orient::Orienting::new(&bases);
     let mut read = 0usize;
     let mut failed = Vec::new();
 
@@ -107,7 +107,19 @@ fn main() -> std::process::ExitCode {
         };
         for mut edge in edges {
             read += 1;
-            tally.count(bases.orient(&mut edge));
+            // Through `Orienting`, which is the whole reason that type exists.
+            //
+            // This line used to be `tally.count(bases.orient(&mut edge))` — a
+            // second implementation of `Orienting::apply`, in the one tool
+            // whose entire job is orienting, forty lines from a doc comment
+            // saying *"the pair is only ever useful together, since orienting
+            // without counting is how the defect stayed quiet for as long as it
+            // did."* It counted, and it did not stamp: the first run of this
+            // pass with the new field wrote **4,182,337 rows with no `dir` on
+            // any of them**, and every test passed, because the tests use
+            // `Orienting` and the tool did not. `Bases::orient` is now private,
+            // so there is no second way to do this.
+            orienting.apply(&mut edge);
             writer.push(&edge);
         }
         if writer.buffered_bytes() > 64 * 1024 * 1024 {
@@ -124,7 +136,21 @@ fn main() -> std::process::ExitCode {
     }
 
     println!("{read} edges read, {} written", writer.len());
+    let tally = orienting.tally();
     println!("{}", tally.said());
+    // The pass no longer only *turns* edges — it writes down what it knew while
+    // turning them. Before, `undeclared` was a number in this log and nothing
+    // else, so an edge whose direction Sefaria declared and an edge whose
+    // direction is a CSV column order came out byte-identical. Now the row
+    // carries `"dir"`, and `Edge::confidence` is 0.15 lower for the ones nobody
+    // declared. This run is also what puts that field on a corpus imported
+    // before it existed.
+    println!(
+        "  and {} of them now say so on the row: {} declared, {} undeclared",
+        tally.kept + tally.flipped + tally.undeclared,
+        tally.kept + tally.flipped,
+        tally.undeclared
+    );
 
     // A shard that would not read means edges missing from the new store. Do
     // not swap that in over a store that still has them.

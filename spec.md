@@ -422,6 +422,23 @@ are expensive, filling in values is not. Sefaria's four labels map onto ours; th
 > `references` was ever anything but a label with nothing in it. This is the
 > shape §8.3's repairs need, and it is what this paragraph was asking for.
 
+> **`dir`, added 6 August 2026 — whether anybody said which way this points.**
+> `orient.rs` reads Sefaria's `dependence`/`base_text_titles` to put a
+> `comments-on` the right way round, and for **322,368 of 2,123,215** of them
+> neither end declares the other, so which way the edge points is *which column
+> the citation was in*. That was computed, counted, printed in one line of the
+> import log, and thrown away — so a declared direction and a coin flip went to
+> disk byte-identical and scored the same `confidence`, because `Method` knows
+> only which corpus a row came from.
+>
+> Now the row says: `"dir":"declared"` or `"dir":"undeclared"`, and **absent is
+> *this row does not say***, which is what every row written before the field
+> existed means. `Edge::confidence` is 0.15 lower for an undeclared one — a
+> smaller gap than the one between the corpora, because such an edge still has
+> two real endpoints and a real type and only its *arrow* is an accident. A row
+> that does not say costs nothing; charging it would be inventing a claim to
+> fill a silence.
+
 `attributed` records whom the citing text *claims* to cite, separately from where
 the resolver thinks the source actually is. Those diverge constantly —
 misattributions, lost intermediaries, "in the name of." Storing both makes the

@@ -342,6 +342,10 @@ pub fn read_file(
             to: Anchor::point(to),
             edge_type: EdgeType::from_sefaria(label),
             method: Method::OtzariaSeed,
+            // Not known here. `orient::Orienting::apply` is what decides this,
+            // and it runs over the edge on its way to the store — an importer
+            // that guessed would be the guess this field exists to expose.
+            direction: crate::Direction::NotRecorded,
             source_label: label.trim().to_string(),
         });
     }

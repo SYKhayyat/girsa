@@ -595,6 +595,9 @@ impl Repairs {
                 to,
                 edge_type: crate::touching::type_named(edge_type).unwrap_or(EdgeType::References),
                 method: Method::ByHand,
+                // You drew this edge, in this direction, on purpose. That is
+                // the strongest declaration there is.
+                direction: crate::Direction::Declared,
                 source_label: String::new(),
             };
             let mut repaired = Repaired::of(edge);
@@ -719,6 +722,7 @@ mod tests {
             to: Anchor::point(id("b", 2)),
             edge_type: EdgeType::References,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: String::new(),
         }
     }

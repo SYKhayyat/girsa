@@ -276,6 +276,64 @@ impl Method {
     }
 }
 
+/// Whether anybody ever said which way a `comments-on` edge points.
+///
+/// # The uncertainty this codebase did not report about itself
+///
+/// `orient.rs` computes exactly this and then throws it away. It counts
+/// [`orient::Orientation::Undeclared`] — **2,039 works** on the shipped corpus
+/// — prints it in one line of the import log, and writes nothing. So an edge
+/// whose direction the corpus **declared**, through Sefaria's `dependence` and
+/// `base_text_titles`, and an edge whose direction is *the order two citations
+/// happened to appear in a CSV column*, come out byte-identical on disk and
+/// score identical [`Edge::confidence`] — because `Method::confidence` knows
+/// only which corpus a row came from.
+///
+/// This is the repository that invented `Refused::incoming_unknown`,
+/// `Found::NotWithin` against `Found::None`, and the `built` marker so a
+/// missing cache is never read as a zero. It applied that everywhere except to
+/// its own graph.
+///
+/// Three states, because the third one is real: a row written before this
+/// field existed **does not say**, and that is not the same as *declared*. An
+/// old file therefore keeps exactly the confidence it had.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Direction {
+    /// The row does not say — it predates the field, or the edge is not a
+    /// `comments-on` and there is no direction to have declared.
+    #[default]
+    NotRecorded,
+    /// The corpus declared which end is the commentary, and this edge points
+    /// that way (it was either already right or it was flipped to be).
+    Declared,
+    /// Neither end declares the other as its base. Which way this edge points
+    /// is which column the citation was in.
+    Undeclared,
+}
+
+impl Direction {
+    #[must_use]
+    pub const fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::NotRecorded => None,
+            Self::Declared => Some("declared"),
+            Self::Undeclared => Some("undeclared"),
+        }
+    }
+
+    /// Read back what [`Direction::as_str`] wrote. An unknown word is
+    /// `NotRecorded` — a row whose vocabulary we do not share has not told us
+    /// anything, which is precisely what `NotRecorded` means.
+    #[must_use]
+    pub fn parse(word: Option<&str>) -> Self {
+        match word {
+            Some("declared") => Self::Declared,
+            Some("undeclared") => Self::Undeclared,
+            _ => Self::NotRecorded,
+        }
+    }
+}
+
 /// One directed, typed edge between two places in the library.
 ///
 /// spec.md §8.2. `from_span`/`to_span` — the character ranges inside a segment
@@ -288,6 +346,12 @@ pub struct Edge {
     pub to: Anchor,
     pub edge_type: EdgeType,
     pub method: Method,
+    /// Whether the corpus said which way this points, or nobody did.
+    ///
+    /// Beside `method` because it is the same kind of fact: `method` is *where
+    /// the claim came from* and this is *whether the claim included a
+    /// direction*. [`Edge::confidence`] reads both.
+    pub direction: Direction,
     /// The label the source used, kept verbatim.
     ///
     /// `reference`, `related` and a blank all map onto
@@ -298,9 +362,35 @@ pub struct Edge {
 }
 
 impl Edge {
+    /// How much to believe this edge, before anybody has looked.
+    ///
+    /// A rank rather than a probability, so the sidebar can order a
+    /// citation-addressed edge above a line-indexed one and a reader can see
+    /// why. Two axes now, because there are two:
+    ///
+    /// | | declared | undeclared |
+    /// |---|---|---|
+    /// | Sefaria | 0.90 | 0.75 |
+    /// | Otzaria | 0.70 | 0.55 |
+    ///
+    /// The gap is deliberately smaller than the gap between the corpora: a
+    /// `comments-on` whose direction nobody declared still has two real
+    /// endpoints and a real type, and only its *arrow* is the accident of a
+    /// column order. That is worth less than a declared one and more than a
+    /// line-indexed guess about the whole row.
+    ///
+    /// [`Direction::NotRecorded`] costs nothing. A row that predates the field
+    /// has not told us it was guessed, and charging it as though it had would
+    /// be inventing a claim to fill a silence — which is the failure this whole
+    /// field exists to stop.
     #[must_use]
     pub fn confidence(&self) -> f32 {
-        self.method.confidence()
+        const UNDECLARED: f32 = 0.15;
+        let known = self.method.confidence();
+        if self.direction == Direction::Undeclared {
+            return known - UNDECLARED;
+        }
+        known
     }
 }
 

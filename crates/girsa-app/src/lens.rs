@@ -236,6 +236,7 @@ mod tests {
             to: Anchor::point(id("shulchan-arukh/orach-chayim")),
             edge_type,
             method: Method::SefariaSeed,
+            direction: girsa_link::Direction::NotRecorded,
             source_label: String::new(),
         };
         let mut repaired = Repairs::nowhere().apply(vec![edge]).remove(0);

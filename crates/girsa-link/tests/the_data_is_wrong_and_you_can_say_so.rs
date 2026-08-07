@@ -36,6 +36,7 @@ fn untyped() -> Edge {
         to: Anchor::point(id("rambam-on-mishnah/berakhot", 5)),
         edge_type: EdgeType::References,
         method: Method::SefariaSeed,
+        direction: girsa_link::Direction::NotRecorded,
         source_label: String::new(),
     }
 }

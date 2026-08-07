@@ -88,6 +88,7 @@ fn main() {
                     } else {
                         Method::SefariaSeed
                     },
+                    direction: girsa_link::Direction::parse(row.direction.as_deref()),
                     source_label: row.label.clone(),
                 })
             })

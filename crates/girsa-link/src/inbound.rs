@@ -348,6 +348,7 @@ mod tests {
             to: Anchor::point(id(to, 5)),
             edge_type: EdgeType::CommentsOn,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: "commentary".into(),
         }
     }
@@ -642,6 +643,7 @@ mod landing_tests {
             to,
             edge_type: EdgeType::CommentsOn,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: "commentary".into(),
         }
     }

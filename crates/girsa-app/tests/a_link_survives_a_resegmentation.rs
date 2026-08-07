@@ -96,6 +96,7 @@ fn link_from(root: &Path, from: &SegmentId) {
         to: Anchor::point(far_end()),
         edge_type: EdgeType::CommentsOn,
         method: Method::SefariaSeed,
+        direction: girsa_link::Direction::NotRecorded,
         source_label: "commentary".into(),
     });
     writer.flush(root).expect("the shard writes");
@@ -279,6 +280,7 @@ fn a_link_you_moved_by_hand_is_not_lost_by_the_thing_that_skips_rows() {
         to: Anchor::point(far_end()),
         edge_type: EdgeType::CommentsOn,
         method: Method::SefariaSeed,
+        direction: girsa_link::Direction::NotRecorded,
         source_label: "commentary".into(),
     };
 

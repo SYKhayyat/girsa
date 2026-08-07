@@ -85,6 +85,12 @@ pub struct Row {
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub edge_type: Option<String>,
     pub method: String,
+    /// Whether the corpus declared which way a `comments-on` points, or nobody
+    /// did — [`crate::Direction`]. Absent is *this row does not say*: files
+    /// written before the field predate the question, and are not evidence
+    /// that it was declared.
+    #[serde(rename = "dir", default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
     /// What the corpus called it, verbatim — including the empty string, which
     /// is what three quarters of them say (T5). The type when nothing above
     /// overrides it.
@@ -104,6 +110,7 @@ impl Row {
             to: edge.to.to_string(),
             edge_type: (edge.edge_type != implied).then(|| edge.edge_type.as_str().to_string()),
             method: edge.method.as_str().to_string(),
+            direction: edge.direction.as_str().map(str::to_string),
             label: edge.source_label.clone(),
         }
     }
@@ -255,6 +262,7 @@ pub(crate) fn edge_of(line: &str) -> Option<Edge> {
         } else {
             Method::SefariaSeed
         },
+        direction: crate::Direction::parse(row.direction.as_deref()),
         source_label: row.label,
     })
 }
@@ -431,6 +439,7 @@ mod tests {
             to: Anchor::span(id("rambam/berakhot", 1, 5), id("rambam/berakhot", 2, 6)),
             edge_type: EdgeType::CommentsOn,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: "commentary".into(),
         }
     }
@@ -577,6 +586,7 @@ mod tests {
             to: Anchor::point(to.clone()),
             edge_type: EdgeType::CommentsOn,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: "commentary".into(),
         }))
         .expect("serializes")
@@ -626,6 +636,7 @@ mod tests {
             to: far,
             edge_type: EdgeType::CommentsOn,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: "commentary".into(),
         }))
         .expect("serializes");
@@ -695,6 +706,7 @@ mod tests {
             to: Anchor::point(elsewhere.clone()),
             edge_type: EdgeType::CommentsOn,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: "commentary".into(),
         }))
         .expect("serializes");
@@ -727,6 +739,7 @@ mod tests {
                 to: Anchor::point(id("rambam/berakhot", 1, n)),
                 edge_type: EdgeType::CommentsOn,
                 method: Method::SefariaSeed,
+                direction: crate::Direction::NotRecorded,
                 source_label: "commentary".into(),
             });
         }

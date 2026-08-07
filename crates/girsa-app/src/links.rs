@@ -329,6 +329,7 @@ mod tests {
             to: Anchor::point(id("rambam/berakhot", 5)),
             edge_type: EdgeType::CommentsOn,
             method: Method::SefariaSeed,
+            direction: girsa_link::Direction::NotRecorded,
             source_label: "commentary".into(),
         };
         let shelf = crate::shelf::tests::shelf_of(

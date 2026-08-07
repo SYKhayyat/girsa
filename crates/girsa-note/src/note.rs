@@ -296,6 +296,9 @@ impl Note {
                 to: Anchor::point(at.clone()),
                 edge_type: EdgeType::CommentsOn,
                 method: Method::ByHand,
+                // You wrote the note and you said what it is on. Nobody had to
+                // infer which end is the commentary.
+                direction: girsa_link::Direction::Declared,
                 source_label: String::new(),
             })
             .collect()

@@ -422,6 +422,7 @@ mod tests {
             to: girsa_link::Anchor::point("girsa:bavli/berakhot/2a:3#3".parse().unwrap()),
             edge_type: girsa_link::EdgeType::CommentsOn,
             method: girsa_link::Method::OtzariaSeed,
+            direction: girsa_link::Direction::NotRecorded,
             source_label: "commentary".into(),
         });
         writer.flush(&dir).expect("writes");

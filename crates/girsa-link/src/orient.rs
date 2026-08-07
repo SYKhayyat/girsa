@@ -42,7 +42,7 @@ use std::collections::HashMap;
 
 use girsa_corpus::work::Work;
 
-use crate::{Edge, EdgeType};
+use crate::{Direction, Edge, EdgeType};
 
 /// What the corpus declares about which works comment on which.
 #[derive(Debug, Default, Clone)]
@@ -119,9 +119,35 @@ impl<'a> Orienting<'a> {
         }
     }
 
-    /// Orient one edge and count what that did.
+    /// Orient one edge, **write down what was known**, and count what that did.
+    ///
+    /// The middle clause is the one that was missing. This function computed
+    /// `Undeclared` for 2,039 works, added one to a counter, printed a line of
+    /// log, and dropped it — so a direction the corpus stated and a direction
+    /// that is the order of two CSV columns went to disk byte-identical and
+    /// scored the same confidence. Stamping the edge is four lines and it is
+    /// the difference between a number in a log and a fact a reader can be
+    /// told.
     pub fn apply(&mut self, edge: &mut Edge) {
         let what = self.bases.orient(edge);
+        edge.direction = match what {
+            // Either it already pointed the way the corpus says, or it was
+            // turned to. Both are the corpus speaking.
+            //
+            // Except for an edge with both ends in one work, which `orient`
+            // also answers `Kept` — nothing was declared there, because there
+            // was no question to declare an answer to. Calling that `Declared`
+            // would be this field claiming a source it does not have.
+            Orientation::Kept | Orientation::Flipped
+                if edge.from.from.work() != edge.to.from.work() =>
+            {
+                Direction::Declared
+            }
+            Orientation::Undeclared => Direction::Undeclared,
+            // Not a `comments-on`, or a work commenting on itself. There is no
+            // direction to have declared, and "not recorded" is exactly right.
+            _ => Direction::NotRecorded,
+        };
         self.tally.count(what);
     }
 
@@ -166,7 +192,14 @@ impl Bases {
     /// Idempotent: orienting an already-oriented edge returns
     /// [`Orientation::Kept`] and changes nothing, so this is safe to run over
     /// a store that has been through it before.
-    pub fn orient(&self, edge: &mut Edge) -> Orientation {
+    ///
+    /// **Private, and that is the point.** Turning an edge, counting what that
+    /// did, and writing down what was known are one operation; this is one
+    /// third of it. `girsa-link-orient` called it directly for as long as there
+    /// were only two thirds to get wrong, and the first run after the third was
+    /// added wrote 4,182,337 rows with the new field on none of them.
+    /// [`Orienting::apply`] is the only way in.
+    fn orient(&self, edge: &mut Edge) -> Orientation {
         // Only the type whose name states a direction. `references` and
         // `quotes` are directional too, but the row itself is the evidence for
         // which way they point and there is nothing to check them against.
@@ -238,6 +271,7 @@ mod tests {
             to: Anchor::point(id(to)),
             edge_type,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: "commentary".to_string(),
         }
     }
@@ -338,5 +372,71 @@ mod tests {
             said.contains("left alone"),
             "the undeclared edges must be reported, not folded into kept: {said}"
         );
+    }
+
+    #[test]
+    fn an_undeclared_direction_says_so_on_the_edge_and_costs_confidence() {
+        // The finding: this module computed `Undeclared` for 2,039 works,
+        // counted it, printed it, and threw it away — so an edge whose
+        // direction Sefaria declared and an edge whose direction is which
+        // column its citation was in went to disk byte-identical and scored
+        // the same confidence.
+        let bases = bases();
+        let mut declared = edge(
+            "bavli/rashi-on-berakhot",
+            "bavli/berakhot",
+            EdgeType::CommentsOn,
+        );
+        let mut guessed = edge("some-sefer", "another-sefer", EdgeType::CommentsOn);
+        let mut orienting = Orienting::new(&bases);
+        orienting.apply(&mut declared);
+        orienting.apply(&mut guessed);
+
+        assert_eq!(declared.direction, Direction::Declared);
+        assert_eq!(guessed.direction, Direction::Undeclared);
+        assert!(
+            guessed.confidence() < declared.confidence(),
+            "two edges the corpus knows different amounts about scored the same:              {} against {}",
+            guessed.confidence(),
+            declared.confidence()
+        );
+        // And the ranking that the number is for: a declared Otzaria edge still
+        // beats an undeclared Sefaria one on nothing, but an undeclared Sefaria
+        // edge beats an undeclared Otzaria one. The order is the claim.
+        let mut otzaria = declared.clone();
+        otzaria.method = Method::OtzariaSeed;
+        assert!(guessed.confidence() > otzaria.confidence() - 0.16);
+    }
+
+    #[test]
+    fn a_direction_survives_being_written_down_and_read_back() {
+        let bases = bases();
+        let mut guessed = edge("some-sefer", "another-sefer", EdgeType::CommentsOn);
+        Orienting::new(&bases).apply(&mut guessed);
+
+        let line = serde_json::to_string(&crate::store::Row::of(&guessed)).expect("serialises");
+        assert!(line.contains("\"dir\":\"undeclared\""), "{line}");
+
+        // And a row from before the field says nothing rather than claiming to
+        // have been declared — which is what keeps every edge already on disk
+        // at exactly the confidence it had.
+        let old = r#"{"from":"girsa:a/1:1#1","to":"girsa:b/1:1#1","method":"sefaria-seed","label":"commentary"}"#;
+        let back = crate::store::edge_of(old).expect("reads");
+        assert_eq!(back.direction, Direction::NotRecorded);
+        assert!(
+            (back.confidence() - Method::SefariaSeed.confidence()).abs() < f32::EPSILON,
+            "a row that predates the field was charged for a guess it never made"
+        );
+    }
+
+    #[test]
+    fn a_work_that_comments_on_itself_has_no_direction_to_declare() {
+        // `orient` answers `Kept` for a self-edge, because there is nothing to
+        // flip. That is not the corpus declaring anything, and stamping it
+        // `Declared` would be this field inventing a source.
+        let bases = bases();
+        let mut inside = edge("some-sefer", "some-sefer", EdgeType::CommentsOn);
+        Orienting::new(&bases).apply(&mut inside);
+        assert_eq!(inside.direction, Direction::NotRecorded);
     }
 }

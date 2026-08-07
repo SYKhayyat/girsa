@@ -708,6 +708,7 @@ mod tests {
             to: Anchor::point(id(to, ti)),
             edge_type,
             method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
             source_label: match edge_type {
                 EdgeType::CommentsOn => "commentary".into(),
                 EdgeType::Quotes => "quotation".into(),
