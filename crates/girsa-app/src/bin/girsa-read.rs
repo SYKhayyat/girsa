@@ -141,7 +141,7 @@ fn status(shelf: &Shelf, personal: &Path, slug: Option<&str>) -> Result<(), Stri
 
     // The sentence itself comes from the library, so this, the results header
     // and the test cannot drift into disagreeing about a count.
-    let index = find_index(shelf.root());
+    let index = find_index(shelf.root()).ok();
     let gap = gap(shelf, personal, index.as_deref());
     match gap.said() {
         Some(said) => {

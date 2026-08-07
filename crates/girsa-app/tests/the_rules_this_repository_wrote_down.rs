@@ -114,3 +114,26 @@ fn slug_of_has_one_implementation() {
          the same way; see the doc comment on the original."
     );
 }
+
+#[test]
+fn find_index_has_one_implementation() {
+    // `girsa_note::since::index_candidates`:
+    //
+    //   Shared, so a search panel that finds an index and a `girsa-read` that
+    //   does not cannot be two answers to one question.
+    //
+    // `app/src-tauri/src/lib.rs:855` was a second one — **forty lines above a
+    // call to the shared one, in the same file** — with the same three
+    // candidates in the same order and a different accept predicate. It took
+    // only `girsa-cache.json`; the shared one also takes a bare tantivy
+    // `meta.json`. So a directory `girsa-read` called an index, the window
+    // called *no search index*.
+    let root = repo();
+    let mut found = defined_in(&root, "fn find_index(");
+    found.sort();
+    assert_eq!(
+        found,
+        vec!["crates/girsa-note/src/since.rs".to_string()],
+        "a second `find_index`. Two of these had two accept predicates and          disagreed about whether a directory was an index."
+    );
+}

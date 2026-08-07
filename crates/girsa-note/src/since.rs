@@ -170,7 +170,7 @@ impl Unindexed {
         if let Written::Since(n) = self.scans {
             if n > 0 {
                 parts.push(format!(
-                    "words you corrected on {n} {} still findable by the misreading                      and not by the correction",
+                    "words you corrected on {n} {} still findable by the                      misreading and not by the correction",
                     if n == 1 { "scan are" } else { "scans are" },
                 ));
             }
@@ -218,12 +218,42 @@ pub fn index_candidates(corpus: &Path) -> Vec<PathBuf> {
     candidates
 }
 
-/// The first candidate that is actually an index, if any.
-#[must_use]
-pub fn find_index(corpus: &Path) -> Option<PathBuf> {
-    index_candidates(corpus)
-        .into_iter()
-        .find(|c| is_an_index(c))
+/// The first candidate that is actually an index — or where it looked.
+///
+/// # There was a second one of these, and it accepted a different thing
+///
+/// `app/src-tauri/src/lib.rs:855` had its own `find_index`, forty lines from a
+/// call to this one, in the same file. Same three candidates in the same order,
+/// and a **different accept predicate**: it took only `girsa-cache.json`, where
+/// [`is_an_index`] also takes a bare tantivy `meta.json`. So a directory
+/// `girsa-read` called an index the window called *no search index*, which is
+/// two answers to one question and is precisely what the note on
+/// [`index_candidates`] says must not happen.
+///
+/// The permissive one is the one that survived, and that is not a coin toss.
+/// Finding a directory and *trusting* it are different questions:
+/// `girsa_search::index::SearchIndex::open` already refuses an index built
+/// under other rules and says which rules, so a foreign tantivy directory now
+/// gets *"the index at … cannot be trusted"* instead of *"no search index"* —
+/// which is the true statement of the two.
+///
+/// # Errors
+///
+/// With the sentence a reader is shown, naming every place it looked. That
+/// wording came from the copy in the shell and is the one thing that copy had
+/// which this did not.
+pub fn find_index(corpus: &Path) -> Result<PathBuf, String> {
+    let mut tried = Vec::new();
+    for candidate in index_candidates(corpus) {
+        if is_an_index(&candidate) {
+            return Ok(candidate);
+        }
+        tried.push(candidate.display().to_string());
+    }
+    Err(format!(
+        "no search index. Looked in: {}. Run girsa-index build, or set GIRSA_INDEX.",
+        tried.join(", ")
+    ))
 }
 
 /// Notes whose file is newer than the index.
@@ -477,7 +507,7 @@ mod tests {
         assert!(looked.contains(&dir.join("index")), "{looked:?}");
         assert!(looked.contains(&corpus.join("index")), "{looked:?}");
         assert_eq!(
-            find_index(&corpus).as_deref(),
+            find_index(&corpus).ok().as_deref(),
             Some(dir.join("index").as_path())
         );
     }

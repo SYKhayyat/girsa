@@ -846,34 +846,6 @@ fn read_lexicon(corpus: &std::path::Path) -> Option<girsa_ref::Lexicon> {
     Some(girsa_ref::Lexicon::from_tsv(&body))
 }
 
-/// Where the index is, if it is anywhere.
-///
-/// `GIRSA_INDEX`, else beside the corpus. An index is a rebuildable cache
-/// (spec.md §4.1) and a window without one still reads: what it must not do is
-/// look like a library with nothing in it, so the reason is carried through to
-/// the search panel and shown there.
-fn find_index(corpus: &std::path::Path) -> Result<PathBuf, String> {
-    let mut tried = Vec::new();
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(from_env) = std::env::var("GIRSA_INDEX") {
-        candidates.push(PathBuf::from(from_env));
-    }
-    if let Some(beside) = corpus.parent() {
-        candidates.push(beside.join("index"));
-    }
-    candidates.push(corpus.join("index"));
-    for candidate in candidates {
-        if candidate.join(girsa_search::index::CACHE_STAMP).is_file() {
-            return Ok(candidate);
-        }
-        tried.push(candidate.display().to_string());
-    }
-    Err(format!(
-        "no search index. Looked in: {}. Run girsa-index build, or set GIRSA_INDEX.",
-        tried.join(", ")
-    ))
-}
-
 /// Open the index and put a bar over it.
 ///
 /// The shelf knows where the corpus is; the index is beside it. A window with a
@@ -890,7 +862,17 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
     let Some(shelf) = shelf else {
         return (None, Some("there is no shelf to search".to_string()));
     };
-    let index_dir = match find_index(corpus) {
+    // `girsa_app::find_index`, not a second one here.
+    //
+    // This file had its own — forty lines above a call to the shared one, in
+    // this same file — with the same three candidates in the same order and a
+    // *different accept predicate*: it took only `girsa-cache.json`, where the
+    // shared one also takes a bare tantivy `meta.json`. A directory
+    // `girsa-read` called an index, the window called *no search index*.
+    //
+    // The shared one now carries this error wording, which is the one thing the
+    // copy had that it did not.
+    let index_dir = match girsa_app::find_index(corpus) {
         Ok(dir) => dir,
         Err(why) => return (None, Some(why)),
     };
@@ -1627,7 +1609,7 @@ fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> 
     // Where the index is, if it is anywhere: two of the three gaps are *since the
     // index was built*, so a window that cannot find one has a bigger gap to
     // report, not a smaller one.
-    let index = girsa_app::find_index(shelf.root());
+    let index = girsa_app::find_index(shelf.root()).ok();
     let gap = girsa_app::reading::gap(shelf, &personal, index.as_deref());
     Ok(gap.said().map(|said| GapRow {
         said,
