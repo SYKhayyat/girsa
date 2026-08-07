@@ -5,11 +5,13 @@
 //! the first mishnah of Berakhot, what is linked to this line** — and then the
 //! four things §8.3 says you may do about the answer.
 //!
-//! # Why it skips when the corpus is absent
+//! # It used to skip, and a skip is why nobody noticed
 //!
-//! It needs the fetched corpus, imported, with links imported over it — not
-//! committed, and not present on a fresh clone. A test that failed there would
-//! be noise everybody learns to ignore.
+//! This gated on the fetched corpus and `return`ed when it was absent — so on
+//! every fresh clone and in CI it printed `ok` in 0.00s having asserted nothing.
+//! It runs on [`girsa_fixture`], a shelf the real importer builds from real
+//! `merged.json` files in about a second, so the claim above is now checked
+//! everywhere rather than nowhere.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -29,27 +31,15 @@ fn standing(shelf: &Shelf, at: &SegmentId) -> girsa_corpus::standing::Standing {
 const MISHNAH: &str = "mishnah-berakhot";
 const RAMBAM: &str = "rambam-on-mishnah-berakhot";
 
-fn corpus() -> Option<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    root.join("links").is_dir().then_some(root)
+/// The shelf: works, segments and an imported link graph over them.
+fn corpus() -> &'static Path {
+    girsa_fixture::linked().root()
 }
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("girsa-links-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     dir
-}
-
-macro_rules! corpus_or_skip {
-    () => {
-        match corpus() {
-            Some(root) => root,
-            None => {
-                eprintln!("skipped: no imported link graph — run girsa-link-import first");
-                return;
-            }
-        }
-    };
 }
 
 /// The first mishnah of Berakhot, by its address rather than by its ordinal:
@@ -69,8 +59,8 @@ fn first_mishnah(shelf: &Shelf) -> SegmentId {
 
 #[test]
 fn standing_on_the_first_mishnah_of_berakhot_shows_the_rambam_on_it() {
-    let root = corpus_or_skip!();
-    let mut shelf = Shelf::open(&root, &scratch("panel")).expect("the shelf opens");
+    let root = corpus();
+    let mut shelf = Shelf::open(root, &scratch("panel")).expect("the shelf opens");
     let at = first_mishnah(&shelf);
 
     let began = std::time::Instant::now();
@@ -110,7 +100,7 @@ fn standing_on_the_first_mishnah_of_berakhot_shows_the_rambam_on_it() {
 
     // Now the four actions of §8.3, on a real edge, with the shipped graph
     // watched for changes throughout.
-    let shard = girsa_link::store::edges_path(&root, at.work());
+    let shard = girsa_link::store::edges_path(root, at.work());
     let before = std::fs::read(&shard).expect("the shard reads");
     let name = girsa_link::repair::name_of(&rambam.repaired.edge);
 
@@ -183,8 +173,8 @@ fn standing_on_the_first_mishnah_of_berakhot_shows_the_rambam_on_it() {
 
 #[test]
 fn a_link_you_draw_shows_up_beside_the_shipped_ones() {
-    let root = corpus_or_skip!();
-    let mut shelf = Shelf::open(&root, &scratch("drawn")).expect("the shelf opens");
+    let root = corpus();
+    let mut shelf = Shelf::open(root, &scratch("drawn")).expect("the shelf opens");
     let at = first_mishnah(&shelf);
     let elsewhere = shelf
         .read(RAMBAM)
@@ -229,15 +219,18 @@ fn rashi_says_which_words_he_is_on_and_they_are_found_in_the_gemara() {
     // **declared** commentary (its address extends the Gemara's), so the pair
     // to compare is knowable without reading a single edge, and the panel's own
     // cost is measured in the test above.
-    let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root, &scratch("dibur")).expect("the shelf opens");
-    let (Ok(gemara), Ok(rashi)) = (
-        shelf.read("bavli/berakhot"),
-        shelf.read("bavli/rashi-on-berakhot"),
-    ) else {
-        eprintln!("skipped: Berakhot and Rashi on it are not both on this shelf");
-        return;
-    };
+    let root = corpus();
+    let shelf = Shelf::open(root, &scratch("dibur")).expect("the shelf opens");
+    // Asserted rather than skipped over. Both are on the fixture shelf by
+    // construction, so an absence here is a broken fixture and not a machine
+    // without a download — and the whole point of this file no longer skipping
+    // is that a check which cannot find what it checks must not report `ok`.
+    let gemara = shelf
+        .read("bavli/berakhot")
+        .expect("Berakhot is on the shelf");
+    let rashi = shelf
+        .read("bavli/rashi-on-berakhot")
+        .expect("Rashi on Berakhot is on the shelf");
 
     // Rashi on Berakhot 2a:1:3 is the third comment on Berakhot 2a:1, so the
     // base segment is his address with the last level dropped (spec.md §6.1's
@@ -295,8 +288,8 @@ fn a_link_on_other_words_is_left_out_and_one_on_the_whole_line_is_not() {
     // The narrower question (spec.md §8.4): *which links are on these words*.
     // A link whose words are known and are elsewhere goes; a link with no span
     // stays, because the whole segment includes what was highlighted.
-    let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root, &scratch("words")).expect("the shelf opens");
+    let root = corpus();
+    let shelf = Shelf::open(root, &scratch("words")).expect("the shelf opens");
     let at = first_mishnah(&shelf);
     let mut links = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at)).links;
     assert!(links.len() >= 2, "the first mishnah has links");

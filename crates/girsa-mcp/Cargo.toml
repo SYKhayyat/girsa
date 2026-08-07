@@ -33,5 +33,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+# A shelf, a graph and an index over both — everything `Server::open` takes. The
+# eight tests in `tests/` needed all three present and printed `ok` in 0.00s
+# whenever they were not, which on a fresh clone is always.
+girsa-fixture = { workspace = true, features = ["index"] }
+
 [lints]
 workspace = true

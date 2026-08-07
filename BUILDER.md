@@ -36,6 +36,15 @@ silently corrupt ten thousand commentary links is the actual project.
 6. **Never guess at a citation, a link, or a ref.** Ambiguity is surfaced to the
    user as a choice. This is a product rule, not a style preference — a wrong ref
    is worse than no ref, everywhere in this system.
+7. **A test may not pass because it could not find what it checks.** No
+   `if !present { return }`. If the input is missing the test either builds it —
+   `girsa-fixture` is there for exactly this — or it is `#[ignore]`d so the run
+   prints `ignored` and says so. This rule is not new; it was written down in
+   `tools/check-ksav-fixture.sh` and then broken by forty-three test functions
+   across ten files, which spent their whole existence printing
+   `ok … finished in 0.00s` in CI. Among them was the one that would have caught
+   §3's permanent ids being renumbered by every re-import. **Rule 1 says watch it
+   fail; this is what happens when nobody can.**
 
 ### 0.1 STOP AND ASK — do not decide these alone
 

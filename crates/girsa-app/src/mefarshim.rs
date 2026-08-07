@@ -459,26 +459,44 @@ mod tests {
     const RASHI: &str = "bavli/rashi-on-berakhot";
     const TOSAFOT: &str = "bavli/tosafot-on-berakhot";
 
-    fn corpus() -> Option<std::path::PathBuf> {
+    /// The shelf these run against: works, an imported graph, an inbound cache.
+    ///
+    /// Seven of the tests below gated on the 3.4 GB download and `return`ed when
+    /// it was absent, which is every fresh clone and every CI run — so what they
+    /// printed was `ok` in 0.00s having looked at no mefarshim at all. The
+    /// fixture has Berakhot with its Rashi, its Tosafos and a Penei Yehoshua on
+    /// it, built by the real importer from a `merged.json` and a `links0.csv`.
+    fn corpus() -> &'static Path {
+        girsa_fixture::linked().root()
+    }
+
+    /// The real download, for the five checks below that are about *it* and not
+    /// about this code.
+    ///
+    /// Named seforim from a Sefaria release — `bartenura-on-torah`,
+    /// `arukh-hashulchan`, the Beis Yosef on the Tur — and thresholds that need
+    /// a masechta's worth of commentary. No fixture can stand in for those and
+    /// this one does not pretend to: they are `#[ignore]`d, so a run without the
+    /// corpus prints `5 ignored` rather than five green ticks.
+    ///
+    /// ```sh
+    /// cargo test -p girsa-app --lib -- --ignored
+    /// ```
+    fn real_corpus() -> std::path::PathBuf {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-        (root.join("links").is_dir() && inbound::built(&root)).then_some(root)
+        assert!(
+            root.join("links").is_dir() && inbound::built(&root),
+            "no link graph with an inbound cache at {} — run girsa-link-import \
+             then girsa-link-types. This check is #[ignore]d precisely so that \
+             its absence is never read as a pass.",
+            root.display()
+        );
+        root
     }
 
     /// The real shelf, with no personal layer over it.
     fn real_shelf(root: &Path) -> crate::shelf::Shelf {
         crate::shelf::Shelf::open(root, &root.join("no-personal-layer")).expect("the shelf opens")
-    }
-
-    macro_rules! corpus_or_skip {
-        () => {
-            match corpus() {
-                Some(root) => root,
-                None => {
-                    eprintln!("skipped: no imported link graph");
-                    return;
-                }
-            }
-        };
     }
 
     /// Hand-built, so the filtering rules are tested without the corpus.
@@ -622,13 +640,60 @@ mod tests {
     }
 
     #[test]
+    fn rashi_is_on_the_first_line_of_the_daf() {
+        // The regression this is really about, checked without the download.
+        //
+        // Before `girsa_link::orient`, the commentary edge pointed from the daf
+        // to Rashi and `inbound.jsonl` filed it under *Rashi* — so this map came
+        // back empty for every masechta and the panel offered a reader two
+        // aggadic works out of forty. The fixture writes its `comments-on` rows
+        // in **both** column orders, exactly as Sefaria's export does, so the
+        // orientation code is what has to put them right and this goes red if it
+        // stops doing so.
+        let root = corpus();
+        let shelf = real_shelf(root);
+        let marks = Marks::of(&shelf, BERAKHOT).expect("berakhot's inbound reads");
+
+        assert!(
+            marks.commentators().iter().any(|w| w == RASHI),
+            "Rashi does not comment anywhere in Berakhot: {:?}",
+            marks.commentators()
+        );
+        assert!(
+            marks.commentators().iter().any(|w| w == TOSAFOT),
+            "Tosafos does not comment anywhere in Berakhot: {:?}",
+            marks.commentators()
+        );
+
+        // And on the line itself. `2a:3` is one of the pairs the fixture writes
+        // base-first, so this is the assertion that would have been empty.
+        let at = shelf
+            .read(BERAKHOT)
+            .expect("Berakhot opens")
+            .segments
+            .iter()
+            .find(|s| s.id.path() == ["2a", "3"])
+            .map(|s| s.id.clone())
+            .expect("Berakhot 2a:3");
+        let here = marks.on(&at, &[RASHI.to_string()]);
+        assert_eq!(
+            here.works,
+            vec![RASHI.to_string()],
+            "Rashi is not on Berakhot 2a:3"
+        );
+        println!(
+            "{} commentators over {} segments of Berakhot",
+            marks.commentators().len(),
+            marks.segments_touched()
+        );
+    }
+
+    #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
     fn rashi_is_on_the_first_line_of_the_daf_in_the_real_corpus() {
-        // The one assertion here that reads the shelf, and the point of it is
-        // that it goes red if the link graph regresses the way W32 found it:
-        // before `girsa_link::orient`, this edge pointed from the daf to Rashi
-        // and `inbound.jsonl` filed it under Rashi, so this map would have been
-        // empty for every masechta.
-        let root = corpus_or_skip!();
+        // The same claim at the scale that makes the threshold meaningful. A
+        // masechta's worth of commentary is a fact about a Sefaria release.
+        let root = real_corpus();
         let marks = Marks::of(&real_shelf(&root), BERAKHOT).expect("berakhot's inbound reads");
 
         assert!(
@@ -922,8 +987,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
     fn the_mefarshim_of_a_real_masechta_come_back_in_their_folders() {
-        let root = corpus_or_skip!();
+        // Corpus-scale by construction: `folders.of` counts the seforim that
+        // landed *in* a folder, and a mefaresh with no shelf-mates is drawn
+        // loose above them rather than lost. Whether every mefaresh has
+        // shelf-mates is a fact about how many mefarshim a masechta has, which
+        // is a fact about the download.
+        let root = real_corpus();
         let shelf = real_shelf(&root);
         let marks = Marks::of(&shelf, BERAKHOT).expect("reads");
         let on: Vec<girsa_corpus::work::Work> = marks
@@ -952,8 +1023,8 @@ mod tests {
         // Self-edges are dropped. Reading a sefer whose shard still held a
         // reversed edge would otherwise mark every line with the sefer's own
         // name.
-        let root = corpus_or_skip!();
-        let marks = Marks::of(&real_shelf(&root), BERAKHOT).expect("reads");
+        let root = corpus();
+        let marks = Marks::of(&real_shelf(root), BERAKHOT).expect("reads");
         assert!(
             !marks.commentators().iter().any(|w| w == BERAKHOT),
             "Berakhot lists itself as one of its own mefarshim"
@@ -969,8 +1040,8 @@ mod tests {
         //
         // Five different parts of the shelf, so a rule that works for the Talmud
         // and not for halakhah fails here rather than in front of a reader.
-        let root = corpus_or_skip!();
-        let shelf = real_shelf(&root);
+        let root = corpus();
+        let shelf = real_shelf(root);
         let sample = [
             BERAKHOT,
             "tur",
@@ -1013,7 +1084,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
     fn the_mefarshim_a_person_would_look_for_are_actually_offered() {
+        // Named seforim out of a Sefaria release, deliberately: this file's own
+        // note says a count would go green again the day it changed for an
+        // unrelated reason. Names are what make it a real check, and names from
+        // the download are what make it need the download.
         // The half the suite did not have, and the reason a filter bug could sit
         // in the corpus for a release with every test green: everything checked
         // that nothing *wrong* was offered, and nothing checked that anything
@@ -1022,7 +1098,7 @@ mod tests {
         //
         // Named seforim, not counts. A count goes green again the day it changes
         // for an unrelated reason.
-        let root = corpus_or_skip!();
+        let root = real_corpus();
         let shelf = real_shelf(&root);
 
         let genesis = Marks::of(&shelf, "genesis").expect("reads");
@@ -1060,12 +1136,15 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
     fn a_code_that_keeps_the_order_is_listed_apart_from_the_mefarshim() {
+        // The Tur, the Shulchan Arukh and the Arukh HaShulchan, by name and by
+        // the categories the download files them under.
         // W44b's whole point, and the thing a bool could not say. The Shulchan
         // Arukh keeps the Tur's order and is not a commentary on it; the Arukh
         // HaShulchan does the same to the Shulchan Arukh. Both were thrown away
         // before — not by a decision, but by the shape of their categories.
-        let root = corpus_or_skip!();
+        let root = real_corpus();
         let shelf = real_shelf(&root);
 
         let tur = Marks::of(&shelf, "tur").expect("reads");
@@ -1092,11 +1171,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
     fn the_seforim_the_reader_named_are_gone_and_the_real_ones_are_not() {
+        // The three the reader found, on the real graph. There is nothing else
+        // they could be checked against.
         // The three the reader found, as a test, on the real graph. Named because
         // an assertion about *counts* would go green again the day the counts
         // change for some other reason.
-        let root = corpus_or_skip!();
+        let root = real_corpus();
         let shelf = real_shelf(&root);
 
         let tur = Marks::of(&shelf, "tur").expect("reads");

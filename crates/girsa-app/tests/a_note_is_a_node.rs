@@ -9,12 +9,13 @@
 //! Berakhot, returning the Rambam on it and a note of mine in one list — with
 //! nothing in the call that knows a note from a commentary.
 //!
-//! # Why it skips when the corpus is absent
+//! # It used to skip, and a skip is why nobody noticed
 //!
-//! It needs the fetched corpus, imported, with links imported over it — not
-//! committed, and not present on a fresh clone. A test that failed there would
-//! be noise everybody learns to ignore. The claim above is also asserted
-//! against a scratch shelf in `girsa-note`'s own tests, which run everywhere.
+//! This gated on the fetched corpus and `return`ed when it was absent — so on
+//! every fresh clone and in CI it printed `ok` in 0.00s having asserted nothing.
+//! It runs on [`girsa_fixture`], a shelf the real importer builds from real
+//! `merged.json` files in about a second, so the claim above is now checked
+//! everywhere rather than nowhere.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -28,27 +29,15 @@ use girsa_note::{Collection, Mark, Member, SavedQuery};
 const MISHNAH: &str = "mishnah-berakhot";
 const RAMBAM: &str = "rambam-on-mishnah-berakhot";
 
-fn corpus() -> Option<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    root.join("links").is_dir().then_some(root)
+/// The shelf: works, segments and an imported link graph over them.
+fn corpus() -> &'static Path {
+    girsa_fixture::linked().root()
 }
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("girsa-notes-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     dir
-}
-
-macro_rules! corpus_or_skip {
-    () => {
-        match corpus() {
-            Some(root) => root,
-            None => {
-                eprintln!("skipped: no imported link graph — run girsa-link-import first");
-                return;
-            }
-        }
-    };
 }
 
 /// The first mishnah of Berakhot, by its address rather than by its ordinal.
@@ -75,9 +64,9 @@ fn standing(shelf: &Shelf, at: &SegmentId) -> girsa_corpus::standing::Standing {
 
 #[test]
 fn what_i_wrote_and_who_quotes_it_come_back_from_one_call() {
-    let root = corpus_or_skip!();
+    let root = corpus();
     let personal = scratch("one-call");
-    let mut shelf = Shelf::open(&root, &personal).expect("the shelf opens");
+    let mut shelf = Shelf::open(root, &personal).expect("the shelf opens");
     let at = first_mishnah(&shelf);
 
     let before = girsa_app::touching(&shelf, shelf.repairs(), &standing(&shelf, &at));
@@ -148,7 +137,7 @@ fn what_i_wrote_and_who_quotes_it_come_back_from_one_call() {
     );
 
     // And not one byte into the shipped graph.
-    let shard = girsa_link::store::edges_path(&root, at.work());
+    let shard = girsa_link::store::edges_path(root, at.work());
     let before_bytes = std::fs::read(&shard).expect("the shard reads");
     girsa_app::note_here(&mut shelf, &at, Some("עוד"), "ועיין עוד", "the test").expect("writes");
     assert_eq!(
@@ -162,9 +151,9 @@ fn what_i_wrote_and_who_quotes_it_come_back_from_one_call() {
 
 #[test]
 fn a_note_is_a_sefer_on_the_shelf_and_opens_like_one() {
-    let root = corpus_or_skip!();
+    let root = corpus();
     let personal = scratch("a-sefer");
-    let mut shelf = Shelf::open(&root, &personal).expect("the shelf opens");
+    let mut shelf = Shelf::open(root, &personal).expect("the shelf opens");
     let at = first_mishnah(&shelf);
     let note = girsa_app::note_here(
         &mut shelf,
@@ -215,9 +204,9 @@ fn a_note_survives_the_line_it_is_on_being_split() {
     // spec.md §11: *notes anchored to segment ids, **surviving corpus
     // updates***. W6 proved that for 501 links; this is the same proof for the
     // one kind of anchor that is yours rather than the corpus's.
-    let root = corpus_or_skip!();
+    let root = corpus();
     let personal = scratch("split");
-    let mut shelf = Shelf::open(&root, &personal).expect("the shelf opens");
+    let mut shelf = Shelf::open(root, &personal).expect("the shelf opens");
     let at = first_mishnah(&shelf);
     girsa_app::note_here(&mut shelf, &at, Some("מאימתי"), "הא דתנן", "the test").expect("writes");
     let words = first_four(&shelf, &at);
@@ -257,9 +246,9 @@ fn the_whole_of_your_layer_is_plain_files_you_can_take_with_you() {
     // spec.md §11: *everything local, everything exportable as plain files, no
     // account.* Asserted by reading the export back with nothing but serde and
     // a string search — no Girsa on the other end.
-    let root = corpus_or_skip!();
+    let root = corpus();
     let personal = scratch("export");
-    let mut shelf = Shelf::open(&root, &personal).expect("the shelf opens");
+    let mut shelf = Shelf::open(root, &personal).expect("the shelf opens");
     let at = first_mishnah(&shelf);
     let note = girsa_app::note_here(&mut shelf, &at, Some("מאימתי"), "הא דתנן", "the test")
         .expect("writes");

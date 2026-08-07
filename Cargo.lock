@@ -895,6 +895,7 @@ dependencies = [
  "girsa-cite",
  "girsa-corpus",
  "girsa-fix",
+ "girsa-fixture",
  "girsa-hebrew",
  "girsa-ksav",
  "girsa-lane",
@@ -923,6 +924,7 @@ dependencies = [
 name = "girsa-corpus"
 version = "0.1.0"
 dependencies = [
+ "girsa-fixture",
  "girsa-hebrew",
  "girsa-ksav",
  "girsa-ref",
@@ -943,6 +945,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "girsa-fixture"
+version = "0.1.0"
+dependencies = [
+ "girsa-corpus",
+ "girsa-link",
+ "girsa-ref",
+ "girsa-search",
+ "serde_json",
 ]
 
 [[package]]
@@ -979,6 +992,7 @@ name = "girsa-link"
 version = "0.1.0"
 dependencies = [
  "girsa-corpus",
+ "girsa-fixture",
  "girsa-hebrew",
  "girsa-ref",
  "serde",
@@ -992,6 +1006,7 @@ version = "0.1.0"
 dependencies = [
  "girsa-app",
  "girsa-corpus",
+ "girsa-fixture",
  "girsa-hebrew",
  "girsa-lane",
  "girsa-link",

@@ -15,17 +15,19 @@
 //! between them, and the two texts. What changed is that neither end is a line
 //! number any more, so correcting a typo in either sefer cannot move it.
 //!
-//! # Why it skips when the corpus is absent
+//! # It used to skip, and skipping is why nobody noticed
 //!
-//! It needs the fetched corpus, imported, with links imported over it — not
-//! committed, and not present on a fresh clone. A test that failed there would
-//! be noise everybody learns to ignore.
+//! This needed the fetched corpus with links imported over it, and `return`ed
+//! when there was none — so on every fresh clone and in CI it printed
+//! `2 passed` in 0.00s having looked at no edges at all. It runs on
+//! [`girsa_fixture`] now: the same Mishnah, the same Rambam, the same link,
+//! resolved out of a `links0.csv` by the same importer.
 
 // A panic in a test is a failure report. The workspace denies these in library
 // code, where a panic would take the reader's window with it.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use girsa_corpus::import;
 use girsa_link::{store, Anchor, EdgeType};
@@ -33,21 +35,9 @@ use girsa_link::{store, Anchor, EdgeType};
 const MISHNAH: &str = "mishnah-berakhot";
 const RAMBAM: &str = "rambam-on-mishnah-berakhot";
 
-fn corpus() -> Option<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    root.join("links").is_dir().then_some(root)
-}
-
-macro_rules! corpus_or_skip {
-    () => {
-        match corpus() {
-            Some(root) => root,
-            None => {
-                eprintln!("skipped: no imported link graph — run girsa-link-import first");
-                return;
-            }
-        }
-    };
+/// The shelf these run against: works, segments and an imported link graph.
+fn corpus() -> &'static Path {
+    girsa_fixture::linked().root()
 }
 
 /// The text a segment id names, read off the shelf.
@@ -62,13 +52,13 @@ fn text_at(root: &Path, anchor: &Anchor) -> String {
 
 #[test]
 fn the_first_mishnah_of_berakhot_reaches_the_rambam_on_it_and_the_text_is_right() {
-    let root = corpus_or_skip!();
+    let root = corpus();
 
     // Edges are stored once, in the direction they were written (spec.md §8.2),
     // so the pair is looked for from both sides rather than assuming which way
     // Sefaria wrote it.
-    let mut edges = store::read_back(&root, RAMBAM).expect("rambam shard reads");
-    edges.extend(store::read_back(&root, MISHNAH).expect("mishnah shard reads"));
+    let mut edges = store::read_back(root, RAMBAM).expect("rambam shard reads");
+    edges.extend(store::read_back(root, MISHNAH).expect("mishnah shard reads"));
 
     // Perek 1, mishnah 1, in both. The Rambam's address has a third level —
     // his commentary on one mishnah is several segments — so the match is on
@@ -94,8 +84,8 @@ fn the_first_mishnah_of_berakhot_reaches_the_rambam_on_it_and_the_text_is_right(
         (&found.to, &found.from)
     };
 
-    let mishnah = text_at(&root, mishnah_end);
-    let rambam = text_at(&root, rambam_end);
+    let mishnah = text_at(root, mishnah_end);
+    let rambam = text_at(root, rambam_end);
 
     // Compared through the normalizer, because Berakhot ships fully menukad
     // and the Rambam on it has no nikud at all — the two sides of this very
@@ -140,13 +130,13 @@ fn no_edge_anywhere_anchors_to_something_that_is_not_on_the_shelf() {
     // page is the wrong one or is not there. Checked on the two shards this
     // test already loads rather than on all seven thousand, which would take
     // longer than a test should.
-    let root = corpus_or_skip!();
+    let root = corpus();
     // One work read once. Read per edge, this is a two-gigabyte test.
     let mut shelf: std::collections::HashMap<String, std::collections::HashSet<String>> =
         std::collections::HashMap::new();
 
     for slug in [MISHNAH, RAMBAM] {
-        let edges = store::read_back(&root, slug).expect("shard reads");
+        let edges = store::read_back(root, slug).expect("shard reads");
         assert!(!edges.is_empty(), "{slug} has no outgoing edges at all");
         for edge in &edges {
             for anchor in [&edge.from, &edge.to] {
@@ -155,7 +145,7 @@ fn no_edge_anywhere_anchors_to_something_that_is_not_on_the_shelf() {
                     .flatten()
                 {
                     let ids = shelf.entry(id.work().to_string()).or_insert_with(|| {
-                        import::read_back(&root, id.work())
+                        import::read_back(root, id.work())
                             .map(|w| w.segments.iter().map(|s| s.id.to_string()).collect())
                             .unwrap_or_default()
                     });

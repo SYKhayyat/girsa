@@ -38,6 +38,21 @@ jobs:
 
       - run: cargo build --all-targets
         working-directory: Girsa
+
+      # This used to be forty-three test functions quieter than it looked.
+      #
+      # They gated on the 3.4 GB corpus and `return`ed when it was absent, which
+      # here is always — so CI printed `ok` in 0.00s for the acceptance tests of
+      # W7, W8, W9, W10, W27, W28, W32, W43 and W44, and for the MCP surface
+      # entire. `spec_counts.rs`, the file that would have caught §3's ids being
+      # renumbered by every re-import, had not run since the day it was written.
+      #
+      # `girsa-fixture` builds a shelf from `merged.json` files and a
+      # `links0.csv` through the real importer in about a second, and they all
+      # run on it now. What genuinely needs the download — *697 simanim of 4,171
+      # se'ifim*, the named mefarshim of a Sefaria release — is `#[ignore]`d
+      # rather than skipped, so it reads as `10 ignored` here instead of ten
+      # green ticks. On a machine with a corpus: `cargo test -- --ignored`.
       - run: cargo test
         working-directory: Girsa
       - run: cargo clippy --all-targets --all-features -- -D warnings

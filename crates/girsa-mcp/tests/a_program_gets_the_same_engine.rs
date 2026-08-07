@@ -10,49 +10,62 @@
 //! - a zero offers the ladder priced and applies none of it;
 //! - a citation that does not name a place is not rounded to the nearest one.
 //!
-//! # Why it skips when the corpus is absent
+//! # It skipped everywhere, which is why none of that was ever checked
 //!
-//! It needs the fetched corpus, imported, indexed, with the link graph over it.
-//! None of that is committed. A test that failed on a fresh clone would be
-//! noise everybody learns to ignore.
+//! `Server::open` takes a shelf, a personal layer and an index, and this file
+//! `return`ed unless all three were present — the corpus fetched, imported,
+//! indexed, with the link graph built over it. On a fresh clone and in CI that
+//! is never, so what it printed was `8 passed` in 0.00s: eight refusals nobody
+//! had checked, on the one surface whose caller cannot complain.
+//!
+//! It runs on [`girsa_fixture`], which builds all three in about two seconds.
+//!
+//! # And the ordinals are gone
+//!
+//! These used to name places by their permanent id —
+//! `girsa:shulchan-arukh/orach-chayim/58:1#404`. The id is permanent; the
+//! *number of se'ifim before it* is not, and writing one into a test makes the
+//! test a hostage to the next re-import. What the assertions are actually about
+//! is that a citation settles on the right **place**, so they name the address
+//! and let the shelf say which segment that is.
 
 // A panic in a test is a failure report. The workspace denies these in library
 // code, where a panic would take the reader's window with it.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::path::{Path, PathBuf};
-
 use serde_json::{json, Value};
 
 use girsa_mcp::Server;
 
-fn roots() -> Option<(PathBuf, PathBuf, PathBuf)> {
-    let here = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let (root, personal, index) = (
-        here.join("corpus"),
-        here.join("personal"),
-        here.join("index"),
-    );
-    (root.join("works/index.jsonl").is_file() && index.is_dir()).then_some((root, personal, index))
+/// The shelf, the personal layer and the index, all built by the fixture.
+fn shelf() -> &'static girsa_fixture::Shelf {
+    girsa_fixture::indexed()
 }
 
-/// A server that has finished the handshake, or a skip.
+/// A server over that shelf.
+///
+/// A failure to open is a failure, not a skip. A stale index used to be excused
+/// here — *"the ordinary case after a schema bump"* — and the excuse applied to
+/// every other reason too, including there being no index at all.
 macro_rules! server_or_skip {
     () => {{
-        let Some((root, personal, index)) = roots() else {
-            eprintln!("skipped: no imported corpus with an index beside it");
-            return;
-        };
-        match Server::open(&root, &personal, &index) {
+        let shelf = shelf();
+        match Server::open(shelf.root(), shelf.personal(), shelf.index()) {
             Ok(server) => server,
-            Err(e) => {
-                // A stale index is the ordinary case after a schema bump and is
-                // not this crate's failure. Say which it was, and skip.
-                eprintln!("skipped: {e}");
-                return;
-            }
+            Err(e) => panic!("the fixture server will not open: {e}"),
         }
     }};
+}
+
+/// The permanent id of the segment at an address, off the shelf.
+fn at(slug: &str, address: &[&str]) -> String {
+    let work = girsa_corpus::import::read_back(shelf().root(), slug)
+        .unwrap_or_else(|e| panic!("{slug}: {e}"));
+    work.segments
+        .iter()
+        .find(|s| s.id.path() == address)
+        .map(|s| s.id.to_string())
+        .unwrap_or_else(|| panic!("{slug} has nothing at {address:?}"))
 }
 
 fn ask(server: &mut Server, id: u32, method: &str, params: Value) -> Value {
@@ -193,17 +206,22 @@ fn a_citation_that_names_a_place_settles_and_one_that_does_not_is_not_guessed() 
     handshake(&mut server);
 
     // A mareh makom that names a place settles to that place and no other.
-    for (citation, expected) in [
-        ("ברכות ב.", "girsa:bavli/berakhot/2a:1#1"),
+    for (citation, slug, address) in [
+        ("ברכות ב.", "bavli/berakhot", &["2a", "1"][..]),
         (
             "שו\"ע או\"ח נח:א",
-            "girsa:shulchan-arukh/orach-chayim/58:1#404",
+            "shulchan-arukh/orach-chayim",
+            &["58", "1"][..],
         ),
-        ("בבא מציעא נט:", "girsa:bavli/bava-metzia/59b:1#1813"),
+        ("בבא מציעא נט:", "bavli/bava-metzia", &["59b", "1"][..]),
     ] {
         let resolved = tool(&mut server, "resolve", json!({"citation": citation}));
         assert_eq!(resolved["settled"], json!(true), "{citation}");
-        assert_eq!(resolved["places"][0]["id"], json!(expected), "{citation}");
+        assert_eq!(
+            resolved["places"][0]["id"],
+            json!(at(slug, address)),
+            "{citation}"
+        );
     }
 
     // And one that does not is **not** rounded to the nearest thing. `ברכות ב`
@@ -228,7 +246,7 @@ fn a_program_can_follow_a_ruling_back_to_the_code_it_is_written_on() {
         &mut server,
         "trace",
         json!({
-            "id": "girsa:mishnah-berurah/58:1#1496",
+            "id": at("mishnah-berurah", &["58", "1"]),
             "direction": "back",
             "depth": 1,
             "width": 4
@@ -256,7 +274,7 @@ fn a_link_that_only_says_connected_somehow_says_so_on_the_row() {
     let touching = tool(
         &mut server,
         "links",
-        json!({"id": "girsa:bavli/berakhot/2a:1#1", "limit": 20}),
+        json!({"id": at("bavli/berakhot", &["2a", "1"]), "limit": 20}),
     );
     let links = touching["links"].as_array().expect("links");
     assert!(!links.is_empty());

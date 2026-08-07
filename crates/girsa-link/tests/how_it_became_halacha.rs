@@ -12,65 +12,77 @@
 //! `inbound.jsonl` to find the edge at all, and the time axis to know which way
 //! it runs.
 //!
-//! # Why it skips when the corpus is absent
+//! # It ran nowhere, and now it runs everywhere
 //!
-//! It needs the fetched corpus, imported, with links imported over it and
-//! `girsa-link-types` run — none of which is committed. A test that failed on a
-//! fresh clone would be noise everybody learns to ignore.
+//! This needed the corpus, the link graph and `girsa-link-types` all present, and
+//! `return`ed when any was missing — so it printed `4 passed` in 0.00s on every
+//! machine that had not spent an hour importing 3.4 GB. It runs on
+//! [`girsa_fixture`] now, which has the same three works in the same order —
+//! Mishnah Berurah on Shulchan Arukh on Tur — with the same problem in it: all
+//! three are stored in the direction each was *written*, and two of them share
+//! an era code, so only the years say which way time runs.
+//!
+//! The ids below are the fixture's own, and are found by **address** rather than
+//! written down as ordinals. `girsa:mishnah-berurah/58:1#1496` was the old
+//! spelling, and an ordinal in a test is a hostage to the next re-import — which
+//! is the very thing `redirects.jsonl` was added to survive.
 
 // A panic in a test is a failure report. The workspace denies these in library
 // code, where a panic would take the reader's window with it.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use girsa_corpus::era::Timeline;
 use girsa_corpus::segment::SegmentId;
 use girsa_link::chain::{self, Direction, Found, Graph, Limits};
 use girsa_link::repair::Repairs;
 
-fn corpus() -> Option<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    (root.join("links").is_dir() && girsa_link::inbound::built(&root)).then_some(root)
+/// The shelf: works, an imported graph, and an inbound cache over it.
+fn corpus() -> &'static Path {
+    girsa_fixture::linked().root()
 }
 
-macro_rules! corpus_or_skip {
-    () => {
-        match corpus() {
-            Some(root) => root,
-            None => {
-                eprintln!(
-                    "skipped: no link graph with an inbound cache — run girsa-link-import \
-                     then girsa-link-types"
-                );
-                return;
-            }
-        }
-    };
+/// The segment at an address, by its address.
+///
+/// Not by its ordinal. `girsa:mishnah-berurah/58:1#1496` is how these three were
+/// written down before, and an ordinal in a test is a hostage to the next
+/// re-import — which is exactly the event `redirects.jsonl` exists to absorb
+/// rather than to propagate into the test suite.
+fn at(root: &Path, slug: &str, address: &[&str]) -> SegmentId {
+    let work = girsa_corpus::import::read_back(root, slug).expect("the work is on the shelf");
+    work.segments
+        .iter()
+        .find(|s| s.id.path() == address)
+        .map(|s| s.id.clone())
+        .unwrap_or_else(|| panic!("{slug} has nothing at {address:?}"))
 }
 
-fn id(text: &str) -> SegmentId {
-    text.parse().expect("a segment id")
+/// The Mishnah Berurah on the time of krias shema of the morning.
+fn mishnah_berurah(root: &Path) -> SegmentId {
+    at(root, "mishnah-berurah", &["58", "1"])
 }
 
-/// `girsa:mishnah-berurah/58:1#1496` — the Mishnah Berurah on the time of
-/// krias shema of the morning.
-const MISHNAH_BERURAH: &str = "girsa:mishnah-berurah/58:1#1496";
 /// The se'if it is written on.
-const SHULCHAN_ARUKH: &str = "girsa:shulchan-arukh/orach-chayim/58:1#404";
-/// The first mishnah of Berakhot, which is where all of it starts.
-const BERAKHOT: &str = "girsa:bavli/berakhot/2a:1#1";
+fn shulchan_arukh(root: &Path) -> SegmentId {
+    at(root, "shulchan-arukh/orach-chayim", &["58", "1"])
+}
+
+/// The first line of Berakhot, which is where all of it starts.
+fn berakhot(root: &Path) -> SegmentId {
+    at(root, "bavli/berakhot", &["2a", "1"])
+}
 
 #[test]
 fn a_ruling_traces_back_to_the_code_and_the_tur_behind_it() {
-    let root = corpus_or_skip!();
-    let timeline = Timeline::of(&root).expect("the catalogue");
+    let root = corpus();
+    let timeline = Timeline::of(root).expect("the catalogue");
     let repairs = Repairs::nowhere();
-    let mut graph = Graph::new(&root, &timeline, &repairs);
+    let mut graph = Graph::new(root, &timeline, &repairs);
 
     let trace = chain::trace(
         &mut graph,
-        &id(MISHNAH_BERURAH),
+        &mishnah_berurah(root),
         Direction::Back,
         Limits {
             depth: 2,
@@ -95,7 +107,7 @@ fn a_ruling_traces_back_to_the_code_and_the_tur_behind_it() {
     let tur = trace
         .steps
         .iter()
-        .position(|s| s.work() == "tur" && s.parent == Some(arukh))
+        .position(|s| s.work() == "tur/orach-chayim" && s.parent == Some(arukh))
         .expect("and the Shulchan Arukh on the Tur");
     assert_eq!(trace.steps[tur].depth, 2);
 
@@ -116,14 +128,14 @@ fn a_ruling_traces_back_to_the_code_and_the_tur_behind_it() {
 
 #[test]
 fn the_same_chain_forwards_reaches_the_later_sefer_from_the_earlier() {
-    let root = corpus_or_skip!();
-    let timeline = Timeline::of(&root).expect("the catalogue");
+    let root = corpus();
+    let timeline = Timeline::of(root).expect("the catalogue");
     let repairs = Repairs::nowhere();
-    let mut graph = Graph::new(&root, &timeline, &repairs);
+    let mut graph = Graph::new(root, &timeline, &repairs);
 
     let trace = chain::trace(
         &mut graph,
-        &id(SHULCHAN_ARUKH),
+        &shulchan_arukh(root),
         Direction::Forward,
         Limits {
             depth: 1,
@@ -136,22 +148,22 @@ fn the_same_chain_forwards_reaches_the_later_sefer_from_the_earlier() {
         "forward from the se'if reaches the sefer written on it"
     );
     assert!(
-        !trace.steps.iter().any(|s| s.work() == "tur"),
+        !trace.steps.iter().any(|s| s.work() == "tur/orach-chayim"),
         "and not the sefer it was written on, which is the other way"
     );
 }
 
 #[test]
 fn a_path_across_seven_hundred_years_is_found_and_is_honest_about_what_it_is() {
-    let root = corpus_or_skip!();
-    let timeline = Timeline::of(&root).expect("the catalogue");
+    let root = corpus();
+    let timeline = Timeline::of(root).expect("the catalogue");
     let repairs = Repairs::nowhere();
-    let mut graph = Graph::new(&root, &timeline, &repairs);
+    let mut graph = Graph::new(root, &timeline, &repairs);
 
     let found = chain::path(
         &mut graph,
-        &id(BERAKHOT),
-        &id(MISHNAH_BERURAH),
+        &berakhot(root),
+        &mishnah_berurah(root),
         Limits::default(),
     );
     let Found::Path(links) = found else {
@@ -177,14 +189,14 @@ fn a_path_across_seven_hundred_years_is_found_and_is_honest_about_what_it_is() {
 
 #[test]
 fn two_readings_of_the_first_mishnah_and_the_sefer_that_cites_both() {
-    let root = corpus_or_skip!();
-    let timeline = Timeline::of(&root).expect("the catalogue");
+    let root = corpus();
+    let timeline = Timeline::of(root).expect("the catalogue");
     let repairs = Repairs::nowhere();
-    let mut graph = Graph::new(&root, &timeline, &repairs);
+    let mut graph = Graph::new(root, &timeline, &repairs);
 
     let (forks, _) = chain::forks(
         &mut graph,
-        &id(BERAKHOT),
+        &berakhot(root),
         Limits {
             depth: 1,
             width: 25,

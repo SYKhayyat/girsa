@@ -7,11 +7,13 @@
 //! lands*, which is the one thing the reader notices and the one thing a
 //! screenshot cannot prove.
 //!
-//! # Why it skips when the corpus is absent
+//! # It used to skip, and a skip is why nobody noticed
 //!
-//! It reads the imported shelf, which is not committed and is not there on a
-//! fresh clone. A test that failed there would be noise everybody learns to
-//! ignore.
+//! This gated on the fetched corpus and `return`ed when it was absent — so on
+//! every fresh clone and in CI it printed `ok` in 0.00s having asserted nothing.
+//! It runs on [`girsa_fixture`], a shelf the real importer builds from real
+//! `merged.json` files in about a second, so the claim above is now checked
+//! everywhere rather than nowhere.
 
 // A panic in a test is a failure report. The workspace denies these in library
 // code, where a panic would take the reader's window with it.
@@ -25,9 +27,9 @@ const GEMARA: &str = "bavli/berakhot";
 const RASHI: &str = "bavli/rashi-on-berakhot";
 const TOSAFOT: &str = "bavli/tosafot-on-berakhot";
 
-fn corpus() -> Option<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    root.join("works/index.jsonl").is_file().then_some(root)
+/// The shelf, with Berakhot, its Rashi and its Tosafos on it.
+fn corpus() -> &'static Path {
+    girsa_fixture::linked().root()
 }
 
 /// These read the shelf and change nothing, so the personal layer they are
@@ -35,18 +37,6 @@ fn corpus() -> Option<PathBuf> {
 /// reader's own seforim in the way of an assertion about the corpus.
 fn no_personal() -> PathBuf {
     std::env::temp_dir().join("girsa-no-personal-layer")
-}
-
-macro_rules! corpus_or_skip {
-    () => {
-        match corpus() {
-            Some(root) => root,
-            None => {
-                eprintln!("skipped: no imported corpus — run girsa-import first");
-                return;
-            }
-        }
-    };
 }
 
 /// Where the follower pane goes, as text, when the leader is at `at`.
@@ -63,14 +53,14 @@ fn first_id(place: &Place) -> Option<String> {
 
 #[test]
 fn scrolling_the_gemara_moves_the_rashi_column_to_the_matching_place() {
-    let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
+    let root = corpus();
+    let shelf = Shelf::open(root, &no_personal()).expect("the shelf opens");
 
     let gemara = shelf.read(GEMARA).expect("Berakhot is on the shelf");
     let rashi = shelf
         .read(RASHI)
         .expect("Rashi on Berakhot is on the shelf");
-    let beside = Beside::between(&gemara, &rashi, &root);
+    let beside = Beside::between(&gemara, &rashi, root);
 
     // The two are related because the corpus says so — `Rashi on Berakhot`
     // declares `base_text_titles: [Berakhot]` — not because one title contains
@@ -128,11 +118,11 @@ fn a_line_with_no_rashi_on_it_leaves_the_column_where_it_was() {
     // one would be showing the reader Rashi on a different line with nothing
     // to say it had moved (BUILDER.md rule 6, in the place a reader would
     // never check).
-    let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
+    let root = corpus();
+    let shelf = Shelf::open(root, &no_personal()).expect("the shelf opens");
     let gemara = shelf.read(GEMARA).expect("Berakhot");
     let rashi = shelf.read(RASHI).expect("Rashi on Berakhot");
-    let beside = Beside::between(&gemara, &rashi, &root);
+    let beside = Beside::between(&gemara, &rashi, root);
 
     let bare = gemara
         .segments
@@ -153,25 +143,34 @@ fn two_seforim_nothing_relates_do_not_drag_each_other_around() {
     // Two works with no declaration and no edge between them line up by
     // accident — both are addressed `1:1` — and a pane that followed that
     // would show a reader one sefer while claiming to show another.
-    let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
-    let Ok(gemara) = shelf.read(GEMARA) else {
-        return;
-    };
-    let Ok(other) = shelf.read("mishnah-berakhot") else {
-        return;
-    };
+    //
+    // The pair has to be genuinely unrelated for that to be a test at all. It
+    // used to be Berakhot and Mishnah Berakhot, and the assertion had `|| …
+    // is_linked()` on the end, so the day anything linked those two — the corpus
+    // links them constantly, the mishnah is printed on the daf — the whole check
+    // became `assert!(true)` and went on printing `ok`. Bereishis and Even
+    // HaEzer share the address `1:1`, and nothing anywhere joins them.
+    let root = corpus();
+    let shelf = Shelf::open(root, &no_personal()).expect("the shelf opens");
+    let chumash = shelf.read("genesis").expect("Bereishis is on the shelf");
+    let halacha = shelf
+        .read("shulchan-arukh/even-haezer")
+        .expect("Even HaEzer is on the shelf");
 
-    let beside = Beside::between(&gemara, &other, &root);
-    if beside.relation().is_declared() {
-        // If Sefaria ever declares this pair, the test's premise is gone and
-        // saying so is more use than a green tick.
-        println!("skipped: the corpus now declares mishnah-berakhot on bavli/berakhot");
-        return;
-    }
-    for segment in gemara.segments.iter().take(50) {
+    let beside = Beside::between(&chumash, &halacha, root);
+    assert!(
+        !beside.relation().is_declared(),
+        "the premise is gone: something now declares these two related — {:?}",
+        beside.relation()
+    );
+    assert!(
+        !beside.relation().is_linked(),
+        "the premise is gone: something now links these two — {:?}",
+        beside.relation()
+    );
+    for segment in chumash.segments.iter().take(50) {
         assert!(
-            !matches!(beside.place(&segment.id), Place::At(_)) || beside.relation().is_linked(),
+            !matches!(beside.place(&segment.id), Place::At(_)),
             "{} was placed in a sefer nothing relates it to",
             segment.id
         );
@@ -181,14 +180,16 @@ fn two_seforim_nothing_relates_do_not_drag_each_other_around() {
 #[test]
 fn the_second_commentary_column_follows_the_same_gemara() {
     // Two columns beside one, which is what a daf looks like.
-    let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
+    let root = corpus();
+    let shelf = Shelf::open(root, &no_personal()).expect("the shelf opens");
     let gemara = shelf.read(GEMARA).expect("Berakhot");
-    let Ok(tosafot) = shelf.read(TOSAFOT) else {
-        println!("skipped: Tosafot on Berakhot is not on this shelf");
-        return;
-    };
-    let beside = Beside::between(&gemara, &tosafot, &root);
+    // Asserted rather than skipped: Tosafos is on the fixture shelf by
+    // construction, and a check that passes because it could not find what it
+    // checks is the failure this whole file stopped committing.
+    let tosafot = shelf
+        .read(TOSAFOT)
+        .expect("Tosafot on Berakhot is on the shelf");
+    let beside = Beside::between(&gemara, &tosafot, root);
     assert!(beside.relation().is_declared(), "{:?}", beside.relation());
 
     let placed = gemara
@@ -206,8 +207,8 @@ fn the_shelf_offers_the_commentaries_on_what_you_are_reading() {
     // works is not a choice, and offering the ones whose title looks similar is
     // a guess — so the offer is what the corpus declares plus what the link
     // graph recorded.
-    let root = corpus_or_skip!();
-    let shelf = Shelf::open(&root, &no_personal()).expect("the shelf opens");
+    let root = corpus();
+    let shelf = Shelf::open(root, &no_personal()).expect("the shelf opens");
     let beside_it = shelf.companions(GEMARA);
     assert!(
         beside_it.iter().any(|c| c.slug == RASHI),

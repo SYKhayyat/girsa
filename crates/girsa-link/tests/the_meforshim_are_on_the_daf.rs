@@ -31,6 +31,24 @@
 //! Berakhot** — a fact no amount of internal consistency can supply. That is
 //! what the table below is: not derived from the data, checked against it.
 //!
+//! # Why it now runs without the corpus, and why that is not a weaker test
+//!
+//! It used to `return` when the link graph was absent, so on a fresh clone it
+//! printed `3 passed` in 0.00s having checked nothing — the audit that caught
+//! this defect could not itself run anywhere the defect could be reintroduced.
+//!
+//! It runs on [`girsa_fixture`] now, and the reason that is a real check rather
+//! than a fixture asserting itself is that **the fixture writes its
+//! `comments-on` rows in both column orders, exactly as Sefaria's export does**,
+//! and lets `girsa_link::orient` sort them out. Eight of its rows are written
+//! base-first. If orientation regresses they come out backwards, the mefarshim
+//! stop being reachable from the daf, and this fails — on a shelf built in a
+//! second. The table below is unchanged and every pair in it is on that shelf.
+//!
+//! The same three checks against the real download are at the bottom, `#[ignore]`d
+//! rather than skipped, because *forty commentaries land on Berakhot* is a fact
+//! about a Sefaria release and no fixture can stand in for it.
+//!
 //! # Why the expectations are named and not computed
 //!
 //! Deriving them from slugs is forbidden, and rightly (BUILDER.md rule 6, and
@@ -50,21 +68,20 @@ use std::path::{Path, PathBuf};
 
 use girsa_link::{inbound, store, EdgeType};
 
-fn corpus() -> Option<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    (root.join("links").is_dir() && inbound::built(&root)).then_some(root)
+/// The fixture shelf, with its graph imported and its inbound cache built.
+fn fixture() -> &'static Path {
+    girsa_fixture::linked().root()
 }
 
-macro_rules! corpus_or_skip {
-    () => {
-        match corpus() {
-            Some(root) => root,
-            None => {
-                eprintln!("skipped: no imported link graph — run girsa-link-import first");
-                return;
-            }
-        }
-    };
+/// The real download, for the three `#[ignore]`d checks at the bottom.
+fn corpus() -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
+    assert!(
+        root.join("links").is_dir() && inbound::built(&root),
+        "no link graph with an inbound cache at {} — run girsa-link-import then          girsa-link-types. This check is #[ignore]d so its absence is never read          as a pass.",
+        root.display()
+    );
+    root
 }
 
 /// slug -> the bases that work declares itself a commentary on.
@@ -143,12 +160,21 @@ const ON_THE_PAGE: &[(&str, &[&str])] = &[
 
 #[test]
 fn the_mefarshim_printed_on_the_page_are_reachable_from_it() {
-    let root = corpus_or_skip!();
-    let declares = declared(&root);
+    mefarshim_are_reachable(fixture());
+}
+
+#[test]
+#[ignore = "needs the fetched corpus: cargo test -p girsa-link -- --ignored"]
+fn the_mefarshim_printed_on_the_page_are_reachable_from_the_real_daf() {
+    mefarshim_are_reachable(&corpus());
+}
+
+fn mefarshim_are_reachable(root: &Path) {
+    let declares = declared(root);
     let mut missing = Vec::new();
 
     for (base, expected) in ON_THE_PAGE {
-        let live = commentaries_on(&root, base);
+        let live = commentaries_on(root, base);
         for commentary in *expected {
             // A wrong slug in this table would be a test that fails for a
             // reason that has nothing to do with the graph, so the declaration
@@ -177,8 +203,17 @@ fn the_mefarshim_printed_on_the_page_are_reachable_from_it() {
 
 #[test]
 fn comments_on_points_from_the_commentary_to_the_sefer_it_comments_on() {
-    let root = corpus_or_skip!();
-    let declares = declared(&root);
+    comments_on_points_the_right_way(fixture());
+}
+
+#[test]
+#[ignore = "needs the fetched corpus: cargo test -p girsa-link -- --ignored"]
+fn comments_on_points_the_right_way_in_the_real_graph() {
+    comments_on_points_the_right_way(&corpus());
+}
+
+fn comments_on_points_the_right_way(root: &Path) {
+    let declares = declared(root);
 
     // Checked on the shards of a few base works rather than all seven
     // thousand: a reversed edge lives in the *base* work's outgoing shard, so
@@ -190,7 +225,10 @@ fn comments_on_points_from_the_commentary_to_the_sefer_it_comments_on() {
         "mishnah-berakhot",
         "shulchan-arukh/orach-chayim",
     ] {
-        let edges = store::read_back(&root, base).expect("shard reads");
+        // A base work every one of whose edges was oriented away from it has no
+        // outgoing shard at all, which is the right answer and not a missing
+        // file: `unwrap_or_default` reads it as the empty set it is.
+        let edges = store::read_back(root, base).unwrap_or_default();
         let mut backwards = 0usize;
         let mut first = None;
 
@@ -229,12 +267,21 @@ fn comments_on_points_from_the_commentary_to_the_sefer_it_comments_on() {
 
 #[test]
 fn a_commentary_is_not_attached_to_a_sefer_it_was_never_written_on() {
+    nothing_is_attached_to_what_it_was_never_written_on(fixture());
+}
+
+#[test]
+#[ignore = "needs the fetched corpus: cargo test -p girsa-link -- --ignored"]
+fn nothing_in_the_real_graph_is_attached_to_what_it_was_never_written_on() {
+    nothing_is_attached_to_what_it_was_never_written_on(&corpus());
+}
+
+fn nothing_is_attached_to_what_it_was_never_written_on(root: &Path) {
     // The counterpart to the table above, and the reason the fix cannot simply
     // flip every edge it is unsure about. The Mishnah Berurah is on Orach
     // Chayim and on nothing else; the Shach is on Yoreh De'ah and Choshen
     // Mishpat and not on Orach Chayim. An import that invented these would
     // score better on the test above and be wrong.
-    let root = corpus_or_skip!();
     const NEVER: &[(&str, &str)] = &[
         ("shulchan-arukh/yoreh-deah", "mishnah-berurah"),
         ("shulchan-arukh/choshen-mishpat", "mishnah-berurah"),
@@ -246,7 +293,7 @@ fn a_commentary_is_not_attached_to_a_sefer_it_was_never_written_on() {
     ];
     for (base, never) in NEVER {
         assert!(
-            !commentaries_on(&root, base).contains(*never),
+            !commentaries_on(root, base).contains(*never),
             "{never} is attached to {base}, which it was never written on"
         );
     }

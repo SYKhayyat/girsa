@@ -19,6 +19,10 @@ thiserror.workspace = true
 # The acceptance test compares two Hebrew strings — one menukad, one bare — and
 # W2's sibling rule is that every such comparison routes through this crate.
 girsa-hebrew.workspace = true
+# A graph to assert against. `links` because these tests are about edges, and a
+# fixture shelf with no edges on it would let them all pass having found nothing
+# — which is what they did for the whole of their existence before this.
+girsa-fixture = { workspace = true, features = ["links"] }
 
 [lints]
 workspace = true

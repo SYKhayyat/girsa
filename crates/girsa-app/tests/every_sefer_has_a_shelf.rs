@@ -10,47 +10,38 @@
 //! a reader would notice: **one top level, in Hebrew, and every sefer on
 //! exactly one shelf.**
 //!
-//! # Why it skips when the corpus is absent
+//! # It used to skip, and a skip is why nobody noticed
 //!
-//! It reads the imported shelf, which is not committed and is not there on a
-//! fresh clone.
+//! This read the imported shelf and `return`ed when there was none, so on a
+//! fresh clone it printed `2 passed` in 0.00s. It runs on [`girsa_fixture`],
+//! whose shelf carries **one work filed under each corpus's own vocabulary for
+//! the same place** — a Sefaria `Talmud/Bavli/Acharonim on Talmud` and an
+//! Otzaria `תלמוד בבלי/אחרונים` — which is the seam the second test is about
+//! and which a one-corpus fixture could not have exercised.
 
 // A panic in a test is a failure report.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
-
 use girsa_corpus::taxonomy::{self, TOP};
 use girsa_corpus::work::Work;
+use std::collections::{BTreeMap, BTreeSet};
 
-fn works() -> Option<Vec<Work>> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    let index: PathBuf = root.join("works/index.jsonl");
-    let body = std::fs::read_to_string(index).ok()?;
-    Some(
-        body.lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str::<Work>(l).ok())
-            .collect(),
-    )
-}
-
-macro_rules! works_or_skip {
-    () => {
-        match works() {
-            Some(works) if !works.is_empty() => works,
-            _ => {
-                eprintln!("skipped: no imported corpus — run girsa-import first");
-                return;
-            }
-        }
-    };
+fn works() -> Vec<Work> {
+    let index = girsa_fixture::shelf().root().join("works/index.jsonl");
+    let body =
+        std::fs::read_to_string(&index).unwrap_or_else(|e| panic!("{}: {e}", index.display()));
+    let works: Vec<Work> = body
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Work>(l).ok())
+        .collect();
+    assert!(!works.is_empty(), "the fixture shelf is empty");
+    works
 }
 
 #[test]
 fn every_sefer_lands_on_exactly_one_shipped_shelf() {
-    let works = works_or_skip!();
+    let works = works();
 
     let mut counted = BTreeMap::<String, usize>::new();
     let mut homeless = Vec::new();
@@ -84,7 +75,7 @@ fn every_sefer_lands_on_exactly_one_shipped_shelf() {
 
 #[test]
 fn the_two_corpora_land_on_the_same_shelf_rather_than_beside_each_other() {
-    let works = works_or_skip!();
+    let works = works();
 
     // Sefaria says `Talmud/Bavli/Acharonim on Talmud`; Otzaria says
     // `תלמוד בבלי/אחרונים`. They are the same shelf and a reader browsing for

@@ -51,6 +51,7 @@ file in the app's data directory.
 | `girsa-note` | Your own layer: notes as nodes, marks, tags, saved queries, chaburah folders |
 | `girsa-scan` | Scans you brought: which page is which daf, and what a page cites as |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
+| `girsa-fixture` | A synthetic shelf, built from source-shaped input through the real importer, so a test needs no corpus. Never published; a dev-dependency only |
 
 plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
@@ -72,6 +73,69 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt -- --check
 ```
+
+### The tests do not need the corpus, and for a long time they pretended to
+
+`cargo test` above is 816 tests and no download. Forty-three of them used to
+open like this:
+
+```rust
+let root = corpus_or_skip!();   // 3.4 GB, not committed, absent in CI
+```
+
+`cargo test` captures stderr on a passing test, so what CI printed was
+
+```text
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; finished in 0.00s
+```
+
+for the acceptance tests of W7, W8, W9, W10, W27, W28, W32, W43, W44 and the
+whole MCP surface. Eight green ticks, nothing asserted. `spec_counts.rs` — the
+file that would have caught §3's permanent ids being renumbered by every
+re-import — had not run since the day it was written.
+
+`tools/check-ksav-fixture.sh:41` refuses this by name, twelve files away:
+
+> *Not a skip. A check that passes because it could not find what it checks is
+> the exact failure this script exists to end.*
+
+The rule was written down correctly and forty-three tests in the same repository
+broke it. The response that had already worked once is
+`girsa-app/examples/fixture-packet.rs`: the Ksav fixture rotted because
+regenerating it needed a corpus no gate has, *"so the corpus is the thing that
+had to go."* That argument generalises, and `girsa-fixture` is it applied to the
+other forty-three.
+
+**It writes `merged.json`, not `segments.jsonl`.** A fixture that writes what the
+importer *outputs* asserts itself back at itself: a test checking the walker put
+daf 2a first would be checking that the fixture typed `2a`. So it writes at the
+layer the download is written at — Sefaria `merged.json` and schemas, an Otzaria
+`.txt` with headings, a `links0.csv` with the misspelled `Conection Type` column
+intact — and the real importer, resolver and orienter read it. Twenty-eight
+works, a link graph, both caches and a tantivy index, in about two seconds.
+
+That distinction is load-bearing for one test. `the_meforshim_are_on_the_daf`
+exists because Sefaria's export does not say which of its two citation columns is
+the commentary, so half the commentary in the corpus was stored backwards and a
+daf offered two aggadic works out of forty. The fixture writes eight of its
+thirty-two rows base-first **on purpose**, exactly as the export does, and
+`girsa_link::orient` has to undo them. Neuter `Orienting::apply` and the test
+fails with five mefarshim unreachable — on synthetic data, with no download.
+
+**What genuinely needs the download is `#[ignore]`d, not skipped.** *Orach Chayim
+is 697 simanim of 4,171 se'ifim* is a fact about a Sefaria release and no fixture
+can stand in for it. Ten such checks remain, and they read as `10 ignored` rather
+than as ten green ticks:
+
+```sh
+cargo test -- --ignored      # on a machine that has run girsa-import
+```
+
+The line between the two halves is the one worth keeping: **the assertion was
+never that Orach Chayim has 4,171 se'ifim, it was that the walker produces
+exactly as many segments as the schema promised.** The first needs the corpus.
+The second is a property of this code, is true of any shelf, and now runs
+everywhere.
 
 The shell is its own cargo project — it cannot build until the frontend has
 been built into `app/dist`, and the four commands above have to stay quick:

@@ -36,6 +36,11 @@ lopdf = { version = "0.42.0", default-features = false }
 # real .pdf rather than checking in binaries nobody can diff.
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
 lopdf = { version = "0.42.0", default-features = false }
+# A shelf to assert against, so `spec_counts` runs on a fresh clone instead of
+# printing `ok` in 0.00s having checked nothing. The dependency points back at
+# this crate, which cargo permits for a dev-dependency and which is the honest
+# shape: the fixture is built *by* this importer.
+girsa-fixture.workspace = true
 
 [lints]
 workspace = true

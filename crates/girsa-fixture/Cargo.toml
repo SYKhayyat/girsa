@@ -1,0 +1,35 @@
+[package]
+name = "girsa-fixture"
+description = "A synthetic shelf, built from source-shaped input through the real import path, so a test does not need the 3.4 GB corpus to assert anything"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+# Test scaffolding. It is a workspace member so `cargo build --all-targets`
+# type-checks it on every push, and it is never published.
+publish = false
+
+[dependencies]
+girsa-corpus.workspace = true
+girsa-ref.workspace = true
+serde_json.workspace = true
+
+# The link graph is off by default so that `cargo test -p girsa-corpus` — which
+# needs a shelf and nothing else — does not build the crate that resolves
+# citations onto it. Additive, in the way cargo requires: turning it on adds
+# `edges.jsonl`, the inbound cache and the touching cache to the same shelf.
+girsa-link = { workspace = true, optional = true }
+
+# And the search index is off by default again, because it is tantivy: one
+# consumer (`girsa-mcp`) needs it and four do not.
+girsa-search = { workspace = true, optional = true }
+
+[features]
+default = []
+links = ["dep:girsa-link"]
+index = ["dep:girsa-search", "links"]
+
+[lints]
+workspace = true

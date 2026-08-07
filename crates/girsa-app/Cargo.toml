@@ -51,6 +51,11 @@ thiserror.workspace = true
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+# A shelf with a link graph on it, so the fifteen acceptance tests in `tests/`
+# and the seven in `mefarshim.rs` assert something on a fresh clone instead of
+# printing `ok` in 0.00s. `links` because every one of them is about what lands
+# on a line.
+girsa-fixture = { workspace = true, features = ["links"] }
 # W25's test drops a real scan on a real shelf, so it writes a real PDF rather
 # than checking in a binary nobody can diff — the same way `girsa-corpus` tests
 # the importer that reads it.

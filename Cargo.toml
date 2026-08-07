@@ -10,6 +10,7 @@ members = [
     "crates/girsa-lane",
     "crates/girsa-app",
     "crates/girsa-mcp",
+    "crates/girsa-fixture",
 ]
 # The Tauri shell is its own cargo project, the way `tauri` expects and the way
 # Ksav has it. It stays out of this workspace on purpose: it cannot build until
@@ -35,6 +36,9 @@ girsa-scan = { version = "=0.1.0", path = "crates/girsa-scan" }
 girsa-lane = { version = "=0.1.0", path = "crates/girsa-lane" }
 girsa-app = { version = "=0.1.0", path = "crates/girsa-app" }
 girsa-mcp = { version = "=0.1.0", path = "crates/girsa-mcp" }
+# Test scaffolding only, and a dev-dependency everywhere it is used — which is
+# why the cycle back onto girsa-corpus is one cargo permits.
+girsa-fixture = { version = "=0.1.0", path = "crates/girsa-fixture" }
 
 # --- shared with Ksav, from the sefer-crates repository ---------------------
 #
