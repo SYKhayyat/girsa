@@ -358,3 +358,42 @@ fn one_answer_has_one_highlighting_rule() {
         "`Bar::results` builds a `Marker` out of `Found`'s two fields itself          again. `Found::marker` is that."
     );
 }
+
+#[test]
+fn hebrew_is_put_into_markup_by_one_rule() {
+    // Three copies of one rule about Hebrew punctuation, in one crate.
+    // `sending.rs` and `scanning.rs` each carried an `escape_text` and an
+    // `escape_attr`, **byte-identical, including a five-line comment about
+    // gershayim** — so the paragraph explaining why the quote mark must not be
+    // escaped in text existed twice and could rot in one. `export.rs` carried a
+    // third, as a chain of `replace` calls.
+    //
+    // `girsa_app::markup` is the one. `"` and `'` are how Hebrew writes
+    // gershayim; escaping them in text turns `שו"ע או"ח סימן א'` into noise.
+    let root = repo();
+    let mut wrong = Vec::new();
+    for (named, body) in sources(&root) {
+        if named.ends_with(SELF) || named.ends_with("girsa-app/src/markup.rs") {
+            continue;
+        }
+        // The *act* of escaping, not the string. Every false start here was a
+        // test asserting on escaped output, or `mine.rs` decoding entities on
+        // the way in — both of which name `&amp;` and neither of which is a
+        // second escaper.
+        for escaping in ["push_str(\"&amp;\")", "replace('&', \"&amp;\")"] {
+            if body.contains(escaping) {
+                wrong.push(named.clone());
+                break;
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a fourth HTML escaper:
+  {}
+
+It is `girsa_app::markup::text` and          `::attr`, and the reason there are two of those and not one is a fact          about Hebrew rather than about markup.",
+        wrong.join("
+  ")
+    );
+}

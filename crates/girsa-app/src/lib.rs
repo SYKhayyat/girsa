@@ -33,6 +33,7 @@ pub mod fixing;
 pub mod keys;
 pub mod lens;
 pub mod links;
+pub mod markup;
 pub mod mefarshim;
 pub mod notes;
 pub mod reading;

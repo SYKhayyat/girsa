@@ -307,17 +307,17 @@ fn html_flavour(lines: &[String], display: &str, reference: &Ref, note: Option<&
     out.push_str("<blockquote dir=\"rtl\" lang=\"he\" style=\"direction:rtl;text-align:right\">");
     for line in lines {
         out.push_str("<p dir=\"rtl\">");
-        out.push_str(&escape_text(line));
+        out.push_str(&crate::markup::text(line));
         out.push_str("</p>");
     }
     out.push_str("<footer dir=\"rtl\"><cite><a href=\"");
-    out.push_str(&escape_attr(&reference.to_string()));
+    out.push_str(&crate::markup::attr(&reference.to_string()));
     out.push_str("\">");
-    out.push_str(&escape_text(display));
+    out.push_str(&crate::markup::text(display));
     out.push_str("</a></cite></footer>");
     if let Some(note) = note {
         out.push_str("<p dir=\"rtl\"><small>");
-        out.push_str(&escape_text(note));
+        out.push_str(&crate::markup::text(note));
         out.push_str("</small></p>");
     }
     out.push_str("</blockquote>");
@@ -325,34 +325,6 @@ fn html_flavour(lines: &[String], display: &str, reference: &Ref, note: Option<&
 }
 
 /// The three characters that would otherwise be read as markup.
-///
-/// A quote from a sefer is arbitrary text. Sefaria's own files carry `<`, `>`
-/// and `&` inside segments — 43,890 `</i>` in Berakhot alone, and while
-/// [`display::plain`] takes the tags off, a stray `<` in the corpus is a
-/// character and has to arrive as one.
-///
-/// The quote marks are **not** escaped here, and that is why there are two of
-/// these: `"` and `'` are how Hebrew writes gershayim, so `שו"ע או"ח סימן א'`
-/// escaped as if it were an attribute arrives full of `&quot;` in anything
-/// that shows the markup rather than rendering it.
-fn escape_text(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// The same, inside a `"…"` attribute, where a quote mark would end the value.
-fn escape_attr(s: &str) -> String {
-    escape_text(s).replace('"', "&quot;")
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     // A panic in a test is a failure report. The workspace denies these in

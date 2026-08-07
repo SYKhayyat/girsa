@@ -301,15 +301,8 @@ fn paragraph(text: &str, heading: bool, quiet: bool) -> String {
 
     format!(
         "<w:p>{properties}<w:r>{run_properties}<w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>",
-        escape(text)
+        crate::markup::text(text)
     )
-}
-
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 /// A file name for a sefer, for the window's save dialog to start from.

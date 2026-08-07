@@ -194,29 +194,9 @@ pub fn mareh_makom(
         plain: display.clone(),
         html: format!(
             "<cite dir=\"rtl\" lang=\"he\" style=\"direction:rtl\"><a href=\"{}\">{}</a></cite>",
-            escape_attr(&reference.to_string()),
-            escape_text(&display)
+            crate::markup::attr(&reference.to_string()),
+            crate::markup::text(&display)
         ),
         packet,
     })
-}
-
-/// The three characters that would otherwise be read as markup.
-fn escape_text(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// The same, inside a `"…"` attribute. The quote marks are escaped here and
-/// **not** in the text, because `"` and `'` are how Hebrew writes gershayim.
-fn escape_attr(s: &str) -> String {
-    escape_text(s).replace('"', "&quot;")
 }
