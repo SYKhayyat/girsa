@@ -666,7 +666,12 @@ pub struct Repaired {
 }
 
 impl Repaired {
-    fn of(edge: Edge) -> Self {
+    /// An edge with nothing over it.
+    ///
+    /// `pub(crate)` so `chain`'s index-equivalence sweep can build a graph
+    /// without a repair layer — a test that had to go through `Repairs` to make
+    /// an unrepaired edge would be testing the wrong thing.
+    pub(crate) fn of(edge: Edge) -> Self {
         Self {
             edge,
             shipped: None,

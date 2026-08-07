@@ -185,6 +185,20 @@ impl Tally {
 /// number would mean anything.
 #[must_use]
 pub fn cuts(text: &str, target: usize) -> Vec<usize> {
+    // The guard **before** the index, not after it.
+    //
+    // 4,994,812 of the corpus's 5,000,545 segments are under the threshold, and
+    // this used to build an 8-bytes-per-character index of every one of them
+    // and *then* ask whether it needed to — roughly 6 GB of allocate-and-drop
+    // across an import, a measurable slice of the hour.
+    //
+    // `take(NAMES_A_PLACE + 1)` is what makes this cheap and correct at once: it
+    // answers *is this longer than the threshold* without counting the
+    // 1,275,307 characters of the longest segment in the corpus to find out.
+    if target == 0 || text.chars().take(NAMES_A_PLACE + 1).count() <= NAMES_A_PLACE {
+        return Vec::new();
+    }
+
     // Character index → byte offset, once. The whole function then works in
     // character positions, which is the unit the decisions are about.
     let at_byte: Vec<usize> = text
@@ -193,9 +207,6 @@ pub fn cuts(text: &str, target: usize) -> Vec<usize> {
         .chain(std::iter::once(text.len()))
         .collect();
     let characters = at_byte.len() - 1;
-    if characters <= NAMES_A_PLACE || target == 0 {
-        return Vec::new();
-    }
 
     let mut out = Vec::new();
     let mut from = 0usize; // in characters

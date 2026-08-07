@@ -264,8 +264,79 @@ pub struct Graph<'a> {
     root: PathBuf,
     timeline: &'a Timeline,
     repairs: &'a Repairs,
-    by_work: HashMap<String, Vec<Repaired>>,
+    by_work: HashMap<String, Held>,
     incoming_unknown: BTreeSet<String>,
+}
+
+/// One work's edges, and a way into them that is not a full scan.
+///
+/// # Why an index and not a sort
+///
+/// `beside` asks *which edges have an end overlapping this anchor*, and
+/// `Anchor::overlaps` is a range test. Sorting the edges by their `from` gives
+/// an upper bound and no lower one, because a span's far end is not ordered by
+/// its near end.
+///
+/// So the ends are split. **A point end goes into a sorted list keyed by its
+/// segment**, where a query — itself a point or a run — is a binary search for
+/// a contiguous range. **A span end goes into a list that is still scanned**,
+/// because a set of intervals cannot be searched by one key and the honest
+/// answer is to look at all of them.
+///
+/// What that buys: Shulchan Arukh Orach Chayim is 156,076 edges, and a
+/// depth-3/width-8 trace re-walked the whole vector up to 73 times. The point
+/// ends — the great majority — now cost a binary search each.
+struct Held {
+    edges: Vec<Repaired>,
+    /// `(the segment a point end names, which edge)`, sorted by the segment.
+    /// An edge with two point ends appears twice.
+    points: Vec<(SegmentId, usize)>,
+    /// Edges with at least one **span** end, which have to be looked at.
+    spans: Vec<usize>,
+}
+
+impl Held {
+    fn of(edges: Vec<Repaired>) -> Self {
+        let mut points = Vec::new();
+        let mut spans = Vec::new();
+        for (at, repaired) in edges.iter().enumerate() {
+            let mut spanned = false;
+            for end in [&repaired.edge.from, &repaired.edge.to] {
+                if end.is_span() {
+                    spanned = true;
+                } else {
+                    points.push((end.from.clone(), at));
+                }
+            }
+            if spanned {
+                spans.push(at);
+            }
+        }
+        points.sort_by(|a, b| a.0.cmp(&b.0));
+        Self {
+            edges,
+            points,
+            spans,
+        }
+    }
+
+    /// Which edges could possibly have an end overlapping this anchor.
+    ///
+    /// A superset, deliberately: `far_end` is still the only thing that decides,
+    /// and this only says which rows are worth asking it about.
+    fn near(&self, at: &Anchor) -> Vec<usize> {
+        let last = at.to.as_ref().unwrap_or(&at.from);
+        let lower = self.points.partition_point(|(id, _)| id < &at.from);
+        let upper = self.points.partition_point(|(id, _)| id <= last);
+        let mut out: Vec<usize> = self.points[lower..upper]
+            .iter()
+            .map(|(_, at)| *at)
+            .chain(self.spans.iter().copied())
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
 }
 
 impl<'a> Graph<'a> {
@@ -286,8 +357,9 @@ impl<'a> Graph<'a> {
         self.by_work.len()
     }
 
-    /// Every edge touching a work, each exactly once, with your layer over it.
-    fn work(&mut self, slug: &str) -> &[Repaired] {
+    /// Every edge touching a work, each exactly once, with your layer over it —
+    /// and an index into them.
+    fn work(&mut self, slug: &str) -> Option<&Held> {
         if !self.by_work.contains_key(slug) {
             let (edges, known) =
                 inbound::touching_work(&self.root, slug).unwrap_or_else(|_| (Vec::new(), false));
@@ -295,9 +367,9 @@ impl<'a> Graph<'a> {
                 self.incoming_unknown.insert(slug.to_string());
             }
             self.by_work
-                .insert(slug.to_string(), self.repairs.apply(edges));
+                .insert(slug.to_string(), Held::of(self.repairs.apply(edges)));
         }
-        self.by_work.get(slug).map_or(&[], Vec::as_slice)
+        self.by_work.get(slug)
     }
 
     /// Everywhere a link joins to this anchor, in either stored direction.
@@ -306,11 +378,15 @@ impl<'a> Graph<'a> {
     /// drawn edge is a hop like any other (W23).
     fn beside(&mut self, at: &Anchor) -> Vec<(Anchor, Repaired)> {
         let slug = at.from.work().to_string();
-        let mut out: Vec<(Anchor, Repaired)> = self
-            .work(&slug)
-            .iter()
-            .filter_map(|repaired| far_end(at, repaired))
-            .collect();
+        let mut out: Vec<(Anchor, Repaired)> = match self.work(&slug) {
+            Some(held) => held
+                .near(at)
+                .into_iter()
+                .filter_map(|which| held.edges.get(which))
+                .filter_map(|repaired| far_end(at, repaired))
+                .collect(),
+            None => Vec::new(),
+        };
         // Filtered by `far_end` alone, which asks whether the two anchors
         // overlap — a stricter test than a pre-filter on the near end, and the
         // right one here: a chain hops anchor to anchor and nobody is standing
@@ -1058,5 +1134,78 @@ mod tests {
         );
         assert!(trace.refused.rejected > 0, "and the answer says so");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_index_offers_every_edge_a_full_scan_would_have_found() {
+        // `Held::near` is a superset filter and `far_end` is still the only
+        // thing that decides — so the property is that the index never *hides*
+        // an edge the old full scan would have reached.
+        //
+        // The old scan was 156,076 rows of Orach Chayim per hop, re-walked up
+        // to 73 times by a depth-3/width-8 trace.
+        let ids: Vec<SegmentId> = (1..=8)
+            .map(|n| {
+                SegmentId::new(
+                    "bavli/berakhot",
+                    vec!["2a".into(), n.to_string()],
+                    girsa_corpus::segment::Ordinal::root(n),
+                )
+            })
+            .collect();
+        let far = SegmentId::new(
+            "bavli/rashi-on-berakhot",
+            vec!["2a".into()],
+            girsa_corpus::segment::Ordinal::root(1),
+        );
+
+        // A mix of point ends and span ends, which is what the corpus is.
+        let mut edges = Vec::new();
+        for (from, to) in [
+            (Anchor::point(ids[1].clone()), Anchor::point(far.clone())),
+            (
+                Anchor::span(ids[2].clone(), ids[5].clone()),
+                Anchor::point(far.clone()),
+            ),
+            (Anchor::point(far.clone()), Anchor::point(ids[6].clone())),
+            (Anchor::point(ids[7].clone()), Anchor::point(far.clone())),
+        ] {
+            edges.push(Repaired::of(crate::Edge {
+                from,
+                to,
+                edge_type: EdgeType::CommentsOn,
+                method: crate::Method::SefariaSeed,
+                direction: crate::Direction::NotRecorded,
+                source_label: "commentary".into(),
+            }));
+        }
+        let held = Held::of(edges);
+
+        // Every anchor a reader could stand on, point or run.
+        let mut asked = 0;
+        for lower in 0..ids.len() {
+            for upper in lower..ids.len() {
+                let at = Anchor::span(ids[lower].clone(), ids[upper].clone());
+                let scanned: Vec<usize> = held
+                    .edges
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, repaired)| far_end(&at, repaired).is_some())
+                    .map(|(which, _)| which)
+                    .collect();
+                let indexed: Vec<usize> = held
+                    .near(&at)
+                    .into_iter()
+                    .filter(|which| {
+                        held.edges
+                            .get(*which)
+                            .is_some_and(|repaired| far_end(&at, repaired).is_some())
+                    })
+                    .collect();
+                assert_eq!(indexed, scanned, "the index hid an edge at {at}");
+                asked += 1;
+            }
+        }
+        assert!(asked > 30, "{asked} anchors is not a sweep");
     }
 }
