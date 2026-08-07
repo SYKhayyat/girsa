@@ -340,6 +340,76 @@ fn the_scan_beside_the_gemara_turns_to_the_daf_the_gemara_is_on() {
 }
 
 #[test]
+fn a_scan_beside_a_gemara_is_placed_by_the_same_rule_a_commentary_is() {
+    // The test above asserts `scanning::beside`, which answers *which page*.
+    // What the window is handed is a `Place` and a `Relation`, and until 7
+    // August 2026 **those were computed in the shell**, by hand, in the scroll
+    // handler — with `Relation::Declared { follower_is_commentary: false }`
+    // synthesised out of nothing and `Beside::between` reached only in the
+    // `else` beneath it.
+    //
+    // So the case W9 was accepted on — a scan open beside a Gemara — never
+    // touched the path W9's tests cover. This is that path.
+    let dir = scratch("beside-placed");
+    let (mut shelf, slug) = shelf_with_a_scan(&dir);
+    shelf
+        .declare_paging(
+            &slug,
+            Paging::declare(
+                Some("bavli/berakhot".to_string()),
+                Scheme::Amud,
+                vec![Anchor::written(5, "ב.").expect("an anchor")],
+            )
+            .expect("a mapping"),
+        )
+        .expect("it saves");
+    let sefer = shelf.read(&slug).expect("it opens");
+    let scan = scan_of(&shelf, &sefer).expect("a scan");
+
+    let joined = girsa_app::Joined::over_scan(scan, "bavli/berakhot");
+    let beside = girsa_app::Beside::over(&sefer, &joined);
+
+    // Declared-related, and **not** a commentary: it is the same words,
+    // photographed.
+    assert_eq!(
+        beside.relation(),
+        girsa_app::Relation::Declared {
+            follower_is_commentary: false
+        }
+    );
+
+    let line = girsa_corpus::segment::SegmentId::new(
+        "bavli/berakhot",
+        vec!["23a".to_string(), "4".to_string()],
+        girsa_corpus::segment::Ordinal::root(9),
+    );
+    assert_eq!(beside.page(&line), Some(47));
+    let girsa_app::Place::At(ids) = beside.place(&line) else {
+        panic!(
+            "the scan did not turn to the daf: {:?}",
+            beside.place(&line)
+        );
+    };
+    assert_eq!(ids.len(), 1, "one page, not a run");
+
+    // A daf this scan does not carry, of the sefer it *is* a scan of:
+    // *related, and nothing here*. The distinction `NoPlace` exists for.
+    let far = girsa_corpus::segment::SegmentId::new(
+        "bavli/berakhot",
+        vec!["90a".to_string()],
+        girsa_corpus::segment::Ordinal::root(1),
+    );
+    assert_eq!(beside.place(&far), girsa_app::Place::NoPlace);
+
+    // A scan of something else does not drag this pane around at all.
+    let elsewhere =
+        girsa_app::Joined::over_scan(scan_of(&shelf, &sefer).expect("a scan"), "bavli/shabbat");
+    let other = girsa_app::Beside::over(&sefer, &elsewhere);
+    assert_eq!(other.relation(), girsa_app::Relation::Unrelated);
+    assert_eq!(other.place(&line), girsa_app::Place::Unrelated);
+}
+
+#[test]
 fn a_scan_that_names_a_sefer_this_shelf_does_not_have_is_refused_by_name() {
     // The reader said this is a scan of Eruvin, and Eruvin is not on this
     // shelf. Printing it under the filename instead would answer a different

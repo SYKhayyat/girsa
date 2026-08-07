@@ -121,12 +121,46 @@ impl Place {
 /// re-import.
 #[derive(Debug, Clone)]
 pub struct Joined {
-    relation: Relation,
-    /// Leader segment → follower segments, for whatever edges join the two.
-    /// Held even when the relation is declared: an edge is a fact somebody
-    /// recorded, and a declared commentary that also has edges should use them
-    /// where the addresses have nothing.
-    edges: HashMap<SegmentId, Vec<SegmentId>>,
+    how: How,
+}
+
+/// The two ways one sefer can be placed against another.
+///
+/// # The second one was written out by hand in the shell
+///
+/// `app/src-tauri/src/lib.rs` computed `Place::At`/`NoPlace`/`Unrelated` for a
+/// scan itself, in the scroll handler, and **synthesised
+/// `Relation::Declared { follower_is_commentary: false }` out of nothing** — a
+/// complete parallel implementation of W9's placement rule, with
+/// `Beside::between` reached only in the `else` beneath it. A scan open beside a
+/// Gemara is exactly the case W9 was accepted on, and it never touched the
+/// tested path.
+///
+/// Both cases are the same rule and W25 says so in as many words: *"a column
+/// follows another only when something says the two are the same sefer."* For a
+/// text that something is `commentary_on` or an edge; for a photograph it is the
+/// reader typing `--of bavli/berakhot`. What differs is where the answer is
+/// looked up, which is what this enum is.
+#[derive(Debug, Clone)]
+enum How {
+    /// Declarations and edges — one text against another.
+    Text {
+        relation: Relation,
+        /// Leader segment → follower segments, for whatever edges join the two.
+        /// Held even when the relation is declared: an edge is a fact somebody
+        /// recorded, and a declared commentary that also has edges should use
+        /// them where the addresses have nothing.
+        edges: HashMap<SegmentId, Vec<SegmentId>>,
+    },
+    /// A photograph of the sefer beside it (W25).
+    Scan {
+        scan: girsa_scan::Scan,
+        /// Whether the reader has said this is a scan **of the leader**. A scan
+        /// of something else is `Unrelated`, and a scan of the leader that does
+        /// not carry this daf is `NoPlace` — which is the distinction W9 built
+        /// those two variants for.
+        of_leader: bool,
+    },
 }
 
 impl Joined {
@@ -162,12 +196,41 @@ impl Joined {
             None if edges.is_empty() => Relation::Unrelated,
             None => Relation::Linked,
         };
-        Self { relation, edges }
+        Self {
+            how: How::Text { relation, edges },
+        }
+    }
+
+    /// A scan placed against the sefer it is a scan of (W25).
+    ///
+    /// Cheap — a scan's paging is an anchor list, not a shard — so there is
+    /// nothing to hold, and it is here rather than in the shell so that *which
+    /// `Place`* and *which `Relation`* are decided in the one place W9's
+    /// acceptance test points at.
+    #[must_use]
+    pub fn over_scan(scan: girsa_scan::Scan, leader_slug: &str) -> Self {
+        let of_leader = scan.paging().of() == Some(leader_slug);
+        Self {
+            how: How::Scan { scan, of_leader },
+        }
     }
 
     #[must_use]
-    pub const fn relation(&self) -> Relation {
-        self.relation
+    pub fn relation(&self) -> Relation {
+        match &self.how {
+            How::Text { relation, .. } => *relation,
+            // A scan the reader has declared is a scan of this sefer is
+            // declared-related, and it is **not** a commentary: it is the same
+            // words, photographed.
+            How::Scan {
+                of_leader: true, ..
+            } => Relation::Declared {
+                follower_is_commentary: false,
+            },
+            How::Scan {
+                of_leader: false, ..
+            } => Relation::Unrelated,
+        }
     }
 }
 
@@ -213,14 +276,57 @@ impl<'a> Beside<'a> {
 
     #[must_use]
     pub fn relation(&self) -> Relation {
-        self.joined.relation
+        self.joined.relation()
+    }
+
+    /// The page of a scan the leader's line is printed on, if the follower is
+    /// one and carries it.
+    ///
+    /// `None` for a text, which has pages nobody photographed.
+    #[must_use]
+    pub fn page(&self, at: &SegmentId) -> Option<usize> {
+        match &self.joined.how {
+            How::Text { .. } => None,
+            // `of_leader` and not just `scanning::beside`'s own check. That one
+            // asks whether the scan is of the work *this segment* belongs to,
+            // which is the same question only because `at` is always a segment
+            // of the leader — a thing that is true of every caller and is not
+            // written down anywhere. Asking about the pair we were joined for
+            // is the question actually being answered.
+            How::Scan {
+                of_leader: false, ..
+            } => None,
+            How::Scan { scan, .. } => crate::scanning::beside(scan, at),
+        }
     }
 
     /// Where the follower goes when the leader is at `at`.
     #[must_use]
     pub fn place(&self, at: &SegmentId) -> Place {
         let follower = self.follower;
-        match self.joined.relation {
+        if let How::Scan { of_leader, .. } = &self.joined.how {
+            // W25's rule, which is W9's rule: a column follows another only
+            // when something says the two are the same sefer. For a photograph
+            // that something is the reader typing `--of bavli/berakhot`.
+            if !of_leader {
+                return Place::Unrelated;
+            }
+            return match self
+                .page(at)
+                .and_then(|p| crate::scanning::page_id(follower, p))
+            {
+                Some(id) => Place::At(vec![id]),
+                // It is a scan of this sefer and does not carry this daf — a
+                // scan of one masechta open beside another volume of it.
+                // *Related, and nothing here*, which is the sentence W9 wrote
+                // `NoPlace` for.
+                None => Place::NoPlace,
+            };
+        }
+        let How::Text { relation, .. } = &self.joined.how else {
+            return Place::Unrelated;
+        };
+        match *relation {
             Relation::Unrelated => Place::Unrelated,
             Relation::Linked => self.by_edge(at),
             Relation::Declared {
@@ -260,7 +366,10 @@ impl<'a> Beside<'a> {
     }
 
     fn by_edge(&self, at: &SegmentId) -> Place {
-        match self.joined.edges.get(at) {
+        let How::Text { edges, .. } = &self.joined.how else {
+            return Place::Unrelated;
+        };
+        match edges.get(at) {
             Some(ids) if !ids.is_empty() => Place::At(ids.clone()),
             _ => Place::NoPlace,
         }

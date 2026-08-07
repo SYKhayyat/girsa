@@ -77,7 +77,7 @@ is **23**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That is the design and it is not yet the measurement. Of the shell's
-**4667**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
+**4658**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
 pass-through; the rest decides cache policy,
 sort orders, truncation lengths and patch provenance, and one block of it is a
 second implementation of the placement rule `Beside::between` is tested for. The

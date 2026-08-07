@@ -3632,30 +3632,21 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
         };
         // A scan follows the sefer beside it by turning to the page the daf is
         // printed on — but only where the reader has said it is a scan **of**
-        // that sefer (W25). Everything else is left where it is, which is W9's
-        // rule and not a special case of it.
+        // that sefer (W25). Which `Place` that is, and which `Relation`, are
+        // `Beside`'s to decide: this block used to work both out by hand and
+        // synthesise `Relation::Declared { follower_is_commentary: false }` out
+        // of nothing, with `Beside::between` reached only in the `else` below —
+        // so a scan open beside a Gemara, the case W9 was accepted on, never
+        // touched the tested path.
         if let Some(shelf) = state.shelf.as_ref() {
             if let Some(scan) = girsa_app::scan_of(shelf, follower) {
-                let page = girsa_app::scanning::beside(&scan, &at);
+                let joined = girsa_app::Joined::over_scan(scan, &leader_slug);
+                let beside = Beside::over(follower, &joined);
                 moves.push(Move {
                     pane: id,
-                    place: match page.and_then(|p| girsa_app::scanning::page_id(follower, p)) {
-                        Some(id) => Place::At(vec![id]),
-                        // The scan is of this sefer and does not carry this
-                        // daf — a scan of one masechta open beside another
-                        // volume of it. *Related, and nothing here*, which is
-                        // the sentence W9 wrote `NoPlace` for.
-                        None if scan.paging().of() == Some(leader_slug.as_str()) => Place::NoPlace,
-                        None => Place::Unrelated,
-                    },
-                    relation: if scan.paging().of() == Some(leader_slug.as_str()) {
-                        girsa_app::Relation::Declared {
-                            follower_is_commentary: false,
-                        }
-                    } else {
-                        girsa_app::Relation::Unrelated
-                    },
-                    page,
+                    place: beside.place(&at),
+                    relation: beside.relation(),
+                    page: beside.page(&at),
                 });
                 continue;
             }
