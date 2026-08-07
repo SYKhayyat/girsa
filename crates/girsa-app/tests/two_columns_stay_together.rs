@@ -225,3 +225,39 @@ fn the_shelf_offers_the_commentaries_on_what_you_are_reading() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn a_join_worked_out_once_answers_every_line_the_same_way() {
+    // `Beside`'s doc says it is *"built once per pair of open panes"*, and the
+    // shell's scroll handler built one **per scroll event** — reading both
+    // works' whole `edges.jsonl` and expanding every anchor in them. Berakhot's
+    // shard is 3.4 MB and 21,065 rows.
+    //
+    // `Joined` is the half of it that can be held: no borrows, and its only
+    // inputs are the corpus shards. This asserts the property that makes
+    // holding it correct — a held join gives the same answer, on every line, as
+    // one built fresh for that line.
+    let root = corpus();
+    let shelf = Shelf::open(root, &no_personal()).expect("the shelf opens");
+    let gemara = shelf.read(GEMARA).expect("Berakhot is on the shelf");
+    let rashi = shelf
+        .read(RASHI)
+        .expect("Rashi on Berakhot is on the shelf");
+
+    let held = girsa_app::Joined::between(&gemara, &rashi, root);
+    assert_eq!(
+        held.relation(),
+        Beside::between(&gemara, &rashi, root).relation()
+    );
+
+    for segment in &gemara.segments {
+        let fresh = Beside::between(&gemara, &rashi, root);
+        let over = Beside::over(&rashi, &held);
+        assert_eq!(
+            over.place(&segment.id),
+            fresh.place(&segment.id),
+            "the held join and a fresh one disagree at {}",
+            segment.id
+        );
+    }
+}

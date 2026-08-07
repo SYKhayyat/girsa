@@ -106,18 +106,22 @@ impl Place {
     }
 }
 
-/// One sefer placed against another, ready to answer the question repeatedly.
+/// What joining two seforim costs, worked out once.
 ///
-/// Built once per pair of open panes. The edge lookup is a map built from the
-/// two works' shards — a few hundred rows for a masechta — and not from the
-/// four million edge corpus, which nobody needs in a window.
-#[derive(Debug)]
-pub struct Beside<'a> {
+/// # Why this is its own type
+///
+/// [`Beside`] borrows the two `Open`s, which makes it exactly as short-lived as
+/// the question being asked — and its doc said *"built once per pair of open
+/// panes"* while `moved` in the shell built one **per scroll event**, reading
+/// both works' whole shards each time. Berakhot's is 3.4 MB and 21,065 rows.
+///
+/// A borrowing type cannot be cached, so the part worth caching is separated
+/// out: this holds no borrows and depends on nothing that changes while two
+/// panes stay open. The corpus shards are the only input, and those move on a
+/// re-import.
+#[derive(Debug, Clone)]
+pub struct Joined {
     relation: Relation,
-    /// The sefer being placed. Borrowed rather than copied: it holds a
-    /// masechta's worth of text and this lives exactly as long as the question
-    /// being asked of it.
-    follower: &'a Open,
     /// Leader segment → follower segments, for whatever edges join the two.
     /// Held even when the relation is declared: an edge is a fact somebody
     /// recorded, and a declared commentary that also has edges should use them
@@ -125,15 +129,13 @@ pub struct Beside<'a> {
     edges: HashMap<SegmentId, Vec<SegmentId>>,
 }
 
-impl<'a> Beside<'a> {
-    /// Work out how the follower relates to the leader, and load what it takes
-    /// to answer [`Beside::place`].
+impl Joined {
+    /// Read the two works' shards and work out how they are joined.
     ///
-    /// `root` is the corpus root; the link shards are read from under it. A
-    /// shard that will not read costs the edges and not the relation — a
-    /// declared commentary still lines up by address.
+    /// **The expensive one.** Hold the answer for as long as both panes are on
+    /// the same seforim.
     #[must_use]
-    pub fn between(leader: &Open, follower: &'a Open, root: &Path) -> Self {
+    pub fn between(leader: &Open, follower: &Open, root: &Path) -> Self {
         let declared = if follower
             .work
             .commentary_on
@@ -160,23 +162,65 @@ impl<'a> Beside<'a> {
             None if edges.is_empty() => Relation::Unrelated,
             None => Relation::Linked,
         };
-        Self {
-            relation,
-            follower,
-            edges,
-        }
+        Self { relation, edges }
     }
 
     #[must_use]
     pub const fn relation(&self) -> Relation {
         self.relation
     }
+}
+
+/// One sefer placed against another, ready to answer the question repeatedly.
+///
+/// Built once per pair of open panes — see [`Joined`], which is the half of it
+/// that can outlive one question and is what makes that sentence true.
+#[derive(Debug)]
+pub struct Beside<'a> {
+    /// The sefer being placed. Borrowed rather than copied: it holds a
+    /// masechta's worth of text and this lives exactly as long as the question
+    /// being asked of it.
+    follower: &'a Open,
+    joined: std::borrow::Cow<'a, Joined>,
+}
+
+impl<'a> Beside<'a> {
+    /// Work out how the follower relates to the leader, and load what it takes
+    /// to answer [`Beside::place`].
+    ///
+    /// `root` is the corpus root; the link shards are read from under it. A
+    /// shard that will not read costs the edges and not the relation — a
+    /// declared commentary still lines up by address.
+    #[must_use]
+    pub fn between(leader: &Open, follower: &'a Open, root: &Path) -> Self {
+        Self {
+            follower,
+            joined: std::borrow::Cow::Owned(Joined::between(leader, follower, root)),
+        }
+    }
+
+    /// The same, over a [`Joined`] somebody is already holding.
+    ///
+    /// What a scroll handler wants: the shards were read when the pair was
+    /// opened and nothing about them has changed since.
+    #[must_use]
+    pub fn over(follower: &'a Open, joined: &'a Joined) -> Self {
+        Self {
+            follower,
+            joined: std::borrow::Cow::Borrowed(joined),
+        }
+    }
+
+    #[must_use]
+    pub fn relation(&self) -> Relation {
+        self.joined.relation
+    }
 
     /// Where the follower goes when the leader is at `at`.
     #[must_use]
     pub fn place(&self, at: &SegmentId) -> Place {
         let follower = self.follower;
-        match self.relation {
+        match self.joined.relation {
             Relation::Unrelated => Place::Unrelated,
             Relation::Linked => self.by_edge(at),
             Relation::Declared {
@@ -216,7 +260,7 @@ impl<'a> Beside<'a> {
     }
 
     fn by_edge(&self, at: &SegmentId) -> Place {
-        match self.edges.get(at) {
+        match self.joined.edges.get(at) {
             Some(ids) if !ids.is_empty() => Place::At(ids.clone()),
             _ => Place::NoPlace,
         }

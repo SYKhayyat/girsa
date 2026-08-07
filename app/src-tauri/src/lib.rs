@@ -93,7 +93,34 @@ pub(crate) struct State {
     /// changed. One `Marks` is the whole sefer's answer; the read that builds it
     /// is 0.07s for Berakhot.
     marks: HashMap<String, girsa_app::mefarshim::Marks>,
+    /// `(leader, follower)` → how those two seforim are joined (W9).
+    ///
+    /// Held for the same reason `marks` is, and against a worse number.
+    /// `Beside`'s own doc says it is *"built once per pair of open panes"*, and
+    /// `moved` — the scroll handler — built one **per scroll event**: reading
+    /// both works' whole `edges.jsonl` and expanding every anchor in them.
+    /// Berakhot's shard is 3.4 MB and 21,065 rows.
+    ///
+    /// `girsa_app::Joined` holds no borrows and depends on nothing that changes
+    /// while two panes stay on the same seforim — its inputs are the corpus
+    /// shards, which move on a re-import, and the two works' segment positions,
+    /// which corrections do not touch. Dropped with the seforim themselves.
+    joined: HashMap<(String, String), girsa_app::Joined>,
+    /// When the session was last written, so that a scroll does not write it.
+    ///
+    /// `Session::save` serialises the whole workspace **plus the remembered
+    /// position of every sefer ever opened**, and `moved` called it on every
+    /// scroll event. `session.rs:295` records *"this one is saved on every
+    /// scroll"* as a statement of fact rather than as a finding.
+    ///
+    /// A scroll position is the one thing in the session that is cheap to lose
+    /// and cheap to re-earn: the reader is looking at the line. Every actual
+    /// **decision** still saves at once — only the scroll is throttled.
+    saved_at: std::time::Instant,
 }
+
+/// How long a scroll position may go unwritten.
+const SAVE_SCROLL_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl State {
     pub(crate) fn sefer(&mut self, slug: &str) -> Result<&Open, String> {
@@ -131,12 +158,19 @@ impl State {
     fn reread(&mut self, slug: &str) {
         self.open.remove(slug);
         self.order.retain(|held| held != slug);
+        // The join itself cannot have changed — a correction does not move a
+        // segment — but the `Open`s it was computed against are gone, and an
+        // answer held about a sefer nobody is holding is a cache outliving its
+        // question.
+        self.joined
+            .retain(|(leader, follower), _| leader != slug && follower != slug);
     }
 
     /// Forget all of them, which is what *show as printed* costs.
     fn reread_everything(&mut self) {
         self.open.clear();
         self.order.clear();
+        self.joined.clear();
     }
 
     fn trouble(&self) -> String {
@@ -169,12 +203,40 @@ impl State {
         )
     }
 
-    fn save(&self) {
+    fn save(&mut self) {
+        self.saved_at = std::time::Instant::now();
         // A preference file that will not write is not a reason to stop
         // reading. It is a reason to say so once, on the terminal.
         if let Err(e) = self.session.save(&self.session_path) {
             eprintln!("could not save the session: {e}");
         }
+    }
+
+    /// Save, unless one was written a moment ago.
+    ///
+    /// For the scroll handler and nothing else. A *decision* — opening a sefer,
+    /// changing a setting, closing a tab — calls [`State::save`], because losing
+    /// one of those loses something the reader did.
+    fn save_scroll(&mut self) {
+        if self.saved_at.elapsed() >= SAVE_SCROLL_EVERY {
+            self.save();
+        }
+    }
+
+    /// Work out how two open seforim are joined, once.
+    ///
+    /// Both must already be in `open`; the caller reads them first because
+    /// filling this borrows the map.
+    fn join(&mut self, leader: &str, follower: &str, root: &std::path::Path) {
+        let key = (leader.to_string(), follower.to_string());
+        if self.joined.contains_key(&key) {
+            return;
+        }
+        let (Some(one), Some(two)) = (self.open.get(leader), self.open.get(follower)) else {
+            return;
+        };
+        let built = girsa_app::Joined::between(one, two, root);
+        self.joined.insert(key, built);
     }
 }
 
@@ -3529,7 +3591,10 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
     state.session.remember(at.clone());
     let followers = state.session.workspace.moved(pane, at.clone());
     if followers.is_empty() {
-        state.save();
+        // `save_scroll`, not `save`: this is a scroll position, and
+        // `Session::save` writes the whole workspace plus the remembered place
+        // of every sefer ever opened.
+        state.save_scroll();
         return Ok(Vec::new());
     }
 
@@ -3560,9 +3625,9 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
     }
 
     let mut moves = Vec::new();
+    let mut alongside: Vec<(PaneId, String)> = Vec::new();
     for (id, slug) in wanted {
-        let (Some(leader), Some(follower)) = (state.open.get(&leader_slug), state.open.get(&slug))
-        else {
+        let Some(follower) = state.open.get(&slug) else {
             continue;
         };
         // A scan follows the sefer beside it by turning to the page the daf is
@@ -3595,7 +3660,25 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
                 continue;
             }
         }
-        let beside = Beside::between(leader, follower, &root);
+        alongside.push((id, slug));
+    }
+
+    // The joins, worked out once per pair rather than once per scroll event.
+    // A second pass because filling the cache borrows `state` mutably while the
+    // loop above is holding two seforim out of it.
+    for (_, slug) in &alongside {
+        state.join(&leader_slug, slug, &root);
+    }
+    for (id, slug) in alongside {
+        // Two immutable borrows of two different fields, which is why the
+        // cache is filled above rather than here.
+        let (Some(joined), Some(follower)) = (
+            state.joined.get(&(leader_slug.clone(), slug.clone())),
+            state.open.get(&slug),
+        ) else {
+            continue;
+        };
+        let beside = Beside::over(follower, joined);
         moves.push(Move {
             pane: id,
             place: beside.place(&at),
@@ -3603,7 +3686,7 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
             page: None,
         });
     }
-    state.save();
+    state.save_scroll();
     Ok(moves)
 }
 
@@ -3732,6 +3815,8 @@ pub fn run() {
                     open: HashMap::new(),
                     order: Vec::new(),
                     marks: HashMap::new(),
+                    joined: HashMap::new(),
+                    saved_at: std::time::Instant::now(),
                 }),
             );
 

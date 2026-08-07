@@ -292,10 +292,15 @@ impl Session {
         }
         let body = serde_json::to_vec_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        // Beside and renamed over. This one is saved on every scroll, which is
-        // the file in the layer most likely to be being written when a machine
-        // stops — and losing it loses every pane, every tab and where the
-        // reader was in each of them.
+        // Beside and renamed over. This used to be written on **every scroll
+        // event** — the sentence above this one said so as a statement of fact
+        // rather than as a finding — which made it the file in the layer most
+        // likely to be being written when a machine stops, and losing it loses
+        // every pane, every tab and where the reader was in each of them.
+        //
+        // The shell throttles the scroll now (`State::save_scroll`); every
+        // actual decision still writes at once. What this call still owes is
+        // the atomicity, which is why it is a rename and not a write.
         let temp = path.with_extension("json.writing");
         std::fs::write(&temp, body)?;
         std::fs::rename(&temp, path)

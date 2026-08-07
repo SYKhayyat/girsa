@@ -46,7 +46,7 @@ pub mod workspace;
 
 pub use adjacent::{Adjacency, Near};
 pub use arrangement::Arrangement;
-pub use beside::{Beside, Place, Relation};
+pub use beside::{Beside, Joined, Place, Relation};
 pub use buffer::{Buffer, BufferError};
 pub use citing::{linkify, who_cites, Citing, Linked};
 pub use export::{export, Exported, Format};
