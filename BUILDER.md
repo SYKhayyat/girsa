@@ -750,7 +750,7 @@ W30.*
 
 **Ruled in `spec.md` §16 #20 — build to it, not around it.**
 
-*Built. `girsa-lane`, `girsa_app::adjacent`, the `adjacent` MCP tool, and the
+*Built. `girsa-lane`, `girsa_nearby::adjacent`, the `adjacent` MCP tool, and the
 panel behind `לשון סמוכה` in the window. Two things changed on the way and both
 are recorded rather than quietly absorbed:*
 

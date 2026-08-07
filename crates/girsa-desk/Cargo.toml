@@ -1,0 +1,38 @@
+[package]
+name = "girsa-desk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The desk: what you are writing in Ksav, and what you have already written"
+
+[dependencies]
+# The sefer a quote comes from, and the packet it travels as.
+girsa-app.workspace = true
+girsa-corpus.workspace = true
+girsa-note.workspace = true
+girsa-personal.workspace = true
+
+# Ksav itself. The buffer writes real Ksav markup from the first keystroke
+# (spec.md §10.3), which means the same writer Ksav compiles and not a second
+# one here — and the same reader, so a `.ksav` file written in the real Ksav is
+# one this registry can find citations in.
+girsa-cite.workspace = true
+girsa-ksav.workspace = true
+girsa-ref.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# `girsa_app::pretend::shulchan_arukh` — the sefer a quote is taken from. It
+# used to be `sending::tests::shulchan_arukh`, reachable only from inside
+# girsa-app, which is exactly as far as it needed to reach until this crate
+# existed.
+girsa-app = { workspace = true, features = ["pretend"] }
+
+[lints]
+workspace = true

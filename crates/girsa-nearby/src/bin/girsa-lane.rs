@@ -13,7 +13,7 @@
 //! did not write it, without a webview. That is BUILDER.md §0.3's fourth
 //! condition, and it is also how the numbers in the commit message were taken.
 //!
-//! Every command goes through [`girsa_app::Adjacency`], which is what the window
+//! Every command goes through `girsa_nearby::Adjacency`, which is what the window
 //! calls. There is no second engine here — a tool with its own idea of what is
 //! embedded would be a tool that agrees with the window right up until it
 //! matters.
@@ -25,9 +25,10 @@ use std::path::Path;
 
 use girsa_app::naming::Names;
 use girsa_app::session::Language;
-use girsa_app::{Adjacency, Shelf};
+use girsa_app::Shelf;
 use girsa_corpus::argv::{self, Argv, Roots};
 use girsa_lane::{bring, Chosen, Settings, BEREL};
+use girsa_nearby::Adjacency;
 
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();

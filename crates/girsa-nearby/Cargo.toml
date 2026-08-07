@@ -1,0 +1,31 @@
+[package]
+name = "girsa-nearby"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "What else is near this, and what the answer could not see"
+
+[dependencies]
+# The shelf to ask about and the one way to describe a segment for a surface.
+girsa-app.workspace = true
+girsa-corpus.workspace = true
+# Your own layer, for the clause about corrections made since the index was
+# built — which is one of the four things an answer can fail to have seen.
+girsa-note.workspace = true
+
+# The semantic lane itself: a BERT, three `candle` crates, and weights the
+# reader side-loads. This crate exists so that dependency stops at the edge of
+# the reading workspace instead of running through it.
+girsa-lane.workspace = true
+
+[dev-dependencies]
+girsa-fixture = { workspace = true, features = ["links"] }
+# The acceptance test writes a shelf's index by hand and reads the lane's state
+# file back.
+serde_json.workspace = true
+
+[lints]
+workspace = true

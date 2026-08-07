@@ -413,12 +413,12 @@ fn search(server: &Server, args: &Value) -> Result<Value, String> {
                 // your notes reads to an agent as *this is not in the library*, and
                 // an agent cannot ask a follow-up question about it.
                 //
-                // Composed by `girsa_app::Unseen` rather than by calling
+                // Composed by `girsa_nearby::Unseen` rather than by calling
                 // `Unindexed::said` here, which is what this line used to do: the
                 // layer clauses were the only ones this answer carried, and the
                 // one thing a caller could not learn from `did_not_search` was
                 // that there is another thing it did not search.
-                "did_not_search": girsa_app::Unseen::over_layer(server.unindexed(), None).said(),
+                "did_not_search": girsa_nearby::Unseen::over_layer(server.unindexed(), None).said(),
                 "hits": hits,
                 "note": note,
                 // §9.6: priced, and applied to nothing. The counts are computed
@@ -733,7 +733,7 @@ fn adjacent(server: &Server, args: &Value) -> Result<Value, String> {
         // `adjacent` exactly the way it was invisible to `search`, and only
         // `search` said so. Carries the coverage clause too, which is what makes
         // this the whole sentence rather than a second subset of it.
-        "did_not_search": girsa_app::Unseen::over_layer(
+        "did_not_search": girsa_nearby::Unseen::over_layer(
             server.unindexed(),
             Some(server.lane().coverage().clone()),
         )

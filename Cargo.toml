@@ -10,6 +10,9 @@ members = [
     "crates/girsa-scan",
     "crates/girsa-lane",
     "crates/girsa-app",
+    "crates/girsa-export",
+    "crates/girsa-nearby",
+    "crates/girsa-desk",
     "crates/girsa-mcp",
     "crates/girsa-fixture",
     "app/src-tauri",
@@ -48,6 +51,9 @@ default-members = [
     "crates/girsa-scan",
     "crates/girsa-lane",
     "crates/girsa-app",
+    "crates/girsa-export",
+    "crates/girsa-nearby",
+    "crates/girsa-desk",
     "crates/girsa-mcp",
     "crates/girsa-fixture",
 ]
@@ -73,6 +79,12 @@ girsa-note = { version = "=0.1.0", path = "crates/girsa-note" }
 girsa-scan = { version = "=0.1.0", path = "crates/girsa-scan" }
 girsa-lane = { version = "=0.1.0", path = "crates/girsa-lane" }
 girsa-app = { version = "=0.1.0", path = "crates/girsa-app" }
+# The crates above girsa-app: each one is there because it carries a dependency
+# the reading workspace has no use for, and `cargo test -p girsa-app` was
+# building all of them to retest the taxonomy.
+girsa-export = { version = "=0.1.0", path = "crates/girsa-export" }
+girsa-nearby = { version = "=0.1.0", path = "crates/girsa-nearby" }
+girsa-desk = { version = "=0.1.0", path = "crates/girsa-desk" }
 girsa-mcp = { version = "=0.1.0", path = "crates/girsa-mcp" }
 # Test scaffolding only, and a dev-dependency everywhere it is used — which is
 # why the cycle back onto girsa-corpus is one cargo permits.

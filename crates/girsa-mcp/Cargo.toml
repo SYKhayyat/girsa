@@ -11,6 +11,9 @@ description = "The library, answering a program instead of a person — MCP over
 [dependencies]
 # The shelf, and the text a segment id names.
 girsa-app.workspace = true
+# `Adjacency` and `Unseen`: the lane's answers, and the one composer of what an
+# answer could not see.
+girsa-nearby.workspace = true
 girsa-corpus.workspace = true
 # The five modes and the relaxation ladder. The whole point of this crate is
 # that a program gets the *same* engine a person does, including its refusals —

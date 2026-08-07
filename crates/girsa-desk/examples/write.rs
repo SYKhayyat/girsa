@@ -15,10 +15,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use girsa_app::buffer::Buffer;
 use girsa_app::sending::{quote, Sent};
 use girsa_app::Shelf;
 use girsa_cite::CiteStyle;
+use girsa_desk::buffer::Buffer;
 use girsa_ksav::CitationPlacement;
 use girsa_ref::{resolve, Lexicon, Resolution};
 

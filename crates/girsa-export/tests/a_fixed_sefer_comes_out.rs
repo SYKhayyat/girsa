@@ -15,11 +15,11 @@
 
 use std::path::{Path, PathBuf};
 
-use girsa_app::export::{self, Format};
 use girsa_app::shelf::Shelf;
 use girsa_corpus::import::{self, ImportedWork, RawSegment, SegmentKind};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::work::{Source, Work};
+use girsa_export::{export, Format};
 use girsa_fix::{Kind, Patch};
 
 const SLUG: &str = "mishnah-berurah";
@@ -97,7 +97,7 @@ fn a_text_file_comes_out_with_the_correction_in_it_and_the_markup_gone() {
     let sefer = shelf.read(SLUG).expect("the sefer opens");
 
     let to = root.join("out/mishnah-berurah.txt");
-    let done = export::export(&sefer, shelf.fixes(), Format::Txt, true, &to).expect("exports");
+    let done = export(&sefer, shelf.fixes(), Format::Txt, true, &to).expect("exports");
     assert_eq!(done.segments, 3);
     assert_eq!(done.corrections, 1);
 
@@ -122,7 +122,7 @@ fn the_nikud_comes_off_when_that_is_what_you_are_reading() {
     let shelf = corrected(&root);
     let sefer = shelf.read(SLUG).expect("the sefer opens");
     let to = root.join("out/bare.txt");
-    export::export(&sefer, shelf.fixes(), Format::Txt, false, &to).expect("exports");
+    export(&sefer, shelf.fixes(), Format::Txt, false, &to).expect("exports");
     let body = std::fs::read_to_string(&to).expect("reads");
     assert!(body.contains("ובשבת"), "{body}");
     assert!(!body.contains("וּבַשַּׁבָּת"), "{body}");
@@ -138,7 +138,7 @@ fn a_word_file_comes_out_and_girsa_can_read_it_back() {
     let sefer = shelf.read(SLUG).expect("the sefer opens");
 
     let to = root.join("out/mishnah-berurah.docx");
-    let done = export::export(&sefer, shelf.fixes(), Format::Docx, true, &to).expect("exports");
+    let done = export(&sefer, shelf.fixes(), Format::Docx, true, &to).expect("exports");
     assert_eq!(done.corrections, 1);
 
     let mine = root.join("mine");
@@ -172,7 +172,7 @@ fn a_sefer_with_no_corrections_exports_and_says_so() {
     let shelf = Shelf::open(&root, &root.join("personal")).expect("the shelf opens");
     let sefer = shelf.read(SLUG).expect("the sefer opens");
     let to = root.join("out/plain.txt");
-    let done = export::export(&sefer, shelf.fixes(), Format::Txt, true, &to).expect("exports");
+    let done = export(&sefer, shelf.fixes(), Format::Txt, true, &to).expect("exports");
     assert_eq!(done.corrections, 0);
     let body = std::fs::read_to_string(&to).expect("reads");
     assert!(body.contains("כל הרבר הזה"), "as printed: {body}");
@@ -213,7 +213,7 @@ fn a_stale_correction_is_named_in_the_file_rather_than_left_out_quietly() {
     let shelf = Shelf::open(&root, &root.join("personal")).expect("the shelf opens");
     let sefer = shelf.read(SLUG).expect("the sefer opens");
     let to = root.join("out/stale.txt");
-    let done = export::export(&sefer, shelf.fixes(), Format::Txt, true, &to).expect("exports");
+    let done = export(&sefer, shelf.fixes(), Format::Txt, true, &to).expect("exports");
     assert_eq!(done.corrections, 1);
     assert_eq!(done.stale, 1);
     let body = std::fs::read_to_string(&to).expect("reads");

@@ -34,11 +34,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use girsa_app::naming::Names;
-use girsa_app::{Adjacency, Shelf};
+use girsa_app::Shelf;
 use girsa_corpus::import::{self, ImportedWork, RawSegment, SegmentKind};
 use girsa_corpus::work::{Source, Work};
 use girsa_lane::model::{Embedded, Embedder, ModelError};
 use girsa_lane::{Chosen, Lane, State};
+use girsa_nearby::Adjacency;
 
 // ---------------------------------------------------------------------------
 // A model that knows meaning and nothing about spelling

@@ -73,7 +73,7 @@ pub struct Server {
     /// exactly the reason it is a separate column in the window: a program that
     /// could get adjacent-by-meaning results out of `search` would have no way
     /// to tell its own caller which kind of answer it had.
-    lane: girsa_app::Adjacency,
+    lane: girsa_nearby::Adjacency,
     /// What your own layer holds that the index has not seen (B7, B24).
     ///
     /// Read once at open, like the catalogue: a program asking `search` is entitled
@@ -110,7 +110,7 @@ impl Server {
         // Loads a side-loaded model when the lane is on, which is why it is done
         // once here and not per call. With the lane off — the default — this
         // costs nothing at all.
-        let (lane, trouble) = girsa_app::Adjacency::open(root, personal, &shelf);
+        let (lane, trouble) = girsa_nearby::Adjacency::open(root, personal, &shelf);
         for line in trouble {
             eprintln!("{line}");
         }
@@ -149,7 +149,7 @@ impl Server {
 
     /// The semantic lane, as the `adjacent` tool sees it.
     #[must_use]
-    pub fn lane(&self) -> &girsa_app::Adjacency {
+    pub fn lane(&self) -> &girsa_nearby::Adjacency {
         &self.lane
     }
 

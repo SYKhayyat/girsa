@@ -52,7 +52,7 @@ pub(crate) struct State {
     /// Read once and held, like the catalogue: `who_cites` is asked on a click
     /// and re-reading the registry per click would be a file read per click.
     /// The desk's `/document` clears it, because that is where a row is added.
-    pub(crate) documents: Option<girsa_app::documents::Documents>,
+    pub(crate) documents: Option<girsa_desk::documents::Documents>,
     /// When each work was written, read once beside the catalogue.
     ///
     /// The window had no timeline at all, so every row it drew — a search hit,
@@ -93,7 +93,7 @@ pub(crate) struct State {
     /// The semantic lane (spec.md §9.9, W30). Held open like the index, because
     /// turning it on loads a model — and **off costs nothing**, which is what
     /// makes off-by-default a real default rather than a checkbox with a price.
-    lane: Option<girsa_app::Adjacency>,
+    lane: Option<girsa_nearby::Adjacency>,
     /// Set to stop the embedding job. It is checked between batches, so
     /// stopping costs the batch in flight and nothing else.
     stop_embedding: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -224,9 +224,9 @@ impl State {
     /// Refreshed on open — a `stat` per document, once, rather than a file read
     /// per click. A document saved while the window is up arrives through the
     /// desk's `/document`, which clears this.
-    fn documents(&mut self, personal: &std::path::Path) -> &girsa_app::documents::Documents {
+    fn documents(&mut self, personal: &std::path::Path) -> &girsa_desk::documents::Documents {
         if self.documents.is_none() {
-            let (mut documents, trouble) = girsa_app::documents::Documents::open(personal);
+            let (mut documents, trouble) = girsa_desk::documents::Documents::open(personal);
             for line in trouble {
                 eprintln!("{line}");
             }
@@ -1322,7 +1322,7 @@ fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> 
     // Through `Unseen` rather than `Gap::said` directly: the window's header and
     // the MCP server's `did_not_search` are one sentence with one separator, and
     // the lane clause is one argument away from belonging here too.
-    let unseen = girsa_app::Unseen::literal(gap);
+    let unseen = girsa_nearby::Unseen::literal(gap);
     let gap = &unseen.literal;
     Ok(unseen.said().map(|said| GapRow {
         said,
@@ -1880,8 +1880,8 @@ fn export_sefer(
     slug: String,
     format: String,
 ) -> Result<Written, String> {
-    let format = girsa_app::export::Format::named(&format)
-        .ok_or_else(|| format!("no such format: {format}"))?;
+    let format =
+        girsa_export::Format::named(&format).ok_or_else(|| format!("no such format: {format}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let showing = state.session.showing;
@@ -1897,14 +1897,14 @@ fn export_sefer(
     let sefer = state.sefer(&slug)?;
     let to = personal
         .join("exports")
-        .join(girsa_app::export::suggested_name(sefer, format));
+        .join(girsa_export::suggested_name(sefer, format));
     let fixes = state
         .shelf
         .as_ref()
         .ok_or("there is no shelf here")?
         .fixes();
     let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let done = girsa_app::export(sefer, fixes, format, nikud, &to).map_err(|e| e.to_string())?;
+    let done = girsa_export::export(sefer, fixes, format, nikud, &to).map_err(|e| e.to_string())?;
     Ok(Written {
         said: format!(
             "{} · {} · {}",
@@ -1912,7 +1912,7 @@ fn export_sefer(
                 .file_name()
                 .map(|name| name.to_string_lossy().to_string())
                 .unwrap_or_default(),
-            girsa_app::export::showing_said(showing),
+            girsa_export::showing_said(showing),
             match done.corrections {
                 0 => "בלי תיקונים".to_string(),
                 1 => "תיקון אחד".to_string(),
@@ -2106,15 +2106,15 @@ fn copy(
 fn buffers(shared: tauri::State<'_, Shared>) -> Result<Vec<String>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    Ok(girsa_app::Buffer::list(shelf.personal()))
+    Ok(girsa_desk::Buffer::list(shelf.personal()))
 }
 
 #[tauri::command]
 fn buffer_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Writing, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let buffer = girsa_app::Buffer::open(shelf.personal(), &name).map_err(|e| e.to_string())?;
-    let path = girsa_app::Buffer::path(shelf.personal(), &name).map_err(|e| e.to_string())?;
+    let buffer = girsa_desk::Buffer::open(shelf.personal(), &name).map_err(|e| e.to_string())?;
+    let path = girsa_desk::Buffer::path(shelf.personal(), &name).map_err(|e| e.to_string())?;
     Ok(Writing {
         name: buffer.name,
         text: buffer.text,
@@ -2130,7 +2130,7 @@ fn buffer_save(
 ) -> Result<String, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let mut buffer = girsa_app::Buffer::new(name);
+    let mut buffer = girsa_desk::Buffer::new(name);
     buffer.text = text;
     Ok(buffer
         .save(shelf.personal())
@@ -2201,7 +2201,7 @@ fn buffer_to_ksav(
 fn who_cites(
     shared: tauri::State<'_, Shared>,
     reference: String,
-) -> Result<Vec<girsa_app::Citing>, String> {
+) -> Result<Vec<girsa_desk::Citing>, String> {
     let place: girsa_ref::Ref = reference.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let personal = state
@@ -2211,24 +2211,24 @@ fn who_cites(
         .personal()
         .to_path_buf();
     let documents = state.documents(&personal);
-    Ok(girsa_app::who_cites(&personal, documents, &place))
+    Ok(girsa_desk::who_cites(&personal, documents, &place))
 }
 
 /// The citations in a piece of prose — **the certain ones** (spec.md §10.5).
 ///
-/// Everything ambiguous stays plain text. See `girsa_app::citing` for the three
+/// Everything ambiguous stays plain text. See `girsa_desk::citing` for the three
 /// rules and why each of them refuses more than it accepts.
 #[tauri::command]
 fn linkify(
     shared: tauri::State<'_, Shared>,
     text: String,
-) -> Result<Vec<girsa_app::Linked>, String> {
+) -> Result<Vec<girsa_desk::Linked>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let lexicon = state
         .lexicon
         .as_ref()
         .ok_or("there is no lexicon here — has girsa-import run?")?;
-    Ok(girsa_app::linkify(lexicon, &text))
+    Ok(girsa_desk::linkify(lexicon, &text))
 }
 
 /// Whether Ksav is there (spec.md §10.6 — *presence*).
@@ -2779,7 +2779,7 @@ fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
         if !held.state().is_on() {
             return Err(girsa_lane::LaneError::Off.to_string());
         }
-        let slugs = girsa_app::adjacent::in_the_lane(shelf, held.lane().chosen());
+        let slugs = girsa_nearby::adjacent::in_the_lane(shelf, held.lane().chosen());
         let titles: HashMap<String, String> = slugs
             .iter()
             .map(|slug| {
@@ -3045,7 +3045,7 @@ pub fn run() {
             // reads nothing; with it on it loads the side-loaded model, which is
             // why it happens here and not on the first query.
             let lane = shelf.as_ref().map(|shelf| {
-                let (lane, trouble) = girsa_app::Adjacency::open(shelf.root(), &personal, shelf);
+                let (lane, trouble) = girsa_nearby::Adjacency::open(shelf.root(), &personal, shelf);
                 for line in trouble {
                     eprintln!("the semantic lane: {line}");
                 }

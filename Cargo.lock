@@ -1752,7 +1752,6 @@ dependencies = [
  "girsa-fixture",
  "girsa-hebrew",
  "girsa-ksav",
- "girsa-lane",
  "girsa-link",
  "girsa-note",
  "girsa-personal",
@@ -1763,7 +1762,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.19",
- "zip 7.2.0",
 ]
 
 [[package]]
@@ -1788,6 +1786,34 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "ureq",
+ "zip 7.2.0",
+]
+
+[[package]]
+name = "girsa-desk"
+version = "0.1.0"
+dependencies = [
+ "girsa-app",
+ "girsa-cite",
+ "girsa-corpus",
+ "girsa-ksav",
+ "girsa-note",
+ "girsa-personal",
+ "girsa-ref",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "girsa-export"
+version = "0.1.0"
+dependencies = [
+ "girsa-app",
+ "girsa-corpus",
+ "girsa-fix",
+ "serde_json",
+ "thiserror 2.0.19",
  "zip 7.2.0",
 ]
 
@@ -1868,12 +1894,25 @@ dependencies = [
  "girsa-hebrew",
  "girsa-lane",
  "girsa-link",
+ "girsa-nearby",
  "girsa-note",
  "girsa-ref",
  "girsa-search",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "girsa-nearby"
+version = "0.1.0"
+dependencies = [
+ "girsa-app",
+ "girsa-corpus",
+ "girsa-fixture",
+ "girsa-lane",
+ "girsa-note",
+ "serde_json",
 ]
 
 [[package]]
@@ -1955,10 +1994,13 @@ dependencies = [
  "girsa-app",
  "girsa-cite",
  "girsa-corpus",
+ "girsa-desk",
+ "girsa-export",
  "girsa-fix",
  "girsa-ksav",
  "girsa-lane",
  "girsa-link",
+ "girsa-nearby",
  "girsa-note",
  "girsa-post",
  "girsa-ref",

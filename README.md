@@ -45,7 +45,7 @@ nothing of yours is ever kept in it. The window looks for the corpus at
 `GIRSA_CORPUS` and for your layer at `GIRSA_PERSONAL`, else beside the session
 file in the app's data directory.
 
-**11**<!--=crates--> crates, and **16**<!--=bins--> command-line binaries
+**14**<!--=crates--> crates, and **16**<!--=bins--> command-line binaries
 across them. Every number in this file that is a fact about this repository is
 marked like those two and re-counted by
 `crates/girsa-app/tests/the_numbers_in_the_readme_are_measurements.rs` on every
@@ -61,12 +61,25 @@ hundred of them, and nothing said so.
 | `girsa-fix` | Corrections as an overlay, and the ranked OCR queue |
 | `girsa-note` | Your own layer: notes as nodes, marks, tags, saved queries, chaburah folders |
 | `girsa-scan` | Scans you brought: which page is which daf, and what a page cites as |
+| `girsa-lane` | The semantic lane: a side-loaded BERT, the vector store, the resumable job |
 | `girsa-app` | The reading workspace: the shelf, tabs and splits, and what keeps two columns together |
+| `girsa-desk` | The desk: the buffer you type into, what a highlighted phrase becomes, and which of your documents cite a place |
+| `girsa-nearby` | What else is near this, and what an answer could not see |
+| `girsa-export` | Handing somebody a sefer with your corrections in it: a clean `.txt` or `.docx` |
+| `girsa-mcp` | The library as tools an agent can call, over stdio |
 | `girsa-fixture` | A synthetic shelf, built from source-shaped input through the real importer, so a test needs no corpus. Never published; a dev-dependency only |
 
 plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
+
+The last four rows are above `girsa-app` and not beside it, and the reason is
+the line under each of their names. `girsa-app` is *the shelf, tabs and splits*
+— and its manifest carried a BERT, three `candle` crates, a document format and
+`zip`, because three files out of thirty needed them. `cargo test -p girsa-app`
+built the forward pass in order to retest the taxonomy. Each of those
+dependencies now stops at the edge of a crate that is *about* it, the arrow
+runs one way, and the reading workspace compiles without any of them.
 
 `app/` is the Tauri shell: a window and **100**<!--=commands--> commands, and
 **nothing that decides anything**. Where a pane lands, what may
@@ -366,13 +379,13 @@ of W27's claim: what you wrote comes back **in the list of links on the line**,
 not in a list of its own.
 
 ```sh
-cargo run -p girsa-app --bin girsa-notes -- corpus personal \
+cargo run -p girsa-desk --bin girsa-notes -- corpus personal \
     write mishnah-berakhot 1:1 "וצריך עיון מה שכתב הרמב\"ם כאן" --title מאימתי --tag ברכות
-cargo run -p girsa-app --bin girsa-notes -- corpus personal on mishnah-berakhot 1:1
-cargo run -p girsa-app --bin girsa-notes -- corpus personal after "girsa:note/מאימתי/2#2" "ובאמת"
-cargo run -p girsa-app --bin girsa-notes -- corpus personal mark mishnah-berakhot 1:1 0 6
-cargo run -p girsa-app --bin girsa-notes -- corpus personal folder thursday "חבורה יום ה" mishnah-berakhot 1:1
-cargo run -p girsa-app --bin girsa-notes -- corpus personal export /tmp/my-layer
+cargo run -p girsa-desk --bin girsa-notes -- corpus personal on mishnah-berakhot 1:1
+cargo run -p girsa-desk --bin girsa-notes -- corpus personal after "girsa:note/מאימתי/2#2" "ובאמת"
+cargo run -p girsa-desk --bin girsa-notes -- corpus personal mark mishnah-berakhot 1:1 0 6
+cargo run -p girsa-desk --bin girsa-notes -- corpus personal folder thursday "חבורה יום ה" mishnah-berakhot 1:1
+cargo run -p girsa-desk --bin girsa-notes -- corpus personal export /tmp/my-layer
 ```
 
 In the window it is **Ctrl+N** to write one where you are standing, **Ctrl+M**
@@ -2114,7 +2127,7 @@ complete.**
 Now: each module still words its own clause, because it is the only one that
 knows the fact. `girsa_corpus::said::Clauses` does the joining — one separator,
 one thousands separator, one plural rule, and `and()` flattens rather than
-nests. `girsa_app::Unseen` decides which clauses belong to one answer, which is
+nests. `girsa_nearby::Unseen` decides which clauses belong to one answer, which is
 the decision none of the three was in a position to make. The rule is checked by
 `one_sentence_says_what_an_answer_could_not_see`: a module that words a clause
 hands it over and spells no separator of its own.

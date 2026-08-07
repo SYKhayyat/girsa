@@ -3,7 +3,7 @@
 //! *Base text + applied patches → a clean `.txt`/`.docx`. Falls out of §4.1 for
 //! free.* It does, and this module is the proof of that claim rather than a
 //! feature in its own right: the text is already text, the corrections are
-//! already an overlay, and a sefer read through [`crate::shelf::Open`] is
+//! already an overlay, and a sefer read through [`girsa_app::shelf::Open`] is
 //! already corrected. What is left is writing it down.
 //!
 //! # What "clean" means here
@@ -34,8 +34,8 @@ use std::path::{Path, PathBuf};
 
 use girsa_fix::{Layer, Showing};
 
-use crate::display;
-use crate::shelf::Open;
+use girsa_app::display;
+use girsa_app::shelf::Open;
 
 /// What to write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,7 +301,7 @@ fn paragraph(text: &str, heading: bool, quiet: bool) -> String {
 
     format!(
         "<w:p>{properties}<w:r>{run_properties}<w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>",
-        crate::markup::text(text)
+        girsa_app::markup::text(text)
     )
 }
 

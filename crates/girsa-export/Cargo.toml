@@ -1,0 +1,30 @@
+[package]
+name = "girsa-export"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Handing somebody a sefer with your corrections in it — a clean .txt or .docx"
+
+[dependencies]
+# The sefer as you are reading it: corrected, with the inline markup already
+# turned into something a reader sees. This crate writes that down and decides
+# nothing about what it says.
+girsa-app.workspace = true
+girsa-corpus.workspace = true
+girsa-fix.workspace = true
+thiserror.workspace = true
+
+# A .docx is a zip with an XML part in it. This is the only dependency in the
+# tree that is here for a file format nobody reads back, which is the whole
+# argument for the crate: `cargo test -p girsa-app` used to build it.
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+# The acceptance test writes a shelf's `works/index.jsonl` by hand.
+serde_json.workspace = true
+
+[lints]
+workspace = true

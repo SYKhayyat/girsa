@@ -434,7 +434,7 @@ fn one_sentence_says_what_an_answer_could_not_see() {
         "girsa-lane/src/coverage.rs",
         "girsa-app/src/reading.rs",
         "girsa-note/src/since.rs",
-        "girsa-app/src/unseen.rs",
+        "girsa-nearby/src/unseen.rs",
     ];
     let root = repo();
     let mut wrong = Vec::new();
@@ -479,7 +479,7 @@ fn one_sentence_says_what_an_answer_could_not_see() {
         "a module that words a clause is doing its own joining:\n  {}\n\n\
          The clause belongs to whoever knows the fact — that part of all three \
          doc comments was right. The joining is `girsa_corpus::said::Clauses`, \
-         and `girsa_app::Unseen` decides which clauses are one answer, which is \
+         and `girsa_nearby::Unseen` decides which clauses are one answer, which is \
          the decision none of the three earlier composers was in a position to \
          make.",
         wrong.join("\n  ")
@@ -492,6 +492,13 @@ fn the_browser_stub_says_what_the_lane_says() {
     // out twice, a fourth copy of `girsa_lane::coverage::NOTHING_YET` — in the
     // one language that cannot import it. It is one TypeScript constant now,
     // and this is the only thing that can hold the two together.
+    //
+    // Both sides are read out of the source rather than one of them imported,
+    // because `girsa-lane` is no longer a dependency of this crate — it is
+    // `girsa-nearby`'s, so the reading workspace stops building a BERT to
+    // retest the taxonomy. Taking it as a dev-dependency to keep one `assert_eq`
+    // typed would put candle back in `cargo test -p girsa-app` for a string.
+    // A rename still fails here: the constant has to be found by name.
     let root = repo();
     let api = std::fs::read_to_string(root.join("app/src/api.ts"))
         .unwrap_or_else(|e| panic!("api.ts reads: {e}"));
@@ -501,9 +508,16 @@ fn the_browser_stub_says_what_the_lane_says() {
         .unwrap_or_else(|| panic!("api.ts declares NOTHING_YET"));
     let rest = &api[at + marker.len()..];
     let said = &rest[..rest.find('"').unwrap_or(0)];
+    let rust = std::fs::read_to_string(root.join("crates/girsa-lane/src/coverage.rs"))
+        .unwrap_or_else(|e| panic!("coverage.rs reads: {e}"));
+    let declared = "pub const NOTHING_YET: &str = \"";
+    let at = rust
+        .find(declared)
+        .unwrap_or_else(|| panic!("girsa_lane::coverage declares NOTHING_YET"));
+    let rest = &rust[at + declared.len()..];
+    let means = &rest[..rest.find('"').unwrap_or(0)];
     assert_eq!(
-        said,
-        girsa_lane::coverage::NOTHING_YET,
+        said, means,
         "the browser build says one thing about an empty lane and Rust says another"
     );
     assert_eq!(
@@ -857,5 +871,82 @@ fn every_refusal_this_codebase_names_has_a_sentence_in_the_window() {
     assert!(
         girsa_app::trouble::Code::SPELLINGS.len() >= 8,
         "the code list is suspiciously short"
+    );
+}
+
+#[test]
+fn the_reading_workspace_does_not_take_a_dependency_it_reads_nothing_from() {
+    // `girsa-app` is *"the shelf, tabs and splits, and what keeps two columns
+    // together"*, and its manifest was the confession: a BERT and three
+    // `candle` crates for `adjacent.rs`, a document format for `buffer.rs`, and
+    // `zip` because `export.rs` writes a `.docx`. Thirty modules, and
+    // `cargo test -p girsa-app` built the forward pass in order to retest the
+    // taxonomy.
+    //
+    // Three crates now sit *above* it — `girsa-nearby`, `girsa-desk`,
+    // `girsa-export` — and the arrow runs one way. The seam is only worth what
+    // it costs to keep, and what it costs is one line in a manifest.
+    //
+    // A dev-dependency is a different claim and is allowed: `girsa-ksav` is
+    // there for one assertion about what a scan's packet becomes, and nothing a
+    // reader runs compiles it.
+    let root = repo();
+    let manifest = std::fs::read_to_string(root.join("crates/girsa-app/Cargo.toml"))
+        .unwrap_or_else(|e| panic!("girsa-app's Cargo.toml reads: {e}"));
+    let (deps, _) = manifest
+        .split_once("[dev-dependencies]")
+        .unwrap_or((manifest.as_str(), ""));
+    for (crate_name, whose) in [
+        ("girsa-lane", "girsa-nearby"),
+        ("girsa-ksav", "girsa-desk"),
+        ("zip", "girsa-export"),
+    ] {
+        assert!(
+            !deps.contains(&format!("
+{crate_name}")),
+            "`girsa-app` depends on `{crate_name}` again — that is `{whose}`'s, and the reading              workspace reads nothing from it. Whatever needed it belongs above this crate, not              inside it."
+        );
+    }
+}
+
+#[test]
+fn nothing_below_the_desk_knows_what_ksav_looks_like() {
+    // The other half of the same rule, and the one that matters more: a crate
+    // boundary that only the manifest holds is a boundary somebody re-crosses
+    // with a string literal. Ksav's markup is `#ציטוט[…]` and
+    // `#מראה_מקום(מקור: …)`, and the moment a second place in this tree writes
+    // one of those by hand, `girsa-desk` is no longer where the document format
+    // lives — it is one of two places that disagree about it.
+    // Three exclusions, and each is the difference between naming a format and
+    // being a second implementation of it. A comment that explains what Ksav
+    // writes is prose. `assert!(!markup.contains("#ציטוט"))` is a test holding
+    // the writer to its word. And a `.ksav` document written out in a test is
+    // *input* — `girsa-corpus` imports what you wrote (spec.md §10.4), so
+    // reading the format is its job; the rule is about composing it.
+    let mut wrong = Vec::new();
+    for (path, text) in sources(&repo()) {
+        if path.starts_with("crates/girsa-desk/") || !path.contains("/src/") {
+            continue;
+        }
+        for (n, line) in text.lines().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") || line.contains("assert") {
+                continue;
+            }
+            for markup in ["#ציטוט", "#מראה_מקום"] {
+                if line.contains(markup) {
+                    wrong.push(format!("{path}:{} writes {markup} itself", n + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "Ksav markup is written outside `girsa-desk`:
+  {}
+
+         The writer both applications compile is `girsa_ksav::to_ksav`. A second one here would          pass a `contains` for years and produce documents that differ.",
+        wrong.join("
+  ")
     );
 }

@@ -3,7 +3,7 @@
 //! spec.md §9.9, BUILDER.md W30. `girsa-lane` knows how to embed a segment and
 //! how to rank a vector; it deliberately does not know what is on the shelf.
 //! This module is the join, and it exists for the same reason
-//! [`crate::reading`] does: the sentence a reader is shown about what the answer
+//! [`girsa_app::reading`] does: the sentence a reader is shown about what the answer
 //! could not see has to be composed **once**, so the window, the command line,
 //! the MCP surface and the test cannot drift into promising different things.
 //!
@@ -30,7 +30,7 @@
 //!
 //! # The one search entry point the lane is deliberately kept out of
 //!
-//! **Cite-on-selection** (W18, [`crate::citing`]). Highlight a phrase in Ksav
+//! **Cite-on-selection** (W18, `girsa_desk::citing`). Highlight a phrase in Ksav
 //! and Girsa offers the mekoros for it; when nothing fits, §10.4 drops you into
 //! the search box — where the lane is, and where it belongs.
 //!
@@ -50,8 +50,8 @@ use girsa_corpus::segment::SegmentId;
 use girsa_lane::coverage::Covered;
 use girsa_lane::{Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MEASURED, MOST};
 
-use crate::naming::{Names, Naming};
-use crate::shelf::Shelf;
+use girsa_app::naming::{Names, Naming};
+use girsa_app::shelf::Shelf;
 
 /// One adjacent result, ready to draw.
 #[derive(Debug, Clone, PartialEq)]

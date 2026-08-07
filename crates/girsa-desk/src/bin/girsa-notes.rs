@@ -34,12 +34,12 @@
 
 use std::path::PathBuf;
 
-use girsa_app::documents::Documents;
 use girsa_app::naming::Names;
 use girsa_app::shelf::Shelf;
 use girsa_app::Link;
 use girsa_corpus::argv::{self, Argv, Roots};
 use girsa_corpus::segment::SegmentId;
+use girsa_desk::documents::Documents;
 use girsa_note::mark::Placed;
 use girsa_note::{Mark, Member, SavedQuery};
 
@@ -633,7 +633,7 @@ fn cites(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
         eprintln!("{line}");
     }
     documents.refreshed().map_err(|e| e.to_string())?;
-    let found = girsa_app::who_cites(shelf.personal(), &documents, &place);
+    let found = girsa_desk::who_cites(shelf.personal(), &documents, &place);
     if found.is_empty() {
         println!("nothing of yours cites that place");
         return Ok(());

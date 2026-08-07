@@ -302,7 +302,7 @@ fn show_phrase(handle: &tauri::AppHandle, phrase: &str) {
 ///
 /// Answered here because the lexicon is here — 24,731 spellings of 6,594
 /// works, written by the import. What comes back is only what is certain; the
-/// rules are in `girsa_app::citing` and every one of them refuses more than it
+/// rules are in `girsa_desk::citing` and every one of them refuses more than it
 /// accepts, because a wrong link in a printed sefer is invisible.
 fn linkify(handle: &tauri::AppHandle, body: &str) -> Reply {
     #[derive(Deserialize)]
@@ -319,13 +319,13 @@ fn linkify(handle: &tauri::AppHandle, body: &str) -> Reply {
     let Some(lexicon) = state.lexicon.as_ref() else {
         return Reply::refused(503, "there is no lexicon here");
     };
-    let found = girsa_app::linkify(lexicon, &prose.text);
+    let found = girsa_desk::linkify(lexicon, &prose.text);
     Reply::ok(serde_json::json!({ "found": found }).to_string())
 }
 
 /// *I have saved a document here.*
 ///
-/// The errand that makes *where did I use this* true. `girsa_app::who_cites`
+/// The errand that makes *where did I use this* true. `girsa_desk::who_cites`
 /// answered by walking `personal/ksav/` — the toy editor's directory, W17 — so
 /// a `.ksav` written in **the real Ksav, the application this whole pairing
 /// exists for**, was never found: the reader's actual work answered *nothing
@@ -361,7 +361,7 @@ fn document(handle: &tauri::AppHandle, body: &str) -> Reply {
     let Some(personal) = state.shelf.as_ref().map(|s| s.personal().to_path_buf()) else {
         return Reply::refused(503, "there is no shelf here");
     };
-    let (mut documents, trouble) = girsa_app::documents::Documents::open(&personal);
+    let (mut documents, trouble) = girsa_desk::documents::Documents::open(&personal);
     for line in trouble {
         eprintln!("{line}");
     }

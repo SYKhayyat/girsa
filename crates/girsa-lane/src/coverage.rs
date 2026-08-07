@@ -36,7 +36,7 @@
 //!
 //! So the clause stays here, where the fact is, and [`Coverage::clauses`] hands
 //! it over. `girsa_corpus::said::Clauses` does the joining and
-//! `girsa_app::Unseen` decides which clauses are one answer — the decision none
+//! `girsa_nearby::Unseen` decides which clauses are one answer — the decision none
 //! of the three was in a position to make.
 //!
 //! # Counted in segments, not in seforim

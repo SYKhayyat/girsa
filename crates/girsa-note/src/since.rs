@@ -187,7 +187,7 @@ impl Unindexed {
     ///
     /// The surfaces that draw it on their own — `girsa-index find`'s footer —
     /// rather than as part of a longer sentence. The window's header and the
-    /// MCP server's field go through `girsa_app::Unseen`, which is where the
+    /// MCP server's field go through `girsa_nearby::Unseen`, which is where the
     /// scan clause and the lane clause are.
     #[must_use]
     pub fn said(&self) -> Option<String> {

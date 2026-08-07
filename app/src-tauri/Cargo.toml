@@ -36,6 +36,18 @@ serde_json = { workspace = true }
 # the pin whose whole job is to make a bump deliberate did not apply to the one
 # crate that owns the interop.
 girsa-app = { workspace = true }
+# Handing somebody a corrected sefer (spec.md §7.4, W22). Its own crate because
+# a .docx is a zip and the reading workspace has no use for one; the window
+# names a format and a path and decides nothing about what comes out.
+girsa-export = { workspace = true }
+# The desk (spec.md §10): the buffer you type into, what a highlighted phrase
+# becomes, and which of your documents cite a place. Ksav is the only thing in
+# the tree that speaks a document format, and it stops here.
+girsa-desk = { workspace = true }
+# What else is near this, and what an answer could not see (spec.md §9.9, W30).
+# The window draws the coverage sentence this crate composes and decides
+# nothing about it.
+girsa-nearby = { workspace = true }
 girsa-corpus = { workspace = true }
 # Corrections: an overlay of patches on permanent ids, never an edit to the
 # shipped text (spec.md §7). The window shows what it says and decides nothing.

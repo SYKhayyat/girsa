@@ -2,7 +2,7 @@
 //!
 //! # The thing three composers each thought they were
 //!
-//! `girsa_lane::Coverage`, [`crate::reading::Gap`] and
+//! `girsa_lane::Coverage`, [`girsa_app::reading::Gap`] and
 //! `girsa_note::since::Unindexed` each say part of *this answer did not look
 //! everywhere*, and each carries a doc comment naming itself the only
 //! implementation so the surfaces cannot drift. They were right about their own
@@ -43,7 +43,7 @@ use girsa_corpus::said::Clauses;
 use girsa_lane::Coverage;
 use girsa_note::since::Unindexed;
 
-use crate::reading::Gap;
+use girsa_app::reading::Gap;
 
 /// Everything one answer did not look at.
 #[derive(Debug, Clone)]
@@ -128,7 +128,7 @@ mod tests {
     use girsa_note::since::Written;
 
     use super::*;
-    use crate::reading::Scanned;
+    use girsa_app::reading::Scanned;
 
     fn scanned() -> Scanned {
         Scanned {

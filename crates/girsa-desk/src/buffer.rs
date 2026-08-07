@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_ksav::CitationPlacement;
 
-use crate::sending::Sent;
+use girsa_app::sending::Sent;
 
 /// The extension, which is also the promise: this is a Ksav document.
 const EXTENSION: &str = "ksav";
@@ -196,7 +196,7 @@ mod tests {
     // library code, where a panic would take the reader's window with it.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::sending::{send, Selection};
+    use girsa_app::sending::{send, Selection};
     use girsa_cite::CiteStyle;
 
     fn scratch(name: &str) -> PathBuf {
@@ -264,7 +264,7 @@ mod tests {
         // assertion is deliberately an equality against `girsa_ksav`, not a
         // `contains`: a second renderer here would pass a `contains` for years
         // and produce documents that differ.
-        let sefer = crate::sending::tests::shulchan_arukh();
+        let sefer = girsa_app::pretend::shulchan_arukh();
         let sent = send(
             &sefer,
             &Selection::whole(sefer.segments[0].id.clone()),
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn what_you_wrote_and_what_you_pasted_end_up_in_one_document() {
-        let sefer = crate::sending::tests::shulchan_arukh();
+        let sefer = girsa_app::pretend::shulchan_arukh();
         let sent = send(
             &sefer,
             &Selection::whole(sefer.segments[0].id.clone()),

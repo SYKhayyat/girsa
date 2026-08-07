@@ -22,17 +22,10 @@
 //! showing a reader one sefer while the header names another — BUILDER.md rule
 //! 6, in the one place a reader would never think to check.
 
-pub mod adjacent;
 pub mod arrangement;
 pub mod beside;
-pub mod buffer;
-pub mod citing;
 pub mod display;
-// `who_cites` answered over the toy editor's directory, so a `.ksav` written in
-// the real Ksav was never found.
-pub mod documents;
 pub mod enough;
-pub mod export;
 pub mod fixing;
 pub mod held;
 pub mod keys;
@@ -41,6 +34,10 @@ pub mod links;
 pub mod markup;
 pub mod mefarshim;
 pub mod notes;
+// A sefer to test against, without a corpus on the machine. Off unless asked
+// for; `cargo test -p girsa-app` asks for it by being a test.
+#[cfg(any(test, feature = "pretend"))]
+pub mod pretend;
 // A search hit, a lane result, an MCP answer and a printed line each invented
 // "a segment, described for a surface", and the four disagreed about the title
 // language, the address and the date.
@@ -55,20 +52,13 @@ pub mod taxonomy;
 // The window turned an error into a Hebrew sentence by matching 21 regexes
 // against the English prose of Rust's `Display` impls.
 pub mod trouble;
-// Three composers each said "what this answer could not see" and none of them
-// could see the other two.
-pub mod unseen;
 // The wire format was described four times, and the fourth copy — the one that
 // feeds the browser build — had already drifted three ways.
 pub mod view;
 pub mod workspace;
 
-pub use adjacent::{Adjacency, Near};
 pub use arrangement::Arrangement;
 pub use beside::{Beside, Joined, Place, Relation};
-pub use buffer::{Buffer, BufferError};
-pub use citing::{linkify, who_cites, Citing, Linked};
-pub use export::{export, Exported, Format};
 pub use fixing::{correction, FixHere};
 pub use girsa_note::since::{find_index, is_an_index, Unindexed, Written};
 pub use keys::{Bound, Press, ACTIONS};
@@ -89,5 +79,4 @@ pub use sending::{quote, send, Selection, SendError, Sent};
 pub use session::Session;
 pub use shelf::{Companion, Open, Shelf, ShelfError};
 pub use taxonomy::Branch;
-pub use unseen::Unseen;
 pub use workspace::{Axis, Layout, Pane, PaneId, Tab, Workspace};
