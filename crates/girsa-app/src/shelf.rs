@@ -941,15 +941,41 @@ impl Open {
         if !fixes.touches(&self.work.slug) {
             return self;
         }
+        // Whether anything under these corrections has moved at all.
+        //
+        // `Standing::derived` allocates a set and walks the ancestry for every
+        // segment it is asked about, and `corrected_by` asks about all of
+        // them: 18,120 of them on Mishnah Berurah, twice per correction, to
+        // discover 18,120 times that a place answers to its own name. Measured
+        // at 16,000 corrections it was 3.6 seconds of the three-second budget
+        // in spec.md §7.5 — the guardrail failing over the machinery that
+        // exists to keep it honest.
+        //
+        // Two cheap questions answer it for the whole work at once: is every
+        // corrected name still a segment, and was anything redirected here.
+        // When both are no — which is every work on a shelf nothing has
+        // re-segmented — `Standing::derived` would return `{id}` every time
+        // and `apply_at` is `apply`. Nothing is skipped: the day either
+        // becomes yes, the walk comes back for the whole work.
+        let moved = fixes
+            .names_in(&self.work.slug)
+            .any(|name| !self.position.contains_key(name))
+            || self
+                .redirected_from
+                .keys()
+                .any(|name| name.work() == self.work.slug);
         // The ids first: `standing` reads `self.position`, so the walk has to
         // see the whole work before it can tell a cut from an insertion.
         let ids: Vec<SegmentId> = self.segments.iter().map(|s| s.id.clone()).collect();
         for (at, id) in ids.iter().enumerate() {
-            let standing = self.standing(id);
+            let standing = moved.then(|| self.standing(id));
             let Some(segment) = self.segments.get_mut(at) else {
                 continue;
             };
-            let corrected = fixes.apply_at(&standing, &segment.text, showing);
+            let corrected = match &standing {
+                Some(standing) => fixes.apply_at(standing, &segment.text, showing),
+                None => fixes.apply(id, &segment.text, showing),
+            };
             if corrected.is_untouched() {
                 continue;
             }

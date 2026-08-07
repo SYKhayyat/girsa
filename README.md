@@ -68,21 +68,46 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and **100**<!--=commands--> commands, and it
-is supposed to be **nothing that decides anything**. Where a pane lands, what may
+`app/` is the Tauri shell: a window and **100**<!--=commands--> commands, and
+**nothing that decides anything**. Where a pane lands, what may
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
 is **24**<!--=window-modules--> TypeScript modules and one stylesheet of
 **2,510**<!--=styles-lines--> lines — no framework, three runtime dependencies,
 and no fossils.
 
-That is the design and it is not yet the measurement. Of the shell's
-**3,920**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
-pass-through; the rest decides cache policy,
-sort orders, truncation lengths and patch provenance. The sentence above says
-"supposed to be" until that is fixed rather than until it is reworded. (It also
-said *fifty* commands while there were 100 of them, which is the other half of
-the same problem: nothing checks a number in this file. Something does now.)
+That sentence used to say *supposed to be*, and it was measured: of the
+shell's **3,789**<!--=shell-lines--> lines, about 150 — 23 commands — were
+genuine pass-through, and the rest decided cache policy, sort orders,
+truncation lengths, patch provenance, which fonts a Hebrew reader is offered,
+what makes a directory a corpus, and what to do with a chip key it did not
+recognise. Each of those is now in the crate whose subject it is, and two
+checks in `the_rules_this_repository_wrote_down.rs` fail if one comes back:
+
+| What was decided in the window | Where it lives |
+| --- | --- |
+| how many seforim stay in memory, and which one goes | `girsa_app::held` |
+| who is writing, for the name on a patch | `girsa_personal::who` |
+| how much of a thing is enough to show | `girsa_app::enough` |
+| which font families are offered | `girsa_app::session::FONTS` |
+| what makes a directory a corpus, and where to look | `girsa_corpus::roots` |
+| what a chip key means, and what an unknown one means | `girsa_search::chips::Chips::choose` |
+| what order notes and corrections come back in | `girsa_app::view` |
+
+Three of them were bugs rather than misplacements. The cache was a **queue**: a
+hit never touched the order, so the sefer you had open all morning was evicted
+on its twelfth neighbour while a commentary you glanced at once outlived it.
+*Who is writing* was two implementations that disagreed — the terminal read
+`GIRSA_WHO` first and the window had never heard of it, so the one variable
+this project offers for *call me something else* changed the name on your notes
+and not the name on your corrections. And the four chip families each ended
+`_ => the default`, forty lines from a `link_repair` that refused an unknown
+candidate by name: a mistyped chip key came back as a search that ran, answered,
+and answered a different question than the one asked.
+
+(The line above also said *fifty* commands while there were 100 of them, which
+is the other half of the same problem: nothing checked a number in this file.
+Something does now.)
 
 ### A refusal carries a name, not a sentence to be pattern-matched
 

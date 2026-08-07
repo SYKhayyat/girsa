@@ -40,19 +40,10 @@ use girsa_app::workspace::{Axis, PaneId};
 use girsa_app::{display, Beside, Session, Shelf, Workspace};
 use girsa_corpus::segment::SegmentId;
 use girsa_search::bar::{Answer, Bar};
-use girsa_search::chips::{Chip, Chips, Sounding};
+use girsa_search::chips::{Chip, Chips};
 use girsa_search::facets::{self, Dimension, Facets, Row};
 use girsa_search::index::{Paging, SearchIndex};
-use girsa_search::torat_emet::{Match, Together};
-use girsa_search::Mode;
 use serde::Serialize;
-
-/// How many seforim are kept in memory at once.
-///
-/// A masechta with its commentaries is four or five; the number is small
-/// because a work is tens of megabytes of text and a reader has a handful open,
-/// not a library.
-const KEEP_OPEN: usize = 12;
 
 pub(crate) struct State {
     pub(crate) shelf: Option<Shelf>,
@@ -107,8 +98,8 @@ pub(crate) struct State {
     /// stopping costs the batch in flight and nothing else.
     stop_embedding: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Slug → the sefer, read once. Cleared oldest-first.
-    open: HashMap<String, Open>,
-    order: Vec<String>,
+    /// The seforim in memory, most recently read last (`girsa_app::held`).
+    open: girsa_app::held::Held<Open>,
     /// Slug → which mefarshim speak on which of its lines (W43).
     ///
     /// Held because ticking a box asks again, and a reader ticking six of them
@@ -155,17 +146,15 @@ const SAVE_SCROLL_EVERY: std::time::Duration = std::time::Duration::from_secs(2)
 
 impl State {
     pub(crate) fn sefer(&mut self, slug: &str) -> Result<&Open, String> {
-        if !self.open.contains_key(slug) {
+        if !self.open.has(slug) {
             let shelf = self.shelf.as_ref().ok_or_else(|| self.trouble())?;
             let read = shelf.read(slug).map_err(|e| e.to_string())?;
-            if self.order.len() >= KEEP_OPEN {
-                if let Some(oldest) = self.order.first().cloned() {
-                    self.order.remove(0);
-                    self.open.remove(&oldest);
-                }
+            // Whatever was dropped takes its marks table with it: a table of
+            // who comments on which line of a sefer nobody has open is the
+            // same megabytes with none of the use.
+            if let Some(gone) = self.open.put(slug, read) {
+                self.marks.remove(&gone);
             }
-            self.order.push(slug.to_string());
-            self.open.insert(slug.to_string(), read);
         }
         self.open.get(slug).ok_or_else(|| "not open".to_string())
     }
@@ -187,8 +176,7 @@ impl State {
     /// correction. Cheaper than it looks — it is one work, and the reader is
     /// standing in it.
     fn reread(&mut self, slug: &str) {
-        self.open.remove(slug);
-        self.order.retain(|held| held != slug);
+        self.open.forget(slug);
         // The join itself cannot have changed — a correction does not move a
         // segment — but the `Open`s it was computed against are gone, and an
         // answer held about a sefer nobody is holding is a cache outliving its
@@ -200,7 +188,6 @@ impl State {
     /// Forget all of them, which is what *show as printed* costs.
     fn reread_everything(&mut self) {
         self.open.clear();
-        self.order.clear();
         self.joined.clear();
     }
 
@@ -324,7 +311,7 @@ impl State {
         if self.joined.contains_key(&key) {
             return;
         }
-        let (Some(one), Some(two)) = (self.open.get(leader), self.open.get(follower)) else {
+        let (Some(one), Some(two)) = (self.open.peek(leader), self.open.peek(follower)) else {
             return;
         };
         let built = girsa_app::Joined::between(one, two, root);
@@ -376,7 +363,11 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
 fn search(shared: tauri::State<'_, Shared>, query: String) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    Ok(shelf.search(&query, 40).into_iter().map(Card::of).collect())
+    Ok(shelf
+        .search(&query, girsa_app::enough::NAMES_OFFERED)
+        .into_iter()
+        .map(Card::of)
+        .collect())
 }
 
 /// The seforim a reader has been in, most recent first — what the picker shows
@@ -514,7 +505,7 @@ struct FoundPage {
 #[tauri::command]
 fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<FoundPage, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let size = PAGE;
+    let size = girsa_app::enough::A_PAGE;
     let paging = Paging {
         from: size * page.saturating_sub(1).min(usize::MAX / size.max(1)),
         size,
@@ -664,8 +655,8 @@ fn find_rung(
         .together(chips.together);
     let widened = girsa_search::ladder::Widened::new(query, [rung]);
     let paging = Paging {
-        from: PAGE * page.saturating_sub(1),
-        size: PAGE,
+        from: girsa_app::enough::A_PAGE * page.saturating_sub(1),
+        size: girsa_app::enough::A_PAGE,
     };
     let found = bar
         .index()
@@ -692,7 +683,7 @@ fn find_rung(
             .collect(),
         total: found.total,
         page: page.max(1),
-        pages: found.total.div_ceil(PAGE),
+        pages: found.total.div_ceil(girsa_app::enough::A_PAGE),
         facets: None,
         chips: chips.row(),
         offers: Vec::new(),
@@ -708,53 +699,7 @@ fn find_rung(
 #[tauri::command]
 fn find_chip(shared: tauri::State<'_, Shared>, chip: String, key: String) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    set_chip(&mut state.chips, &chip, &key)
-}
-
-/// One chip, set by the key the row itself sends.
-///
-/// Factored out because a saved query (W27) is replayed by setting the chips it
-/// was saved with, and a second copy of this mapping would let a recalled query
-/// and a clicked chip mean different things.
-fn set_chip(chips: &mut Chips, chip: &str, key: &str) -> Result<(), String> {
-    match chip {
-        "mode" => {
-            chips.mode = match key {
-                "Smart" => Mode::Smart,
-                "Regex" => Mode::Regex,
-                "Citation" => Mode::Citation,
-                "Instruments" => Mode::Instruments,
-                _ => Mode::ToratEmet,
-            }
-        }
-        "the word" => {
-            chips.matching = match key {
-                "Contains" => Match::Contains,
-                "Letters" => Match::Letters,
-                _ => Match::Word,
-            }
-        }
-        "together" => {
-            chips.together = match key {
-                "Phrase" => Together::Phrase,
-                other => match other.strip_prefix("Near").and_then(|n| n.parse().ok()) {
-                    Some(words) => Together::Near { words },
-                    None => Together::Anywhere,
-                },
-            }
-        }
-        "instrument" => {
-            chips.sounding = match key {
-                "Rashei" => Sounding::Rashei,
-                "Sofei" => Sounding::Sofei,
-                "Atbash" => Sounding::Atbash,
-                "Dilug" => Sounding::Dilug,
-                _ => Sounding::Gematria,
-            }
-        }
-        other => return Err(format!("no such chip: {other}")),
-    }
-    Ok(())
+    state.chips.choose(&chip, &key).map_err(|e| e.to_string())
 }
 
 /// Click a facet row: narrow to it, or rule it out (spec.md §9.8).
@@ -785,9 +730,6 @@ fn find_whole_shelf(shared: tauri::State<'_, Shared>) -> Result<(), String> {
     state.chips.scope = girsa_search::scope::Scope::everything();
     Ok(())
 }
-
-/// How many results to a page.
-const PAGE: usize = 25;
 
 /// The lexicon `girsa-import` wrote, both halves of it.
 ///
@@ -1163,7 +1105,7 @@ fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, Stri
     // in the window from the id it remembered, for the reason in `page_of_id`.
     let left = state.session.positions.get(&slug).cloned();
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
-    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let sefer = state.open.peek(&slug).ok_or("not open")?;
     let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
     let at = left
         .and_then(|id| girsa_app::scanning::page_of_id(sefer, &id))
@@ -1199,7 +1141,7 @@ fn scan_reading(shared: tauri::State<'_, Shared>, slug: String) -> Result<Readin
         .ok_or("there is no shelf here")?
         .personal()
         .to_path_buf();
-    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let sefer = state.open.peek(&slug).ok_or("not open")?;
     let pages = girsa_app::scanning::pages_of(sefer);
     // Held, not re-opened. `Words::open` parses the whole log to answer about
     // one page, and this command is called *again* by `scan_read_page` and
@@ -1436,7 +1378,7 @@ fn scan_at(
     let style = state.session.cite;
     state.sefer(&slug)?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
-    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let sefer = state.open.peek(&slug).ok_or("not open")?;
     let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
 
     // A scan whose sefer is not on the shelf still shows its pages; what it
@@ -1513,7 +1455,7 @@ fn scan_page_of(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
-    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let sefer = state.open.peek(&slug).ok_or("not open")?;
     let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
 
     // A ref pasted in, or a place typed the way a reader writes one. Both are
@@ -1540,7 +1482,7 @@ fn scan_copy(
     let style = state.session.cite;
     state.sefer(&slug)?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
-    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let sefer = state.open.peek(&slug).ok_or("not open")?;
     let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
     let naming = girsa_app::scanning::naming(shelf, &scan).map_err(|e| e.to_string())?;
     let sent =
@@ -1581,9 +1523,16 @@ fn fix(
 
     let patch = {
         let sefer = state.sefer(&slug)?;
-        let mut patch =
-            girsa_app::correction(sefer, &at, from_char..to_char, &now, kind, &who(), nikud)
-                .map_err(|e| e.to_string())?;
+        let mut patch = girsa_app::correction(
+            sefer,
+            &at,
+            from_char..to_char,
+            &now,
+            kind,
+            &girsa_app::who(),
+            nikud,
+        )
+        .map_err(|e| e.to_string())?;
         if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
             patch = patch.with_note(note);
         }
@@ -1686,8 +1635,7 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
             source: p.source.clone(),
         })
         .collect();
-    // Newest first: a correction queue is read from the top.
-    rows.sort_by_key(|row| std::cmp::Reverse(row.when));
+    girsa_app::view::PatchRow::newest_first(&mut rows);
     Ok(rows)
 }
 
@@ -1737,7 +1685,7 @@ fn links(
     // The words each link is about, where anything says — and the far end's
     // text is only consulted for seforim that are **already open**.
     for link in &mut links {
-        let far = state.open.get(&link.work);
+        let far = state.open.peek(&link.work);
         link.span = girsa_app::links::span_on(link, &at, &base, far, nikud);
     }
     if let (Some(from), Some(to)) = (from_char, to_char) {
@@ -1789,7 +1737,7 @@ fn link_pin(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    let who = who();
+    let who = girsa_app::who();
     shelf
         .repairs_mut()
         .pin_named(&edge, &at, from_char..to_char, &who)
@@ -1804,20 +1752,12 @@ fn link_pin(
 /// itself. The rows without one still name the sefer and the place, which is what
 /// every row said before this.
 fn first_words(state: &State, link: &girsa_app::Link, nikud: bool) -> Option<String> {
-    const WORDS: usize = 90;
-    let sefer = state.open.get(&link.work)?;
+    let sefer = state.open.peek(&link.work)?;
     let nth = sefer.position_of(&link.other.from)?;
     let text = display::Shown::of(&sefer.segments.get(nth)?.text, nikud)
         .text()
         .to_string();
-    let cut: String = text.chars().take(WORDS).collect();
-    // An ellipsis only where something was actually cut off, so a short comment
-    // does not look truncated.
-    Some(if text.chars().count() > WORDS {
-        format!("{cut}…")
-    } else {
-        cut
-    })
+    Some(girsa_app::enough::first_words(&text))
 }
 
 /// Confirm, reject, retype, reanchor, or take it all back.
@@ -1836,7 +1776,7 @@ fn link_repair(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    let who = who();
+    let who = girsa_app::who();
     let repairs = shelf.repairs_mut();
     match does.as_str() {
         "confirm" => repairs.judge_named(&edge, Verdict::Confirmed, &who),
@@ -1880,7 +1820,7 @@ fn link_reanchor(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    let who = who();
+    let who = girsa_app::who();
     shelf
         .repairs_mut()
         .reanchor_named(&edge, from_anchor, to_anchor, &who)
@@ -1902,7 +1842,7 @@ fn link_draw(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    let who = who();
+    let who = girsa_app::who();
     shelf
         .repairs_mut()
         .draw(
@@ -1963,7 +1903,7 @@ fn export_sefer(
         .as_ref()
         .ok_or("there is no shelf here")?
         .fixes();
-    let sefer = state.open.get(&slug).ok_or("not open")?;
+    let sefer = state.open.peek(&slug).ok_or("not open")?;
     let done = girsa_app::export(sefer, fixes, format, nikud, &to).map_err(|e| e.to_string())?;
     Ok(Written {
         said: format!(
@@ -2104,17 +2044,6 @@ fn suspect_decide(
     } else {
         Err("there is no such candidate".to_string())
     }
-}
-
-/// Whose correction this is, for the provenance a patch carries.
-///
-/// The machine's idea of who is sitting at it. There is no account and no
-/// registry (spec.md §11); this is a name on a line in your own file, and it is
-/// what makes a patch file handed to somebody else say where it came from.
-fn who() -> String {
-    std::env::var("USERNAME")
-        .or_else(|_| std::env::var("USER"))
-        .unwrap_or_else(|_| "me".to_string())
 }
 
 // ── The Ksav loop (spec.md §10, BUILDER.md W15) ─────────────────────────────
@@ -2478,29 +2407,12 @@ fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
                 shipped: action.default,
             })
             .collect(),
-        fonts: FONTS.iter().map(|f| (*f).to_string()).collect(),
+        fonts: girsa_app::session::FONTS
+            .iter()
+            .map(|f| (*f).to_string())
+            .collect(),
     })
 }
-
-/// The families a reader can choose between.
-///
-/// Named rather than enumerated from the system: a webview cannot list installed
-/// fonts, and a list this project invented would offer families the machine does
-/// not have. These are the ones a Hebrew reader is likely to have and the ones the
-/// stylesheet already names — and the field takes any text, so a reader with
-/// something else types it.
-const FONTS: &[&str] = &[
-    "",
-    "Frank Ruehl CLM",
-    "David CLM",
-    "Taamey Frank CLM",
-    "Frank Ruhl Hofshi",
-    "David Libre",
-    "Narkisim",
-    "SBL Hebrew",
-    "Times New Roman",
-    "Segoe UI",
-];
 
 /// How the reading looks (B13).
 #[tauri::command]
@@ -3014,7 +2926,7 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
     let mut moves = Vec::new();
     let mut alongside: Vec<(PaneId, String)> = Vec::new();
     for (id, slug) in wanted {
-        let Some(follower) = state.open.get(&slug) else {
+        let Some(follower) = state.open.peek(&slug) else {
             continue;
         };
         // A scan follows the sefer beside it by turning to the page the daf is
@@ -3052,7 +2964,7 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
         // cache is filled above rather than here.
         let (Some(joined), Some(follower)) = (
             state.joined.get(&(leader_slug.clone(), slug.clone())),
-            state.open.get(&slug),
+            state.open.peek(&slug),
         ) else {
             continue;
         };
@@ -3066,47 +2978,6 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
     }
     state.save_scroll();
     Ok(moves)
-}
-
-/// Where the shelf is.
-///
-/// `GIRSA_CORPUS` wins, then a `corpus` directory beside the executable — how
-/// an installed copy finds it — then two levels up, which is how it is found
-/// when run out of the source tree.
-fn find_corpus() -> Result<PathBuf, String> {
-    let mut tried = Vec::new();
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(from_env) = std::env::var("GIRSA_CORPUS") {
-        candidates.push(PathBuf::from(from_env));
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("corpus"));
-        }
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("corpus"));
-        candidates.push(cwd.join("../../corpus"));
-    }
-    for candidate in candidates {
-        if candidate.join("works/index.jsonl").is_file() {
-            return Ok(candidate);
-        }
-        tried.push(candidate.display().to_string());
-    }
-    Err(format!(
-        "no shelf found. Looked in: {}. Run girsa-fetch and girsa-import, or \
-         set GIRSA_CORPUS.",
-        tried.join(", ")
-    ))
-}
-
-/// Where your own layer is: the arrangement, and the seforim you added.
-///
-/// Beside the session file, in the app's data directory — not under the corpus
-/// root, which a re-download is entitled to replace wholesale.
-fn find_personal(data: &std::path::Path) -> PathBuf {
-    std::env::var("GIRSA_PERSONAL").map_or_else(|_| data.join("personal"), PathBuf::from)
 }
 
 /// Open the window.
@@ -3133,7 +3004,7 @@ pub fn run() {
                 .unwrap_or_else(|_| PathBuf::from("."));
             let session_path = data.join("session.json");
             let session = Session::load(&session_path);
-            let personal = find_personal(&data);
+            let personal = girsa_corpus::roots::personal(&data);
 
             // The one directory of the reader's own disk the window may read:
             // where a dropped PDF was copied to (W25). A scan is hundreds of
@@ -3147,7 +3018,7 @@ pub fn run() {
                 eprintln!("scans will not open: {e}");
             }
 
-            let (shelf, trouble) = match find_corpus() {
+            let (shelf, trouble) = match girsa_corpus::roots::corpus() {
                 Ok(root) => match Shelf::open(&root, &personal) {
                     // An unreadable arrangement is the shelf's own trouble to
                     // report, and it is not a reason to open no shelf.
@@ -3198,8 +3069,7 @@ pub fn run() {
                     queue: None,
                     lane,
                     stop_embedding: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                    open: HashMap::new(),
-                    order: Vec::new(),
+                    open: girsa_app::held::Held::default(),
                     marks: HashMap::new(),
                     joined: HashMap::new(),
                     words: HashMap::new(),
@@ -3405,7 +3275,7 @@ fn notes(shared: tauri::State<'_, Shared>) -> Result<Vec<NoteRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let mut rows: Vec<NoteRow> = shelf.notes().all().map(NoteRow::of).collect();
-    rows.sort_by(|a, b| b.edited.cmp(&a.edited).then_with(|| a.title.cmp(&b.title)));
+    girsa_app::view::NoteRow::newest_first(&mut rows);
     Ok(rows)
 }
 
@@ -3421,7 +3291,7 @@ fn note_write(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    let who = who();
+    let who = girsa_app::who();
     let note = girsa_app::note_here(shelf, &at, title.as_deref(), &text, &who)
         .map_err(|e| e.to_string())?;
     Ok(NoteRow::of(&note))
@@ -3536,8 +3406,7 @@ fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, S
     let slug = shelf.notes().get(&note).map(|held| held.slug.clone());
     let gone = shelf.forget_note(&note).map_err(|e| e.to_string())?;
     if let Some(slug) = slug {
-        state.open.remove(&slug);
-        state.order.retain(|kept| kept != &slug);
+        state.open.forget(&slug);
     }
     Ok(gone)
 }
@@ -3568,7 +3437,7 @@ fn mark_here(
     };
     let drawn = display::Shown::of(&base, nikud).text().to_string();
 
-    let who = who();
+    let who = girsa_app::who();
     let mut made = match (from_char, to_char) {
         (Some(from), Some(to)) if from < to => {
             let letters: Vec<char> = drawn.chars().collect();
@@ -3669,7 +3538,7 @@ fn bookmarks(shared: tauri::State<'_, Shared>) -> Result<Vec<MarkRow>, String> {
 /// Keep the question you just asked.
 ///
 /// The chips are saved as the `chip → key` pairs the row itself sends, so
-/// recalling one goes through the same [`set_chip`] a click does. The scope is
+/// recalling one goes through the same `Chips::choose` a click does. The scope is
 /// saved as the seforim it comes to — a scope narrowed by three clicks comes
 /// back as one clause over the same seforim, which matches the same segments
 /// and no longer remembers the three clicks. Said here rather than discovered.
@@ -3685,7 +3554,7 @@ fn query_keep(
         if let Some(chosen) = chip.choices.iter().find(|choice| choice.chosen) {
             // The scope chip's key is not an option among others — it is the
             // whole scope — so it is saved as the slugs below instead.
-            if chip.name != "where" {
+            if chip.name != girsa_search::chips::DOORWAY {
                 kept = kept.with_chip(chip.name, chosen.key.clone());
             }
         }
@@ -3742,7 +3611,7 @@ fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String
 
     state.chips = Chips::default();
     for (chip, key) in &held.chips {
-        set_chip(&mut state.chips, chip, key)?;
+        state.chips.choose(chip, key).map_err(|e| e.to_string())?;
     }
     let mut scope = girsa_search::scope::Scope::everything();
     if !held.only.is_empty() {

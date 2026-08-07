@@ -100,6 +100,7 @@ pub mod oversized;
 // Three modules compose "what this answer could not see", each documented as
 // the only one, and what drifted was the separator and the number format
 // between them.
+pub mod roots;
 pub mod said;
 pub mod segment;
 pub mod span;

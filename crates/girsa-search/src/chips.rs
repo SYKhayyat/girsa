@@ -60,6 +60,14 @@ pub enum Sounding {
     Dilug,
 }
 
+girsa_corpus::spelled!(Sounding {
+    Gematria => "Gematria",
+    Rashei => "Rashei",
+    Sofei => "Sofei",
+    Atbash => "Atbash",
+    Dilug => "Dilug",
+});
+
 impl Sounding {
     /// Every instrument, in the order spec.md §9.3 names them.
     pub const ALL: [Self; 5] = [
@@ -180,7 +188,7 @@ impl Chips {
                 choices: MODES
                     .iter()
                     .map(|(mode, label, sigil)| Choice {
-                        key: format!("{mode:?}"),
+                        key: mode.as_str().to_string(),
                         label: (*label).to_string(),
                         sigil: *sigil,
                         chosen: *mode == self.mode,
@@ -231,7 +239,7 @@ impl Chips {
                 choices: Sounding::ALL
                     .iter()
                     .map(|sounding| Choice {
-                        key: format!("{sounding:?}"),
+                        key: sounding.as_str().to_string(),
                         label: sounding.label().to_string(),
                         sigil: (*sounding == Sounding::Gematria).then_some("=613"),
                         chosen: *sounding == self.sounding,
@@ -244,7 +252,7 @@ impl Chips {
 
     fn matching_choice(&self, matching: Match, label: &str, sigil: Option<&'static str>) -> Choice {
         Choice {
-            key: format!("{matching:?}"),
+            key: matching.as_str().to_string(),
             label: label.to_string(),
             sigil,
             chosen: self.matching == matching,
@@ -258,10 +266,7 @@ impl Chips {
         sigil: Option<&'static str>,
     ) -> Choice {
         Choice {
-            key: match together {
-                Together::Near { words } => format!("Near{words}"),
-                other => format!("{other:?}"),
-            },
+            key: together.key(),
             label: label.to_string(),
             sigil,
             chosen: self.together == together,
@@ -343,6 +348,103 @@ fn wrapped(text: &str, mark: char) -> Option<String> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn everything_offered_can_be_chosen() {
+        // The round trip that used to be two lists agreeing by luck: `row`
+        // wrote the keys with `format!("{:?}")` and the window read them back
+        // with a hand-written `match`, in a different file, in a different
+        // repository directory. Renaming a variant changed one of them.
+        for mode in [
+            Mode::ToratEmet,
+            Mode::Smart,
+            Mode::Regex,
+            Mode::Citation,
+            Mode::Instruments,
+        ] {
+            let mut chips = Chips {
+                mode,
+                ..Chips::default()
+            };
+            for (chip, keys) in chips.clone().settable() {
+                for key in keys {
+                    assert!(
+                        chips.choose(&chip, &key).is_ok(),
+                        "{mode:?} offered `{chip}`/`{key}` and would not take it back"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_key_no_chip_offers_is_refused_and_not_defaulted() {
+        // Four families, four `_ =>` arms, four silent falls back to the
+        // default — and forty lines away in the same file, `link_repair`
+        // refused an unknown candidate by name. The quiet one was the one the
+        // search bar used: a typo came back as a search that ran and answered
+        // a different question.
+        let mut chips = Chips::default();
+        assert!(chips.choose("mode", "Smrat").is_err());
+        assert_eq!(chips.mode, Mode::default(), "and it changed nothing");
+        assert!(chips.choose("the word", "Contians").is_err());
+        assert!(chips.choose("instrument", "Gemtria").is_err());
+        assert!(matches!(
+            chips.choose("colour", "blue"),
+            Err(ChipError::NoSuchChip(_))
+        ));
+    }
+
+    #[test]
+    fn the_chip_that_is_a_doorway_says_so_rather_than_saying_it_does_not_exist() {
+        // `where` reports the scope and opens the facet panel. A window that
+        // sent it here has a wiring bug, and *no such chip* would send whoever
+        // is reading the message looking for a typo.
+        let mut chips = Chips::default();
+        assert!(matches!(
+            chips.choose(DOORWAY, "scope"),
+            Err(ChipError::NotASetting(_))
+        ));
+        assert!(chips.row().iter().any(|chip| chip.name == DOORWAY));
+    }
+
+    #[test]
+    fn a_proximity_of_nothing_in_particular_is_not_a_proximity() {
+        // `Near` carried a number and the old parser was
+        // `strip_prefix("Near").and_then(parse).unwrap_or(Anywhere)`, so
+        // `Nearbanana` searched the whole segment while the chip showed a
+        // proximity search. Two different searches, one label.
+        let mut chips = Chips::default();
+        assert!(chips.choose("together", "Nearbanana").is_err());
+        assert!(chips.choose("together", "Near").is_err());
+        assert!(chips.choose("together", "Near12").is_ok());
+        assert_eq!(chips.together, Together::Near { words: 12 });
+        assert_eq!(chips.together.key(), "Near12");
+    }
+
+    #[test]
+    fn the_keys_on_the_wire_are_the_ones_they_always_were() {
+        // Moved from `format!("{:?}")` to a written-down table. If the two
+        // disagreed, every reader with a saved session would find their chips
+        // reset to the defaults on the next launch.
+        assert_eq!(Mode::ToratEmet.as_str(), "ToratEmet");
+        assert_eq!(Mode::Instruments.as_str(), "Instruments");
+        assert_eq!(Match::Contains.as_str(), "Contains");
+        assert_eq!(Sounding::Gematria.as_str(), "Gematria");
+        assert_eq!(Together::Anywhere.key(), "Anywhere");
+        assert_eq!(Together::Phrase.key(), "Phrase");
+    }
+
+    #[test]
+    fn a_chip_that_is_not_showing_is_still_not_a_chip_that_does_not_exist() {
+        // The instrument chip is only offered in Instruments mode. Setting it
+        // from a window that has just switched modes is a race, not a typo,
+        // and refusing it would lose the reader's click.
+        let mut chips = Chips::default();
+        assert_ne!(chips.mode, Mode::Instruments);
+        assert!(chips.choose("instrument", "Atbash").is_ok());
+        assert_eq!(chips.sounding, Sounding::Atbash);
+    }
 
     #[test]
     fn the_row_reads_the_way_the_spec_draws_it() {
@@ -435,5 +537,88 @@ mod tests {
         let (chips, text) = Chips::default().read("שו\"ע");
         assert_eq!(chips.together, Together::Anywhere);
         assert_eq!(text, "שו\"ע", "the gershayim is part of the word");
+    }
+}
+
+/// A chip the window named, or a choice under it, that this project does not
+/// write.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ChipError {
+    /// No chip is called that.
+    #[error("no such chip: {0}")]
+    NoSuchChip(String),
+    /// The chip exists and does not offer that.
+    #[error("`{key}` is not a choice under `{chip}`")]
+    NoSuchChoice { chip: String, key: String },
+    /// The chip exists and is not set by choosing among its choices.
+    #[error("`{0}` is not set that way — it opens the facet panel")]
+    NotASetting(String),
+}
+
+/// The chip that is a doorway rather than a setting.
+///
+/// It reports the scope and opens the panel that changes it; the scope itself
+/// is a `Scope`, not a key, and comes back through its own errand.
+pub const DOORWAY: &str = "where";
+
+impl Chips {
+    /// Set one chip to one of its choices, by the keys [`Chips::row`] sent.
+    ///
+    /// # Why this is not four `match` arms in the window
+    ///
+    /// It was, and each of them ended `_ => Mode::ToratEmet` — a silent
+    /// fallback to the default for anything unrecognised. Four families, four
+    /// default-on-unknown, and forty lines away in the same file `link_repair`
+    /// refused an unknown candidate by name. Two policies about the same
+    /// question, in one file, and the quiet one was the one the search bar
+    /// used: a typo in a chip key came back as a search that ran, answered,
+    /// and answered a different question than the one asked.
+    ///
+    /// The keys are the ones `row` writes, from the same tables. A choice that
+    /// round-trips is now a compile-time fact rather than two lists that
+    /// happened to agree.
+    ///
+    /// # Errors
+    ///
+    /// If no chip is called that, or the chip does not offer that choice.
+    pub fn choose(&mut self, chip: &str, key: &str) -> Result<(), ChipError> {
+        let missing = || ChipError::NoSuchChoice {
+            chip: chip.to_string(),
+            key: key.to_string(),
+        };
+        match chip {
+            "mode" => self.mode = Mode::named(key).ok_or_else(missing)?,
+            "the word" => self.matching = Match::named(key).ok_or_else(missing)?,
+            "together" => self.together = Together::named(key).ok_or_else(missing)?,
+            "instrument" => self.sounding = Sounding::named(key).ok_or_else(missing)?,
+            // A chip whose one choice is a doorway rather than a setting: it
+            // shows what the scope is and clicking it opens the facet panel.
+            // Refused by name, because *this chip is not set this way* and
+            // *there is no such chip* are different things to whoever is
+            // looking at the window.
+            DOORWAY => return Err(ChipError::NotASetting(chip.to_string())),
+            other => return Err(ChipError::NoSuchChip(other.to_string())),
+        }
+        Ok(())
+    }
+
+    /// Every chip currently offered **that is set by choosing**, and every
+    /// choice under it.
+    ///
+    /// What [`Chips::choose`] is tested against: everything offered can be
+    /// chosen. [`DOORWAY`] is left out because it is not offered as a choice
+    /// in the first place — it is offered as a way in.
+    #[must_use]
+    pub fn settable(&self) -> Vec<(String, Vec<String>)> {
+        self.row()
+            .into_iter()
+            .filter(|chip| chip.name != DOORWAY)
+            .map(|chip| {
+                (
+                    chip.name.to_string(),
+                    chip.choices.into_iter().map(|c| c.key).collect(),
+                )
+            })
+            .collect()
     }
 }

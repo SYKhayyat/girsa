@@ -410,7 +410,7 @@ mod tests {
         let mut one = Buffer::new("חבורה");
         one.text = format!(
             "{}\nודו\"ק.\n",
-            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1-2a:4"))
+            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1-2a:4"), None)
         );
         one.save(&personal).expect("saves");
 
@@ -418,6 +418,7 @@ mod tests {
         two.text = girsa_ksav::mekor(
             "שו\"ע או\"ח א' ג'",
             Some("girsa:shulchan-arukh/orach-chayim/1:3"),
+            None,
         );
         two.save(&personal).expect("saves");
 
@@ -448,7 +449,7 @@ mod tests {
         let doc = shiurim.join("חבורה.ksav");
         std::fs::write(
             &doc,
-            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1-2a:4")),
+            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1-2a:4"), None),
         )
         .expect("Ksav wrote it");
 
@@ -479,7 +480,7 @@ mod tests {
         let doc = dir.join("על-הכונן.ksav");
         std::fs::write(
             &doc,
-            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1")),
+            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1"), None),
         )
         .expect("written");
 

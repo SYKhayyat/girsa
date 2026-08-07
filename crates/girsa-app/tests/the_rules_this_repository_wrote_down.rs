@@ -191,13 +191,28 @@ fn nothing_re_anchors_by_exact_id_where_a_standing_is_the_question() {
     // looked up at all.
     //
     // The seam is `Layer::apply_at`, which takes a `Standing`. `Layer::apply`
-    // stays for the write path, where the exact id is the right question.
+    // stays for the write path, where the exact id is the right question — and
+    // for the reading pane's one shortcut, which is why this check has two
+    // halves. Deriving a `Standing` per segment cost 3.6 of the three seconds
+    // in `three_seconds.rs`, so `corrected_by` asks `moved` once for the whole
+    // work first: has anything under these corrections been re-segmented at
+    // all. When the answer is no, `Standing::derived` would return `{id}` for
+    // every segment and the exact lookup is the same lookup.
+    //
+    // What a source scan can check is that both halves are still there: the
+    // `Standing` path, and the precheck that is the *only* thing making the
+    // exact-id path safe. That the `if` still connects them is what
+    // `an_anchor_survives_a_split_at_import.rs` runs.
     let root = repo();
     let shelf = std::fs::read_to_string(root.join("crates/girsa-app/src/shelf.rs"))
         .unwrap_or_else(|e| panic!("shelf.rs reads: {e}"));
     assert!(
-        shelf.contains("apply_at(&standing"),
+        shelf.contains("apply_at(standing"),
         "the reading pane stopped asking `Layer::apply_at`. A correction is stored under the name the place had when it was made, and an exact lookup will miss it the day upstream re-segments the work — see `an_anchor_survives_a_split_at_import.rs`."
+    );
+    assert!(
+        shelf.contains("let moved = fixes"),
+        "the reading pane takes the exact-id shortcut without asking whether anything moved. `Layer::apply` is only the same question as `apply_at` on a work nothing has re-segmented; without the precheck it is a correction that silently stops applying."
     );
 }
 
@@ -711,6 +726,92 @@ fn no_crate_reads_another_crates_file_by_string_surgery() {
          which is `girsa-personal`'s: see `girsa_personal::since`.",
         wrong.join("\n  ")
     );
+}
+
+/// The README: *"`app/` is the Tauri shell: a window and fifty commands, and
+/// **nothing that decides anything**."*
+///
+/// Four kinds of decision were in there, and each of them was a decision the
+/// README says lives in `girsa-app`.
+#[test]
+fn the_shell_decides_nothing_it_says_it_decides_nothing_about() {
+    let root = repo();
+    let shell: Vec<(String, String)> = sources(&root)
+        .into_iter()
+        .filter(|(path, _)| path.starts_with("app/src-tauri/"))
+        .collect();
+    assert!(!shell.is_empty(), "the shell's sources are readable");
+
+    let mut wrong = Vec::new();
+    for (path, body) in &shell {
+        for (at, line) in body.lines().enumerate() {
+            let line = line.trim();
+            if line.starts_with("//") {
+                continue;
+            }
+            let said = |what: &str| format!("{path}:{}: {what} — {line}", at + 1);
+
+            // Who is writing. It read `USERNAME` first and had never heard of
+            // `GIRSA_WHO`, so a reader who set the one variable this project
+            // offers got that name on notes written from the terminal and
+            // their operating-system login on every patch made in the window.
+            if line.contains("\"USERNAME\"") || line.contains("\"USER\"") {
+                wrong.push(said("who is writing is `girsa_personal::who`"));
+            }
+            // How long a sefer stays in memory, and which one goes.
+            if line.contains("KEEP_OPEN") {
+                wrong.push(said("how many seforim stay open is `girsa_app::held`"));
+            }
+            // Which fonts a Hebrew reading application offers.
+            if line.contains("Frank Ruehl") || line.contains("SBL Hebrew") {
+                wrong.push(said("the font families are `girsa_app::session::FONTS`"));
+            }
+            // What makes a directory a corpus.
+            if line.contains("works/index.jsonl") {
+                wrong.push(said("what makes a corpus is `girsa_corpus::roots`"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the shell decided something:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// `Chips::choose`: *"a value invented on read is a claim nobody made."*
+///
+/// Four chip families were read with a hand-written `match` whose last arm was
+/// `_ => the default`, forty lines from a `link_repair` that refused an unknown
+/// candidate by name. Two policies about one question, in one file, and the
+/// quiet one was the one the search bar used.
+#[test]
+fn no_chip_family_is_read_with_a_silent_fallback() {
+    let root = repo();
+    let mut wrong = Vec::new();
+    for (path, body) in sources(&root) {
+        if !path.starts_with("app/src-tauri/") {
+            continue;
+        }
+        for (at, line) in body.lines().enumerate() {
+            let line = line.trim();
+            if line.starts_with("//") {
+                continue;
+            }
+            // `_ => Mode::X` and friends: a wire value nobody sent, invented
+            // because one that was sent did not match.
+            for family in ["Mode::", "Match::", "Sounding::", "Together::"] {
+                if line.starts_with("_ =>") && line.contains(family) {
+                    wrong.push(format!(
+                        "{path}:{}: a chip read with a fallback — `Chips::choose` refuses \
+                         instead: {line}",
+                        at + 1
+                    ));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 #[test]

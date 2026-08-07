@@ -43,6 +43,18 @@ pub enum Mode {
     Instruments,
 }
 
+// The words are Rust's own `Debug` spellings, because that is what the chip
+// row has always sent — `format!("{mode:?}")` — and what the window sends back.
+// Written down here instead, so the wire format is a list rather than a
+// derive nobody thinks of as a wire format.
+girsa_corpus::spelled!(Mode {
+    ToratEmet => "ToratEmet",
+    Smart => "Smart",
+    Regex => "Regex",
+    Citation => "Citation",
+    Instruments => "Instruments",
+});
+
 impl Mode {
     /// Whether this mode may widen a query on its own initiative.
     ///

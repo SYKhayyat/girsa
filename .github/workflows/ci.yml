@@ -8,7 +8,7 @@ env:
   CARGO_TERM_COLOR: always
   # The sefer-crates commit this repository is built against.
   #
-  # `Cargo.toml` pins the shared crates to `=0.5.0`, on purpose: sefer-crates is
+  # `Cargo.toml` pins the shared crates to `=0.5.1`, on purpose: sefer-crates is
   # a separate repository, so a breaking change there is no longer one atomic
   # commit that compile-checks both applications, and the exact pin is what
   # makes taking a new version a deliberate act on this side.
@@ -25,7 +25,7 @@ env:
   # the stronger pin anyway: a tag can be moved and this cannot. Bumping the
   # version pins in `Cargo.toml` means bumping this line in the same commit, and
   # that is the point of it.
-  SEFER_CRATES_REF: 5a589afdd17281bda52fc168e0a37177058971fd
+  SEFER_CRATES_REF: c8edeaa9511507310759440dc076af1489ea7172
 
 # A push that supersedes another push should not make the machine finish the
 # first one. Pushes currently stack, and every superseded run pays a full

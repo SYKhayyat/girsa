@@ -241,6 +241,34 @@ consumer given a newer packet must error clearly, not partially deserialize.
 **Acceptance.** A packet built in Girsa deserializes in Ksav in a test that lives
 in `sefer-crates` and runs against both.
 
+**Amended 2026-08-07 — the packet carries a character range (sefer-crates 0.5.1).**
+A ref names *places*. A reader who highlights half a se'if gets the words they
+highlighted, and the packet said so in `text` and said nothing about **which
+characters of the place** those were — so §10.2's *only the highlighted part
+goes* and §7's *citations stay alive* contradicted each other at the
+regeneration step: `/quote` handed back the whole se'if. `SourcePacket.range` is
+`Range { from, to }`, optional, counted in characters of the text **as it was
+shown**. Absent means *nobody recorded one* and regenerating whole is the only
+honest answer; `Range::all()` means *the reader chose the whole place*.
+
+Three things had to move together, and this is why the field change is on the
+stop-and-ask list above:
+
+1. `girsa-source` grew the field and `SourcePacket::part`.
+2. `girsa-ksav`'s `mekor` writes it into the document as `תווים: "4-19"` —
+   omitted for the whole place, so every document already on disk still reads —
+   and `cited_in` reads it back. A range that stopped at the packet could never
+   be asked about again.
+3. Ksav's `typst/ksav.typ` learned the argument, and its own test compiles a
+   partial quote with the **real Typst engine**. `girsa-ksav` can assert it
+   wrote the string; only Ksav can assert Typst accepts it.
+
+On this side: `send` puts the reader's highlight on the packet, `quote` takes a
+range back and regenerates exactly it, and the desk's `/cite` and `/quote`
+errands carry it. `quote` also reads `Ref::to()` now — it never had, so a
+citation of three se'ifim regenerated as its first one, with no error to say the
+rest had been dropped.
+
 ---
 
 ## Tier 2 — Ingest

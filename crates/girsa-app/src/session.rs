@@ -195,6 +195,36 @@ pub struct Look {
     pub column_ch: u16,
 }
 
+/// The families a reader can choose between, in the order the panel offers
+/// them.
+///
+/// Named rather than enumerated from the system: a webview cannot list
+/// installed fonts, and a list this project invented would offer families the
+/// machine does not have. These are the ones a Hebrew reader is likely to have
+/// and the ones the stylesheet already names — and [`Look::hebrew_font`] takes
+/// any text, so a reader with something else types it.
+///
+/// The empty first entry is *the stylesheet's own stack*, which is what a
+/// reader who has never opened the panel is already reading in. Offering it
+/// as a choice is how they get back to it.
+///
+/// It lived in the shell, which the README says decides nothing. Which fonts
+/// a Hebrew reading application offers is a decision, and it is the kind that
+/// wants to be beside `Look` rather than beside the command that serialises
+/// it.
+pub const FONTS: &[&str] = &[
+    "",
+    "Frank Ruehl CLM",
+    "David CLM",
+    "Taamey Frank CLM",
+    "Frank Ruhl Hofshi",
+    "David Libre",
+    "Narkisim",
+    "SBL Hebrew",
+    "Times New Roman",
+    "Segoe UI",
+];
+
 /// A hundredth of a line, so a session compares equal after a round trip — the
 /// same reason `Layout::ratio` is in tenths of a percent and not a float.
 const fn leading() -> u16 {

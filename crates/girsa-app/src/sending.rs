@@ -31,8 +31,8 @@
 use girsa_cite::{cite, CiteStyle, Sefer};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::work::Work;
-use girsa_ref::Ref;
-use girsa_source::{SourcePacket, Version};
+use girsa_ref::{Address, Ref};
+use girsa_source::{Range, SourcePacket, Version};
 
 use crate::display;
 use crate::shelf::{address_of, Open};
@@ -184,7 +184,19 @@ pub fn send(
     let text = lines.join("\n");
     let display = cite(&about(&sefer.work), &reference, style);
 
-    let mut packet = SourcePacket::new(&reference, display.clone(), text.clone());
+    // The ref names places; the range names which characters of them this
+    // quote actually is. Without it, a corrected edition regenerates the
+    // **whole** se'if for a reader who highlighted half of one — spec.md §7
+    // and §10.2 contradicting each other at the regeneration step.
+    let mut packet = SourcePacket::part(
+        &reference,
+        display.clone(),
+        text.clone(),
+        Range {
+            from: from_char,
+            to: to_char,
+        },
+    );
     // Read off the text being sent rather than off the toggle: a sefer with no
     // nikud in it sends none whatever the toggle says, and the receiving
     // document should not be told to expect any.
@@ -207,6 +219,16 @@ pub fn send(
 /// **same index the link graph was built with**, so a quote regenerated a year
 /// later is the same passage the citation always meant.
 ///
+/// `range` is the packet's own [`Range`], handed back: the characters the
+/// reader highlighted the first time. `None` — a packet written before the
+/// field existed, or a ref typed by hand — regenerates the whole place, which
+/// is the only honest answer when nobody recorded what was highlighted.
+///
+/// The range comes back **on the returned packet**, so a quote regenerated
+/// twice is still the same half-se'if the reader chose. Losing it on the first
+/// regeneration would make the second one whole, which is the same bug one
+/// round later and much harder to see.
+///
 /// # Errors
 ///
 /// If the sefer has no such address. Never the nearest thing: a quote silently
@@ -215,19 +237,37 @@ pub fn send(
 pub fn quote(
     sefer: &Open,
     reference: &Ref,
+    range: Option<Range>,
     style: CiteStyle,
     nikud: bool,
 ) -> Result<Sent, SendError> {
-    let at = sefer.at(reference.from());
-    let (Some(from), Some(to)) = (at.first(), at.last()) else {
-        return Err(SendError::NoSuchPlace {
-            work: sefer.work.he_title.clone(),
-            address: reference.from().to_string(),
-        });
+    let missing = |address: &Address| SendError::NoSuchPlace {
+        work: sefer.work.he_title.clone(),
+        address: address.to_string(),
     };
+    let head = sefer.at(reference.from());
+    let Some(from) = head.first() else {
+        return Err(missing(reference.from()));
+    };
+    // A span ref names two ends. `to()` was not being read at all, so a quote
+    // of three se'ifim regenerated as its first se'if — the same words the
+    // reader chose, minus most of them, and no error to say so.
+    let tail = match reference.to() {
+        Some(address) => sefer.at(address),
+        None => head.clone(),
+    };
+    let Some(to) = tail.last() else {
+        return Err(missing(reference.to().unwrap_or(reference.from())));
+    };
+    let range = range.unwrap_or_else(Range::all);
     send(
         sefer,
-        &Selection::run(from.clone(), to.clone()),
+        &Selection {
+            from: from.clone(),
+            to: to.clone(),
+            from_char: range.from,
+            to_char: range.to,
+        },
         style,
         nikud,
         None,
@@ -597,9 +637,99 @@ pub(crate) mod tests {
         let reference: girsa_ref::Ref = "girsa:shulchan-arukh/orach-chayim/1:2"
             .parse()
             .expect("a ref");
-        let sent = quote(&sefer, &reference, CiteStyle::HebrewFull, false).expect("quotes");
+        let sent = quote(&sefer, &reference, None, CiteStyle::HebrewFull, false).expect("quotes");
         assert_eq!(sent.packet.text, "שויתי ה' לנגדי תמיד");
         assert_eq!(sent.display(), "שולחן ערוך, אורח חיים סימן א' סעיף ב'");
+    }
+
+    #[test]
+    fn half_a_seif_says_it_is_half_a_seif() {
+        // The ref names the se'if. Without the range on the packet, the ref is
+        // everything the receiving document is told, and there is no reading
+        // of it that gets these five words back.
+        let selection = Selection {
+            from: id(1),
+            to: id(1),
+            from_char: 0,
+            to_char: Some(10),
+        };
+        let sent = sent(&selection, false);
+        assert_eq!(sent.packet.text, "יתגבר כארי");
+        let range = sent.packet.range.expect("a range");
+        assert_eq!(range.from, 0);
+        assert_eq!(range.to, Some(10));
+        assert!(!range.is_all());
+    }
+
+    #[test]
+    fn a_whole_line_still_says_the_whole_line() {
+        let sent = sent(&Selection::whole(id(1)), false);
+        assert!(sent.packet.range.expect("a range").is_all());
+    }
+
+    #[test]
+    fn the_half_seif_regenerates_as_half_a_seif() {
+        // The promise this whole field exists for: the same words back after a
+        // correction, not the whole place around them. Before the range, the
+        // second assertion here was the first line entire.
+        let sefer = shulchan_arukh();
+        let selection = Selection {
+            from: id(1),
+            to: id(1),
+            from_char: 0,
+            to_char: Some(10),
+        };
+        let first = sent(&selection, false);
+        let reference = first.packet.reference().expect("a ref");
+        let again = quote(
+            &sefer,
+            &reference,
+            first.packet.range,
+            CiteStyle::HebrewFull,
+            false,
+        )
+        .expect("quotes");
+        assert_eq!(again.packet.text, first.packet.text);
+        // And it can be asked a third time: the range came back on the packet.
+        assert_eq!(again.packet.range, first.packet.range);
+    }
+
+    #[test]
+    fn a_quote_with_no_range_recorded_comes_back_whole() {
+        // A packet written by a Girsa older than the field. Whole is the only
+        // honest answer — nobody knows what was highlighted — and it must not
+        // be an error.
+        let sefer = shulchan_arukh();
+        let reference: girsa_ref::Ref = "girsa:shulchan-arukh/orach-chayim/1:1"
+            .parse()
+            .expect("a ref");
+        let sent = quote(&sefer, &reference, None, CiteStyle::HebrewFull, false).expect("quotes");
+        assert_eq!(sent.packet.text, "יתגבר כארי לעמוד בבקר לעבודת בוראו");
+    }
+
+    #[test]
+    fn a_span_regenerates_both_of_its_ends() {
+        // `Ref::to()` was not read at all: a quote of two se'ifim came back as
+        // its first se'if, with no error to say the rest had been dropped.
+        let sefer = shulchan_arukh();
+        let whole = sent(&Selection::run(id(1), id(2)), false);
+        let reference = whole.packet.reference().expect("a ref");
+        assert!(reference.is_span());
+        let again = quote(&sefer, &reference, None, CiteStyle::HebrewFull, false).expect("quotes");
+        assert_eq!(again.packet.text, whole.packet.text);
+        assert!(again.packet.text.contains(char::from(10)));
+    }
+
+    #[test]
+    fn a_span_whose_far_end_is_missing_is_refused_and_not_shortened() {
+        let sefer = shulchan_arukh();
+        let reference: girsa_ref::Ref = "girsa:shulchan-arukh/orach-chayim/1:1-1:99"
+            .parse()
+            .expect("a ref");
+        assert!(matches!(
+            quote(&sefer, &reference, None, CiteStyle::HebrewFull, false),
+            Err(SendError::NoSuchPlace { .. })
+        ));
     }
 
     #[test]
@@ -609,7 +739,7 @@ pub(crate) mod tests {
             .parse()
             .expect("a ref");
         assert!(matches!(
-            quote(&sefer, &reference, CiteStyle::HebrewFull, false),
+            quote(&sefer, &reference, None, CiteStyle::HebrewFull, false),
             Err(SendError::NoSuchPlace { .. })
         ));
     }

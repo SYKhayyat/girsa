@@ -48,6 +48,12 @@ pub enum Match {
     Letters,
 }
 
+girsa_corpus::spelled!(Match {
+    Word => "Word",
+    Contains => "Contains",
+    Letters => "Letters",
+});
+
 /// How the words of a query relate to each other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Together {
@@ -60,6 +66,43 @@ pub enum Together {
     /// which is what *"within X words of each other"* says.
     Near { words: u32 },
 }
+
+impl Together {
+    /// What this is called on the wire.
+    ///
+    /// `Near` carries a number, so it cannot be a `spelled!` table: the
+    /// spelling *is* the number. `Near5` is one chip choice and `Near12` is
+    /// another, and a reader who has set one is not offered the other.
+    #[must_use]
+    pub fn key(self) -> String {
+        match self {
+            Self::Anywhere => "Anywhere".to_string(),
+            Self::Phrase => "Phrase".to_string(),
+            Self::Near { words } => format!("{NEAR}{words}"),
+        }
+    }
+
+    /// Read back what [`Self::key`] wrote.
+    ///
+    /// `None` for anything else — including `Near` with no number and `Near`
+    /// with something that is not one. It used to fall through to `Anywhere`,
+    /// so `Nearbanana` was a search of the whole segment presented as a
+    /// proximity search, with the chip showing what the reader asked for.
+    #[must_use]
+    pub fn named(key: &str) -> Option<Self> {
+        match key {
+            "Anywhere" => Some(Self::Anywhere),
+            "Phrase" => Some(Self::Phrase),
+            other => other
+                .strip_prefix(NEAR)
+                .and_then(|n| n.parse().ok())
+                .map(|words| Self::Near { words }),
+        }
+    }
+}
+
+/// The prefix on the proximity chip's key, before the number.
+const NEAR: &str = "Near";
 
 /// More orderings than this and the search is refused instead of approximated.
 ///

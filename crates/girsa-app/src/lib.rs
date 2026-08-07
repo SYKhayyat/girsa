@@ -31,8 +31,10 @@ pub mod display;
 // `who_cites` answered over the toy editor's directory, so a `.ksav` written in
 // the real Ksav was never found.
 pub mod documents;
+pub mod enough;
 pub mod export;
 pub mod fixing;
+pub mod held;
 pub mod keys;
 pub mod lens;
 pub mod links;
@@ -72,10 +74,17 @@ pub use girsa_note::since::{find_index, is_an_index, Unindexed, Written};
 pub use keys::{Bound, Press, ACTIONS};
 pub use lens::{Lens, Lenses};
 pub use links::{touching, Link, Touching};
+// The name to stamp on what you write, re-exported: the window used to have
+// its own, and it disagreed with the one the command-line tools use.
+pub use girsa_personal::who;
 pub use naming::{Names, Naming};
 pub use notes::{collect, note_here, yours, Marked, Wrote, Yours};
 pub use reading::{gap, gap_over, readings, Gap, Scanned};
 pub use scanning::{is_scan, mareh_makom, scan_of};
+// Re-exported rather than left to callers to reach for: which characters of a
+// place a quote is is part of *this* crate's answer, and a shell that imported
+// it from two places would eventually import two versions of it.
+pub use girsa_source::Range;
 pub use sending::{quote, send, Selection, SendError, Sent};
 pub use session::Session;
 pub use shelf::{Companion, Open, Shelf, ShelfError};

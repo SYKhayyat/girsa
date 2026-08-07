@@ -77,6 +77,17 @@ pub struct NoteRow {
 }
 
 impl NoteRow {
+    /// Most recently touched first, and alphabetical among notes touched in the
+    /// same second.
+    ///
+    /// The tiebreak is the point. Two notes written in the same second — which
+    /// is what happens when one errand writes both — came back in whatever
+    /// order the shelf's map iterated, so the list reordered itself between
+    /// two openings of the same panel with nothing having changed.
+    pub fn newest_first(rows: &mut [Self]) {
+        rows.sort_by(|a, b| b.edited.cmp(&a.edited).then_with(|| a.title.cmp(&b.title)));
+    }
+
     pub fn of(note: &girsa_note::Note) -> Self {
         let opening = note
             .paras()
@@ -615,6 +626,15 @@ pub struct PatchRow {
     pub source: Option<String>,
 }
 
+impl PatchRow {
+    /// Newest first: a correction queue is read from the top, and the tiebreak
+    /// is the id so that two corrections stamped in the same second do not
+    /// swap places between two openings of the panel.
+    pub fn newest_first(rows: &mut [Self]) {
+        rows.sort_by(|a, b| b.when.cmp(&a.when).then_with(|| a.id.cmp(&b.id)));
+    }
+}
+
 /// One link, as the panel shows it.
 ///
 /// Everything §8.3 asks a repair UI to show its work with: which end, what the
@@ -1058,5 +1078,85 @@ impl Line {
                     .to_string()
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note(title: &str, edited: u64) -> NoteRow {
+        NoteRow {
+            slug: format!("note/{title}"),
+            name: title.to_string(),
+            title: title.to_string(),
+            opening: String::new(),
+            tags: Vec::new(),
+            paragraphs: 0,
+            edited,
+            on: Vec::new(),
+        }
+    }
+
+    fn patch(id: &str, when: u64) -> PatchRow {
+        PatchRow {
+            id: id.to_string(),
+            segment: String::new(),
+            work: String::new(),
+            title: String::new(),
+            address: String::new(),
+            kind: "text",
+            was: String::new(),
+            now: String::new(),
+            who: String::new(),
+            when,
+            note: None,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn notes_are_newest_first() {
+        let mut rows = vec![note("א", 10), note("ב", 30), note("ג", 20)];
+        NoteRow::newest_first(&mut rows);
+        assert_eq!(
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
+            ["ב", "ג", "א"]
+        );
+    }
+
+    #[test]
+    fn two_notes_written_in_the_same_second_do_not_swap_places() {
+        // Which is what happens when one errand writes both. Without the
+        // tiebreak the order was the shelf's map iteration, and the panel
+        // reordered itself between two openings with nothing having changed.
+        let mut rows = vec![note("ג", 10), note("א", 10), note("ב", 10)];
+        NoteRow::newest_first(&mut rows);
+        let once: Vec<String> = rows.iter().map(|r| r.title.clone()).collect();
+        rows.reverse();
+        NoteRow::newest_first(&mut rows);
+        let twice: Vec<String> = rows.iter().map(|r| r.title.clone()).collect();
+        assert_eq!(once, twice);
+        assert_eq!(once, ["א", "ב", "ג"]);
+    }
+
+    #[test]
+    fn a_correction_queue_is_read_from_the_top() {
+        let mut rows = vec![patch("a", 1), patch("b", 3), patch("c", 2)];
+        PatchRow::newest_first(&mut rows);
+        assert_eq!(
+            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["b", "c", "a"]
+        );
+    }
+
+    #[test]
+    fn two_corrections_stamped_in_the_same_second_hold_still() {
+        let mut rows = vec![patch("c", 5), patch("a", 5), patch("b", 5)];
+        PatchRow::newest_first(&mut rows);
+        assert_eq!(
+            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
     }
 }

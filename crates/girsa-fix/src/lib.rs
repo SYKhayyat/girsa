@@ -446,6 +446,17 @@ impl Layer {
         found
     }
 
+    /// The places in one work that have corrections, **by the name they were
+    /// stored under** — which is not always a name the work still has.
+    ///
+    /// The one question a reader of this layer can ask cheaply about whether
+    /// re-anchoring is needed at all: if every name here is still a segment,
+    /// nothing has been re-segmented under these corrections and a place
+    /// answers to exactly its own name.
+    pub fn names_in<'a>(&'a self, slug: &'a str) -> impl Iterator<Item = &'a SegmentId> {
+        self.by_segment.keys().filter(move |id| id.work() == slug)
+    }
+
     /// Every correction, oldest segment first.
     pub fn all(&self) -> impl Iterator<Item = &Patch> {
         self.by_segment.values().flatten()

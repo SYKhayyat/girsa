@@ -90,12 +90,12 @@ girsa-fixture = { version = "=0.1.0", path = "crates/girsa-fixture" }
 # repositories feels like one workspace without them being one. When these are
 # published, the `path` key is what cargo ignores and `version` is what it uses;
 # until then the checkout must be present.
-girsa-source = { version = "=0.5.0", path = "../sefer-crates/crates/girsa-source" }
-girsa-ref = { version = "=0.5.0", path = "../sefer-crates/crates/girsa-ref" }
-girsa-hebrew = { version = "=0.5.0", path = "../sefer-crates/crates/girsa-hebrew" }
-girsa-cite = { version = "=0.5.0", path = "../sefer-crates/crates/girsa-cite" }
-girsa-ksav = { version = "=0.5.0", path = "../sefer-crates/crates/girsa-ksav" }
-girsa-post = { version = "=0.5.0", path = "../sefer-crates/crates/girsa-post" }
+girsa-source = { version = "=0.5.1", path = "../sefer-crates/crates/girsa-source" }
+girsa-ref = { version = "=0.5.1", path = "../sefer-crates/crates/girsa-ref" }
+girsa-hebrew = { version = "=0.5.1", path = "../sefer-crates/crates/girsa-hebrew" }
+girsa-cite = { version = "=0.5.1", path = "../sefer-crates/crates/girsa-cite" }
+girsa-ksav = { version = "=0.5.1", path = "../sefer-crates/crates/girsa-ksav" }
+girsa-post = { version = "=0.5.1", path = "../sefer-crates/crates/girsa-post" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -138,6 +138,19 @@ debug = false
 opt-level = 2
 
 [profile.dev.package.girsa-search]
+opt-level = 2
+
+# ...and these two, which are on the *reading* hot path: a reader's corrections
+# are read and applied on every page turn. spec.md §7.5 budgets three seconds
+# for correcting a typo, and `three_seconds.rs` was measuring an unoptimized
+# build against it — at 16,000 corrections, 2.7 seconds of unoptimized string
+# work in `Layer::apply` and `Open::corrected_by`, against a budget written
+# about the application the reader actually runs. The guardrail was reporting
+# the compiler's settings as the code's cost.
+[profile.dev.package.girsa-fix]
+opt-level = 2
+
+[profile.dev.package.girsa-app]
 opt-level = 2
 
 [profile.release]

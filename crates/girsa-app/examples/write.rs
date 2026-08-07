@@ -50,7 +50,7 @@ fn main() -> ExitCode {
 
     let sent: Sent =
         match Shelf::open(&root, &personal).and_then(|shelf| shelf.read(&reference.work_slug())) {
-            Ok(sefer) => match quote(&sefer, &reference, CiteStyle::HebrewFull, false) {
+            Ok(sefer) => match quote(&sefer, &reference, None, CiteStyle::HebrewFull, false) {
                 Ok(sent) => sent,
                 Err(e) => {
                     eprintln!("{e}");

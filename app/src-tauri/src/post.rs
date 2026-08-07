@@ -51,6 +51,12 @@ struct Asked {
     /// setting, which is the sensible default for a window that is open.
     #[serde(default)]
     style: Option<String>,
+    /// Which characters of the place the asking quote actually was — the
+    /// `range` off the packet Ksav stored. Absent is *nobody recorded one*,
+    /// and regenerates the whole place, which is all anyone can honestly do
+    /// with a quote written before the field existed.
+    #[serde(default)]
+    range: Option<girsa_app::Range>,
 }
 
 /// Open the desk and start answering.
@@ -92,8 +98,8 @@ fn answer(handle: &tauri::AppHandle, path: &str, body: &str) -> Reply {
 
     match path {
         "/open" => show(handle, &reference),
-        "/cite" => quote(handle, &reference, asked.style.as_deref(), false),
-        "/quote" => quote(handle, &reference, asked.style.as_deref(), true),
+        "/cite" => quote(handle, &reference, &asked, false),
+        "/quote" => quote(handle, &reference, &asked, true),
         other => Reply::refused(404, format!("no such errand: {other}")),
     }
 }
@@ -144,12 +150,14 @@ fn show(handle: &tauri::AppHandle, reference: &Ref) -> Reply {
 
 /// The citation, and — for `/quote` — the words it names, as the corpus stands
 /// now.
-fn quote(handle: &tauri::AppHandle, reference: &Ref, style: Option<&str>, text: bool) -> Reply {
+fn quote(handle: &tauri::AppHandle, reference: &Ref, asked: &Asked, text: bool) -> Reply {
     let shared = handle.state::<Shared>();
     let Ok(mut state) = shared.lock() else {
         return Reply::refused(500, "the library is busy");
     };
-    let style = style
+    let style = asked
+        .style
+        .as_deref()
         .and_then(CiteStyle::named)
         .unwrap_or(state.session.cite);
 
@@ -185,7 +193,7 @@ fn quote(handle: &tauri::AppHandle, reference: &Ref, style: Option<&str>, text: 
         Ok(sefer) => sefer,
         Err(e) => return Reply::refused(404, e),
     };
-    match girsa_app::quote(sefer, reference, style, nikud) {
+    match girsa_app::quote(sefer, reference, asked.range, style, nikud) {
         Ok(sent) => match sent.packet.to_json() {
             Ok(json) => Reply::ok(json),
             Err(e) => Reply::refused(500, e.to_string()),
