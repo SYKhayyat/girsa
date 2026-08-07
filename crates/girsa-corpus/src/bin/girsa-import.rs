@@ -29,22 +29,41 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use girsa_corpus::argv::{self, Argv};
 use girsa_corpus::import::{self, Counts, SegmentKind};
 use girsa_corpus::work::{Catalogue, Source, Work};
 
+const USAGE: &str = "\
+usage: girsa-import [--metadata-only] <corpus> <otzaria>
+
+  Reads an Otzaria tree and writes it into the corpus as seforim with
+  permanent segment ids.
+
+  --metadata-only        rebuild the catalogue and leave the text alone";
+
 fn main() -> std::process::ExitCode {
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    // The old parser stripped **every** `--`-prefixed token with a `retain`, so
+    // a mistyped `--metadata-onyl` was swallowed without a word and the full
+    // hour-long import ran instead of the minute-long one.
+    let args = match Argv::of(typed, &["--metadata-only"], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
     // Rebuild every work's metadata from the catalogue and leave the text
     // alone. The segments are five million records and take an hour; the
     // metadata is a schema field per work and takes a minute, and a shelf that
     // has to be re-imported to learn one new fact about a sefer is a shelf
     // nobody will ever add a field to again.
-    let metadata_only = args.iter().any(|a| a == "--metadata-only");
-    args.retain(|a| !a.starts_with("--"));
-    let mut args = args.into_iter();
-    let (Some(corpus_root), Some(otzaria_root)) = (args.next(), args.next()) else {
-        eprintln!("usage: girsa-import [--metadata-only] <corpus-root> <otzaria-root>");
-        return std::process::ExitCode::from(2);
+    let metadata_only = args.switch("--metadata-only");
+    let (Some(corpus_root), Some(otzaria_root)) = (args.word(0), args.word(1)) else {
+        return argv::refuse(USAGE);
     };
     let corpus_root = PathBuf::from(corpus_root);
     let otzaria_root = PathBuf::from(otzaria_root);

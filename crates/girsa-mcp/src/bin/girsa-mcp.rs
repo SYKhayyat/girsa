@@ -24,14 +24,32 @@
 // The greeting goes to stderr. stdout is the protocol.
 #![allow(clippy::print_stderr)]
 
+use girsa_corpus::argv::{self, Argv};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
+const USAGE: &str = "\
+usage: girsa-mcp <corpus> <personal> <index>
+
+  Speaks MCP on stdin and stdout. All three are required, and the count is
+  exact: this is started by another program, and a default that quietly
+  opened the wrong shelf would be a program answering confidently about a
+  library nobody asked about.";
+
 fn main() -> std::process::ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [root, personal, index] = args.as_slice() else {
-        eprintln!("usage: girsa-mcp <corpus-root> <personal-root> <index-dir>");
-        return std::process::ExitCode::from(2);
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let [root, personal, index] = args.words() else {
+        return argv::refuse(USAGE);
     };
 
     let mut server = match girsa_mcp::Server::open(

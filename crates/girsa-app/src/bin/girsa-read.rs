@@ -24,12 +24,13 @@
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
 use std::io::Read as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use girsa_app::find_index;
 use girsa_app::reading::gap;
 use girsa_app::scanning::{is_scan, pages_of};
 use girsa_app::Shelf;
+use girsa_corpus::argv::{self, Argv, Roots};
 use girsa_scan::engine::{Engine, Image, Tesseract};
 use girsa_scan::reading::{group, unmapped, Area, Glyph, Read, Reader};
 use girsa_scan::words::{Job, Words};
@@ -79,10 +80,34 @@ impl PageGlyphs {
     }
 }
 
+/// What this reads.
+const USAGE: &str = "\
+usage: girsa-read [corpus] [personal] [command]
+
+  status [slug]            what is searchable, and what honestly is not. The default
+  words <slug>             read a page from glyphs on stdin
+  ocr <slug> <dir> [page…] read pages with the OCR engine, one at a time
+  show <slug> <page>       the words on a page, as they were read
+  fix <slug> <page> <word> <says>
+                           correct one word of one page
+
+corpus and personal default to directories of those names beside you.";
+
 fn main() -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
-    let corpus = PathBuf::from(args.next().unwrap_or_else(|| "corpus".into()));
-    let personal = PathBuf::from(args.next().unwrap_or_else(|| "personal".into()));
+    // Named `typed` rather than `words`, which is one of this binary's verbs.
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let Roots { corpus, personal } = Roots::of(&args);
+    let after = args.from(Roots::AFTER);
 
     let shelf = match Shelf::open(&corpus, &personal) {
         Ok(shelf) => shelf,
@@ -95,19 +120,20 @@ fn main() -> std::process::ExitCode {
         eprintln!("{trouble}");
     }
 
-    let verb = args.next().unwrap_or_else(|| "status".into());
-    let rest: Vec<String> = args.collect();
-    let outcome = match verb.as_str() {
+    let verb = after.first().map_or("status", String::as_str);
+    let rest: &[String] = after.get(1..).unwrap_or(&[]);
+    let outcome = match verb {
         "status" => status(&shelf, &personal, rest.first().map(String::as_str)),
         "words" => words(&shelf, &personal, rest.first().map(String::as_str)),
-        "ocr" => ocr(&shelf, &personal, &rest),
-        "show" => show(&personal, &rest),
-        "fix" => fix(&personal, &rest),
-        other => Err(format!(
-            "{other}: this reads `status [slug]`, `words <slug>` (glyphs on stdin), \
-             `ocr <slug> <directory of page-N.png> [page…]`, `show <slug> <page>` and \
-             `fix <slug> <page> <word> <says>`"
-        )),
+        "ocr" => ocr(&shelf, &personal, rest),
+        "show" => show(&personal, rest),
+        "fix" => fix(&personal, rest),
+        // A typo, not a failure. This used to come back through the same
+        // `Err(String)` path as *the shelf will not open* and exit 1 with it.
+        other => {
+            eprintln!("{other}: no such command");
+            return argv::refuse(USAGE);
+        }
     };
     if let Err(e) = outcome {
         eprintln!("{e}");

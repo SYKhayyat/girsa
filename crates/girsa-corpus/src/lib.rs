@@ -85,6 +85,9 @@ macro_rules! spelled {
 }
 
 pub mod anchors;
+// Sixteen binaries, five conventions for reading a command line, and three
+// parsers that could not tell a switch from a value flag.
+pub mod argv;
 pub mod csv;
 pub mod era;
 pub mod fetch;

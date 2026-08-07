@@ -37,14 +37,57 @@ use std::path::PathBuf;
 use girsa_app::naming::Names;
 use girsa_app::shelf::Shelf;
 use girsa_app::Link;
+use girsa_corpus::argv::{self, Argv, Roots};
 use girsa_corpus::segment::SegmentId;
 use girsa_note::mark::Placed;
 use girsa_note::{Mark, Member, SavedQuery};
 
+/// The options this reads, and which of them take a value.
+///
+/// Naming them is what fixes `split_flags`, which made **every** `--x` swallow
+/// the token after it: a switch ate a positional, and `--title=x` was stored
+/// under the key `title=x` while still eating the next word.
+const VALUES: &[&str] = &["--title", "--tag", "--label"];
+
+const USAGE: &str = "\
+usage: girsa-notes [corpus] [personal] [command]
+
+  list                                  your notes. The default
+  show <note>                           one note, with its paragraph ids
+  on <slug> <address>                   what you have written about a place
+  write <slug> <address> <text> [--title t] [--tag t]…
+  add <note> <text>                     another paragraph, at the end
+  after <paragraph id> <text>           one in between, moving nothing
+  tag <note> <tag>…
+  anchor <note> <slug> <address>
+  forget <note>
+  mark <slug> <address> <from> <to> [--label l]
+  bookmark <slug> <address> [--label l]
+  marks
+  keep <name> <query>                   save a question
+  queries
+  folder <name> <title> <slug> <address>
+  folders
+  tags
+  export <directory>
+
+corpus and personal default to directories of those names beside you.
+An option takes its value either way round: --title x and --title=x.";
+
 fn main() -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
-    let corpus = PathBuf::from(args.next().unwrap_or_else(|| "corpus".into()));
-    let personal = PathBuf::from(args.next().unwrap_or_else(|| "personal".into()));
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], VALUES) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let Roots { corpus, personal } = Roots::of(&args);
+    let after_roots = args.from(Roots::AFTER);
 
     let mut shelf = match Shelf::open(&corpus, &personal) {
         Ok(shelf) => shelf,
@@ -57,38 +100,34 @@ fn main() -> std::process::ExitCode {
         eprintln!("{trouble}");
     }
 
-    let verb = args.next().unwrap_or_else(|| "list".into());
-    let rest: Vec<String> = args.collect();
-    let outcome = match verb.as_str() {
+    let verb = after_roots.first().map_or("list", String::as_str);
+    let rest: &[String] = after_roots.get(1..).unwrap_or(&[]);
+    let outcome = match verb {
         "list" => list(&shelf),
-        "show" => show(&shelf, &rest),
-        "on" => on(&shelf, &rest),
-        "write" => write(&mut shelf, &rest),
-        "add" => add(&mut shelf, &rest),
-        "after" => after(&mut shelf, &rest),
-        "tag" => tag(&mut shelf, &rest),
-        "anchor" => anchor(&mut shelf, &rest),
-        "forget" => forget(&mut shelf, &rest),
-        "mark" => mark(&mut shelf, &rest),
-        "bookmark" => bookmark(&mut shelf, &rest),
+        "show" => show(&shelf, rest),
+        "on" => on(&shelf, rest),
+        "write" => write(&mut shelf, &args, rest),
+        "add" => add(&mut shelf, rest),
+        "after" => after(&mut shelf, rest),
+        "tag" => tag(&mut shelf, rest),
+        "anchor" => anchor(&mut shelf, rest),
+        "forget" => forget(&mut shelf, rest),
+        "mark" => mark(&mut shelf, &args, rest),
+        "bookmark" => bookmark(&mut shelf, &args, rest),
         "marks" => marks(&shelf),
-        "keep" => keep(&mut shelf, &rest),
+        "keep" => keep(&mut shelf, rest),
         "queries" => queries(&shelf),
-        "folder" => folder(&mut shelf, &rest),
+        "folder" => folder(&mut shelf, rest),
         "folders" => folders(&shelf),
         "tags" => tags(&shelf),
-        "export" => export(&shelf, &rest),
-        other => Err(format!(
-            "{other}: this reads `list`, `show <note>`, `on <slug> <address>`, \
-             `write <slug> <address> <text> [--title t] [--tag t]`, `add <note> <text>`, \
-             `after <paragraph id> <text>`, `tag <note> <tag>…`, \
-             `anchor <note> <slug> <address>`, `forget <note>`, \
-             `mark <slug> <address> <from> <to> [--label l]`, \
-             `bookmark <slug> <address> [--label l]`, `marks`, \
-             `keep <name> <query>`, `queries`, \
-             `folder <name> <title> <slug> <address>`, `folders`, `tags` and \
-             `export <directory>`"
-        )),
+        "export" => export(&shelf, rest),
+        // A typo, not a failure. The list of verbs is `USAGE`, which is
+        // also what `--help` prints — this binary had no usage string at all,
+        // and this arm was it.
+        other => {
+            eprintln!("{other}: no such command");
+            return argv::refuse(USAGE);
+        }
     };
     if let Err(e) = outcome {
         eprintln!("{e}");
@@ -215,22 +254,14 @@ fn is_mine(link: &Link) -> bool {
 }
 
 /// Write a note about a place.
-fn write(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
-    let (flags, plain) = split_flags(rest);
-    let at = place(shelf, &plain)?;
-    let text = plain.get(2).ok_or("write <slug> <address> <text>")?;
-    let title = flags
-        .iter()
-        .find(|(k, _)| k == "title")
-        .map(|(_, v)| v.clone());
+fn write(shelf: &mut Shelf, args: &Argv, rest: &[String]) -> Result<(), String> {
+    let at = place(shelf, rest)?;
+    let text = rest.get(2).ok_or("write <slug> <address> <text>")?;
+    let title = args.value("--title");
 
-    let mut note = girsa_app::note_here(shelf, &at, title.as_deref(), text, &whoami())
-        .map_err(|e| e.to_string())?;
-    let wanted: Vec<&String> = flags
-        .iter()
-        .filter(|(k, _)| k == "tag")
-        .map(|(_, v)| v)
-        .collect();
+    let mut note =
+        girsa_app::note_here(shelf, &at, title, text, &whoami()).map_err(|e| e.to_string())?;
+    let wanted = args.every("--tag");
     if !wanted.is_empty() {
         for value in wanted {
             note.tag(value);
@@ -331,15 +362,14 @@ fn forget(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn mark(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
-    let (flags, plain) = split_flags(rest);
-    let at = place(shelf, &plain)?;
-    let from: usize = plain
+fn mark(shelf: &mut Shelf, args: &Argv, rest: &[String]) -> Result<(), String> {
+    let at = place(shelf, rest)?;
+    let from: usize = rest
         .get(2)
         .ok_or("mark <slug> <address> <from> <to>")?
         .parse()
         .map_err(|_| "the offsets are numbers of characters")?;
-    let to: usize = plain
+    let to: usize = rest
         .get(3)
         .ok_or("mark <slug> <address> <from> <to>")?
         .parse()
@@ -354,7 +384,7 @@ fn mark(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
         .collect();
 
     let mut made = Mark::highlight(at, from..to, &was, whoami());
-    if let Some((_, label)) = flags.iter().find(|(k, _)| k == "label") {
+    if let Some(label) = args.value("--label") {
         made = made.called(label);
     }
     let id = made.id.clone();
@@ -367,11 +397,10 @@ fn mark(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn bookmark(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
-    let (flags, plain) = split_flags(rest);
-    let at = place(shelf, &plain)?;
+fn bookmark(shelf: &mut Shelf, args: &Argv, rest: &[String]) -> Result<(), String> {
+    let at = place(shelf, rest)?;
     let mut made = Mark::bookmark(at.clone(), whoami());
-    if let Some((_, label)) = flags.iter().find(|(k, _)| k == "label") {
+    if let Some(label) = args.value("--label") {
         made = made.called(label);
     }
     let id = made.id.clone();
@@ -524,27 +553,6 @@ fn place(shelf: &Shelf, rest: &[String]) -> Result<SegmentId, String> {
         }
         None => Err(format!("{slug} has nothing at {address}")),
     }
-}
-
-/// `--key value` pairs, and everything else in order.
-fn split_flags(args: &[String]) -> (Vec<(String, String)>, Vec<String>) {
-    let mut flags = Vec::new();
-    let mut plain = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].strip_prefix("--") {
-            Some(key) => {
-                let value = args.get(i + 1).cloned().unwrap_or_default();
-                flags.push((key.to_string(), value));
-                i += 2;
-            }
-            None => {
-                plain.push(args[i].clone());
-                i += 1;
-            }
-        }
-    }
-    (flags, plain)
 }
 
 /// Who is writing. Free text — this is a personal layer, not a registry.

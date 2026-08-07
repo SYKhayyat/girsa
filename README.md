@@ -97,6 +97,43 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt -- --check
 ```
 
+### Every command reads its command line the same way
+
+All sixteen binaries take the same shape, and `--help` on any of them prints
+what it reads:
+
+```sh
+girsa-shelf [corpus] [personal] [command]      # corpus and personal default
+girsa-index find <index> <root> [how …] <query …>
+```
+
+An option that takes a value takes it **either way round** — `--depth 5` and
+`--depth=5`. A wrong invocation exits **2**; a run that failed exits 1; asking
+for `--help` exits 0.
+
+That was five conventions and no shared line of code, and three of them cost
+something rather than being untidy:
+
+- **`girsa-chain` advertised a syntax it rejected.** Its usage said `[--depth
+  N]`; its parser was `strip_prefix("--depth")?.strip_prefix('=')?`, so only
+  `--depth=N` worked. Typing what the usage said left a bare `N` among the
+  segment ids, and what came back was an error message about segment ids.
+- **`girsa-notes` made every option take a value.** `split_flags` had `--x`
+  unconditionally swallow the token after it, so a switch ate a positional and
+  `--title=x` was stored under the key `title=x` while still eating the next
+  word.
+- **`girsa-link-orient` turned a typo into a path.** Its parser was `other =>
+  root = PathBuf::from(other)`, so `--replce` silently became the corpus root.
+  The run then read a directory of that name, found no links, and reported
+  that it had finished.
+
+Each is one shape: a parser that could not tell a switch from a value option,
+because nothing had told it which was which. `girsa_corpus::argv::Argv::of`
+is told — it takes both lists by name — and that is the whole of the fix.
+Four binaries also used to exit 1 for a mistyped verb, through the same path
+as *the shelf will not open*, so a script could not tell a typo from a broken
+corpus.
+
 ### The tests do not need the corpus, and for a long time they pretended to
 
 `cargo test` above is 816 tests and no download. Forty-three of them used to

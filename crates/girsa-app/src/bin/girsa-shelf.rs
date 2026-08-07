@@ -18,15 +18,39 @@
 // A tool that prints a report. The library it calls does not print.
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use girsa_app::taxonomy::Branch;
 use girsa_app::Shelf;
+use girsa_corpus::argv::{self, Argv, Roots};
+
+/// What this reads. There was none of this: the nearest thing was the error for
+/// an unknown verb, which never named the `<corpus> <personal>` prefix at all —
+/// so the way to find out what the first two words were was to read the source.
+const USAGE: &str = "\
+usage: girsa-shelf [corpus] [personal] [command]
+
+  show                     the shelf as a tree. The default
+  add <file>               put a sefer of your own on it
+  move <slug> <shelf>      stand a sefer somewhere else
+  reset                    forget your arrangement
+
+corpus and personal default to directories of those names beside you.";
 
 fn main() -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
-    let corpus = PathBuf::from(args.next().unwrap_or_else(|| "corpus".into()));
-    let personal = PathBuf::from(args.next().unwrap_or_else(|| "personal".into()));
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&words) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(words, &[], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let Roots { corpus, personal } = Roots::of(&args);
+    let rest = args.from(Roots::AFTER);
 
     let mut shelf = match Shelf::open(&corpus, &personal) {
         Ok(shelf) => shelf,
@@ -39,20 +63,29 @@ fn main() -> std::process::ExitCode {
         eprintln!("{trouble}");
     }
 
-    let verb = args.next().unwrap_or_else(|| "show".into());
-    let outcome = match verb.as_str() {
+    let verb = rest.first().map_or("show", String::as_str);
+    let after = rest.get(1..).unwrap_or(&[]);
+    let outcome = match verb {
         "show" => Ok(()),
-        "add" => add(&mut shelf, args.next().as_deref()),
-        "move" => put(&mut shelf, args.next().as_deref(), args.next().as_deref()),
+        "add" => add(&mut shelf, after.first().map(String::as_str)),
+        "move" => put(
+            &mut shelf,
+            after.first().map(String::as_str),
+            after.get(1).map(String::as_str),
+        ),
         "reset" => shelf
             .edit(|a| {
                 a.reset();
                 Ok(())
             })
             .map_err(|e| e.to_string()),
-        other => Err(format!(
-            "{other}: this reads `show`, `add <file>`, `move <slug> <shelf>` and `reset`"
-        )),
+        // A verb nobody has is a typo, not a failure — `WRONG_INVOCATION`, so a
+        // script can tell it from a corpus that will not open. This exited 1,
+        // through the same path as *the shelf will not open*.
+        other => {
+            eprintln!("{other}: no such command");
+            return argv::refuse(USAGE);
+        }
     };
     if let Err(e) = outcome {
         eprintln!("{e}");

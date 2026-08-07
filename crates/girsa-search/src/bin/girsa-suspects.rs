@@ -23,6 +23,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use girsa_corpus::argv::{self, Argv};
 use girsa_fix::suspect::{hunt, Queue, Settings, Suspect, Vocabulary};
 use girsa_search::index::SearchIndex;
 
@@ -32,22 +33,38 @@ use girsa_search::index::SearchIndex;
 /// segments — which by definition it does not — could bloat the file.
 const PLACES: usize = 3;
 
+const USAGE: &str = "\
+usage: girsa-suspects <index> <personal> [--rare 1] [--common 10000] [--shortest 4]
+
+  Finds words that are almost certainly scanning errors and writes them to
+  <personal>/suspects.jsonl as a ranked queue. Corrects nothing.
+
+  --rare N               a word seen this often or less is a suspect
+  --common N             a word seen this often or more is what it is a typo of
+  --shortest N           the shortest word worth looking at";
+
 fn main() -> std::process::ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let plain: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
-    let (Some(index), Some(personal)) = (plain.first(), plain.get(1)) else {
-        return usage();
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &["--rare", "--common", "--shortest"]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
     };
-    let mut settings = Settings::default();
-    if let Some(at) = flag(&args, "--common") {
-        settings.common_at = at;
-    }
-    if let Some(at) = flag(&args, "--rare") {
-        settings.rare_at = at;
-    }
-    if let Some(at) = flag(&args, "--shortest") {
-        settings.shortest = usize::try_from(at).unwrap_or(4);
-    }
+    let (Some(index), Some(personal)) = (args.word(0), args.word(1)) else {
+        return argv::refuse(USAGE);
+    };
+    let settings = match settings_of(&args) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
 
     match run(Path::new(index), &PathBuf::from(personal), settings) {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -58,9 +75,27 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-fn flag(args: &[String], name: &str) -> Option<u64> {
-    let at = args.iter().position(|a| a == name)?;
-    args.get(at + 1)?.parse().ok()
+/// The thresholds, from options that take a number either way round.
+///
+/// # Errors
+///
+/// If one of them is not a number. The old `flag` was
+/// `args.get(at + 1)?.parse().ok()`, so `--common banana` silently kept the
+/// default of 10,000 and the run went on to report a queue built under
+/// settings nobody had asked for. It also meant `--common=5000` matched
+/// nothing at all, because the token compared was the whole `--common=5000`.
+fn settings_of(args: &Argv) -> Result<Settings, girsa_corpus::argv::ArgvError> {
+    let mut settings = Settings::default();
+    if let Some(at) = args.number("--common")? {
+        settings.common_at = at;
+    }
+    if let Some(at) = args.number("--rare")? {
+        settings.rare_at = at;
+    }
+    if let Some(at) = args.number("--shortest")? {
+        settings.shortest = at;
+    }
+    Ok(settings)
 }
 
 fn run(index: &Path, personal: &Path, settings: Settings) -> Result<(), String> {
@@ -149,17 +184,4 @@ fn one_line(suspect: &Suspect) -> String {
         "{} ({}) → {} ({}){pair}{place}",
         suspect.rare, suspect.rare_count, suspect.common, suspect.common_count
     )
-}
-
-fn usage() -> std::process::ExitCode {
-    eprintln!(
-        "girsa-suspects <index> <personal> [--rare 1] [--common 10000] [--shortest 4]\n\
-         \n\
-         Finds words that are almost certainly scanning errors and writes them\n\
-         to <personal>/suspects.jsonl as a ranked queue. Corrects nothing."
-    );
-    // 2, like the other thirteen binaries here. This one exited 1, which is
-    // the code they all use for "ran, and could not do the thing" — so a
-    // script could not tell a typo in the invocation from a failed run.
-    std::process::ExitCode::from(2)
 }

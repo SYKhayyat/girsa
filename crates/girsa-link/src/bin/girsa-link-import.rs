@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use girsa_corpus::argv::{self, Argv};
 use girsa_corpus::index::SegmentIndex;
 use girsa_corpus::work::{Source, Work};
 use girsa_link::otzaria::{LineMap, OtzariaTally, TitleIndex};
@@ -34,11 +35,25 @@ use girsa_ref::Lexicon;
 /// bounded by the index rather than by how many edges it has found.
 const FLUSH_AT_BYTES: usize = 64 * 1024 * 1024;
 
+const USAGE: &str = "\
+usage: girsa-link-import <corpus> <otzaria>
+
+  Reads Otzaria's link CSVs and writes the edge store, oriented as it goes.";
+
 fn main() -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
-    let (Some(corpus_root), Some(otzaria_root)) = (args.next(), args.next()) else {
-        eprintln!("usage: girsa-link-import <corpus-root> <otzaria-root>");
-        return std::process::ExitCode::from(2);
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let (Some(corpus_root), Some(otzaria_root)) = (args.word(0), args.word(1)) else {
+        return argv::refuse(USAGE);
     };
     let corpus_root = PathBuf::from(corpus_root);
     let otzaria_root = PathBuf::from(otzaria_root);

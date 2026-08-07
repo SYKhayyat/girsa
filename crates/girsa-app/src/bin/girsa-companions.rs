@@ -28,6 +28,7 @@
 // A tool that prints a report. The library it calls does not print.
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
+use girsa_corpus::argv::{self, Argv};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -39,10 +40,25 @@ use std::path::{Path, PathBuf};
 /// all of them".
 const PER_WORK: usize = 200;
 
+const USAGE: &str = "usage: girsa-companions <corpus>
+
+  Builds the inbound half of the link graph, so a mefaresh can be asked
+  which sugya it is on.";
+
 fn main() -> std::process::ExitCode {
-    let Some(root) = std::env::args().nth(1).map(PathBuf::from) else {
-        eprintln!("usage: girsa-companions <corpus-root>");
-        return std::process::ExitCode::from(2);
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let Some(root) = args.word(0).map(PathBuf::from) else {
+        return argv::refuse(USAGE);
     };
     let links = root.join("links");
     if !links.is_dir() {

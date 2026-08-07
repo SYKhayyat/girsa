@@ -12,19 +12,47 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use girsa_corpus::argv::{self, Argv};
 use girsa_corpus::fetch;
 
+/// How many at once, where nobody says.
+const THREADS: usize = 12;
+
+const USAGE: &str = "\
+usage: girsa-fetch <corpus> [--threads N]
+
+  Fetches ~2.2 GB: Hebrew merged.json, every schema, the link CSVs.
+  Resumable — interrupt and re-run.";
+
 fn main() -> ExitCode {
-    let mut args = std::env::args().skip(1);
-    let Some(root) = args.next() else {
-        eprintln!("usage: girsa-fetch <corpus-root> [threads]");
-        eprintln!();
-        eprintln!("  Fetches ~2.2 GB: Hebrew merged.json, every schema, the link CSVs.");
-        eprintln!("  Resumable — interrupt and re-run.");
-        return ExitCode::from(2);
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &["--threads"]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
     };
-    let root = PathBuf::from(root);
-    let threads: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(12);
+    let Some(root) = args.word(0).map(PathBuf::from) else {
+        return argv::refuse(USAGE);
+    };
+    // A named option now, rather than a second bare positional that silently
+    // fell back to 12 when it did not parse — so `girsa-fetch corpus 8` is
+    // still read, and `girsa-fetch corpus --threads eight` says so.
+    let threads: usize = match args.number("--threads") {
+        Ok(Some(threads)) => threads,
+        Ok(None) => args
+            .word(1)
+            .and_then(|word| word.parse().ok())
+            .unwrap_or(THREADS),
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
 
     let plan = match fetch::plan(&root) {
         Ok(plan) => plan,

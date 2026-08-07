@@ -28,37 +28,68 @@
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::Instant;
 
 use girsa_app::naming::Names;
 use girsa_app::session::Language;
 use girsa_app::Shelf;
+use girsa_corpus::argv::{self, Argv, Roots};
 use girsa_corpus::era::Timeline;
 use girsa_corpus::segment::SegmentId;
 use girsa_link::chain::{self, Direction, Found, Graph, Limits, Refused, Trace};
 use girsa_link::Anchor;
 
-fn main() -> std::process::ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let (flags, rest): (Vec<&String>, Vec<&String>) =
-        args.iter().partition(|a| a.starts_with("--"));
-    let [root, personal, command, arguments @ ..] = rest.as_slice() else {
-        eprintln!(
-            "usage: girsa-chain <corpus-root> <personal-root> <forward|back|path|fork> <segment-id…> \
-             [--depth N] [--width N]"
-        );
-        return std::process::ExitCode::from(2);
-    };
-    let (root, personal) = (
-        PathBuf::from(root.as_str()),
-        PathBuf::from(personal.as_str()),
-    );
+/// What this reads.
+///
+/// The old line said `[--depth N]` and the old parser was
+/// `strip_prefix("--depth")?.strip_prefix('=')?` — so the one syntax the usage
+/// advertised was the one syntax that did not work. Typing it left a bare `N`
+/// among the segment ids, and the next thing that happened was an error message
+/// about segment ids. Both spellings work now, which is what comes of naming
+/// the value options rather than guessing at them.
+///
+/// `--budget` was accepted and undocumented. It is documented.
+const USAGE: &str = "\
+usage: girsa-chain [corpus] [personal] <forward|back|path|fork> <segment-id\u{2026}>
 
-    let limits = Limits {
-        depth: flag(&flags, "--depth").unwrap_or(Limits::default().depth),
-        width: flag(&flags, "--width").unwrap_or(Limits::default().width),
-        budget: flag(&flags, "--budget").unwrap_or(Limits::default().budget),
+  forward <id>             how this became halacha
+  back <id>                where a ruling came from
+  path <id> <id>           the way between two places
+  fork <id>                where two rishonim read one gemara apart
+
+  --depth N                how many steps out. Either --depth 6 or --depth=6
+  --width N                how many edges to follow at each step
+  --budget N               how many edges to look at altogether
+
+corpus and personal default to directories of those names beside you.";
+
+fn main() -> std::process::ExitCode {
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &["--depth", "--width", "--budget"]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let Roots {
+        corpus: root,
+        personal,
+    } = Roots::of(&args);
+    let after = args.from(Roots::AFTER);
+    let Some((command, arguments)) = after.split_first() else {
+        return argv::refuse(USAGE);
+    };
+
+    let limits = match limits_of(&args) {
+        Ok(limits) => limits,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
     };
 
     let shelf = match Shelf::open(&root, &personal) {
@@ -137,10 +168,20 @@ fn main() -> std::process::ExitCode {
     code
 }
 
-fn flag(flags: &[&String], name: &str) -> Option<usize> {
-    flags
-        .iter()
-        .find_map(|f| f.strip_prefix(name)?.strip_prefix('=')?.parse().ok())
+/// The limits, from options that take a number either way round.
+///
+/// # Errors
+///
+/// If one of them is not a number. This used to be `.parse().ok()`, so
+/// `--depth banana` silently kept the default and traced six steps when you
+/// had asked it not to.
+fn limits_of(args: &Argv) -> Result<Limits, girsa_corpus::argv::ArgvError> {
+    let fallback = Limits::default();
+    Ok(Limits {
+        depth: args.number("--depth")?.unwrap_or(fallback.depth),
+        width: args.number("--width")?.unwrap_or(fallback.width),
+        budget: args.number("--budget")?.unwrap_or(fallback.budget),
+    })
 }
 
 fn parse(text: Option<&str>) -> Option<SegmentId> {

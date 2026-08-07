@@ -49,6 +49,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use girsa_corpus::argv::{self, Argv};
 use girsa_link::store::Row;
 use girsa_link::EdgeType;
 
@@ -57,10 +58,24 @@ use girsa_link::EdgeType;
 /// finished cache is the size of the graph again.
 const FLUSH_BYTES: usize = 256 * 1024 * 1024;
 
+const USAGE: &str = "usage: girsa-link-types <corpus>
+
+  Counts the edge types the corpus ships, and what each of them is called.";
+
 fn main() -> std::process::ExitCode {
-    let Some(root) = std::env::args().nth(1).map(PathBuf::from) else {
-        eprintln!("usage: girsa-link-types <corpus-root>");
-        return std::process::ExitCode::from(2);
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let Some(root) = args.word(0).map(PathBuf::from) else {
+        return argv::refuse(USAGE);
     };
     let links = root.join("links");
     if !links.is_dir() {

@@ -574,3 +574,80 @@ fn one_rule_says_what_a_place_is_called_and_where_it_sits() {
         chose.join("\n  ")
     );
 }
+
+#[test]
+fn every_binary_reads_its_command_line_the_same_way() {
+    // Sixteen binaries, five conventions, and no shared line of code. The
+    // `corpus personal` prefix had six answers — defaulted, required,
+    // `<corpus> <otzaria>`, `<index> <personal>`, root-only, and after the
+    // subcommand — and `girsa-lane` required it in the same directory as four
+    // siblings that defaulted it.
+    //
+    // Three of the parsers cost something:
+    //
+    // - `girsa-chain`'s usage said `[--depth N]` and its parser accepted only
+    //   `--depth=N`, so typing what the usage said left a bare `N` among the
+    //   segment ids.
+    // - `girsa-notes`' `split_flags` made **every** `--x` swallow the next
+    //   token, so a switch ate a positional.
+    // - `girsa-link-orient`'s `other => root = PathBuf::from(other)` turned a
+    //   mistyped `--replce` into the corpus root, and the run read a directory
+    //   of that name, found nothing, and reported that it had finished.
+    //
+    // Each is the same shape: a parser that cannot tell a switch from a value
+    // option because nothing told it which is which. `girsa_corpus::argv` is
+    // told.
+    let root = repo();
+    let mut wrong = Vec::new();
+    let mut bins = 0;
+    for (named, body) in sources(&root) {
+        if !named.contains("/src/bin/") {
+            continue;
+        }
+        bins += 1;
+        // `girsa-card` prints the shortcut sheet and reads no arguments at all,
+        // which is the one honest way not to use this.
+        if !body.contains("std::env::args()") {
+            continue;
+        }
+        if !body.contains("girsa_corpus::argv") {
+            wrong.push(format!(
+                "{named}: reads argv and not through `girsa_corpus::argv`"
+            ));
+        }
+        // A `fn flag` or a `fn split_flags` of its own. There were three
+        // functions named `flag`, with three signatures and two incompatible
+        // value syntaxes between them.
+        for spelt in ["fn flag(", "fn split_flags("] {
+            if body.contains(spelt) {
+                wrong.push(format!("{named}: has its own `{spelt}`"));
+            }
+        }
+        // `ExitCode::FAILURE` for a mistyped verb. Four binaries did that,
+        // through the same path as *the shelf will not open*, so a script could
+        // not tell a typo from a broken corpus.
+        if body.contains("no such command") && !body.contains("argv::refuse") {
+            wrong.push(format!(
+                "{named}: refuses a bad verb without `argv::refuse`"
+            ));
+        }
+        // Every binary answers `--help`. Only `girsa-index` used to; typing
+        // `girsa-shelf --help` set the corpus root to the string `"--help"`.
+        if !body.contains("wants_help") {
+            wrong.push(format!("{named}: does not answer --help"));
+        }
+    }
+    assert!(
+        bins >= 16,
+        "only {bins} binaries walked — the check cannot find what it checks"
+    );
+    assert!(
+        wrong.is_empty(),
+        "a binary reading its own command line:\n  {}\n\n\
+         `girsa_corpus::argv::Argv::of` takes the switches and the value \
+         options by name, which is what makes `--near 5` and `--near=5` both \
+         work, stops a switch eating the next word, and makes a typo an error \
+         rather than a path.",
+        wrong.join("\n  ")
+    );
+}

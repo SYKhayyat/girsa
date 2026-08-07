@@ -21,20 +21,36 @@
 // A tool that prints a report. The library it calls does not print.
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use girsa_app::naming::Names;
 use girsa_app::session::Language;
 use girsa_app::{Adjacency, Shelf};
+use girsa_corpus::argv::{self, Argv, Roots};
 use girsa_lane::{bring, Chosen, Settings, BEREL};
 
 fn main() -> std::process::ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [root, personal, rest @ ..] = args.as_slice() else {
-        usage();
-        return std::process::ExitCode::from(2);
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(&usage());
+    }
+    // `--all` is a switch on `add`, and used to be a positional matched as the
+    // literal string `"--all"` inside a slice pattern — so `girsa-lane … add
+    // --all` worked and `girsa-lane … --all add` set the corpus root to
+    // `--all`, in the one binary in `girsa-app` that required the prefix while
+    // its four siblings in the same directory defaulted it.
+    let args = match Argv::of(typed, &["--all"], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(&usage());
+        }
     };
-    let (root, personal) = (PathBuf::from(root), PathBuf::from(personal));
+    let Roots {
+        corpus: root,
+        personal,
+    } = Roots::of(&args);
+    let rest = args.from(Roots::AFTER);
 
     let shelf = match Shelf::open(&root, &personal) {
         Ok(shelf) => shelf,
@@ -55,7 +71,7 @@ fn main() -> std::process::ExitCode {
         ["off"] => off(&mut lane, &shelf),
         ["allow-fetch"] => allow_fetch(&mut lane, &shelf),
         ["bring"] => bring_it(&mut lane, &shelf, &personal),
-        ["add", "--all"] => add_all(&mut lane, &shelf),
+        ["add"] if args.switch("--all") => add_all(&mut lane, &shelf),
         ["add", slug] => add(&mut lane, &shelf, slug),
         ["drop", slug] => drop(&mut lane, &shelf, slug),
         ["embed"] => embed(&mut lane, &shelf),
@@ -68,10 +84,7 @@ fn main() -> std::process::ExitCode {
             let names = Names::new(&shelf, timeline.as_ref(), Language::Hebrew);
             ask(&lane, &names, text)
         }
-        _ => {
-            usage();
-            return std::process::ExitCode::from(2);
-        }
+        _ => return argv::refuse(&usage()),
     };
     if done {
         std::process::ExitCode::SUCCESS
@@ -80,23 +93,31 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-fn usage() {
-    eprintln!(
-        "usage: girsa-lane <corpus> <personal> <command>
+/// What this reads.
+///
+/// A function rather than a `const`, alone among the sixteen, because the
+/// `bring` line prices the download from `BEREL` — which is the whole of why
+/// that line exists.
+fn usage() -> String {
+    format!(
+        "usage: girsa-lane [corpus] [personal] <command>
 
   state                  where the lane stands, and what it covers
   model <dir>            point it at a model directory you already have, and turn it on
   off                    turn it off. Literal search is unchanged either way
   allow-fetch            let Girsa go and get a model. Off in a fresh install
   bring                  bring {} in ({:.0} MB, {}) — needs allow-fetch first
-  add <slug>|--all       put a sefer, or the whole library, in the lane
+  add <slug>             put a sefer in the lane
+  add --all              put the whole library in it
   drop <slug>            take one back out
   embed                  embed what is chosen. Stop it with Ctrl-C; it resumes
-  ask <text>             ask the lane. Adjacent results, and what is not covered",
+  ask <text>             ask the lane. Adjacent results, and what is not covered
+
+corpus and personal default to directories of those names beside you.",
         BEREL.name,
         BEREL.bytes as f64 / 1_048_576.0,
         BEREL.licence,
-    );
+    )
 }
 
 fn state(lane: &Adjacency) -> bool {

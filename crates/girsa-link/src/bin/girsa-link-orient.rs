@@ -34,21 +34,46 @@
 
 use std::path::{Path, PathBuf};
 
+use girsa_corpus::argv::{self, Argv};
 use girsa_corpus::work::Work;
 use girsa_link::{orient, store};
 
 const SUPERSEDED: &str = "links.superseded";
 
+/// What this reads.
+///
+/// It had none. The only usage text was in the module note above, which is not
+/// printed anywhere, so the way to learn that `--replace` existed was to read
+/// the source.
+const USAGE: &str = "\
+usage: girsa-link-orient [corpus] [--replace]
+
+  Reads the link store, turns the `comments-on` edges the right way round, and
+  writes a new store beside the old one. Reports what it would change.
+
+  --replace              and swap it in. The old store is kept as
+                         links.superseded rather than deleted.
+
+corpus defaults to a directory of that name beside you.";
+
 fn main() -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
-    let mut root = PathBuf::from("corpus");
-    let mut replace = false;
-    for arg in args.by_ref() {
-        match arg.as_str() {
-            "--replace" => replace = true,
-            other => root = PathBuf::from(other),
-        }
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
     }
+    // The parser here was `other => root = PathBuf::from(other)`, so a typo —
+    // `--replce` — silently became the corpus root. The run then read a
+    // directory called `--replce`, found no links, and said so as though the
+    // corpus had none. It never validated anything and never exited 2.
+    let args = match Argv::of(typed, &["--replace"], &[]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let root = PathBuf::from(args.word(0).unwrap_or("corpus"));
+    let replace = args.switch("--replace");
 
     let links = root.join("links");
     if !links.is_dir() {

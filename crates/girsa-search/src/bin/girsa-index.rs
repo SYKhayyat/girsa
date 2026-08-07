@@ -28,6 +28,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use girsa_corpus::argv::Argv;
 use girsa_corpus::import;
 use girsa_corpus::work::Work;
 use girsa_ref::resolve::Context;
@@ -55,32 +56,46 @@ const HEAP_BYTES: usize = 512 * 1024 * 1024;
 const COMMIT_EVERY: usize = 250_000;
 
 fn main() -> std::process::ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some((command, rest)) = args.split_first() else {
-        return usage();
-    };
-
-    // Asked for, rather than only printed on the way to exit 2. There was no help
-    // verb at all, so the only way to see the usage was to get something wrong —
-    // and the usage was itself missing `find`'s root.
-    if matches!(command.as_str(), "-h" | "--help" | "help") {
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
         print_usage();
         return std::process::ExitCode::SUCCESS;
     }
+    // Every option this binary understands, in one list: `build`'s switch, the
+    // chips of `find`, and `where-from`'s `--except`. Declaring them together
+    // rather than per subcommand is what makes `girsa-index build … --near 5`
+    // an error naming the option instead of a root directory called `--near`.
+    let args = match Argv::of(
+        typed,
+        &[&["--without-link-types"][..], SWITCHES].concat(),
+        &[&["--except"][..], VALUES].concat(),
+    ) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return usage();
+        }
+    };
+    let Some(command) = args.word(0) else {
+        return usage();
+    };
+    let rest = args.from(1);
 
-    match command.as_str() {
+    match command {
         "build" => match rest.split_first() {
-            Some((index_dir, roots)) if !roots.is_empty() => build(Path::new(index_dir), roots),
+            Some((index_dir, roots)) if !roots.is_empty() => {
+                build(Path::new(index_dir), &args, roots)
+            }
             _ => usage(),
         },
-        "find" => match rest.split_first() {
-            Some((index_dir, rest)) if rest.len() > 1 => find(Path::new(index_dir), rest),
-            _ => usage(),
+        "find" => match rest.len() {
+            0 | 1 => usage(),
+            _ => find(Path::new(&rest[0]), &args),
         },
         // W18: where is this phrase from — and, with `--except`, who quotes it.
-        "where-from" => match rest.split_first() {
-            Some((index_dir, rest)) if rest.len() > 1 => where_from(Path::new(index_dir), rest),
-            _ => usage(),
+        "where-from" => match rest.len() {
+            0 | 1 => usage(),
+            _ => where_from(Path::new(&rest[0]), &args),
         },
         "stamp" => match rest.first() {
             Some(index_dir) => stamp(Path::new(index_dir)),
@@ -109,8 +124,14 @@ fn usage() -> std::process::ExitCode {
 /// # Errors
 ///
 /// Exit 2, before anything is written, unless `--without-link-types` is passed.
-fn refuse_an_index_without_link_types(roots: &[String]) -> Result<(), std::process::ExitCode> {
-    if roots.iter().any(|r| r == "--without-link-types") {
+fn refuse_an_index_without_link_types(
+    args: &Argv,
+    roots: &[String],
+) -> Result<(), std::process::ExitCode> {
+    // A switch now, rather than a string looked for among the roots and left
+    // there — so it was also handed to the build loop as a directory to index,
+    // and only `!root.exists()` kept it out.
+    if args.switch("--without-link-types") {
         eprintln!("building without link types, as asked — the link facet will say so");
         return Ok(());
     }
@@ -207,35 +228,70 @@ fn refuse_a_root_among_the_query_words(words: &[&str]) -> Result<(), std::proces
 }
 
 /// The usage. `--help` asks for it; `usage` prints it on the way to exit 2.
+/// What this reads.
+///
+/// # Why the old one is worth remembering
+///
+/// It had two formatting defects a reader saw and nobody did — a literal
+/// newline inside the string put a stray blank line and nine spaces before the
+/// `stamp` line, and a missing continuation indented `--rung` four spaces under
+/// `--tag`, as though it were a sub-option of it.
+///
+/// It also listed **four** of the eighteen options. `--regex`, `--citation`,
+/// `--instrument`, `--skips`, `--in`, `--shelf`, `--era`, `--by`, `--linked`,
+/// `--not`, `--not-shelf`, `--page`, `--size` and `--without-link-types` all
+/// worked and none of them were named. The way to find out that `--in` existed
+/// was to read the parser.
+///
+/// And `<root>` — the argument whose absence used to make `find index corpus
+/// personal יתגבר כארי` search for the words `personal יתגבר כארי`, answer
+/// zero and exit 0 — is now both named here and refused by
+/// `refuse_a_query_word_in_root_position` when it is not a directory.
+const USAGE: &str = "\
+usage:
+  girsa-index build <index> <corpus> [personal \u{2026}] [--without-link-types]
+  girsa-index find <index> <root> [how \u{2026}] <query \u{2026}>
+  girsa-index where-from <index> <root> [--except SLUG] <phrase>
+  girsa-index stamp <index>
+
+<root> is the corpus or personal root that `find` reads its catalogue,
+corrections and shelf from. It is required.
+
+how \u{2014} the chips of spec.md \u{a7}9.5, as options. Nothing else is applied.
+An option that takes a value takes it either way round: --near 5 and --near=5.
+
+  --contains         the word contains these letters      \u{5e7}\u{5d3}\u{5e9} \u{2192} \u{5d4}\u{5de}\u{5e7}\u{5d3}\u{5e9}
+  --letters          these letters, in this order         \u{5e7}\u{5d3}\u{5e9} \u{2192} \u{5e7}\u{5d9}\u{5d3}\u{5d5}\u{5e9}
+  --phrase           the words one after the other
+  --near N           within N words of each other, in any order
+  --regex            a regular expression
+  --citation         read the query as a mareh makom
+  --instrument NAME  gematria \u{b7} rashei \u{b7} sofei \u{b7} atbash \u{b7} dilug
+  --skips FROM-TO    how far apart the letters may be, for dilug
+
+narrowing. Each may be given more than once:
+
+  --in SLUG          one sefer
+  --shelf NAME       one shelf
+  --era NAME         one era
+  --by AUTHOR        one author
+  --linked KIND      places with an edge of this kind
+  --tag NAME         your own tag (spec.md \u{a7}11)
+  --not SLUG         everything but this sefer
+  --not-shelf NAME   everything but this shelf
+
+the relaxation ladder (spec.md \u{a7}9.6). A literal search that finds nothing is
+offered the rungs with their counts and applies none of them; --rung is the
+click:
+
+  --rung NAME        prefixes \u{b7} spellings \u{b7} gershayim \u{b7} abbreviations \u{b7} proximity
+  --smart            apply the form rungs, and say what that did
+
+  --page N           which page of the results
+  --size N           how many on a page";
+
 fn print_usage() {
-    eprintln!(
-        "usage:\n  \
-         girsa-index build <index-dir> <corpus-root> [personal-root …]\n  \
-         girsa-index find  <index-dir> <root> [how …] <query …>\n  \
-         girsa-index where-from <index-dir> <corpus-root> [--except SLUG] <phrase>
-  \n         girsa-index stamp <index-dir>\n\
-         \n\
-         <root> is the corpus or personal root `find` reads its catalogue,\n\
-         corrections and shelf from. It has always been required and the usage\n\
-         line did not say so, while `build <index> <corpus> <personal>` two lines\n\
-         up teaches exactly the shape that breaks it: `find index corpus personal\n\
-         יתגבר כארי` searched for the words `personal יתגבר כארי`, answered zero,\n\
-         and exited 0. An argument in that position that is not a directory is\n\
-         now refused by name at exit 2.\n\
-         \n\
-         how — the chips of spec.md §9.5, as flags. Nothing else is applied:\n  \
-         --contains   the word contains these letters      קדש → המקדש\n  \
-         --letters    these letters, in this order         קדש → קידוש\n  \
-         --phrase     the words one after the other\n  \
-         --near N     within N words of each other, in any order\n\
-         \n\
-         the relaxation ladder (spec.md §9.6). In the literal mode a zero is\n\
-         offered the rungs with their counts and nothing is applied; --rung is\n\
-         the click:\n  \
-         --tag NAME   narrow to your own tag (spec.md §11)
-           --rung NAME  prefixes · spellings · gershayim · abbreviations · proximity\n  \
-         --smart      Smart mode: apply the form rungs, and say what that did"
-    );
+    eprintln!("{USAGE}");
 }
 
 /// What a build found, and what it could not.
@@ -274,7 +330,7 @@ struct Tally {
     links_stale: Vec<String>,
 }
 
-fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
+fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitCode {
     let started = Instant::now();
 
     // Two caches with an ordering constraint between them, and nothing was enforcing
@@ -287,7 +343,7 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
     // own job with its own report, and a build that silently ran a second long job
     // inside itself would be a four-minute command that sometimes takes twelve.
     // `--without-link-types` is the way to say you meant it.
-    if let Err(code) = refuse_an_index_without_link_types(roots) {
+    if let Err(code) = refuse_an_index_without_link_types(args, roots) {
         return code;
     }
 
@@ -542,8 +598,8 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
 ///
 /// One call for both, which is the claim: `--except` is the only difference,
 /// and it is the sefer you are standing in.
-fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
-    let Some((root, rest)) = args.split_first() else {
+fn where_from(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
+    let Some((root, rest)) = args.from(1).split_first() else {
         return usage();
     };
     let root = PathBuf::from(root);
@@ -553,15 +609,11 @@ fn where_from(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
         return code;
     }
 
-    let mut except: Option<String> = None;
-    let mut words: Vec<&str> = Vec::new();
-    let mut rest = rest.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "--except" => except = rest.next().cloned(),
-            other => words.push(other),
-        }
-    }
+    // `--except` used to be pulled out by a loop with no unknown-option arm, so
+    // a mistyped `--excpet` was pushed into the phrase and searched for — and
+    // the answer was *this phrase is from nowhere*.
+    let except = args.value("--except").map(ToString::to_string);
+    let words: Vec<&str> = rest.iter().map(String::as_str).collect();
     if let Err(code) = refuse_a_root_among_the_query_words(&words) {
         return code;
     }
@@ -630,8 +682,42 @@ fn badge(hit: &girsa_search::index::Hit) -> String {
     read
 }
 
-fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
-    let Some((root, rest)) = args.split_first() else {
+/// The chips of spec.md §9.5 that stand alone.
+const SWITCHES: &[&str] = &[
+    "--contains",
+    "--letters",
+    "--phrase",
+    "--smart",
+    "--regex",
+    "--citation",
+];
+
+/// The chips that take a value — either way round, `--near 5` and `--near=5`.
+///
+/// `--near=5` used to fall through to the `no such chip` arm and exit 2, while
+/// the usage line said `--near N`. And a value option at the end of the line
+/// with nothing after it became the empty string and was searched for.
+const VALUES: &[&str] = &[
+    "--near",
+    "--rung",
+    "--instrument",
+    "--skips",
+    "--in",
+    "--shelf",
+    "--era",
+    "--by",
+    "--linked",
+    "--tag",
+    "--not",
+    "--not-shelf",
+    "--page",
+    "--size",
+];
+
+fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
+    // `find <index-dir> <root> <query…>`. The index directory is word 0 and was
+    // taken by the caller; this reads from word 1.
+    let Some((root, rest)) = args.from(1).split_first() else {
         return usage();
     };
     let root = PathBuf::from(root);
@@ -642,80 +728,105 @@ fn find(index_dir: &Path, args: &[String]) -> std::process::ExitCode {
     let mut chips = Chips::default();
     let mut rungs: Vec<Rung> = Vec::new();
     let mut paging = Paging::first();
-    let mut words: Vec<&str> = Vec::new();
+    let words: Vec<&str> = rest.iter().map(String::as_str).collect();
     let mut narrow: Vec<(Dimension, String)> = Vec::new();
     let mut exclude: Vec<(Dimension, String)> = Vec::new();
-    let mut args = rest.iter();
-    while let Some(arg) = args.next() {
-        let mut value = || {
-            args.next()
-                .map(String::as_str)
-                .unwrap_or_default()
-                .to_string()
-        };
-        match arg.as_str() {
-            "--contains" => chips.matching = Match::Contains,
-            "--letters" => chips.matching = Match::Letters,
-            "--phrase" => chips.together = Together::Phrase,
-            "--smart" => chips.mode = Mode::Smart,
-            "--regex" => chips.mode = Mode::Regex,
-            "--citation" => chips.mode = Mode::Citation,
-            "--near" => match value().parse() {
-                Ok(gap) => chips.together = Together::Near { words: gap },
-                Err(_) => {
-                    eprintln!("--near wants a number of words");
-                    return std::process::ExitCode::from(2);
-                }
-            },
-            "--rung" => match Rung::named(&value()) {
-                Some(rung) => rungs.push(rung),
-                None => {
-                    eprintln!(
-                        "--rung wants one of: prefixes spellings gershayim abbreviations proximity"
-                    );
-                    return std::process::ExitCode::from(2);
-                }
-            },
-            "--instrument" => match sounding_named(&value()) {
-                Some(sounding) => {
-                    chips.mode = Mode::Instruments;
-                    chips.sounding = sounding;
-                }
-                None => {
-                    eprintln!("--instrument wants one of: gematria rashei sofei atbash dilug");
-                    return std::process::ExitCode::from(2);
-                }
-            },
-            "--skips" => match value().split_once('-').map(|(a, b)| (a.parse(), b.parse())) {
-                Some((Ok(from), Ok(to))) => chips.skips = Skips { from, to },
-                _ => {
-                    eprintln!("--skips wants a range, like 1-50");
-                    return std::process::ExitCode::from(2);
-                }
-            },
-            "--in" => narrow.push((Dimension::Sefer, value())),
-            "--shelf" => narrow.push((Dimension::Shelf, value())),
-            "--era" => narrow.push((Dimension::Era, value())),
-            "--by" => narrow.push((Dimension::Author, value())),
-            "--linked" => narrow.push((Dimension::Link, value())),
-            // Your own tags (B18). The same one naming as the chip and the facet
-            // row, because `Dimension` is the one place a dimension is named.
-            "--tag" => narrow.push((Dimension::Tag, value())),
-            "--not" => exclude.push((Dimension::Sefer, value())),
-            "--not-shelf" => exclude.push((Dimension::Shelf, value())),
-            "--page" => paging = pages(paging, &value()),
-            "--size" => match value().parse() {
-                Ok(size) => paging = Paging { size, ..paging },
-                Err(_) => {
-                    eprintln!("--size wants a number of results");
-                    return std::process::ExitCode::from(2);
-                }
-            },
-            other if other.starts_with("--") => {
-                eprintln!("no such chip: {other}");
-                return usage();
+
+    if args.switch("--contains") {
+        chips.matching = Match::Contains;
+    }
+    if args.switch("--letters") {
+        chips.matching = Match::Letters;
+    }
+    if args.switch("--phrase") {
+        chips.together = Together::Phrase;
+    }
+    if args.switch("--smart") {
+        chips.mode = Mode::Smart;
+    }
+    if args.switch("--regex") {
+        chips.mode = Mode::Regex;
+    }
+    if args.switch("--citation") {
+        chips.mode = Mode::Citation;
+    }
+    if let Some(near) = args.value("--near") {
+        match near.parse() {
+            Ok(gap) => chips.together = Together::Near { words: gap },
+            Err(_) => {
+                eprintln!("--near wants a number of words");
+                return std::process::ExitCode::from(2);
             }
-            word => words.push(word),
+        }
+    }
+    for named in args.every("--rung") {
+        match Rung::named(named) {
+            Some(rung) => rungs.push(rung),
+            None => {
+                eprintln!(
+                    "--rung wants one of: prefixes spellings gershayim abbreviations proximity"
+                );
+                return std::process::ExitCode::from(2);
+            }
+        }
+    }
+    if let Some(named) = args.value("--instrument") {
+        match sounding_named(named) {
+            Some(sounding) => {
+                chips.mode = Mode::Instruments;
+                chips.sounding = sounding;
+            }
+            None => {
+                eprintln!("--instrument wants one of: gematria rashei sofei atbash dilug");
+                return std::process::ExitCode::from(2);
+            }
+        }
+    }
+    if let Some(range) = args.value("--skips") {
+        match range.split_once('-').map(|(a, b)| (a.parse(), b.parse())) {
+            Some((Ok(from), Ok(to))) => chips.skips = Skips { from, to },
+            _ => {
+                eprintln!("--skips wants a range, like 1-50");
+                return std::process::ExitCode::from(2);
+            }
+        }
+    }
+    for (flag, dimension) in [
+        ("--in", Dimension::Sefer),
+        ("--shelf", Dimension::Shelf),
+        ("--era", Dimension::Era),
+        ("--by", Dimension::Author),
+        ("--linked", Dimension::Link),
+        // Your own tags (B18). The same one naming as the chip and the facet
+        // row, because `Dimension` is the one place a dimension is named.
+        ("--tag", Dimension::Tag),
+    ] {
+        narrow.extend(
+            args.every(flag)
+                .into_iter()
+                .map(|value| (dimension, value.to_string())),
+        );
+    }
+    for (flag, dimension) in [
+        ("--not", Dimension::Sefer),
+        ("--not-shelf", Dimension::Shelf),
+    ] {
+        exclude.extend(
+            args.every(flag)
+                .into_iter()
+                .map(|value| (dimension, value.to_string())),
+        );
+    }
+    if let Some(page) = args.value("--page") {
+        paging = pages(paging, page);
+    }
+    if let Some(size) = args.value("--size") {
+        match size.parse() {
+            Ok(size) => paging = Paging { size, ..paging },
+            Err(_) => {
+                eprintln!("--size wants a number of results");
+                return std::process::ExitCode::from(2);
+            }
         }
     }
 

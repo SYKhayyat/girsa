@@ -24,18 +24,45 @@
 // A tool that prints a report. The library it calls does not print.
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use girsa_app::scanning::{self, mareh_makom, scan_of};
 use girsa_app::Shelf;
 use girsa_cite::CiteStyle;
+use girsa_corpus::argv::{self, Argv, Roots};
 use girsa_ref::Address;
 use girsa_scan::{Anchor, Paging, Placed, Scan, Scheme};
 
+const USAGE: &str = "\
+usage: girsa-daf [corpus] [personal] [command]
+
+  list                                       your scans. The default
+  add <file>                                 put a PDF on the shelf
+  show <slug>                                what its pages are called
+  map <slug> <amud|daf|numbered> <page=place>… [--of <slug>]
+                                             say which page is which daf
+  cite <slug> <page>                         the mekor for a page
+  page <slug> <place>                        which page a place is on
+  forget <slug>
+
+corpus and personal default to directories of those names beside you.
+An anchor is `5=\u{5d1}.` — page 5 is daf bet, amud alef — or `5=-` for a page
+with nothing printed on it that a mekor could name.";
+
 fn main() -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
-    let corpus = PathBuf::from(args.next().unwrap_or_else(|| "corpus".into()));
-    let personal = PathBuf::from(args.next().unwrap_or_else(|| "personal".into()));
+    let typed: Vec<String> = std::env::args().skip(1).collect();
+    if Argv::wants_help(&typed) {
+        return argv::asked(USAGE);
+    }
+    let args = match Argv::of(typed, &[], &["--of"]) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            return argv::refuse(USAGE);
+        }
+    };
+    let Roots { corpus, personal } = Roots::of(&args);
+    let after = args.from(Roots::AFTER);
 
     let mut shelf = match Shelf::open(&corpus, &personal) {
         Ok(shelf) => shelf,
@@ -48,21 +75,20 @@ fn main() -> std::process::ExitCode {
         eprintln!("{trouble}");
     }
 
-    let verb = args.next().unwrap_or_else(|| "list".into());
-    let rest: Vec<String> = args.collect();
-    let outcome = match verb.as_str() {
+    let verb = after.first().map_or("list", String::as_str);
+    let rest: &[String] = after.get(1..).unwrap_or(&[]);
+    let outcome = match verb {
         "list" => list(&shelf),
         "add" => add(&mut shelf, rest.first().map(String::as_str)),
         "show" => show(&shelf, rest.first().map(String::as_str)),
-        "map" => map(&mut shelf, &rest),
-        "cite" => cite(&shelf, &rest),
-        "page" => page(&shelf, &rest),
+        "map" => map(&mut shelf, args.value("--of"), rest),
+        "cite" => cite(&shelf, rest),
+        "page" => page(&shelf, rest),
         "forget" => forget(&mut shelf, rest.first().map(String::as_str)),
-        other => Err(format!(
-            "{other}: this reads `list`, `add <file>`, `show <slug>`, \
-             `map <slug> <amud|daf|numbered> <page=place>… [--of <slug>]`, \
-             `cite <slug> <page>`, `page <slug> <place>` and `forget <slug>`"
-        )),
+        other => {
+            eprintln!("{other}: no such command");
+            return argv::refuse(USAGE);
+        }
     };
     if let Err(e) = outcome {
         eprintln!("{e}");
@@ -166,8 +192,8 @@ fn said(placed: &Placed) -> String {
     }
 }
 
-fn map(shelf: &mut Shelf, args: &[String]) -> Result<(), String> {
-    let mut rest = args.iter();
+fn map(shelf: &mut Shelf, of: Option<&str>, words: &[String]) -> Result<(), String> {
+    let mut rest = words.iter();
     let slug = rest.next().ok_or("map which scan?")?.clone();
     let scheme_name = rest
         .next()
@@ -175,19 +201,11 @@ fn map(shelf: &mut Shelf, args: &[String]) -> Result<(), String> {
     let scheme = Scheme::named(scheme_name)
         .ok_or_else(|| format!("{scheme_name}: this reads `amud`, `daf` or `numbered`"))?;
 
-    let mut of = None;
+    // `--of` was pulled out of the anchors here by a hand-rolled loop with
+    // `Vec::remove(0)` in it — the fifth flag mechanism in the repository, in a
+    // binary whose *positionals* are already `key=value`.
     let mut anchors = Vec::new();
-    let mut rest: Vec<&String> = rest.collect();
-    while let Some(arg) = rest.first().copied() {
-        rest.remove(0);
-        if arg == "--of" {
-            of = rest.first().map(|s| (*s).clone());
-            if of.is_none() {
-                return Err("--of what? a slug on the shelf".to_string());
-            }
-            rest.remove(0);
-            continue;
-        }
+    for arg in rest {
         let (page, at) = arg
             .split_once('=')
             .ok_or_else(|| format!("{arg}: an anchor is `page=place`, or `page=-`"))?;
@@ -204,7 +222,7 @@ fn map(shelf: &mut Shelf, args: &[String]) -> Result<(), String> {
     if anchors.is_empty() {
         return Err("no anchors. `5=ב.` says page 5 is daf ב, amud alef".to_string());
     }
-    if let Some(of) = of.as_deref() {
+    if let Some(of) = of {
         if shelf.work(of).is_none() {
             return Err(format!(
                 "there is no sefer here called {of}, so nothing could print its name"
@@ -212,7 +230,8 @@ fn map(shelf: &mut Shelf, args: &[String]) -> Result<(), String> {
         }
     }
 
-    let paging = Paging::declare(of, scheme, anchors).map_err(|e| e.to_string())?;
+    let paging =
+        Paging::declare(of.map(ToString::to_string), scheme, anchors).map_err(|e| e.to_string())?;
     shelf
         .declare_paging(&slug, paging)
         .map_err(|e| e.to_string())?;
