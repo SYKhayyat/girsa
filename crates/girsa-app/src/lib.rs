@@ -36,6 +36,10 @@ pub mod links;
 pub mod markup;
 pub mod mefarshim;
 pub mod notes;
+// A search hit, a lane result, an MCP answer and a printed line each invented
+// "a segment, described for a surface", and the four disagreed about the title
+// language, the address and the date.
+pub mod naming;
 pub mod reading;
 pub mod scanning;
 pub mod sending;
@@ -59,6 +63,7 @@ pub use girsa_note::since::{find_index, is_an_index, Unindexed, Written};
 pub use keys::{Bound, Press, ACTIONS};
 pub use lens::{Lens, Lenses};
 pub use links::{touching, Link, Touching};
+pub use naming::{Names, Naming};
 pub use notes::{collect, note_here, yours, Marked, Wrote, Yours};
 pub use reading::{gap, gap_over, readings, Gap, Scanned};
 pub use scanning::{is_scan, mareh_makom, scan_of};

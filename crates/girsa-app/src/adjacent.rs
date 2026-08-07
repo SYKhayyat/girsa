@@ -50,18 +50,29 @@ use girsa_corpus::segment::SegmentId;
 use girsa_lane::coverage::Covered;
 use girsa_lane::{Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MEASURED, MOST};
 
+use crate::naming::{Names, Naming};
 use crate::shelf::Shelf;
 
 /// One adjacent result, ready to draw.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Near {
-    pub id: SegmentId,
-    pub work: String,
-    pub title: String,
+    /// Which place this is, what to call it and when it was written — the
+    /// description four surfaces used to compose separately. This one used to
+    /// carry a work slug and a Hebrew title and **no address at all**, so the
+    /// window and `girsa-lane ask` each invented one and invented different
+    /// ones: `58:1` in the window, the whole permanent id on the terminal.
+    pub at: Naming,
     pub text: String,
     /// A cosine. Shown, because a reader deciding whether to follow one of
     /// these is entitled to know how near it actually was.
     pub nearness: f32,
+}
+
+impl Near {
+    #[must_use]
+    pub fn id(&self) -> &SegmentId {
+        &self.at.id
+    }
 }
 
 /// What the lane has to say.
@@ -229,7 +240,8 @@ impl Adjacency {
     /// `refused` set and `coverage` said, because *nothing, and here is why* is
     /// an answer and an empty list is not.
     #[must_use]
-    pub fn ask(&self, shelf: &Shelf, text: &str, scoped_to: &[String], most: usize) -> Answer {
+    pub fn ask(&self, names: &Names, text: &str, scoped_to: &[String], most: usize) -> Answer {
+        let shelf = names.shelf;
         let most = if most == 0 { MOST } else { most };
         let coverage = self.coverage.said();
         let refuse = |why: String| Answer {
@@ -273,12 +285,8 @@ impl Adjacency {
                 let at = open.position_of(&adjacent.id)?;
                 let segment = open.segments.get(at)?;
                 Some(Near {
-                    work: adjacent.id.work().to_string(),
-                    title: shelf
-                        .work(adjacent.id.work())
-                        .map_or_else(String::new, |work| work.he_title.clone()),
+                    at: names.of(&adjacent.id),
                     text: segment.text.clone(),
-                    id: adjacent.id,
                     nearness: adjacent.nearness,
                 })
             })

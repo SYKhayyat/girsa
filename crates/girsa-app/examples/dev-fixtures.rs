@@ -126,7 +126,7 @@ fn main() -> std::process::ExitCode {
             "has_nikud": sefer.segments.iter().any(|s| display::has_marks(&s.text)),
             "lines": sefer.segments.iter().map(|s| serde_json::json!({
                 "id": s.id.to_string(),
-                "address": s.id.path().join(":"),
+                "address": s.id.address(),
                 "kind": s.kind.as_str(),
                 "runs": display::runs(&s.text),
             })).collect::<Vec<_>>(),

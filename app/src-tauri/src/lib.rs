@@ -47,6 +47,14 @@ const KEEP_OPEN: usize = 12;
 
 pub(crate) struct State {
     pub(crate) shelf: Option<Shelf>,
+    /// When each work was written, read once beside the catalogue.
+    ///
+    /// The window had no timeline at all, so every row it drew — a search hit,
+    /// a lane result, a folder member — carried no date, while `girsa-chain`
+    /// and the MCP server both drew one. Which of the four composers had a
+    /// `Timeline` in scope was an accident of where the code was written, and
+    /// this is the field that ends it.
+    pub(crate) timeline: Option<girsa_corpus::era::Timeline>,
     /// The search bar, if there is an index to search. Kept beside the shelf
     /// rather than inside it because an index is a rebuildable cache and a
     /// shelf is not: a window with no index still reads seforim, and says why
@@ -193,22 +201,22 @@ impl State {
             .unwrap_or_else(|| "there is no index here".to_string())
     }
 
-    /// What to call a sefer, in the language the window is in (W41).
+    /// What it takes to name a place: the shelf, the dates, and the language
+    /// the window is in.
     ///
-    /// Here rather than in the window because rows like a search hit or a queue
-    /// candidate carry **one** title — they carry a name to print, not a sefer —
-    /// and which name that is is a decision. `Card`, which carries both, is named
-    /// in the window by `names.ts`; there is one rule (`Language::title_of`) and
-    /// these are its two callers.
-    fn named(&self, slug: &str) -> Option<String> {
-        let shelf = self.shelf.as_ref()?;
-        let work = shelf.work(slug)?;
-        Some(
-            self.session
-                .language
-                .title_of(&work.he_title, &work.en_title)
-                .to_string(),
-        )
+    /// `None` when there is no shelf, which is the one state in which no row
+    /// can be drawn anyway.
+    ///
+    /// Replaces `State::named`, whose doc said *"there is one rule
+    /// (`Language::title_of`) and these are its two callers"* — and by the time
+    /// it was read there were six rows working out a title, an address or a
+    /// date, and only that one honoured the language.
+    fn names(&self) -> Option<girsa_app::Names<'_>> {
+        Some(girsa_app::Names::new(
+            self.shelf.as_ref()?,
+            self.timeline.as_ref(),
+            self.session.language,
+        ))
     }
 
     fn save(&mut self) {
@@ -387,7 +395,7 @@ fn line_of(sefer: &Open, segment: &girsa_corpus::import::Segment, nikud: bool) -
     let corrected = sefer.correction(&segment.id);
     Line {
         id: segment.id.to_string(),
-        address: segment.id.path().join(":"),
+        address: segment.id.address(),
         kind: segment.kind.as_str(),
         runs: display::runs(&if nikud {
             segment.text.clone()
@@ -503,16 +511,49 @@ fn recent(shared: tauri::State<'_, Shared>) -> Result<Vec<Card>, String> {
 
 // ── Searching (spec.md §9, BUILDER.md W14) ──────────────────────────────────
 
+/// Which place a row is about — the four fields every row of results carries,
+/// plus the two only some of them used to.
+///
+/// `girsa_app::Naming` on the wire. Flattened into `HitRow` and `NearRow`, so
+/// the shapes stay exactly what `api.ts` already declared and the search column
+/// and the lane column beside it can no longer disagree about what a place is
+/// called, where it sits, or when it was written.
+#[derive(Serialize)]
+struct AtRow {
+    id: String,
+    work: String,
+    /// What to call the sefer, in the language the window is in (W41). One
+    /// title and not two, because a row carries a name to print rather than a
+    /// sefer — and which of the two names that is was decided in Rust.
+    title: String,
+    /// `58:1`. Not a citation — a mekor is `girsa_cite::cite`, which knows this
+    /// work's section words, and everything that leaves the window as one goes
+    /// through `girsa_app::sending`.
+    address: String,
+    /// `1565`, or `1488–1575`. `null` where the corpus cannot date the work.
+    written: Option<String>,
+    /// The era, in Hebrew, where the years are not known.
+    era: Option<String>,
+}
+
+impl AtRow {
+    fn of(at: &girsa_app::Naming) -> Self {
+        Self {
+            id: at.id.to_string(),
+            work: at.work.clone(),
+            title: at.title.clone(),
+            address: at.address.clone(),
+            written: at.written.clone(),
+            era: at.era.clone(),
+        }
+    }
+}
+
 /// One hit, as a row of results.
 #[derive(Serialize)]
 struct HitRow {
-    id: String,
-    address: String,
-    work: String,
-    /// What to call the sefer, in the language the window is in (W41). One
-    /// title and not two, because a hit carries a name to print rather than a
-    /// sefer — and which of the two names that is was decided in Rust.
-    title: String,
+    #[serde(flatten)]
+    at: AtRow,
     /// The text as printed, cut into runs — the same shape a reading pane
     /// draws, so a result reads like the page it came from and inline markup
     /// never reaches the window as markup.
@@ -541,6 +582,44 @@ struct HitRow {
     /// for what the reader typed finds nothing on a menukad page, which is most
     /// of them (spec.md §9.7 — *only the highlight differs*).
     marked: Vec<String>,
+}
+
+impl HitRow {
+    /// One hit, drawn. **One** of these, not two.
+    ///
+    /// `find` and the widening ladder each carried a nine-field literal, and
+    /// they were character-for-character identical — so a tenth field added to
+    /// one of them would have reached a reader who searched and not a reader
+    /// who took an offer, which is the same query one keystroke later.
+    fn of(
+        hit: &girsa_search::index::Hit,
+        marker: &girsa_search::bar::Marker,
+        names: Option<&girsa_app::Names<'_>>,
+        nikud: bool,
+    ) -> Self {
+        let (page, by, guessed) = scanned(hit);
+        Self {
+            at: names.map_or_else(
+                // No shelf is a state with no rows in it; this is here so the
+                // type does not have to be an `Option` for a case that cannot
+                // happen while there are hits to draw.
+                || AtRow {
+                    id: hit.id.to_string(),
+                    work: hit.id.work().to_string(),
+                    title: hit.id.work().to_string(),
+                    address: hit.id.address(),
+                    written: None,
+                    era: None,
+                },
+                |names| AtRow::of(&names.of(&hit.id)),
+            ),
+            runs: shown(hit, marker, nikud),
+            page,
+            by,
+            guessed,
+            marked: marked(marker, hit),
+        }
+    }
 }
 
 /// The words a hit matched, sliced out of its own text.
@@ -651,10 +730,10 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
     state.chips = chips;
     let nikud = state.session.nikud;
     let chips = state.chips.clone();
-    // What to call each sefer, in the window's language (W41). A closure rather
-    // than a field on the row, because a hit carries a name to print and not a
-    // sefer — see `State::named`.
-    let named = |slug: &str| state.named(slug).unwrap_or_else(|| slug.to_string());
+    // What to call each place, in the window's language (W41), with its
+    // address and its dates. See `girsa_app::Naming` — four surfaces used to
+    // work this out separately and disagreed about all three.
+    let names = state.names();
     let Some(bar) = state.bar.as_ref() else {
         let why = state.no_search();
         return Ok(FoundPage::refused(&chips, why));
@@ -679,17 +758,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                 hits: results
                     .hits
                     .iter()
-                    .map(|hit| HitRow {
-                        id: hit.id.to_string(),
-                        address: hit.id.path().join(":"),
-                        work: hit.id.work().to_string(),
-                        title: named(hit.id.work()),
-                        runs: shown(hit, &results.marker, nikud),
-                        page: scanned(hit).0,
-                        by: scanned(hit).1,
-                        guessed: scanned(hit).2,
-                        marked: marked(&results.marker, hit),
-                    })
+                    .map(|hit| HitRow::of(hit, &results.marker, names.as_ref(), nikud))
                     .collect(),
                 total: results.total,
                 page: page.max(1),
@@ -817,24 +886,14 @@ fn find_rung(
         || girsa_search::bar::Marker::Literal(found.asked.clone()),
         |widening| girsa_search::bar::Marker::Widened(Box::new(widening)),
     );
-    let named = |slug: &str| state.named(slug).unwrap_or_else(|| slug.to_string());
+    let names = state.names();
     Ok(FoundPage {
         header,
         note: Some("החל — לחזרה, חפש שוב בלי הצעה".to_string()),
         hits: found
             .hits
             .iter()
-            .map(|hit| HitRow {
-                id: hit.id.to_string(),
-                address: hit.id.path().join(":"),
-                work: hit.id.work().to_string(),
-                title: named(hit.id.work()),
-                runs: shown(hit, &marker, nikud),
-                page: scanned(hit).0,
-                by: scanned(hit).1,
-                guessed: scanned(hit).2,
-                marked: marked(&marker, hit),
-            })
+            .map(|hit| HitRow::of(hit, &marker, names.as_ref(), nikud))
             .collect(),
         total: found.total,
         page: page.max(1),
@@ -1314,7 +1373,7 @@ fn mefarshim_at(
         said.push(Said {
             he_title: named.map_or_else(|| one.work.clone(), |w| w.he_title.clone()),
             en_title: named.map_or_else(|| one.work.clone(), |w| w.en_title.clone()),
-            address: one.at.path().join(":"),
+            address: one.at.address(),
             work: one.work,
             lines,
         });
@@ -2022,7 +2081,9 @@ struct PatchRow {
 #[tauri::command]
 fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<PatchRow>, String> {
     let state = shared.lock().map_err(|_| "state is poisoned")?;
-    let language = state.session.language;
+    // A patch row is a row about a place, like a hit and like a lane result —
+    // and it was the fifth to work out a title and an address for itself.
+    let names = state.names().ok_or_else(|| state.trouble())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let mut rows: Vec<PatchRow> = shelf
         .fixes()
@@ -2031,12 +2092,9 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
         .map(|p| PatchRow {
             id: p.id.to_string(),
             segment: p.segment.to_string(),
-            work: p.segment.work().to_string(),
-            title: shelf.work(p.segment.work()).map_or_else(
-                || p.segment.work().to_string(),
-                |w| language.title_of(&w.he_title, &w.en_title).to_string(),
-            ),
-            address: p.segment.path().join(":"),
+            work: names.of(&p.segment).work,
+            title: names.of(&p.segment).title,
+            address: p.segment.address(),
             kind: p.kind.as_str(),
             was: p.was.clone(),
             now: p.now.clone(),
@@ -2497,8 +2555,10 @@ struct SuspectRow {
     /// Where to go and look: the first place, with the sefer named.
     at: Option<String>,
     work: Option<String>,
-    /// The sefer, in the window's language (W41). Absent when the candidate
-    /// names a sefer that is not on this shelf.
+    /// The sefer, in the window's language (W41). Absent only when the
+    /// candidate names no place at all — a sefer the catalogue has not caught
+    /// up with is named by its slug, because a row with no name on it is a row
+    /// a reader cannot act on.
     title: Option<String>,
     address: Option<String>,
 }
@@ -2511,7 +2571,7 @@ struct SuspectRow {
 #[tauri::command]
 fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<SuspectRow>, String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
-    let language = state.session.language;
+    let names = state.names().ok_or_else(|| state.trouble())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let (queue, trouble) = girsa_fix::suspect::Queue::open(shelf.personal());
     for line in trouble {
@@ -2532,12 +2592,11 @@ fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<Suspec
                 how: suspect.how.as_str(),
                 at: at.map(ToString::to_string),
                 work: at.map(|id| id.work().to_string()),
-                title: at.and_then(|id| {
-                    shelf
-                        .work(id.work())
-                        .map(|w| language.title_of(&w.he_title, &w.en_title).to_string())
-                }),
-                address: at.map(|id| id.path().join(":")),
+                // The sixth. `Names::of` falls back to the slug rather than to
+                // `None`, so a suspect in a sefer the catalogue has not caught
+                // up with now draws a row with a name on it.
+                title: at.map(|id| names.of(id).title),
+                address: at.map(girsa_corpus::segment::SegmentId::address),
             }
         })
         .collect();
@@ -3235,10 +3294,8 @@ struct ModelOffer {
 /// One adjacent result.
 #[derive(Serialize)]
 struct NearRow {
-    id: String,
-    work: String,
-    title: String,
-    address: String,
+    #[serde(flatten)]
+    at: AtRow,
     text: String,
     nearness: f32,
 }
@@ -3331,7 +3388,10 @@ fn lane_ask(
     // Scoped by the same chip the literal search is scoped by, so *the whole
     // shelf* and *this sefer* mean the same thing in both columns.
     let scoped: Vec<String> = state.chips.scope.works().into_iter().collect();
-    let answer = lane.ask(shelf, &text, &scoped, limit.unwrap_or(girsa_lane::MOST));
+    // The same `Names` the search column uses, so the two columns beside each
+    // other cannot call one sefer by two names.
+    let names = girsa_app::Names::new(shelf, state.timeline.as_ref(), state.session.language);
+    let answer = lane.ask(&names, &text, &scoped, limit.unwrap_or(girsa_lane::MOST));
     Ok(LaneAnswer {
         label: answer.label,
         measured: answer.measured,
@@ -3339,10 +3399,7 @@ fn lane_ask(
             .near
             .iter()
             .map(|near| NearRow {
-                id: near.id.to_string(),
-                address: near.id.path().join(":"),
-                work: near.work.clone(),
-                title: near.title.clone(),
+                at: AtRow::of(&near.at),
                 text: near.text.clone(),
                 nearness: near.nearness,
             })
@@ -3826,6 +3883,12 @@ pub fn run() {
                 },
                 Err(e) => (None, Some(e)),
             };
+            // Beside the shelf, from the same catalogue file the shelf read. A
+            // window that cannot date a work draws `no date`, which is honest;
+            // a window that never asked drew a blank, which is not.
+            let timeline = shelf
+                .as_ref()
+                .and_then(|shelf| girsa_corpus::era::Timeline::of(shelf.root()).ok());
             let (bar, no_search) = open_bar_for(&shelf);
             let lexicon = shelf.as_ref().and_then(|shelf| read_lexicon(shelf.root()));
             // The lane, once. With it off — the default — this opens nothing and
@@ -3842,6 +3905,7 @@ pub fn run() {
                 app,
                 Mutex::new(State {
                     shelf,
+                    timeline,
                     bar,
                     no_search,
                     chips: Chips::default(),
@@ -4549,6 +4613,7 @@ struct FolderMember {
 #[tauri::command]
 fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
     let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let names = state.names().ok_or_else(|| state.trouble())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf
         .collections()
@@ -4562,10 +4627,11 @@ fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
                 .map(|member| match member {
                     girsa_note::Member::Place(id) => FolderMember {
                         key: member.to_string(),
-                        said: shelf.work(id.work()).map_or_else(
-                            || id.to_string(),
-                            |work| format!("{} {}", work.he_title, id.path().join(":")),
-                        ),
+                        // `Naming::said`. This and `girsa-notes`'s copy printed
+                        // one `Member::Place` two ways — the whole permanent id
+                        // there, the address here — and neither honoured the
+                        // language the window is in.
+                        said: names.of(id).said(),
                         work: Some(id.work().to_string()),
                         at: Some(id.to_string()),
                     },

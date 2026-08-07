@@ -23,6 +23,8 @@
 
 use std::path::{Path, PathBuf};
 
+use girsa_app::naming::Names;
+use girsa_app::session::Language;
 use girsa_app::{Adjacency, Shelf};
 use girsa_lane::{bring, Chosen, Settings, BEREL};
 
@@ -57,7 +59,15 @@ fn main() -> std::process::ExitCode {
         ["add", slug] => add(&mut lane, &shelf, slug),
         ["drop", slug] => drop(&mut lane, &shelf, slug),
         ["embed"] => embed(&mut lane, &shelf),
-        ["ask", text] => ask(&lane, &shelf, text),
+        ["ask", text] => {
+            // With the dates, like `girsa-chain`. A lane result is a Rishon you
+            // half-remember, and *when* is most of deciding whether it is the
+            // one — the column existed in two of the four composers and this
+            // was one of the two that did without it.
+            let timeline = girsa_corpus::era::Timeline::of(&root).ok();
+            let names = Names::new(&shelf, timeline.as_ref(), Language::Hebrew);
+            ask(&lane, &names, text)
+        }
         _ => {
             usage();
             return std::process::ExitCode::from(2);
@@ -252,8 +262,8 @@ fn embed(lane: &mut Adjacency, shelf: &Shelf) -> bool {
     }
 }
 
-fn ask(lane: &Adjacency, shelf: &Shelf, text: &str) -> bool {
-    let answer = lane.ask(shelf, text, &[], girsa_lane::MOST);
+fn ask(lane: &Adjacency, names: &Names, text: &str) -> bool {
+    let answer = lane.ask(names, text, &[], girsa_lane::MOST);
     // The label first, every time. These are adjacent results and they are
     // never to be read as the places the words appear (spec.md §14).
     println!("{}", answer.label);
@@ -268,7 +278,10 @@ fn ask(lane: &Adjacency, shelf: &Shelf, text: &str) -> bool {
     }
     for near in &answer.near {
         println!();
-        println!("  {:.4}  {} {}", near.nearness, near.title, near.id);
+        // `near.at.dated()` and not a hand-rolled `format!`: this line used to
+        // print the whole permanent id where the window prints `58:1`, so one
+        // lane result read two ways depending on which surface asked.
+        println!("  {:.4}  {}", near.nearness, near.at.dated());
         println!("          {}", one_line(&near.text, 140));
     }
     true

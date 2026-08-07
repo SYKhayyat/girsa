@@ -313,16 +313,24 @@ fn limit_of(args: &Value) -> usize {
 }
 
 /// The shape a segment is named in, everywhere in this file.
+///
+/// The wire shape is this file's; **what goes in it** is `girsa_app::Naming`,
+/// the one place a title, an address and a date are worked out for a row. This
+/// function used to do all three by hand, and was one of four that did — and
+/// the four disagreed. The window's `HitRow` honoured the language the reader
+/// set and this did not. The lane's `Near` carried no address and this carried
+/// one. `girsa-chain`'s printer said `[no date]` where this said nothing at
+/// all, so an agent reading a chain could tell an undated work from a dated one
+/// and an agent reading a search result could not.
 fn named(server: &Server, id: &SegmentId) -> Value {
-    let slug = id.work();
-    let when = server.timeline.when(slug);
+    let at = server.names().of(id);
     json!({
-        "id": id.to_string(),
-        "sefer": slug,
-        "title": server.shelf.work(slug).map_or_else(|| slug.to_string(), |w| w.he_title.clone()),
-        "address": id.path().join(":"),
-        "written": when.years.map(|(from, to)| if from == to { from.to_string() } else { format!("{from}–{to}") }),
-        "era": when.era.map(|e| e.he()),
+        "id": at.id.to_string(),
+        "sefer": at.work,
+        "title": at.title,
+        "address": at.address,
+        "written": at.written,
+        "era": at.era,
     })
 }
 
@@ -691,13 +699,13 @@ fn adjacent(server: &Server, args: &Value) -> Result<Value, String> {
         .map(|slug| vec![slug.to_string()])
         .unwrap_or_default();
 
-    let answer = server.lane.ask(&server.shelf, &text, &scoped, limit);
+    let answer = server.lane.ask(&server.names(), &text, &scoped, limit);
     let state = server.lane.state();
     let found: Vec<Value> = answer
         .near
         .iter()
         .map(|near| {
-            let mut row = named(server, &near.id);
+            let mut row = named(server, near.id());
             row["text"] = json!(near.text);
             row["nearness"] = json!(near.nearness);
             row
@@ -767,7 +775,7 @@ fn seforim(server: &Server, args: &Value) -> Result<Value, String> {
                 "en_title": work.en_title,
                 "shelf": work.categories,
                 "author": work.author,
-                "written": when.years.map(|(from, to)| if from == to { from.to_string() } else { format!("{from}–{to}") }),
+                "written": when.written(),
                 "era": when.era.map(|e| e.he()),
             })
         }).collect::<Vec<Value>>(),

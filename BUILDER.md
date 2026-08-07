@@ -1366,6 +1366,42 @@ English.
 
 **Acceptance.** Both settings, every surface, one module that chooses.
 
+**Amended after the fact: "one module that chooses" was six.** The guard above
+holds for TypeScript — no `.ts` file reaches for `he_title` — and the leak went
+the other way. Six Rust rows describe a segment for a surface, and each worked
+out what to call it, where it sits and when it was written, on its own:
+
+| | title | address | dated |
+|---|---|---|---|
+| `HitRow` (window search) | `Language::title_of` | `path().join(":")` | no |
+| `Near` (semantic lane) | `he_title`, falling back to **the empty string** | *nothing at all* | no |
+| `girsa_mcp::named` | `he_title` | `path().join(":")` | yes |
+| `girsa-chain`'s printer | `he_title` | `path().join(":")` | yes, and `[no date]` |
+| `PatchRow` | `Language::title_of` | `path().join(":")` | no |
+| `SuspectRow` | `Language::title_of`, falling back to **`null`** | `path().join(":")` | no |
+
+Read the columns, not the rows. **One** of the six honoured the language, so a
+reader who set the window to English got English titles in the search column and
+Hebrew ones in the lane column beside it. **One** had no address, so the shell
+and `girsa-lane ask` each invented one — `58:1` in the window and the whole
+permanent id on the terminal, for the same result. **Two** carried the date, and
+they are the two a reader looks at least.
+
+None of that was decided. `HitRow` got the language because it was built where a
+`Session` was in scope; `mcp::named` got the years because it was built where a
+`Timeline` was; `Near` got neither because `Adjacency::ask` took a `&Shelf`.
+Six people answering one question from wherever they were standing.
+
+`girsa_app::Naming` is the answer and `girsa_app::Names` is what it takes to
+reach it — a shelf, a timeline and a language, passed **instead of** a bare
+`&Shelf` so no arity grows and a caller with no dates says so once rather than
+by leaving a column quietly blank. `SegmentId::address` is the address, spelled
+once where seventeen sites spelled it and eleven more skipped it. `When::written`
+is the years column, spelled once where three sites spelled it.
+
+The window gained a `Timeline` in the doing: it had none, so every row it drew
+was undated while the MCP server's were not.
+
 ---
 
 ### W42 · A level of the shelf mixes folders with seforim

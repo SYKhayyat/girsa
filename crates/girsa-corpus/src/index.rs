@@ -125,7 +125,7 @@ impl WorkSegments {
     pub fn load(root: &Path, slug: &str) -> Result<Self, import::ImportError> {
         let mut entries: Vec<(String, Ordinal)> = import::ordered_ids(root, slug)?
             .into_iter()
-            .map(|id| (id.path().join(":"), id.ordinal().clone()))
+            .map(|id| (id.address(), id.ordinal().clone()))
             .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(Self { entries })

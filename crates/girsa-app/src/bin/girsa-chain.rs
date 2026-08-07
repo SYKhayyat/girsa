@@ -31,6 +31,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use girsa_app::naming::Names;
+use girsa_app::session::Language;
 use girsa_app::Shelf;
 use girsa_corpus::era::Timeline;
 use girsa_corpus::segment::SegmentId;
@@ -171,22 +173,17 @@ impl<'a> Printer<'a> {
         }
     }
 
-    /// `שולחן ערוך, אורח חיים 58:1`, with the years where the corpus has them.
+    /// `שולחן ערוך, אורח חיים 58:1  [1565]`.
+    ///
+    /// This used to be twelve lines of it, and it was the best of the four
+    /// composers — the only one that said `[no date]` rather than leaving the
+    /// column blank, on the argument that a blank years column in a trace reads
+    /// as *earlier than the row above*. That argument won, and it is now in
+    /// `girsa_app::Naming::dated`, which every surface can reach.
     fn said(&self, at: &Anchor) -> String {
-        let slug = at.from.work();
-        let title = self
-            .shelf
-            .work(slug)
-            .map_or_else(|| slug.to_string(), |w| w.he_title.clone());
-        let address = at.from.path().join(":");
-        let when = self.timeline.when(slug);
-        let dates = match (when.years, when.era) {
-            (Some((from, to)), _) if from == to => format!("  [{from}]"),
-            (Some((from, to)), _) => format!("  [{from}–{to}]"),
-            (None, Some(era)) => format!("  [{}]", era.he()),
-            (None, None) => "  [no date]".to_string(),
-        };
-        format!("{title} {address}{dates}")
+        Names::new(self.shelf, Some(self.timeline), Language::Hebrew)
+            .of(&at.from)
+            .dated()
     }
 
     /// The first words of a segment, so a row can be recognised.

@@ -277,7 +277,7 @@ fn link(shelf: &Shelf, repaired: Repaired, outgoing: bool) -> Link {
     let he_title = named.map_or_else(|| work.clone(), |w| w.he_title.clone());
     let en_title = named.map_or_else(|| work.clone(), |w| w.en_title.clone());
     Link {
-        address: other.from.path().join(":"),
+        address: other.from.address(),
         other,
         work,
         he_title,

@@ -199,7 +199,7 @@ fn run(
         let Some(target) = work
             .segments
             .iter()
-            .find(|segment| segment.id.path().join(":") == address)
+            .find(|segment| segment.id.address() == address)
         else {
             println!("{asked:<44} {address} — no such se'if");
             continue;

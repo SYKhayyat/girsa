@@ -245,6 +245,26 @@ impl SegmentId {
         &self.path
     }
 
+    /// The address a reader sees — `58:1`.
+    ///
+    /// `path().join(":")` was spelled out at **seventeen** call sites: two
+    /// `HitRow` fills, the reading pane's `Line`, the lane's `NearRow`, the MCP
+    /// server's `named`, `girsa-chain`'s printer, a folder member, and on down.
+    /// Eleven more sites skipped it and printed the whole [`SegmentId`] —
+    /// `girsa:sefaria/shulchan_arukh…#58.1` — as though it were an address, so
+    /// the same lane result read as `58:1` in the window and as a permanent id
+    /// on the command line.
+    ///
+    /// **Not a citation.** A citation is `girsa_cite::cite`, which knows this
+    /// work's section words and prints *סימן נח סעיף א*; this is the bare
+    /// numbers, for a row that has a column for them. The two are different
+    /// jobs and this method exists so that the cheap one has a name rather than
+    /// an idiom.
+    #[must_use]
+    pub fn address(&self) -> String {
+        self.path.join(":")
+    }
+
     /// The part that never changes.
     #[must_use]
     pub fn ordinal(&self) -> &Ordinal {

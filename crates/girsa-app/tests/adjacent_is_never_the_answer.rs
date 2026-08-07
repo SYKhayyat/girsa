@@ -33,6 +33,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use girsa_app::naming::Names;
 use girsa_app::{Adjacency, Shelf};
 use girsa_corpus::import::{self, ImportedWork, RawSegment, SegmentKind};
 use girsa_corpus::work::{Source, Work};
@@ -229,7 +230,7 @@ fn a_query_sharing_no_words_with_its_target_finds_it() {
         );
     }
 
-    let answer = lane.ask(&shelf, asked, &[], 3);
+    let answer = lane.ask(&Names::on(&shelf), asked, &[], 3);
     assert!(answer.refused.is_none(), "{:?}", answer.refused);
     assert!(!answer.near.is_empty(), "the lane found nothing");
     let found: Vec<&str> = answer.near.iter().map(|n| n.text.as_str()).collect();
@@ -265,7 +266,7 @@ fn with_the_lane_off_the_same_query_finds_nothing_and_says_why() {
         "off is not a line in the header — there is no lane to be partial about"
     );
 
-    let answer = off.ask(&shelf, "זמן צאת הכוכבים", &[], 3);
+    let answer = off.ask(&Names::on(&shelf), "זמן צאת הכוכבים", &[], 3);
     assert!(answer.near.is_empty());
     let why = answer.refused.expect("a reason, not an empty list");
     assert!(why.contains("off"), "{why}");
@@ -285,7 +286,7 @@ fn turning_the_lane_off_leaves_the_corpus_exactly_as_it_was() {
 
     let mut lane = lane_over(&root, &personal, &shelf, Chosen::everything());
     lane.embed(&shelf, &mut |_, _, _| true).expect("it embeds");
-    let _ = lane.ask(&shelf, "זמן צאת הכוכבים", &[], 3);
+    let _ = lane.ask(&Names::on(&shelf), "זמן צאת הכוכבים", &[], 3);
 
     assert_eq!(
         before,
@@ -345,14 +346,14 @@ fn a_lane_over_one_sefer_says_what_the_other_two_are() {
     );
     // The same sentence travels with the answer, so a surface cannot draw the
     // results without it.
-    let answer = lane.ask(&shelf, "זמן צאת הכוכבים", &[], 3);
+    let answer = lane.ask(&Names::on(&shelf), "זמן צאת הכוכבים", &[], 3);
     assert_eq!(answer.coverage, said);
     // The line about צאת הכוכבים is in `rishon-beis`, which is not in the lane.
     // So the top hit is the one in the sefer that is, and the reader is told
     // that two seforim were not looked at.
     assert!(!answer.near.is_empty());
     for near in &answer.near {
-        assert_eq!(near.work, "rishon-alef");
+        assert_eq!(near.at.work, "rishon-alef");
     }
 }
 
@@ -399,7 +400,7 @@ fn a_lane_scoped_away_from_everything_it_covers_says_that_rather_than_nothing() 
     lane.embed(&shelf, &mut |_, _, _| true).expect("it embeds");
 
     let answer = lane.ask(
-        &shelf,
+        &Names::on(&shelf),
         "זמן צאת הכוכבים",
         &["acharon-gimmel".to_string()],
         3,
@@ -422,10 +423,10 @@ fn every_answer_carries_the_adjacent_label_and_it_is_worded_once() {
 
     // Found, refused, and off: all three carry it, because a reader must never
     // meet one of these lists without being told what kind of list it is.
-    let found = lane.ask(&shelf, "זמן צאת הכוכבים", &[], 3);
-    let refused = lane.ask(&shelf, "   ", &[], 3);
+    let found = lane.ask(&Names::on(&shelf), "זמן צאת הכוכבים", &[], 3);
+    let refused = lane.ask(&Names::on(&shelf), "   ", &[], 3);
     let (off, _) = Adjacency::open(&root, &personal, &shelf);
-    let when_off = off.ask(&shelf, "זמן צאת הכוכבים", &[], 3);
+    let when_off = off.ask(&Names::on(&shelf), "זמן צאת הכוכבים", &[], 3);
 
     for answer in [&found, &refused, &when_off] {
         assert_eq!(answer.label, girsa_lane::ADJACENT);

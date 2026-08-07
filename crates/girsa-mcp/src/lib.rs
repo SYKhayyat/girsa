@@ -131,6 +131,22 @@ impl Server {
         self.unindexed
     }
 
+    /// What it takes to name a place: the shelf, the dates, and a language.
+    ///
+    /// Hebrew, because a program is not a window and has no language setting —
+    /// and it says so here, once, rather than by three call sites each reaching
+    /// for `he_title`. The `en_title` reaches a caller as its own field on the
+    /// `seforim` answer, which is the right shape for a surface that can read
+    /// both.
+    #[must_use]
+    pub fn names(&self) -> girsa_app::Names<'_> {
+        girsa_app::Names::new(
+            &self.shelf,
+            Some(&self.timeline),
+            girsa_app::session::Language::Hebrew,
+        )
+    }
+
     /// The semantic lane, as the `adjacent` tool sees it.
     #[must_use]
     pub fn lane(&self) -> &girsa_app::Adjacency {

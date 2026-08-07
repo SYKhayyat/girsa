@@ -115,7 +115,7 @@ fn shape_of(root: &Path, slug: &str) -> Option<String> {
         .segments
         .iter()
         .take(3)
-        .map(|s| s.id.path().join(":"))
+        .map(|s| s.id.address())
         .collect();
     addresses.push(format!("… {} segments", work.segments.len()));
     Some(addresses.join(", "))

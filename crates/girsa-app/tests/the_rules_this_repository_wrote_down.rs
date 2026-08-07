@@ -497,3 +497,80 @@ fn the_browser_stub_says_what_the_lane_says() {
         "the sentence is typed out more than once in api.ts"
     );
 }
+
+#[test]
+fn one_rule_says_what_a_place_is_called_and_where_it_sits() {
+    // Six rows described a segment for a reader — `HitRow` twice over, `Near`,
+    // `mcp::named`, `girsa-chain`'s printer, `PatchRow`, `SuspectRow`, a folder
+    // member — and each worked out the title, the address and the date itself.
+    //
+    // Read the columns rather than the rows and none of the differences was a
+    // decision. `HitRow` honoured the language the reader set, because it was
+    // built where a `Session` was in scope; `mcp::named` carried the years,
+    // because it was built where a `Timeline` was; `Near` had **no address at
+    // all**, so the window and `girsa-lane ask` each invented one and invented
+    // different ones. Nobody chose that. It is what was reachable from where
+    // the code happened to be written.
+    //
+    // `girsa_app::Naming` is the rule and `girsa_app::Names` is what it takes
+    // to apply it — a shelf, a timeline and a language, passed *instead of* a
+    // bare `&Shelf` so that a caller with no dates says so once rather than by
+    // leaving a column quietly empty.
+    let root = repo();
+
+    // The address. `SegmentId::address` is the spelling; there were seventeen
+    // of the expression and eleven more sites that skipped it and printed the
+    // whole permanent id where an address goes.
+    let mut wrong = Vec::new();
+    for (named, body) in sources(&root) {
+        if named.ends_with(SELF) || named.ends_with("girsa-corpus/src/segment.rs") {
+            continue;
+        }
+        let code: String = body
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if code.contains("path().join(\":\")") {
+            wrong.push(named);
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "an address spelled by hand:\n  {}\n\nIt is `SegmentId::address`.",
+        wrong.join("\n  ")
+    );
+
+    // The title. `Language::title_of` is the rule and `Names::of` is where a
+    // row reaches it.
+    //
+    // The one exception is `LinkRow`, and it is a real one: `girsa_app::Link`
+    // carries **both** names of the sefer at the other end, the way `Card`
+    // does, and the surface picks. That is the other correct shape — a row that
+    // carries a sefer rather than a name to print — and the defect was never
+    // that two shapes exist. It was six rows of the first shape, each deciding
+    // privately.
+    const MAY_CHOOSE: [&str; 3] = [
+        "girsa-app/src/naming.rs",
+        "girsa-app/src/session.rs",
+        "app/src-tauri/src/lib.rs",
+    ];
+    let mut chose = Vec::new();
+    for (named, body) in sources(&root) {
+        if named.ends_with(SELF) || MAY_CHOOSE.iter().any(|ok| named.ends_with(ok)) {
+            continue;
+        }
+        // `Language::title_of`, which takes both names — not
+        // `Arrangement::title_of`, which names a *shelf* by its key and is a
+        // different question with an unfortunately similar name.
+        if body.contains("title_of(&") && body.contains("en_title") {
+            chose.push(named);
+        }
+    }
+    assert!(
+        chose.is_empty(),
+        "a row deciding for itself which of a sefer's two names to print:\n  {}\n\n\
+         `girsa_app::Names::of` is where a row reaches `Language::title_of`.",
+        chose.join("\n  ")
+    );
+}

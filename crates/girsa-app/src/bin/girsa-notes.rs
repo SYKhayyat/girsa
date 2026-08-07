@@ -34,6 +34,7 @@
 
 use std::path::PathBuf;
 
+use girsa_app::naming::Names;
 use girsa_app::shelf::Shelf;
 use girsa_app::Link;
 use girsa_corpus::segment::SegmentId;
@@ -440,10 +441,11 @@ fn folders(shelf: &Shelf) -> Result<(), String> {
         );
         for member in &held.members {
             let said = match member {
-                Member::Place(id) => shelf.work(id.work()).map_or_else(
-                    || id.to_string(),
-                    |work| format!("{} {}", work.he_title, id),
-                ),
+                // `Naming::said`, and not `format!("{} {}", he_title, id)` —
+                // which is what this was, while the window's equivalent was
+                // `format!("{} {}", he_title, id.path().join(":"))`. One
+                // `Member::Place`, one folder, two different strings.
+                Member::Place(id) => Names::on(shelf).of(id).said(),
                 Member::Work(slug) => shelf
                     .work(slug)
                     .map_or_else(|| slug.clone(), |work| work.he_title.clone()),

@@ -141,6 +141,27 @@ impl When {
         self.era.is_some() || self.years.is_some()
     }
 
+    /// The years as a column reads them — `1565`, or `1488–1575` for a span.
+    ///
+    /// One line, written out three times: `girsa_mcp`'s `named`, `girsa-mcp`'s
+    /// `seforim` tool, and `girsa-chain`'s printer. Each spelled the same
+    /// `if from == to` beside its own dash.
+    ///
+    /// `None` where the corpus could not date the work. What to *say* about
+    /// that is the caller's — `girsa-chain` says `[no date]`, on the argument
+    /// that a blank years column in a trace reads as *earlier than the row
+    /// above* rather than as *unknown*.
+    #[must_use]
+    pub fn written(&self) -> Option<String> {
+        self.years.map(|(from, to)| {
+            if from == to {
+                from.to_string()
+            } else {
+                format!("{from}–{to}")
+            }
+        })
+    }
+
     /// The year a chain sorts by, where there is one — the **later** end.
     ///
     /// A range is when the sefer was being written, and what matters for

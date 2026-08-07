@@ -170,11 +170,7 @@ fn a_branch_schema_makes_a_named_node_a_level_and_the_default_node_not_one() {
     // the commentary proper is not cited as *the default part of Abarbanel*.
     let root = girsa_fixture::shelf().root();
     let work = import::read_back(root, "abarbanel-on-ezekiel").expect("on the shelf");
-    let paths: Vec<String> = work
-        .segments
-        .iter()
-        .map(|s| s.id.path().join(":"))
-        .collect();
+    let paths: Vec<String> = work.segments.iter().map(|s| s.id.address()).collect();
     // `section_label` folds the title to something that survives the ref
     // grammar, which lower-cases it — so the level is `introduction`, and
     // asserting on the schema's own capitalisation would be asserting about a

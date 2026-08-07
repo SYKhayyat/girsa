@@ -619,11 +619,33 @@ export interface LaneState {
 
 /** One adjacent result. Deliberately not a `Hit`: nothing in this file can
  * turn one into the other, and nothing draws them in the same list. */
-export interface Near {
+/**
+ * Which place a row is about.
+ *
+ * The six fields `girsa_app::Naming` works out, flattened onto every row that
+ * names a segment: a search hit, a lane result, a patch, a suspect. There used
+ * to be no such shape — four Rust composers each worked out a title, an address
+ * and a date for themselves and disagreed about all three, so the search column
+ * honoured the window's language and the lane column beside it did not.
+ */
+export interface At {
   id: string;
   work: string;
+  /** What to call the sefer, in the window's language (W41). One title, because
+   * a row carries a name to print rather than a sefer — Rust chose which. Falls
+   * back to the slug: a row with no name is a row a reader cannot act on. */
   title: string;
+  /** `58:1`. **Not a citation** — a mekor is `girsa_cite::cite`, which knows
+   * this work's section words, and everything leaving the window as one goes
+   * through Rust's `sending`. */
   address: string;
+  /** `1565`, or `1488–1575`. `null` where the corpus cannot date the work. */
+  written: string | null;
+  /** The era, in Hebrew, where the years are not known. */
+  era: string | null;
+}
+
+export interface Near extends At {
   text: string;
   nearness: number;
 }
@@ -1068,13 +1090,7 @@ export interface Facets {
 
 export type Dimension = "sefer" | "shelf" | "era" | "author" | "link" | "tag";
 
-export interface Hit {
-  id: string;
-  address: string;
-  work: string;
-  /** What to call the sefer, in the window's language (W41). One title, because
-   * a hit carries a name to print rather than a sefer — Rust chose which. */
-  title: string;
+export interface Hit extends At {
   runs: Run[];
   /** Which page of a scan this is, where it is one — so the row opens the
    * viewer at it rather than a reading pane at a line with no words in it. */

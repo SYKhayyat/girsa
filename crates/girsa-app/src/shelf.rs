@@ -1143,7 +1143,7 @@ impl Open {
 /// came off the shelf.
 #[must_use]
 pub fn address_of(id: &SegmentId) -> Address {
-    Address::parse(&id.path().join(":")).unwrap_or_default()
+    Address::parse(&id.address()).unwrap_or_default()
 }
 
 /// `corpus/links/companions.jsonl`, if `girsa-companions` has written it.
