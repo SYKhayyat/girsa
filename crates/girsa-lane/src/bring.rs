@@ -1,5 +1,26 @@
 //! *Bring it in for me* — the one place in this crate that touches the network.
 //!
+//! # The 6 August 2026 report says to delete this, and it needs a ruling
+//!
+//! > *`delete`: `bring.rs`, 356 lines of resumable-with-Range HTTP guarding a
+//! > button a fresh install cannot see, for a model the crate insists is
+//! > interchangeable with any BERT in a directory.*
+//!
+//! Every clause of that is true, and it is **not a call this side of the
+//! keyboard gets to make.** The button is spec.md §16 decision #20, and
+//! BUILDER.md §0.1 puts two separate rows on the do-not-decide-alone list that
+//! it lands on: *any change to a §16 decision*, and *adding a network
+//! dependency at runtime* — which is the same row read backwards. §16 #20 was
+//! argued through and closed **during** the work order that built this, on the
+//! ruling quoted below.
+//!
+//! So it stays, and the finding is recorded here rather than acted on. What a
+//! ruling would decide: whether *"you may point the lane at any BERT you have"*
+//! makes *"and here is a button that fetches one particular one"* worth 356
+//! lines and the project's second network dependency. Deleting it takes
+//! `ureq` out of this crate entirely; the folder picker, which is the default
+//! path and always was, does not change either way.
+//!
 //! # Why this exists, given that §16 #20 said it would not
 //!
 //! It was ruled in, mid-work-order, and the ruling is narrower than *Girsa may

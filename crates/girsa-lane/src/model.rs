@@ -125,6 +125,33 @@
 //! `examples/measure.rs` over ~50,000 segments would replace that sentence with
 //! a number, and that is the one afternoon this feature still owes.
 //!
+//! # The forward pass is `candle-transformers`, and used not to be
+//!
+//! This module carried **140 lines of hand-written BERT** — embeddings, an
+//! encoder block, the attention — against `candle-core` and `candle-nn`, while
+//! `candle-transformers` was absent from the manifest with nothing anywhere
+//! saying why. Same crate family, same version, same two licences, and the
+//! reference implementation of exactly this network.
+//!
+//! It went, and the going was **checked rather than asserted**, because nothing
+//! in this crate tested that the forward pass computed anything at all: every
+//! other test here is about a refusal — a missing file, a config that will not
+//! run, a fingerprint. So a whole eight-dimensional BERT is now built from one
+//! seeded generator in `the_forward_pass_produces_the_vector_it_produced_before`,
+//! and the vector it produces is compared against the one the hand-written pass
+//! produced. **The largest component moved by 8e-8** — one ulp of f32, from
+//! `(a + b) + c` against `a + (b + c)` in the embedding sum.
+//!
+//! That number is the whole argument. A reader who has spent days embedding a
+//! shelf still has the same vectors, and [`fingerprint`] does not have to move —
+//! which it otherwise would have had to, because a fingerprint that says *which
+//! model* and not *which arithmetic* would have let two implementations' vectors
+//! into one store and produced a ranking that looked exactly like a good one.
+//!
+//! What is **not** delegated is the pooling. `BertModel` returns token states;
+//! mean-pooling them over the real tokens and normalising is Girsa's decision
+//! and stays here — see [`Model::run`].
+//!
 //! # The tokenizer is part of the model
 //!
 //! This project normally reimplements rather than copies, and the normalizer in
@@ -141,7 +168,10 @@
 use std::path::{Path, PathBuf};
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Embedding, LayerNorm, Linear, Module, VarBuilder};
+use candle_nn::VarBuilder;
+use candle_transformers::models::bert::{
+    BertModel, Config as BertConfig, HiddenAct, PositionEmbeddingType,
+};
 use serde::Deserialize;
 use tokenizers::{Tokenizer, TruncationParams};
 
@@ -323,8 +353,7 @@ pub struct Model {
     tokenizer: Tokenizer,
     pad: u32,
     config: Config,
-    embeddings: Embeddings,
-    layers: Vec<Layer>,
+    bert: BertModel,
     device: Device,
 }
 
@@ -334,7 +363,7 @@ impl std::fmt::Debug for Model {
             .field("dir", &self.dir)
             .field("fingerprint", &self.fingerprint)
             .field("dims", &self.config.hidden_size)
-            .field("layers", &self.layers.len())
+            .field("layers", &self.config.num_hidden_layers)
             .finish()
     }
 }
@@ -407,12 +436,7 @@ impl Model {
         let vb = VarBuilder::from_tensors(tensors, DType::F32, &device);
         let vb = if prefix.is_empty() { vb } else { vb.pp(prefix) };
 
-        let embeddings = Embeddings::load(&config, vb.pp("embeddings")).map_err(ModelError::ran)?;
-        let encoder = vb.pp("encoder").pp("layer");
-        let mut layers = Vec::with_capacity(config.num_hidden_layers);
-        for n in 0..config.num_hidden_layers {
-            layers.push(Layer::load(&config, encoder.pp(n)).map_err(ModelError::ran)?);
-        }
+        let bert = BertModel::load(vb, &config.as_bert()).map_err(ModelError::ran)?;
 
         Ok(Self {
             dir: dir.to_path_buf(),
@@ -420,8 +444,7 @@ impl Model {
             tokenizer,
             pad,
             config,
-            embeddings,
-            layers,
+            bert,
             device,
         })
     }
@@ -470,17 +493,16 @@ impl Model {
 
         let ids = Tensor::from_vec(padded, (batch, width), &self.device)?;
         let keep = Tensor::from_vec(keep, (batch, width), &self.device)?;
+        // One sentence at a time, so every token is type 0. Built rather than
+        // skipped because BERT's type embedding for 0 is not zero.
+        let types = Tensor::zeros((batch, width), DType::U32, &self.device)?;
+
         // Padding is masked out of the attention as well as out of the average.
         // Left in, it would be one more token every real token attends to, and
         // a batch of sixteen would embed a segment differently from a batch of
         // one — which would make the vectors depend on the order the job
         // happened to run in.
-        let attention = ((&keep - 1.0)? * 1e9)?.reshape((batch, 1, 1, width))?;
-
-        let mut hidden = self.embeddings.forward(&ids)?;
-        for layer in &self.layers {
-            hidden = layer.forward(&hidden, &attention)?;
-        }
+        let hidden = self.bert.forward(&ids, &types, Some(&keep))?;
 
         let weights = keep.reshape((batch, width, 1))?;
         let summed = hidden.broadcast_mul(&weights)?.sum(1)?;
@@ -601,8 +623,48 @@ impl Config {
         Ok(())
     }
 
-    const fn head_dim(&self) -> usize {
-        self.hidden_size / self.num_attention_heads
+    /// The same numbers, in the shape `candle-transformers` asks for.
+    ///
+    /// Read out by hand rather than deserialised straight into
+    /// [`BertConfig`], and that is deliberate: that struct requires
+    /// `hidden_dropout_prob`, `initializer_range`, `pad_token_id` and
+    /// `classifier_dropout` — fields a hand-written `config.json` may not have
+    /// and none of which changes a forward pass at inference — so parsing
+    /// through it would refuse models this can run. [`Config`] above is what
+    /// this crate needs and [`Config::check`] is what it will refuse; this is
+    /// only the translation.
+    fn as_bert(&self) -> BertConfig {
+        BertConfig {
+            vocab_size: self.vocab_size,
+            hidden_size: self.hidden_size,
+            num_hidden_layers: self.num_hidden_layers,
+            num_attention_heads: self.num_attention_heads,
+            intermediate_size: self.intermediate_size,
+            // `check` above has already refused anything that is not one of the
+            // gelus, and all three names are the same curve to within an
+            // approximation. `HiddenAct::Gelu` is `gelu_erf`, which is what the
+            // forward pass this replaced used.
+            hidden_act: HiddenAct::Gelu,
+            max_position_embeddings: self.max_position_embeddings,
+            type_vocab_size: self.type_vocab_size,
+            layer_norm_eps: self.layer_norm_eps,
+            position_embedding_type: PositionEmbeddingType::Absolute,
+            // Inference only. Dropout is identity here and the rest is training
+            // metadata; the defaults are named rather than left implicit so a
+            // reader can see that none of them reaches the arithmetic.
+            hidden_dropout_prob: 0.0,
+            initializer_range: 0.02,
+            pad_token_id: 0,
+            use_cache: false,
+            classifier_dropout: None,
+            // `None`, not `self.model_type`. `BertModel::load` uses this to
+            // retry under a `<model_type>.` prefix when the plain names miss —
+            // and `side_loaded` above has *already* resolved the prefix by
+            // looking at the tensor names, which is the stronger test. Handing
+            // it a model type as well would give it a second, weaker way to
+            // guess at a layout this crate has already established.
+            model_type: None,
+        }
     }
 }
 
@@ -685,146 +747,6 @@ impl Fnv {
         }
     }
 }
-
-/// Word, position and token-type embeddings, summed and normalized.
-struct Embeddings {
-    words: Embedding,
-    positions: Embedding,
-    types: Embedding,
-    norm: LayerNorm,
-    device: Device,
-}
-
-impl Embeddings {
-    fn load(config: &Config, vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        Ok(Self {
-            words: candle_nn::embedding(
-                config.vocab_size,
-                config.hidden_size,
-                vb.pp("word_embeddings"),
-            )?,
-            positions: candle_nn::embedding(
-                config.max_position_embeddings,
-                config.hidden_size,
-                vb.pp("position_embeddings"),
-            )?,
-            types: candle_nn::embedding(
-                config.type_vocab_size,
-                config.hidden_size,
-                vb.pp("token_type_embeddings"),
-            )?,
-            norm: candle_nn::layer_norm(
-                config.hidden_size,
-                candle_nn::LayerNormConfig {
-                    eps: config.layer_norm_eps,
-                    ..candle_nn::LayerNormConfig::default()
-                },
-                vb.pp("LayerNorm"),
-            )?,
-            device: vb.device().clone(),
-        })
-    }
-
-    fn forward(&self, ids: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let (batch, width) = ids.dims2()?;
-        let words = self.words.forward(ids)?;
-        let positions =
-            Tensor::arange(0u32, u32::try_from(width).unwrap_or(u32::MAX), &self.device)?
-                .reshape((1, width))?;
-        let positions = self.positions.forward(&positions)?;
-        // One sentence at a time, so every token is type 0. The tensor is built
-        // rather than skipped because BERT's type embedding for 0 is not zero.
-        let types = Tensor::zeros((batch, width), DType::U32, &self.device)?;
-        let types = self.types.forward(&types)?;
-        self.norm
-            .forward(&words.broadcast_add(&positions)?.add(&types)?)
-    }
-}
-
-/// One encoder block: self-attention, then a feed-forward, each residual and
-/// each followed by a layer norm.
-struct Layer {
-    query: Linear,
-    key: Linear,
-    value: Linear,
-    attention_out: Linear,
-    attention_norm: LayerNorm,
-    intermediate: Linear,
-    out: Linear,
-    norm: LayerNorm,
-    heads: usize,
-    head_dim: usize,
-    scale: f64,
-}
-
-impl Layer {
-    fn load(config: &Config, vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let hidden = config.hidden_size;
-        let norm = |vb: VarBuilder| {
-            candle_nn::layer_norm(
-                hidden,
-                candle_nn::LayerNormConfig {
-                    eps: config.layer_norm_eps,
-                    ..candle_nn::LayerNormConfig::default()
-                },
-                vb,
-            )
-        };
-        let attention = vb.pp("attention");
-        let self_attention = attention.pp("self");
-        Ok(Self {
-            query: candle_nn::linear(hidden, hidden, self_attention.pp("query"))?,
-            key: candle_nn::linear(hidden, hidden, self_attention.pp("key"))?,
-            value: candle_nn::linear(hidden, hidden, self_attention.pp("value"))?,
-            attention_out: candle_nn::linear(hidden, hidden, attention.pp("output").pp("dense"))?,
-            attention_norm: norm(attention.pp("output").pp("LayerNorm"))?,
-            intermediate: candle_nn::linear(
-                hidden,
-                config.intermediate_size,
-                vb.pp("intermediate").pp("dense"),
-            )?,
-            out: candle_nn::linear(
-                config.intermediate_size,
-                hidden,
-                vb.pp("output").pp("dense"),
-            )?,
-            norm: norm(vb.pp("output").pp("LayerNorm"))?,
-            heads: config.num_attention_heads,
-            head_dim: config.head_dim(),
-            #[allow(clippy::cast_precision_loss)]
-            scale: 1.0 / (config.head_dim() as f64).sqrt(),
-        })
-    }
-
-    fn forward(&self, hidden: &Tensor, mask: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let (batch, width, _) = hidden.dims3()?;
-        let split = |t: Tensor| {
-            t.reshape((batch, width, self.heads, self.head_dim))?
-                .transpose(1, 2)?
-                .contiguous()
-        };
-        let query = split(self.query.forward(hidden)?)?;
-        let key = split(self.key.forward(hidden)?)?;
-        let value = split(self.value.forward(hidden)?)?;
-
-        let scores = (query.matmul(&key.transpose(2, 3)?)? * self.scale)?;
-        let scores = scores.broadcast_add(mask)?;
-        let weights = candle_nn::ops::softmax_last_dim(&scores)?;
-        let context = weights.matmul(&value)?.transpose(1, 2)?.reshape((
-            batch,
-            width,
-            self.heads * self.head_dim,
-        ))?;
-
-        let attended = self
-            .attention_norm
-            .forward(&self.attention_out.forward(&context)?.add(hidden)?)?;
-        let inner = self.intermediate.forward(&attended)?.gelu_erf()?;
-        self.norm
-            .forward(&self.out.forward(&inner)?.add(&attended)?)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // A panic in a test is a failure report. The workspace denies these in
@@ -953,5 +875,165 @@ mod tests {
         // decision a reader is making, and "13 days, 4 hours" is a precision
         // 4.5 segments a second does not have.
         assert_eq!(how_long(5_000_545).as_deref(), Some("about 13 days"));
+    }
+
+    /// A whole BERT, small enough to write down.
+    ///
+    /// Every weight comes from one seeded generator, so the directory this
+    /// builds is byte-identical on every machine and the vector it produces is
+    /// a number this test can hold.
+    fn a_whole_tiny_bert(dir: &Path) {
+        const VOCAB: usize = 16;
+        const HIDDEN: usize = 8;
+        const LAYERS: usize = 2;
+        const HEADS: usize = 2;
+        const INTER: usize = 16;
+        const POSITIONS: usize = 16;
+        const TYPES: usize = 2;
+
+        std::fs::create_dir_all(dir).expect("a model directory");
+        std::fs::write(
+            dir.join("config.json"),
+            format!(
+                "{{\"model_type\":\"bert\",\"vocab_size\":{VOCAB},\"hidden_size\":{HIDDEN},\
+                 \"num_hidden_layers\":{LAYERS},\"num_attention_heads\":{HEADS},\
+                 \"intermediate_size\":{INTER},\"max_position_embeddings\":{POSITIONS},\
+                 \"type_vocab_size\":{TYPES},\"layer_norm_eps\":1e-12,\"hidden_act\":\"gelu\"}}"
+            ),
+        )
+        .expect("a config");
+
+        // A WordPiece over six tokens and whitespace. Small, and real: it is
+        // read by the same `tokenizers` crate a downloaded model's is.
+        std::fs::write(
+            dir.join("tokenizer.json"),
+            r###"{"version":"1.0","truncation":null,"padding":null,
+               "added_tokens":[
+                 {"id":1,"content":"[CLS]","single_word":false,"lstrip":false,"rstrip":false,"normalized":false,"special":true},
+                 {"id":2,"content":"[SEP]","single_word":false,"lstrip":false,"rstrip":false,"normalized":false,"special":true}],
+               "normalizer":null,"pre_tokenizer":{"type":"Whitespace"},
+               "post_processor":{"type":"TemplateProcessing",
+                 "single":[{"SpecialToken":{"id":"[CLS]","type_id":0}},{"Sequence":{"id":"A","type_id":0}},{"SpecialToken":{"id":"[SEP]","type_id":0}}],
+                 "pair":[{"Sequence":{"id":"A","type_id":0}}],
+                 "special_tokens":{"[CLS]":{"id":"[CLS]","ids":[1],"tokens":["[CLS]"]},"[SEP]":{"id":"[SEP]","ids":[2],"tokens":["[SEP]"]}}},
+               "decoder":null,
+               "model":{"type":"WordPiece","unk_token":"[UNK]","continuing_subword_prefix":"##","max_input_chars_per_word":100,
+                 "vocab":{"[UNK]":0,"[CLS]":1,"[SEP]":2,"[PAD]":3,"א":4,"ב":5,"ג":6,"ד":7}}}"###,
+        )
+        .expect("a tokenizer");
+
+        // One LCG, so the weights are the same everywhere this runs.
+        let mut seed = 0x2026_0806u64;
+        #[allow(clippy::cast_precision_loss)]
+        let mut next = move || {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let whole = (seed >> 40) as u32;
+            (f32::from(u16::try_from(whole & 0xFFFF).unwrap_or(0)) / 65_535.0 - 0.5) * 0.4
+        };
+        let mut make = |rows: usize, cols: usize| {
+            let n = rows * cols;
+            let data: Vec<f32> = (0..n).map(|_| next()).collect();
+            Tensor::from_vec(data, (rows, cols), &Device::Cpu).expect("a tensor")
+        };
+        let ones = |n: usize| Tensor::from_vec(vec![1.0f32; n], n, &Device::Cpu).expect("a tensor");
+        let zeros =
+            |n: usize| Tensor::from_vec(vec![0.0f32; n], n, &Device::Cpu).expect("a tensor");
+
+        let mut tensors: std::collections::HashMap<String, Tensor> =
+            std::collections::HashMap::new();
+        tensors.insert(
+            "embeddings.word_embeddings.weight".into(),
+            make(VOCAB, HIDDEN),
+        );
+        tensors.insert(
+            "embeddings.position_embeddings.weight".into(),
+            make(POSITIONS, HIDDEN),
+        );
+        tensors.insert(
+            "embeddings.token_type_embeddings.weight".into(),
+            make(TYPES, HIDDEN),
+        );
+        tensors.insert("embeddings.LayerNorm.weight".into(), ones(HIDDEN));
+        tensors.insert("embeddings.LayerNorm.bias".into(), zeros(HIDDEN));
+        for n in 0..LAYERS {
+            let at = format!("encoder.layer.{n}");
+            for which in ["query", "key", "value"] {
+                tensors.insert(
+                    format!("{at}.attention.self.{which}.weight"),
+                    make(HIDDEN, HIDDEN),
+                );
+                tensors.insert(format!("{at}.attention.self.{which}.bias"), zeros(HIDDEN));
+            }
+            tensors.insert(
+                format!("{at}.attention.output.dense.weight"),
+                make(HIDDEN, HIDDEN),
+            );
+            tensors.insert(format!("{at}.attention.output.dense.bias"), zeros(HIDDEN));
+            tensors.insert(
+                format!("{at}.attention.output.LayerNorm.weight"),
+                ones(HIDDEN),
+            );
+            tensors.insert(
+                format!("{at}.attention.output.LayerNorm.bias"),
+                zeros(HIDDEN),
+            );
+            tensors.insert(
+                format!("{at}.intermediate.dense.weight"),
+                make(INTER, HIDDEN),
+            );
+            tensors.insert(format!("{at}.intermediate.dense.bias"), zeros(INTER));
+            tensors.insert(format!("{at}.output.dense.weight"), make(HIDDEN, INTER));
+            tensors.insert(format!("{at}.output.dense.bias"), zeros(HIDDEN));
+            tensors.insert(format!("{at}.output.LayerNorm.weight"), ones(HIDDEN));
+            tensors.insert(format!("{at}.output.LayerNorm.bias"), zeros(HIDDEN));
+        }
+        candle_core::safetensors::save(&tensors, dir.join("model.safetensors"))
+            .expect("the weights are written");
+    }
+
+    #[test]
+    fn the_forward_pass_produces_the_vector_it_produced_before() {
+        // Nothing tested that this crate computes anything at all. Every other
+        // test here is about a refusal — a missing file, a config that will not
+        // run, a fingerprint. The one thing the lane exists to do had no check
+        // on it, so **swapping the implementation was unverifiable**, which is
+        // exactly what the swap to `candle-transformers` needed.
+        //
+        // The numbers below were produced by the hand-written forward pass this
+        // crate carried until 7 August 2026, over a model small enough to write
+        // down and deterministic enough to rebuild. They are the fixture, and
+        // the tolerance is 1e-5 because a different summation order over the
+        // same arithmetic is allowed to move the last bits and nothing else.
+        let dir = scratch("tiny-bert");
+        a_whole_tiny_bert(&dir);
+
+        let model = Model::side_loaded(&dir).expect("a tiny BERT loads");
+        assert_eq!(model.dims(), 8);
+        let out = model.embed(&["א ב ג", "ד"]).expect("it embeds");
+        assert_eq!(out.len(), 2);
+
+        let unit: f32 = out[0].vector.iter().map(|v| v * v).sum();
+        assert!((unit - 1.0).abs() < 1e-5, "not unit length: {unit}");
+
+        const FIRST: [f32; 8] = [
+            0.164_169_15,
+            0.255_925_5,
+            -0.338_898_5,
+            0.152_985_92,
+            0.127_159_55,
+            -0.807_689_2,
+            0.247_145_65,
+            0.199_202_06,
+        ];
+        for (at, (got, want)) in out[0].vector.iter().zip(FIRST).enumerate() {
+            assert!(
+                (got - want).abs() < 1e-5,
+                "component {at} moved: {got} against {want}\nwhole vector: {:?}",
+                out[0].vector
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

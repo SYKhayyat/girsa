@@ -24,6 +24,31 @@ thiserror.workspace = true
 candle-core = "0.11"
 candle-nn = "0.11"
 
+# The BERT itself.
+#
+# This crate carried **140 lines of hand-written BERT** — embeddings, an encoder
+# block, the attention — against `candle-core` and `candle-nn`, with
+# `candle-transformers` absent from the manifest and **nothing anywhere saying
+# why**. Same crate family, same version, same two licences, and it is the
+# reference implementation of exactly this network.
+#
+# The swap was made checkable rather than asserted:
+# `the_forward_pass_produces_the_vector_it_produced_before` builds a whole
+# eight-dimensional BERT from one seeded generator, runs it, and compares
+# against the vector the hand-written pass produced. **The largest component
+# moved by 8e-8** — one ulp of f32, from `(a + b) + c` against `a + (b + c)` in
+# the embedding sum. So the vectors a reader has already spent days computing
+# are still the same vectors, and the model fingerprint does not move.
+#
+# What is *not* delegated is the pooling: mean over the real tokens, then unit
+# length. That is Girsa's decision — BEREL ships no pooler, so `[CLS]` was never
+# trained to stand for the sentence — and `BertModel` returns the token states,
+# which is the right seam.
+#
+# MIT OR Apache-2.0. `default-features = false`: no CUDA, no MKL, no Accelerate,
+# for the reason above.
+candle-transformers = { version = "0.11", default-features = false }
+
 # The model's own tokenizer, read from its `tokenizer.json`, rather than a
 # WordPiece written here from the description of one. That is deliberate and it
 # is the opposite of the usual rule in this project: the normalizer and the
