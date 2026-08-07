@@ -43,6 +43,9 @@ pub mod session;
 pub mod shelf;
 pub mod spans;
 pub mod taxonomy;
+// Three composers each said "what this answer could not see" and none of them
+// could see the other two.
+pub mod unseen;
 pub mod workspace;
 
 pub use adjacent::{Adjacency, Near};
@@ -63,4 +66,5 @@ pub use sending::{quote, send, Selection, SendError, Sent};
 pub use session::Session;
 pub use shelf::{Companion, Open, Shelf, ShelfError};
 pub use taxonomy::Branch;
+pub use unseen::Unseen;
 pub use workspace::{Axis, Layout, Pane, PaneId, Tab, Workspace};

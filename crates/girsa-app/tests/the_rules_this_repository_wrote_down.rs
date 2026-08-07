@@ -134,7 +134,7 @@ fn find_index_has_one_implementation() {
     assert_eq!(
         found,
         vec!["crates/girsa-note/src/since.rs".to_string()],
-        "a second `find_index`. Two of these had two accept predicates and          disagreed about whether a directory was an index."
+        "a second `find_index`. Two of these had two accept predicates and disagreed about whether a directory was an index."
     );
 }
 
@@ -172,7 +172,7 @@ fn a_prepared_query_is_never_rebuilt_to_be_asked_again() {
     for rebuilds in ["search_in(", "search_widened_in(", "prepare_widened("] {
         assert!(
             !bar.contains(rebuilds),
-            "`bar.rs` calls `{rebuilds}`, which prepares a query privately — and it              already holds a `Prepared` for the facets. Two builds of one query is              two chances for a facet column not to add up to the header above it.              Use `SearchIndex::found_with`."
+            "`bar.rs` calls `{rebuilds}`, which prepares a query privately — and it already holds a `Prepared` for the facets. Two builds of one query is two chances for a facet column not to add up to the header above it. Use `SearchIndex::found_with`."
         );
     }
 }
@@ -197,7 +197,7 @@ fn nothing_re_anchors_by_exact_id_where_a_standing_is_the_question() {
         .unwrap_or_else(|e| panic!("shelf.rs reads: {e}"));
     assert!(
         shelf.contains("apply_at(&standing"),
-        "the reading pane stopped asking `Layer::apply_at`. A correction is stored          under the name the place had when it was made, and an exact lookup will          miss it the day upstream re-segments the work — see          `an_anchor_survives_a_split_at_import.rs`."
+        "the reading pane stopped asking `Layer::apply_at`. A correction is stored under the name the place had when it was made, and an exact lookup will miss it the day upstream re-segments the work — see `an_anchor_survives_a_split_at_import.rs`."
     );
 }
 
@@ -245,7 +245,7 @@ fn a_number_a_reader_can_change_is_clamped_in_one_place() {
             );
         assert!(
             !body.contains(forbidden),
-            "{file}: {why}. `girsa_app::session::Session::sane` is the one place,              and `Session::load` runs it."
+            "{file}: {why}. `girsa_app::session::Session::sane` is the one place, and `Session::load` runs it."
         );
     }
 }
@@ -324,7 +324,7 @@ fn a_wire_format_is_spelled_once_and_not_derived_from_an_identifier() {
         "a fieldless enum whose wire spelling is derived from its variant names:
   {}
 
-         Rename one of those variants and the file format changes with it.          `girsa_corpus::spelled!` states the spellings and generates `as_str`,          `named`, `Serialize` and `Deserialize` from that one list.",
+         Rename one of those variants and the file format changes with it. `girsa_corpus::spelled!` states the spellings and generates `as_str`, `named`, `Serialize` and `Deserialize` from that one list.",
         wrong.join("
   ")
     );
@@ -349,13 +349,13 @@ fn one_answer_has_one_highlighting_rule() {
         .unwrap_or_else(|e| panic!("index.rs reads: {e}"));
     assert!(
         !index.contains("matches_word"),
-        "`index.rs` walks tokens against a widening itself again. That rule is          `bar::Marker`, and `Found::marker` is how this file reaches it."
+        "`index.rs` walks tokens against a widening itself again. That rule is `bar::Marker`, and `Found::marker` is how this file reaches it."
     );
     let bar = std::fs::read_to_string(root.join("crates/girsa-search/src/bar.rs"))
         .unwrap_or_else(|e| panic!("bar.rs reads: {e}"));
     assert!(
         bar.contains("found.marker()"),
-        "`Bar::results` builds a `Marker` out of `Found`'s two fields itself          again. `Found::marker` is that."
+        "`Bar::results` builds a `Marker` out of `Found`'s two fields itself again. `Found::marker` is that."
     );
 }
 
@@ -392,8 +392,108 @@ fn hebrew_is_put_into_markup_by_one_rule() {
         "a fourth HTML escaper:
   {}
 
-It is `girsa_app::markup::text` and          `::attr`, and the reason there are two of those and not one is a fact          about Hebrew rather than about markup.",
+It is `girsa_app::markup::text` and `::attr`, and the reason there are two of those and not one is a fact about Hebrew rather than about markup.",
         wrong.join("
   ")
+    );
+}
+
+#[test]
+fn one_sentence_says_what_an_answer_could_not_see() {
+    // Three composers, each with a doc comment naming itself the only one:
+    // `Coverage::said` ("the window, the command line, the MCP surface and the
+    // test cannot drift apart"), `Gap::said` ("the window's line, the CLI's
+    // line, the MCP server's line"), `Unindexed::said` ("the window's header,
+    // `girsa-read`'s line, `girsa-index find`'s footer and the MCP server's
+    // field"). Each was right about its own clause and none could see the other
+    // two, so what drifted was everything between them: `Coverage` joined with a
+    // semicolon, the other two with a middle dot; `Coverage` alone knew a
+    // five-figure number wants a comma in it; and `Gap` joined an already-joined
+    // string into its own join, so a four-clause sentence read correctly only
+    // because both levels happened to pick the same separator.
+    //
+    // The rule that ends it: a module that words a clause of this sentence hands
+    // it to `girsa_corpus::said::Clauses` and does no joining of its own. The
+    // separator is spelled once, in the crate below all of them.
+    const WORDS_A_CLAUSE: [&str; 4] = [
+        "girsa-lane/src/coverage.rs",
+        "girsa-app/src/reading.rs",
+        "girsa-note/src/since.rs",
+        "girsa-app/src/unseen.rs",
+    ];
+    let root = repo();
+    let mut wrong = Vec::new();
+    let mut found = 0;
+    for (named, body) in sources(&root) {
+        if !WORDS_A_CLAUSE.iter().any(|owner| named.ends_with(owner)) {
+            continue;
+        }
+        found += 1;
+        // Comments quote the sentences they are about, and a doc comment naming
+        // the old separator is the argument for the new one.
+        let code: String = body
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !code.contains("fn clauses(&self) -> Clauses") {
+            wrong.push(format!(
+                "{named}: words a clause and does not hand it over as `Clauses`"
+            ));
+        }
+        // The two sentence separators. Not `.join(` — `Path::join` is all over
+        // these files and `names.join(", ")` inside `Coverage::naming` joins
+        // titles *within* one clause, which is that clause's own business. What
+        // is forbidden is a module deciding how its clause sits beside somebody
+        // else's.
+        for spelt in ["\u{b7}", "\"; "] {
+            if code.contains(spelt) {
+                wrong.push(format!(
+                    "{named}: spells `{spelt}` in code — the joining is `Clauses`"
+                ));
+            }
+        }
+    }
+    assert_eq!(
+        found,
+        WORDS_A_CLAUSE.len(),
+        "a clause module moved and this list did not"
+    );
+    assert!(
+        wrong.is_empty(),
+        "a module that words a clause is doing its own joining:\n  {}\n\n\
+         The clause belongs to whoever knows the fact — that part of all three \
+         doc comments was right. The joining is `girsa_corpus::said::Clauses`, \
+         and `girsa_app::Unseen` decides which clauses are one answer, which is \
+         the decision none of the three earlier composers was in a position to \
+         make.",
+        wrong.join("\n  ")
+    );
+}
+
+#[test]
+fn the_browser_stub_says_what_the_lane_says() {
+    // `app/src/api.ts`'s stub had *"nothing is in the semantic lane yet"* typed
+    // out twice, a fourth copy of `girsa_lane::coverage::NOTHING_YET` — in the
+    // one language that cannot import it. It is one TypeScript constant now,
+    // and this is the only thing that can hold the two together.
+    let root = repo();
+    let api = std::fs::read_to_string(root.join("app/src/api.ts"))
+        .unwrap_or_else(|e| panic!("api.ts reads: {e}"));
+    let marker = "export const NOTHING_YET = \"";
+    let at = api
+        .find(marker)
+        .unwrap_or_else(|| panic!("api.ts declares NOTHING_YET"));
+    let rest = &api[at + marker.len()..];
+    let said = &rest[..rest.find('"').unwrap_or(0)];
+    assert_eq!(
+        said,
+        girsa_lane::coverage::NOTHING_YET,
+        "the browser build says one thing about an empty lane and Rust says another"
+    );
+    assert_eq!(
+        api.matches("nothing is in the semantic lane yet").count(),
+        1,
+        "the sentence is typed out more than once in api.ts"
     );
 }

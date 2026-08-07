@@ -15,9 +15,29 @@
 //! So every answer carries one of these, and every surface that draws an answer
 //! draws its sentence. It is the same argument — and deliberately the same
 //! shape — as `girsa_app::reading::Gap`, which says *"4 PDFs on this shelf
-//! aren't searchable yet"* over the literal index. One sentence,
-//! [`Coverage::said`], composed here so the window, the command line, the MCP
-//! surface and the test cannot drift apart.
+//! aren't searchable yet"* over the literal index.
+//!
+//! # It was the same shape and it was not the same sentence
+//!
+//! That paragraph used to end *"one sentence, [`Coverage::said`], composed here
+//! so the window, the command line, the MCP surface and the test cannot drift
+//! apart"* — and `girsa_app::reading::Gap` and `girsa_note::since::Unindexed`
+//! each carried the same claim about their own clause. Three composers, each
+//! correct about its surfaces, none able to see the other two. What drifted was
+//! everything between them: this one joined with a semicolon and the other two
+//! with a middle dot, this one alone knew a five-figure number wants a comma in
+//! it, and `Gap` joined an already-joined string into its own join.
+//!
+//! Worse than the punctuation: an `adjacent` answer carried this sentence and
+//! said nothing about the chaburah written this morning that no lane has
+//! embedded, while a `search` answer said exactly that and nothing about the
+//! lane. **Three subsets of one truth, each wearing a sentence that claimed to
+//! be complete.**
+//!
+//! So the clause stays here, where the fact is, and [`Coverage::clauses`] hands
+//! it over. `girsa_corpus::said::Clauses` does the joining and
+//! `girsa_app::Unseen` decides which clauses are one answer — the decision none
+//! of the three was in a position to make.
 //!
 //! # Counted in segments, not in seforim
 //!
@@ -27,6 +47,17 @@
 //! stopped at page 40 of 302, for the same reason.
 
 use std::collections::BTreeMap;
+
+use girsa_corpus::said::{plural, thousands, Clauses};
+
+/// What a lane with nothing in it says.
+///
+/// A constant because `app/src/api.ts` hard-codes this exact sentence twice, in
+/// the browser build's stub, where there is no Rust to ask — a fourth copy of a
+/// string whose whole point is that there is one of it. It is now spelled once
+/// here and checked against the TypeScript by
+/// `crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs`.
+pub const NOTHING_YET: &str = "nothing is in the semantic lane yet";
 
 /// One sefer's standing in the lane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,14 +137,27 @@ impl Coverage {
 
     /// The sentence. One implementation, drawn by every surface.
     ///
-    /// Never `None` — unlike `Gap`, which has nothing to say when the shelf
+    /// Never empty — unlike `Gap`, which has nothing to say when the shelf
     /// holds no scans. A lane always has something to say about its own
     /// coverage, because *this is complete* is exactly the claim a reader is
     /// entitled to have checked rather than assumed.
     #[must_use]
     pub fn said(&self) -> String {
-        let mut said = if self.chosen.is_empty() {
-            "nothing is in the semantic lane yet".to_string()
+        self.clauses().joined()
+    }
+
+    /// The clauses, worded here and joined nowhere.
+    ///
+    /// See [`girsa_corpus::said`]. This composer joined with `; ` while the
+    /// other two joined with `" · "`, and it was the only one of the three that
+    /// knew a five-figure number wants a comma in it — both facts now live one
+    /// module down, where the sentence that carries clauses from all three is
+    /// assembled.
+    #[must_use]
+    pub fn clauses(&self) -> Clauses {
+        let mut clauses = Clauses::new();
+        let opening = if self.chosen.is_empty() {
+            NOTHING_YET.to_string()
         } else if self.everything {
             // The cost goes in the sentence that makes the offer.
             //
@@ -150,34 +194,25 @@ impl Coverage {
                 }
             )
         };
-        if !self.everything && !self.outside.is_empty() {
-            said.push_str(&format!(
-                "; {} other {} on this shelf {} in it",
-                thousands(self.outside.len()),
-                if self.outside.len() == 1 {
-                    "sefer"
-                } else {
-                    "seforim"
-                },
-                if self.outside.len() == 1 {
-                    "isn't"
-                } else {
-                    "aren't"
-                },
-            ));
+        clauses.say(opening);
+        if !self.everything {
+            clauses.count(self.outside.len(), |n| {
+                format!(
+                    "{} other {} on this shelf {} in it",
+                    thousands(n),
+                    plural(n, "sefer", "seforim"),
+                    plural(n, "isn't", "aren't"),
+                )
+            });
         }
-        if !self.other_model.is_empty() {
-            said.push_str(&format!(
-                "; {} {} vectors made by another model and are not being read",
-                thousands(self.other_model.len()),
-                if self.other_model.len() == 1 {
-                    "sefer has"
-                } else {
-                    "seforim have"
-                },
-            ));
-        }
-        said
+        clauses.count(self.other_model.len(), |n| {
+            format!(
+                "{} {} vectors made by another model and are not being read",
+                thousands(n),
+                plural(n, "sefer has", "seforim have"),
+            )
+        });
+        clauses
     }
 
     /// The chosen seforim, named up to [`NAMED`] of them and counted after.
@@ -219,20 +254,6 @@ impl Coverage {
             other_model: Vec::new(),
         }
     }
-}
-
-/// `12904` as `12,904`. A five-figure number with no separator in a sentence
-/// about how much of a library is covered is a number nobody reads.
-fn thousands(n: usize) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (at, digit) in digits.chars().enumerate() {
-        if at > 0 && (digits.len() - at) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
 }
 
 #[cfg(test)]

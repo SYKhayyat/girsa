@@ -25,6 +25,7 @@
 
 use std::path::Path;
 
+use girsa_corpus::said::{counted, plural, Clauses};
 use girsa_note::since::Unindexed;
 use girsa_scan::reading::Read;
 use girsa_scan::words::{Job, Words};
@@ -89,42 +90,41 @@ impl Gap {
         self.scans.is_empty() && !self.layer.is_a_gap()
     }
 
+    /// The clauses, worded here and joined nowhere.
+    ///
+    /// This module knows the scan clause. The two layer clauses are worded by
+    /// `girsa-note` so this header and `girsa-index find`'s footer cannot say
+    /// different numbers about the same layer — and they arrive **flat**, which
+    /// they did not: `said` used to join its own list with `" · "` and push
+    /// `Unindexed::said`'s already-joined string into it as a single clause, so
+    /// a four-clause sentence had a nesting in it that read correctly only
+    /// because both levels happened to pick the same separator.
+    #[must_use]
+    pub fn clauses(&self) -> Clauses {
+        let mut clauses = Clauses::new();
+        clauses.count(self.scans.len(), |n| {
+            format!(
+                "{} on this shelf {} searchable yet — {}",
+                counted(n, "PDF", "PDFs"),
+                plural(n, "isn't", "aren't"),
+                counted(self.pages, "page", "pages"),
+            )
+        });
+        clauses.and(self.layer.clauses());
+        clauses
+    }
+
     /// The header line, in words. `None` when there is nothing to say.
     ///
-    /// One implementation, because the window's line, the CLI's line, the MCP
-    /// server's line and the test's expectation drifting apart is how a header
-    /// comes to promise a count the button does not do.
+    /// The surfaces that draw the literal gap on its own — `girsa-read`'s line,
+    /// and `never_a_silent_gap.rs`. The window's header goes through
+    /// [`crate::Unseen`], which is where the lane's coverage clause is.
     ///
-    /// One line, always, however many of the three are true: a header that grows
-    /// into three lines is a header nobody reads.
+    /// One line, always, however many of the clauses are true: a header that
+    /// grows into three lines is a header nobody reads.
     #[must_use]
     pub fn said(&self) -> Option<String> {
-        if self.is_none() {
-            return None;
-        }
-        let mut parts = Vec::new();
-        if !self.scans.is_empty() {
-            parts.push(format!(
-                "{} on this shelf {} searchable yet — {} {}",
-                if self.scans.len() == 1 {
-                    "1 PDF".to_string()
-                } else {
-                    format!("{} PDFs", self.scans.len())
-                },
-                if self.scans.len() == 1 {
-                    "isn't"
-                } else {
-                    "aren't"
-                },
-                self.pages,
-                if self.pages == 1 { "page" } else { "pages" },
-            ));
-        }
-        // The two clauses that had no variant to be reported in, worded by
-        // `girsa-note` so this header and `girsa-index find`'s footer cannot say
-        // different numbers about the same layer.
-        parts.extend(self.layer.said());
-        Some(parts.join(" · "))
+        self.clauses().said()
     }
 }
 

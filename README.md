@@ -77,7 +77,7 @@ is **23**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That is the design and it is not yet the measurement. Of the shell's
-**4,700**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
+**4,710**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
 pass-through; the rest decides cache policy,
 sort orders, truncation lengths and patch provenance, and one block of it is a
 second implementation of the placement rule `Beside::between` is tested for. The
@@ -1951,12 +1951,38 @@ $ girsa-read corpus personal status
   user/berachos-combined — 279 of 302 pages read
 ```
 
-That sentence is composed once, in `girsa_app::reading::Gap::said`, so the
-results header, this command and the test cannot drift into disagreeing about a
+That sentence is composed once, so the results header, this command, the MCP
+server's `did_not_search` and the test cannot drift into disagreeing about a
 count. A reader given forty hits over a shelf holding four unread scans has been
 told *these are the forty places this appears*, and the forty-first is on a page
 nobody has read. Search that quietly omits a shelf is worse than search that has
 not been run, because it looks like an answer.
+
+**"Composed once" was three times, and they drifted.** Three modules said part
+of *what this answer could not see* — `girsa_note::since::Unindexed` (notes and
+corrections newer than the index), `girsa_app::reading::Gap` (unread scans), and
+`girsa_lane::Coverage` (what the semantic lane covers) — and each carried a doc
+comment naming itself the only implementation so its surfaces could not drift.
+Each was right about its own clause and none of the three could see the other
+two. What drifted was everything between them: `Coverage` joined its clauses
+with `; ` and knew a five-figure number wants a comma in it, the other two
+joined with `·` and printed the bare integer, and `Gap` joined an already-joined
+string into its own join.
+
+The worse half was not punctuation. An `adjacent` answer carried the lane
+sentence and said nothing about the chaburah written this morning; a `search`
+answer said exactly that and nothing about the lane; the window's header said
+scans and layer and nothing about either. **Three subsets of one truth,
+depending on which surface you asked, each wearing a sentence that claimed to be
+complete.**
+
+Now: each module still words its own clause, because it is the only one that
+knows the fact. `girsa_corpus::said::Clauses` does the joining — one separator,
+one thousands separator, one plural rule, and `and()` flattens rather than
+nests. `girsa_app::Unseen` decides which clauses belong to one answer, which is
+the decision none of the three was in a position to make. The rule is checked by
+`one_sentence_says_what_an_answer_could_not_see`: a module that words a clause
+hands it over and spells no separator of its own.
 
 A scan half read is neither searchable nor absent, and both numbers are
 reported. *"3 PDFs aren't searchable yet"* over a sefer that is two-thirds done

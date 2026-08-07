@@ -404,7 +404,13 @@ fn search(server: &Server, args: &Value) -> Result<Value, String> {
                 // and more so — a `total` of zero over an index that has never seen
                 // your notes reads to an agent as *this is not in the library*, and
                 // an agent cannot ask a follow-up question about it.
-                "did_not_search": server.unindexed().said(),
+                //
+                // Composed by `girsa_app::Unseen` rather than by calling
+                // `Unindexed::said` here, which is what this line used to do: the
+                // layer clauses were the only ones this answer carried, and the
+                // one thing a caller could not learn from `did_not_search` was
+                // that there is another thing it did not search.
+                "did_not_search": girsa_app::Unseen::over_layer(server.unindexed(), None).said(),
                 "hits": hits,
                 "note": note,
                 // §9.6: priced, and applied to nothing. The counts are computed
@@ -712,6 +718,18 @@ fn adjacent(server: &Server, args: &Value) -> Result<Value, String> {
         // Said whether or not anything was found. A partial lane that reads as a
         // complete one is what §9.9 exists to prevent.
         "coverage": answer.coverage,
+        // The same field `search` carries, and for the same reason. An adjacency
+        // answer was the one answer in this server that said what the *lane* had
+        // not covered and nothing about what your own layer holds that no lane
+        // has embedded — so a chaburah written this morning was invisible to
+        // `adjacent` exactly the way it was invisible to `search`, and only
+        // `search` said so. Carries the coverage clause too, which is what makes
+        // this the whole sentence rather than a second subset of it.
+        "did_not_search": girsa_app::Unseen::over_layer(
+            server.unindexed(),
+            Some(server.lane().coverage().clone()),
+        )
+        .said(),
         "refused": answer.refused,
         "showing": found.len(),
         "adjacent": found,

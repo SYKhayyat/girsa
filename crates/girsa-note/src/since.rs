@@ -5,9 +5,9 @@
 //! `girsa-app`'s `reading` module already owned the right mechanism and applied it
 //! to one case in three:
 //!
-//! | the index cannot see                        | told? |
-//! |---------------------------------------------|-------|
-//! | an un-OCR'd scan                            | yes   |
+//! | the index cannot see                        | told?  |
+//! |---------------------------------------------|--------|
+//! | an un-OCR'd scan                            | yes    |
 //! | a note written since the last build         | **no** |
 //! | a correction made since the last build      | **no** |
 //!
@@ -26,10 +26,13 @@
 //! *scans* with *your chaburos* and it is the same sentence — and for a bochur,
 //! finding his own writing is most of why he would move.
 //!
-//! It lives in `girsa-note` rather than in `girsa-app` because there are **two**
+//! It lives in `girsa-note` rather than in `girsa-app` because there are **three**
 //! callers that must not disagree and they are on opposite sides of a deliberate
 //! dependency boundary: the window and `girsa-read` reach it through `girsa-app`,
-//! and `girsa-index find` reaches it through `girsa-search`. `girsa-app` does not
+//! `girsa-index find` reaches it through `girsa-search`, and the MCP server
+//! reaches it through both. (Two, when this was written. The third arrived and
+//! the sentence did not change, which is the small version of the whole
+//! finding.) `girsa-app` does not
 //! depend on `girsa-search` — `gap_over` takes a slice of slugs rather than a
 //! `Scope` specifically so it need not, and that call is written down in the README
 //! — so the shared thing has to sit under both. Notes are this crate's, and the
@@ -43,6 +46,8 @@
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+use girsa_corpus::said::{counted, plural, Clauses};
 
 /// The stamp `girsa-search` writes beside an index.
 ///
@@ -126,15 +131,20 @@ impl Unindexed {
         self.notes.is_a_gap() || self.fixes.is_a_gap() || self.scans.is_a_gap()
     }
 
-    /// The clause a reader sees, or `None` when there is nothing to say.
+    /// The clauses a reader sees, worded here and joined nowhere.
     ///
-    /// One implementation, because the window's header, `girsa-read`'s line,
-    /// `girsa-index find`'s footer and the MCP server's field drifting apart is how
-    /// a header comes to promise a count the button does not do.
+    /// This module knows how to say *what your own layer holds that the index
+    /// has not seen* and nothing else. How that sits beside *4 PDFs aren't
+    /// searchable yet* and *this lane covers Hilchos Tefillah* is
+    /// [`girsa_corpus::said::Clauses`]'s question, because it was three
+    /// questions when it was three composers' — and the answers differed in
+    /// their separator, their thousands separator, and whether one of them
+    /// nested a joined string inside another join.
     #[must_use]
-    pub fn said(&self) -> Option<String> {
+    pub fn clauses(&self) -> Clauses {
+        let mut clauses = Clauses::new();
         if !self.is_a_gap() {
-            return None;
+            return clauses;
         }
         // "There is no search index" is one fact about the machine, not two facts
         // about notes and corrections, so it is said once and instead of both.
@@ -142,40 +152,46 @@ impl Unindexed {
             || self.fixes == Written::NoIndex
             || self.scans == Written::NoIndex
         {
-            return Some(
+            clauses.say(
                 "there is no search index yet, so nothing you have written is findable — \
-                 run girsa-index build"
-                    .to_string(),
+                 run girsa-index build",
             );
+            return clauses;
         }
-        let mut parts = Vec::new();
-        if let Written::Since(n) = self.notes {
-            if n > 0 {
-                parts.push(format!(
-                    "{n} {} written since the index was built {} not searchable yet",
-                    if n == 1 { "note" } else { "notes" },
-                    if n == 1 { "is" } else { "are" },
-                ));
-            }
-        }
-        if let Written::Since(n) = self.fixes {
-            if n > 0 {
-                parts.push(format!(
-                    "{n} {} made since then {} findable by the typo and not by the fix",
-                    if n == 1 { "correction" } else { "corrections" },
-                    if n == 1 { "is still" } else { "are still" },
-                ));
-            }
-        }
-        if let Written::Since(n) = self.scans {
-            if n > 0 {
-                parts.push(format!(
-                    "words you corrected on {n} {} still findable by the                      misreading and not by the correction",
-                    if n == 1 { "scan are" } else { "scans are" },
-                ));
-            }
-        }
-        Some(parts.join(" · "))
+        clauses
+            .count(self.notes.count().unwrap_or(0), |n| {
+                format!(
+                    "{} written since the index was built {} not searchable yet",
+                    counted(n, "note", "notes"),
+                    plural(n, "is", "are"),
+                )
+            })
+            .count(self.fixes.count().unwrap_or(0), |n| {
+                format!(
+                    "{} made since then {} findable by the typo and not by the fix",
+                    counted(n, "correction", "corrections"),
+                    plural(n, "is still", "are still"),
+                )
+            })
+            .count(self.scans.count().unwrap_or(0), |n| {
+                format!(
+                    "words you corrected on {} are still findable by the misreading \
+                     and not by the correction",
+                    counted(n, "scan", "scans"),
+                )
+            });
+        clauses
+    }
+
+    /// The clause a reader sees, or `None` when there is nothing to say.
+    ///
+    /// The surfaces that draw it on their own — `girsa-index find`'s footer —
+    /// rather than as part of a longer sentence. The window's header and the
+    /// MCP server's field go through `girsa_app::Unseen`, which is where the
+    /// scan clause and the lane clause are.
+    #[must_use]
+    pub fn said(&self) -> Option<String> {
+        self.clauses().said()
     }
 }
 

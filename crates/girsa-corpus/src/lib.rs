@@ -94,6 +94,10 @@ pub mod index;
 // Counting them, and cutting them into places that anchors on the parent still
 // cover.
 pub mod oversized;
+// Three modules compose "what this answer could not see", each documented as
+// the only one, and what drifted was the separator and the number format
+// between them.
+pub mod said;
 pub mod segment;
 pub mod span;
 // A dotted name means two opposite things — a piece a cut carved out, or a

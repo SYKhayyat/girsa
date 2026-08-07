@@ -541,16 +541,42 @@ export interface Scanned {
  * What a search over this shelf cannot see — spec.md §9.7's results header.
  *
  * *"4 PDFs on this shelf aren't searchable yet — [OCR now]"*. Null is nothing
- * to say. The sentence is composed in Rust so that the header, the CLI and the
- * test cannot drift apart.
+ * to say. The sentence is composed in Rust — by `girsa_app::Unseen`, which is
+ * the one composer for all of it — so that the header, the CLI, the MCP
+ * server's `did_not_search` and the test cannot drift apart.
+ *
+ * The three counts below are the clauses broken out, for a surface that wants
+ * to draw a button beside one of them rather than the whole sentence. `null`
+ * means *there is no index at all*, which is a different answer from `0` and
+ * the larger gap of the two. They were serialized by Rust and **absent from
+ * this interface**, which is the shape of drift a hand-mirrored wire format
+ * makes: five fields on one side, three on the other, and nothing that fails.
  */
 export interface Gap {
   said: string;
   pages: number;
   scans: Scanned[];
+  /** Notes written since the index was built. */
+  notes: number | null;
+  /** Corrections made since then. */
+  fixes: number | null;
+  /** Scans carrying word corrections the index has not seen. */
+  corrected_scans: number | null;
 }
 
 // --- the semantic lane (spec.md §9.9, W30) -----------------------------------
+
+/**
+ * What a lane with nothing in it says.
+ *
+ * The one string in this file that is also a Rust constant —
+ * `girsa_lane::coverage::NOTHING_YET`. The browser build has no Rust to ask, so
+ * it has to be typed out; typing it out **twice**, which is what the stub did,
+ * is a fourth copy of a sentence whose whole point is that there is one of it.
+ * `crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs` compares
+ * this line to the Rust and fails if they part company.
+ */
+export const NOTHING_YET = "nothing is in the semantic lane yet";
 
 /** One sefer's standing in the lane. */
 export interface LaneCovered {
@@ -1346,11 +1372,17 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // The semantic lane in a browser build: **off, and saying so.** It cannot
     // be anything else — there is no model and no personal layer out here — and
     // the one wrong answer that would matter is a lane that looked available.
+    //
+    // The sentence is `girsa_lane::coverage::NOTHING_YET`, which is Rust and
+    // cannot be imported here. It was typed out twice below, a fourth copy of a
+    // string whose entire purpose is that there is one of it; it is now one
+    // constant, and `the_rules_this_repository_wrote_down.rs` compares it to
+    // the Rust.
     case "lane_state":
       return {
         state: "off",
         said: null,
-        coverage: "nothing is in the semantic lane yet",
+        coverage: NOTHING_YET,
         model: null,
         may_fetch: false,
         everything: false,
@@ -1370,7 +1402,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return {
         label: "adjacent — found by meaning rather than by these words",
         near: [],
-        coverage: "nothing is in the semantic lane yet",
+        coverage: NOTHING_YET,
         refused: "הלשון הסמוכה פועלת בחלון בלבד — הדפדפן קורא קבצי דוגמה סטטיים",
       } as T;
     default:

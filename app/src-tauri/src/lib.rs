@@ -1505,6 +1505,10 @@ struct GapRow {
     notes: Option<usize>,
     /// Corrections made since then, same convention.
     fixes: Option<usize>,
+    /// Scans carrying word corrections the index has not seen — `Unindexed`'s
+    /// third kind, which was counted in Rust and serialized nowhere, so the one
+    /// gap a reader creates by *fixing* something reached no surface at all.
+    corrected_scans: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -1704,7 +1708,12 @@ fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> 
     // report, not a smaller one.
     let index = girsa_app::find_index(shelf.root()).ok();
     let gap = girsa_app::reading::gap(shelf, &personal, index.as_deref());
-    Ok(gap.said().map(|said| GapRow {
+    // Through `Unseen` rather than `Gap::said` directly: the window's header and
+    // the MCP server's `did_not_search` are one sentence with one separator, and
+    // the lane clause is one argument away from belonging here too.
+    let unseen = girsa_app::Unseen::literal(gap);
+    let gap = &unseen.literal;
+    Ok(unseen.said().map(|said| GapRow {
         said,
         pages: gap.pages,
         scans: gap
@@ -1719,6 +1728,7 @@ fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> 
             .collect(),
         notes: gap.layer.notes.count(),
         fixes: gap.layer.fixes.count(),
+        corrected_scans: gap.layer.scans.count(),
     }))
 }
 
