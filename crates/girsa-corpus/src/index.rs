@@ -96,10 +96,26 @@ impl WorkSegments {
 
     /// Read a work's `segments.jsonl` back into an index.
     ///
-    /// Reads the ids and **not the text**. Indexing the whole shelf is five
-    /// million segments; carrying their words through as well is two gigabytes
-    /// of allocation for a table that only ever answers questions about
-    /// addresses.
+    /// Reads the ids and **not the text**, and now that is true of the bytes as
+    /// well as of what is kept. It used to deserialize each line into an
+    /// `id`-only struct, which does not retain the text and still *lexes* it —
+    /// every escape of a segment that reaches 1,275,307 characters, to skip a
+    /// field. Over the whole shelf that is ~3 GB read and parsed to extract five
+    /// million ids, paid by `girsa-link-import` and by
+    /// `girsa_search::citation` both.
+    ///
+    /// [`import::ordered_ids`] is the scan: `id` is the first field of every
+    /// line `import::write` produces, so the answer is between byte 7 and the
+    /// next quote, and a line that is not that shape falls back to the parser
+    /// rather than being dropped.
+    ///
+    /// **1.5× over 400 works of the real corpus** — `examples/measure-ids`, which
+    /// runs both readers and refuses to report a time until they agree about how
+    /// many ids there are. Not more, because what is left is the file read
+    /// itself: 3 GB has to come off the disk either way. Beating *that* needs a
+    /// sidecar of ids written at import, which is a second file to keep in step
+    /// with `segments.jsonl` and a new way to be silently stale — a worse trade
+    /// than the one being made here.
     ///
     /// # Errors
     ///
@@ -107,27 +123,10 @@ impl WorkSegments {
     /// that does not parse fails the load rather than being skipped: an index
     /// silently one segment short answers a citation with the wrong segment.
     pub fn load(root: &Path, slug: &str) -> Result<Self, import::ImportError> {
-        let path = import::work_dir(root, slug).join("segments.jsonl");
-        let body = std::fs::read_to_string(&path).map_err(import::ImportError::io(&path))?;
-
-        #[derive(serde::Deserialize)]
-        struct IdOnly {
-            id: String,
-        }
-
-        let mut entries = Vec::new();
-        for line in body.lines().filter(|l| !l.trim().is_empty()) {
-            let record: IdOnly = serde_json::from_str(line)
-                .map_err(|e| import::ImportError::malformed(&path, e.to_string()))?;
-            let id: SegmentId =
-                record
-                    .id
-                    .parse()
-                    .map_err(|e: crate::segment::SegmentIdError| {
-                        import::ImportError::malformed(&path, e.to_string())
-                    })?;
-            entries.push((id.path().join(":"), id.ordinal().clone()));
-        }
+        let mut entries: Vec<(String, Ordinal)> = import::ordered_ids(root, slug)?
+            .into_iter()
+            .map(|id| (id.path().join(":"), id.ordinal().clone()))
+            .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(Self { entries })
     }
