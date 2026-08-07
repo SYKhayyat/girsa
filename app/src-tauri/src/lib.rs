@@ -428,6 +428,14 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> 
         // decide synchronously whether to swallow the key, and cannot await.
         "keys": girsa_app::keys::Bound::of(&state.session.keys).table(),
         "look": state.session.look,
+        // What a pane may be squeezed to, from `girsa_app::workspace`. Sent
+        // because `layout.ts` has to draw a drag inside them and **used to know
+        // them by heart** — `Math.min(85, Math.max(15, share))` against
+        // `ratio.min(1000)` in Rust, which is two clamps with two answers.
+        "share_bounds": [
+            girsa_app::workspace::SMALLEST_SHARE,
+            girsa_app::workspace::LARGEST_SHARE,
+        ],
         "pairing": state.no_post,
         "showing": state.session.showing,
         "fixes": state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
@@ -2971,6 +2979,14 @@ struct SettingsView {
     latin_font: String,
     line_height: u16,
     column_ch: u16,
+    /// The narrowest and widest a pane may be, in tenths of a per cent.
+    ///
+    /// Sent because the window has to draw a drag inside them, **and it used to
+    /// know them by heart**: `Math.min(85, Math.max(15, share))` in
+    /// `layout.ts`, against `ratio.min(1000)` in `girsa_app::workspace`. Two
+    /// clamps, two answers, and the one that decided what a reader could
+    /// actually do was the one in TypeScript.
+    share_bounds: [u16; 2],
     /// Every shortcut, with what it is bound to now — the reader's binding where
     /// they set one, the shipped default where they did not.
     shortcuts: Vec<Shortcut>,
@@ -3006,6 +3022,10 @@ fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
         latin_font: session.look.latin_font.clone(),
         line_height: session.look.line_height,
         column_ch: session.look.column_ch,
+        share_bounds: [
+            girsa_app::workspace::SMALLEST_SHARE,
+            girsa_app::workspace::LARGEST_SHARE,
+        ],
         shortcuts: girsa_app::keys::ACTIONS
             .iter()
             .map(|action| Shortcut {
@@ -3047,9 +3067,12 @@ fn set_look(
     look: girsa_app::session::Look,
 ) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
-    // Clamped in `girsa_app`, once. A window that clamped and a command that
-    // clamped again is two readers of one rule, which is what B27 is about.
-    state.session.look = look.sane();
+    // Clamped in `girsa_app`, once — and by the same call `load` makes, so a
+    // hand-edited session file is held to the same bounds a setter is. A window
+    // that clamped and a command that clamped again is two readers of one rule,
+    // which is what B27 is about.
+    state.session.look = look;
+    state.session.sane();
     state.save();
     Ok(())
 }
@@ -3119,7 +3142,12 @@ fn set_language(
 #[tauri::command]
 fn set_text_size(shared: tauri::State<'_, Shared>, percent: u16) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
-    state.session.text_size = percent.clamp(60, 250);
+    // The clamp is `Session::sane`, which is also what `load` runs — this line
+    // used to be `percent.clamp(60, 250)`, sixty-eight lines below a doc comment
+    // saying the clamping happens *"in one place, here, rather than in the
+    // window and again in the command."*
+    state.session.text_size = percent;
+    state.session.sane();
     state.save();
     Ok(())
 }

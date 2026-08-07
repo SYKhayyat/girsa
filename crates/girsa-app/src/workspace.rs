@@ -118,6 +118,21 @@ impl Layout {
         }
     }
 
+    /// Clamp every ratio in this tree — see [`SMALLEST_SHARE`].
+    fn sane(&mut self) {
+        if let Self::Split {
+            first,
+            second,
+            ratio,
+            ..
+        } = self
+        {
+            *ratio = (*ratio).clamp(SMALLEST_SHARE, LARGEST_SHARE);
+            first.sane();
+            second.sane();
+        }
+    }
+
     fn set_ratio(&mut self, at: PaneId, ratio: u16) -> bool {
         match self {
             Self::Leaf { .. } => false,
@@ -130,7 +145,7 @@ impl Layout {
                 if first.panes().contains(&at) && matches!(**first, Self::Leaf { .. })
                     || second.panes().contains(&at) && matches!(**second, Self::Leaf { .. })
                 {
-                    *r = ratio.min(1000);
+                    *r = ratio.clamp(SMALLEST_SHARE, LARGEST_SHARE);
                     return true;
                 }
                 first.set_ratio(at, ratio) || second.set_ratio(at, ratio)
@@ -196,7 +211,31 @@ pub struct Workspace {
     next_pane: u32,
 }
 
+/// The narrowest a pane may be squeezed to, in tenths of a per cent.
+///
+/// # Why this is here and not in `layout.ts`
+///
+/// It was in `layout.ts`, only — `Math.min(85, Math.max(15, share))` — while
+/// this file clamped `ratio.min(1000)`. Two clamps with two different answers,
+/// and the one that decides what a reader can actually do lived in the window.
+/// A ratio of 0 arriving from a hand-edited session file, or from any caller
+/// that is not a pointer drag, was accepted here and drew a pane no pixels wide.
+pub const SMALLEST_SHARE: u16 = 150;
+
+/// And the widest, so the *other* pane is never squeezed to nothing either.
+pub const LARGEST_SHARE: u16 = 1000 - SMALLEST_SHARE;
+
 impl Workspace {
+    /// Bring every ratio back inside what a pane can be.
+    ///
+    /// Called on load as well as by the setter, because a clamp that only runs
+    /// in a setter is a rule about one code path rather than about the value.
+    pub fn sane(&mut self) {
+        for tab in &mut self.tabs {
+            tab.layout.sane();
+        }
+    }
+
     /// Open a sefer in a new tab, and make it the tab you are looking at.
     pub fn open_tab(&mut self, slug: impl Into<String>, at: Option<SegmentId>) -> PaneId {
         let id = self.mint();

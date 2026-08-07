@@ -293,6 +293,15 @@ export interface Settings {
   line_height: number;
   /** In characters. Zero is *no limit*, which is a real answer. */
   column_ch: number;
+  /**
+   * The narrowest and widest a pane may be, in tenths of a per cent.
+   *
+   * From `girsa_app::workspace`, which is where the rule is. `layout.ts` used
+   * to hold its own — `Math.min(85, Math.max(15, share))` — and Rust held a
+   * different one, so what a drag allowed and what a session file could hold
+   * were two answers.
+   */
+  share_bounds: [number, number];
   shortcuts: Shortcut[];
   /** Families we can name. A webview cannot list what is installed, so the field
    * takes any text and this is a convenience. */
@@ -399,6 +408,14 @@ export interface AppState {
     line_height: number;
     column_ch: number;
   };
+  /**
+   * The narrowest and widest a pane may be, in tenths of a per cent.
+   *
+   * From `girsa_app::workspace::SMALLEST_SHARE`/`LARGEST_SHARE`, which is where
+   * the rule is. `layout.ts` used to hold its own and Rust held a different one,
+   * so what a drag allowed and what a session file could hold were two answers.
+   */
+  share_bounds: [number, number];
   positions: Record<string, string>;
   works: number;
   trouble: string | null;
@@ -1136,6 +1153,11 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       workspace: { tabs: [], active: 0 },
       nikud: true,
       text_size: 100,
+      // The same numbers `girsa_app::workspace` holds. This literal is the
+      // browser's last resort when even the fixture will not load, so it is not
+      // a second rule so much as a second copy of one — and the fixture that
+      // normally answers here is generated from Rust.
+      share_bounds: [150, 850],
       language: "hebrew",
       keys: {},
       look: { theme: "system", hebrew_font: "", latin_font: "", line_height: 195, column_ch: 0 },

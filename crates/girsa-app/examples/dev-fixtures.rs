@@ -76,6 +76,15 @@ fn main() -> std::process::ExitCode {
         },
         "nikud": true,
         "text_size": 100,
+        // What a pane may be squeezed to. Written here **by hand**, from the
+        // constants in `girsa_app::workspace`, because this example cannot
+        // import the shell's DTOs — which is the wire-format finding, felt: this
+        // object is already missing `language`, `keys`, `look`, `cite` and
+        // `pairing`, and nothing anywhere said so.
+        "share_bounds": [
+            girsa_app::workspace::SMALLEST_SHARE,
+            girsa_app::workspace::LARGEST_SHARE,
+        ],
         "positions": {},
         "works": shelf.works().len(),
         "trouble": serde_json::Value::Null,

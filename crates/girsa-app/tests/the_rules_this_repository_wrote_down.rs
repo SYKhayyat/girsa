@@ -200,3 +200,52 @@ fn nothing_re_anchors_by_exact_id_where_a_standing_is_the_question() {
         "the reading pane stopped asking `Layer::apply_at`. A correction is stored          under the name the place had when it was made, and an exact lookup will          miss it the day upstream re-segments the work — see          `an_anchor_survives_a_split_at_import.rs`."
     );
 }
+
+#[test]
+fn a_number_a_reader_can_change_is_clamped_in_one_place() {
+    // `girsa_app::session::Look::sane`:
+    //
+    //   Clamped in **one** place, here, rather than in the window and again in
+    //   the command.
+    //
+    // Three numbers, three places, one of them in another language.
+    // `set_text_size` clamped inline — `percent.clamp(60, 250)` — sixty-eight
+    // lines below that sentence; `Look::sane` itself ran only from `set_look`,
+    // never on load, so a hand-edited session file was believed; and the split
+    // ratio's real bounds, 15–85%, existed **only** in `layout.ts`, against
+    // `ratio.min(1000)` in Rust.
+    //
+    // `Session::sane` is the one place now, and `Session::load` runs it — a
+    // clamp that only fires in a setter is a rule about a code path rather than
+    // about the value.
+    let root = repo();
+    for (file, forbidden, why) in [
+        (
+            "app/src-tauri/src/lib.rs",
+            "clamp(60, 250)",
+            "the shell clamps the reading size itself",
+        ),
+        (
+            "app/src/layout.ts",
+            "Math.max(15,",
+            "the window holds its own split bounds",
+        ),
+    ] {
+        let body = std::fs::read_to_string(root.join(file))
+            .unwrap_or_else(|e| panic!("{file} reads: {e}"))
+            .lines()
+            .filter(|line| {
+                let line = line.trim_start();
+                !line.starts_with("//") && !line.starts_with("///")
+            })
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        assert!(
+            !body.contains(forbidden),
+            "{file}: {why}. `girsa_app::session::Session::sane` is the one place,              and `Session::load` runs it."
+        );
+    }
+}

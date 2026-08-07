@@ -269,6 +269,15 @@ impl Default for Session {
     }
 }
 
+/// The smallest reading size, as a percentage.
+///
+/// Hebrew with nikud at a small size is unreadable in a way Latin text at the
+/// same size is not, which is why the floor is 60 and not 50.
+pub const SMALLEST_TEXT: u16 = 60;
+
+/// And the largest.
+pub const LARGEST_TEXT: u16 = 250;
+
 impl Session {
     /// Read the session back, or start a fresh one.
     ///
@@ -277,10 +286,34 @@ impl Session {
     /// preference file that will one day stop somebody reading.
     #[must_use]
     pub fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path)
+        let mut session: Self = std::fs::read_to_string(path)
             .ok()
             .and_then(|body| serde_json::from_str(&body).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        session.sane();
+        session
+    }
+
+    /// Keep every number in this file inside what it can mean.
+    ///
+    /// # On load, and not only in the setters
+    ///
+    /// `Look::sane` says it clamps *"in one place, here, rather than in the
+    /// window and again in the command"* — and it was called from exactly one
+    /// place, the `set_look` command, so a session file that arrived with a
+    /// line height of 9,999 was believed. `set_text_size` did not use it at
+    /// all: it clamped inline, `percent.clamp(60, 250)`, sixty-eight lines
+    /// after that sentence. And the clamp that decides what a reader can
+    /// actually drag a divider to lived only in `layout.ts`.
+    ///
+    /// Three numbers, three places, one of them in another language. This is
+    /// the one place, and it runs on the way in as well as on the way through —
+    /// a clamp that only fires in a setter is a rule about a code path rather
+    /// than about the value.
+    pub fn sane(&mut self) {
+        self.text_size = self.text_size.clamp(SMALLEST_TEXT, LARGEST_TEXT);
+        self.look = std::mem::take(&mut self.look).sane();
+        self.workspace.sane();
     }
 
     /// # Errors

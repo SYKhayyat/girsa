@@ -20,15 +20,18 @@ export interface Boxes {
 
 export function build(
   layout: Layout,
+  /** In tenths of a per cent, from `girsa_app::workspace` — never from here. */
+  bounds: [number, number],
   onRatio: (pane: PaneId, ratio: number) => void,
 ): Boxes {
   const slots = new Map<PaneId, HTMLElement>();
-  const root = walk(layout, slots, onRatio);
+  const root = walk(layout, bounds, slots, onRatio);
   return { root, slots };
 }
 
 function walk(
   layout: Layout,
+  bounds: [number, number],
   slots: Map<PaneId, HTMLElement>,
   onRatio: (pane: PaneId, ratio: number) => void,
 ): HTMLElement {
@@ -41,8 +44,8 @@ function walk(
 
   const box = document.createElement("div");
   box.className = `split split-${layout.axis}`;
-  const first = walk(layout.first, slots, onRatio);
-  const second = walk(layout.second, slots, onRatio);
+  const first = walk(layout.first, bounds, slots, onRatio);
+  const second = walk(layout.second, bounds, slots, onRatio);
   const share = layout.ratio / 10;
   first.style.flexBasis = `${share}%`;
   second.style.flexBasis = `${100 - share}%`;
@@ -51,7 +54,7 @@ function walk(
   divider.className = "divider";
   divider.setAttribute("role", "separator");
   divider.tabIndex = 0;
-  drag(divider, box, layout, first, second, onRatio);
+  drag(divider, box, layout, bounds, first, second, onRatio);
 
   box.append(first, divider, second);
   return box;
@@ -61,6 +64,7 @@ function drag(
   divider: HTMLElement,
   box: HTMLElement,
   layout: Extract<Layout, { kind: "split" }>,
+  bounds: [number, number],
   first: HTMLElement,
   second: HTMLElement,
   onRatio: (pane: PaneId, ratio: number) => void,
@@ -75,7 +79,11 @@ function drag(
     } else {
       share = ((event.clientY - area.top) / area.height) * 100;
     }
-    share = Math.min(85, Math.max(15, share));
+    // The bounds Rust clamps to, not a second pair. `girsa_app::workspace`
+    // holds `SMALLEST_SHARE`/`LARGEST_SHARE`, `Workspace::sane` applies them on
+    // load as well as on the setter, and this draws a drag inside them so the
+    // pointer and the stored value cannot disagree.
+    share = Math.min(bounds[1] / 10, Math.max(bounds[0] / 10, share));
     first.style.flexBasis = `${share}%`;
     second.style.flexBasis = `${100 - share}%`;
     divider.dataset.share = String(Math.round(share * 10));

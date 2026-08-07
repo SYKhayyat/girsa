@@ -214,7 +214,7 @@ async function draw(): Promise<void> {
     return;
   }
 
-  const { root: boxes, slots } = build(open.layout, (pane, ratio) => {
+  const { root: boxes, slots } = build(open.layout, state.share_bounds, (pane, ratio) => {
     void api.setRatio(pane, ratio);
   });
   boxes.classList.add("panes");
