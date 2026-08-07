@@ -27,8 +27,16 @@ use std::sync::Mutex;
 
 use girsa_app::shelf::{Companion, Open};
 use girsa_app::taxonomy::Branch;
+use girsa_app::view::{
+    AnchorRow, AtRow, Card, Comments, CoveredRow, DrawnRow, Dropped, Fixed, FolderMember,
+    FolderRow, GapRow, HitRow, LandingRow, LaneAnswer, LaneProgress, LaneRow, LensRow, Line,
+    LinkRow, Links, MarkRow, Mefaresh, Mefarshim, ModelOffer, Move, NearRow, NoteRow, OfferRow,
+    PageSaid, PageWordsRow, ParaRow, PatchRow, PlaceRow, QueryRow, ReadingRow, Refusal, Said,
+    ScanView, ScannedRow, SettingsView, Shortcut, Standing, SuspectRow, TagRow, Text, WordRow,
+    Writing, Written, Yours,
+};
 use girsa_app::workspace::{Axis, PaneId};
-use girsa_app::{display, Beside, Place, Session, Shelf, Workspace};
+use girsa_app::{display, Beside, Session, Shelf, Workspace};
 use girsa_corpus::segment::SegmentId;
 use girsa_search::bar::{Answer, Bar};
 use girsa_search::chips::{Chip, Chips, Sounding};
@@ -36,7 +44,7 @@ use girsa_search::facets::{self, Dimension, Facets, Row};
 use girsa_search::index::{Paging, SearchIndex};
 use girsa_search::torat_emet::{Match, Together};
 use girsa_search::Mode;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// How many seforim are kept in memory at once.
 ///
@@ -282,169 +290,8 @@ impl State {
 
 pub(crate) type Shared = Mutex<State>;
 
-/// A sefer, as the shelf lists it.
-#[derive(Serialize)]
-struct Card {
-    slug: String,
-    he_title: String,
-    en_title: String,
-    categories: Vec<String>,
-    author: Option<String>,
-    era: Option<String>,
-    /// `sefaria`, `otzaria` or `mine`. Shown on the row: a sefer of yours
-    /// should be recognisable as yours without being second-class.
-    source: &'static str,
-    /// Whether this sefer is a scan (W25). Carried on the card because the
-    /// window has to know **before** it opens a pane which of the two reading
-    /// modes it is opening — and because a shelf row for a scan should say so.
-    scan: bool,
-}
-
-impl Card {
-    fn of(work: &girsa_corpus::work::Work) -> Self {
-        Self {
-            slug: work.slug.clone(),
-            he_title: work.he_title.clone(),
-            en_title: work.en_title.clone(),
-            categories: work.categories.clone(),
-            author: work.author.clone(),
-            era: work
-                .era
-                .as_deref()
-                .map(|code| display::era_said(code).to_string()),
-            source: work.source.as_str(),
-            scan: girsa_app::is_scan(work),
-        }
-    }
-}
-
-/// What came of dropping files on the window.
-///
-/// Both halves are reported. A file that was not read has to say so by name —
-/// a drop that half-worked and said nothing is the reader believing a sefer is
-/// on the shelf when it is not.
-#[derive(Serialize)]
-struct Dropped {
-    added: Vec<Card>,
-    refused: Vec<Refusal>,
-}
-
-#[derive(Serialize)]
-struct Refusal {
-    file: String,
-    why: String,
-}
-
-/// One line of a sefer, ready to be put on the page.
-#[derive(Serialize)]
-struct Line {
-    id: String,
-    /// `2a:1` — what the address says, for the margin.
-    address: String,
-    kind: &'static str,
-    /// The words, split by how they are set. Not a string of HTML: see
-    /// [`display::runs`].
-    runs: Vec<display::Run>,
-    /// The corrections on this line (W20). Empty on all but a handful of lines
-    /// in a library, so it costs nothing to send.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    fixed: Vec<FixMark>,
-    /// What the line says on disk, where a correction changed it. The reader
-    /// can see what was printed without turning the whole sefer back.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    printed: Option<String>,
-}
-
-/// One correction, as the page shows it.
-#[derive(Serialize)]
-struct FixMark {
-    id: String,
-    /// `ocr` or `girsa` — a repair or a claim (spec.md §7.2).
-    kind: &'static str,
-    was: String,
-    now: String,
-    who: String,
-    /// Whether it is in the words on the page, or only noted beside them.
-    applied: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    note: Option<String>,
-}
-
-impl FixMark {
-    fn of(applied: &girsa_fix::Applied, is_applied: bool) -> Self {
-        Self {
-            id: applied.id.to_string(),
-            kind: applied.kind.as_str(),
-            was: applied.was.clone(),
-            now: applied.now.clone(),
-            who: applied.who.clone(),
-            applied: is_applied,
-            source: applied.source.clone(),
-            note: applied.note.clone(),
-        }
-    }
-}
-
-/// One line, drawn — corrections and all.
-///
-/// The one place a line is built, because a line built two ways is a line that
-/// is corrected in the pane and printed in the search result.
-fn line_of(sefer: &Open, segment: &girsa_corpus::import::Segment, nikud: bool) -> Line {
-    let corrected = sefer.correction(&segment.id);
-    Line {
-        id: segment.id.to_string(),
-        address: segment.id.address(),
-        kind: segment.kind.as_str(),
-        runs: display::runs(&if nikud {
-            segment.text.clone()
-        } else {
-            display::without_marks(&segment.text)
-        }),
-        fixed: corrected.map_or_else(Vec::new, |c| {
-            c.applied
-                .iter()
-                .map(|a| FixMark::of(a, true))
-                .chain(c.noted.iter().map(|a| FixMark::of(a, false)))
-                .collect()
-        }),
-        printed: corrected.map(|_| {
-            display::Shown::of(sefer.as_printed(&segment.id), nikud)
-                .text()
-                .to_string()
-        }),
-    }
-}
-
-/// A sefer opened into a pane.
-#[derive(Serialize)]
-struct Text {
-    work: Card,
-    lines: Vec<Line>,
-    /// Whether this sefer has any nikud at all, so the window can grey out a
-    /// toggle that would do nothing.
-    has_nikud: bool,
-}
-
-/// A follower pane and where it has to go.
-#[derive(Serialize)]
-struct Move {
-    pane: PaneId,
-    place: Place,
-    /// What relates the two seforim, so the pane can say *why* it moved — or
-    /// why it did not.
-    relation: girsa_app::Relation,
-    /// For a pane holding a **scan**, the page to turn to (W25). A scan has no
-    /// lines to scroll to, so the place it goes is a page — and it is counted
-    /// here rather than worked out in the window from a segment id, which
-    /// would be the window deriving an address from an ordinal.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    page: Option<usize>,
-}
-
 #[tauri::command]
-fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> {
+fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, String> {
     let mut state = shared.lock().map_err(|_| "state is poisoned")?;
     // The queue is 28,124 lines on the real corpus and this is asked on every
     // redraw, so it is read once and held. `suspects` re-reads it, which is
@@ -454,33 +301,31 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<serde_json::Value, String> 
             state.queue = Some(girsa_fix::suspect::Queue::open(&personal).0);
         }
     }
-    Ok(serde_json::json!({
-        "workspace": state.session.workspace,
-        "nikud": state.session.nikud,
-        "text_size": state.session.text_size,
-        "positions": state.session.positions,
-        "works": state.shelf.as_ref().map_or(0, |s| s.works().len()),
-        "trouble": state.trouble,
-        "cite": state.session.cite,
-        "language": state.session.language,
-        // The resolved shortcut table (B13), keyed by the one spelling of each
-        // combination. Sent with the state because a `keydown` handler has to
-        // decide synchronously whether to swallow the key, and cannot await.
-        "keys": girsa_app::keys::Bound::of(&state.session.keys).table(),
-        "look": state.session.look,
-        // What a pane may be squeezed to, from `girsa_app::workspace`. Sent
-        // because `layout.ts` has to draw a drag inside them and **used to know
-        // them by heart** — `Math.min(85, Math.max(15, share))` against
-        // `ratio.min(1000)` in Rust, which is two clamps with two answers.
-        "share_bounds": [
+    Ok(girsa_app::view::Opening {
+        workspace: state.session.workspace.clone(),
+        nikud: state.session.nikud,
+        text_size: state.session.text_size,
+        positions: state.session.positions.clone(),
+        works: state.shelf.as_ref().map_or(0, |s| s.works().len()),
+        trouble: state.trouble.clone(),
+        cite: state.session.cite,
+        language: state.session.language,
+        keys: girsa_app::keys::Bound::of(&state.session.keys)
+            .table()
+            .clone(),
+        look: state.session.look.clone(),
+        share_bounds: [
             girsa_app::workspace::SMALLEST_SHARE,
             girsa_app::workspace::LARGEST_SHARE,
         ],
-        "pairing": state.no_post,
-        "showing": state.session.showing,
-        "fixes": state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
-        "suspects": state.queue.as_ref().map_or(0, girsa_fix::suspect::Queue::waiting),
-    }))
+        pairing: state.no_post.clone(),
+        showing: state.session.showing,
+        fixes: state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
+        suspects: state
+            .queue
+            .as_ref()
+            .map_or(0, girsa_fix::suspect::Queue::waiting),
+    })
 }
 
 #[tauri::command]
@@ -511,114 +356,46 @@ fn recent(shared: tauri::State<'_, Shared>) -> Result<Vec<Card>, String> {
 
 // ── Searching (spec.md §9, BUILDER.md W14) ──────────────────────────────────
 
-/// Which place a row is about — the four fields every row of results carries,
-/// plus the two only some of them used to.
+/// One hit, drawn. **One** of these, not two.
 ///
-/// `girsa_app::Naming` on the wire. Flattened into `HitRow` and `NearRow`, so
-/// the shapes stay exactly what `api.ts` already declared and the search column
-/// and the lane column beside it can no longer disagree about what a place is
-/// called, where it sits, or when it was written.
-#[derive(Serialize)]
-struct AtRow {
-    id: String,
-    work: String,
-    /// What to call the sefer, in the language the window is in (W41). One
-    /// title and not two, because a row carries a name to print rather than a
-    /// sefer — and which of the two names that is was decided in Rust.
-    title: String,
-    /// `58:1`. Not a citation — a mekor is `girsa_cite::cite`, which knows this
-    /// work's section words, and everything that leaves the window as one goes
-    /// through `girsa_app::sending`.
-    address: String,
-    /// `1565`, or `1488–1575`. `null` where the corpus cannot date the work.
-    written: Option<String>,
-    /// The era, in Hebrew, where the years are not known.
-    era: Option<String>,
-}
-
-impl AtRow {
-    fn of(at: &girsa_app::Naming) -> Self {
-        Self {
-            id: at.id.to_string(),
-            work: at.work.clone(),
-            title: at.title.clone(),
-            address: at.address.clone(),
-            written: at.written.clone(),
-            era: at.era.clone(),
-        }
-    }
-}
-
-/// One hit, as a row of results.
-#[derive(Serialize)]
-struct HitRow {
-    #[serde(flatten)]
-    at: AtRow,
-    /// The text as printed, cut into runs — the same shape a reading pane
-    /// draws, so a result reads like the page it came from and inline markup
-    /// never reaches the window as markup.
-    runs: Vec<display::Run>,
-    /// Which page of a scan this is, where it is one. The row opens the viewer
-    /// at it rather than a reading pane at a line that has no words in it.
-    page: Option<usize>,
-    /// Who read the words (spec.md §9.7's badge, W26). Absent for the corpus,
-    /// which was not read off anything; `embedded` where the file said what its
-    /// own words are; the engine's name and version where a machine guessed.
-    ///
-    /// **Badge them, don't demote them** — the row is where the score put it
-    /// and this is printed beside it, because OCR text is dirtier and a reader
-    /// is entitled to know which kind of result is in front of them.
-    by: Option<String>,
-    /// Whether that reader was an OCR engine, worked out here so the window
-    /// does not parse the name.
-    guessed: bool,
-    /// The words of this hit that answered the query.
-    ///
-    /// Worked out by the search's own `Marker` — a literal search marks the
-    /// words it asked for, a widened one marks the word that actually answered.
-    /// Carried on the row because a page of a scan is highlighted with a
-    /// **rectangle on the photograph** rather than a span of text, and the
-    /// window cannot work out which words those are: searching the drawn text
-    /// for what the reader typed finds nothing on a menukad page, which is most
-    /// of them (spec.md §9.7 — *only the highlight differs*).
-    marked: Vec<String>,
-}
-
-impl HitRow {
-    /// One hit, drawn. **One** of these, not two.
-    ///
-    /// `find` and the widening ladder each carried a nine-field literal, and
-    /// they were character-for-character identical — so a tenth field added to
-    /// one of them would have reached a reader who searched and not a reader
-    /// who took an offer, which is the same query one keystroke later.
-    fn of(
-        hit: &girsa_search::index::Hit,
-        marker: &girsa_search::bar::Marker,
-        names: Option<&girsa_app::Names<'_>>,
-        nikud: bool,
-    ) -> Self {
-        let (page, by, guessed) = scanned(hit);
-        Self {
-            at: names.map_or_else(
-                // No shelf is a state with no rows in it; this is here so the
-                // type does not have to be an `Option` for a case that cannot
-                // happen while there are hits to draw.
-                || AtRow {
-                    id: hit.id.to_string(),
-                    work: hit.id.work().to_string(),
-                    title: hit.id.work().to_string(),
-                    address: hit.id.address(),
-                    written: None,
-                    era: None,
-                },
-                |names| AtRow::of(&names.of(&hit.id)),
-            ),
-            runs: shown(hit, marker, nikud),
-            page,
-            by,
-            guessed,
-            marked: marked(marker, hit),
-        }
+/// A free function rather than `HitRow::of`, and that is the boundary rather
+/// than an inconvenience: the *shape* of a result row is `girsa-app`'s, and
+/// filling it from a `girsa_search::index::Hit` is the shell's, because the hit
+/// is. `girsa-app` does not depend on `girsa-search` — `reading::gap_over`
+/// takes a slice of slugs rather than a `Scope` specifically so that it need
+/// not — and this is where that boundary shows.
+///
+/// `find` and the widening ladder each carried a nine-field literal, and they
+/// were character-for-character identical, so a tenth field added to one of
+/// them would have reached a reader who searched and not a reader who took an
+/// offer, which is the same query one keystroke later.
+fn hit_row(
+    hit: &girsa_search::index::Hit,
+    marker: &girsa_search::bar::Marker,
+    names: Option<&girsa_app::Names<'_>>,
+    nikud: bool,
+) -> HitRow {
+    let (page, by, guessed) = scanned(hit);
+    HitRow {
+        at: names.map_or_else(
+            // No shelf is a state with no rows in it; this is here so the
+            // type does not have to be an `Option` for a case that cannot
+            // happen while there are hits to draw.
+            || AtRow {
+                id: hit.id.to_string(),
+                work: hit.id.work().to_string(),
+                title: hit.id.work().to_string(),
+                address: hit.id.address(),
+                written: None,
+                era: None,
+            },
+            |names| AtRow::of(&names.of(&hit.id)),
+        ),
+        runs: shown(hit, marker, nikud),
+        page,
+        by,
+        guessed,
+        marked: marked(marker, hit),
     }
 }
 
@@ -686,32 +463,6 @@ struct FoundPage {
     landing: Option<LandingRow>,
 }
 
-/// One rung, with the count clicking it will give.
-#[derive(Serialize)]
-struct OfferRow {
-    label: String,
-    count: usize,
-    /// What to send back to apply it.
-    rung: String,
-}
-
-/// A mareh makom: where it lands, or what it could be.
-#[derive(Serialize)]
-struct LandingRow {
-    said: String,
-    /// One entry per candidate the shelf could not rule out. **Never narrowed
-    /// to one by this crate** — a choice is shown as a choice.
-    places: Vec<PlaceRow>,
-    near: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct PlaceRow {
-    reference: String,
-    id: String,
-    work: String,
-}
-
 /// Search, and hand back everything the panel draws.
 ///
 /// The chips are read from what was typed first (a sigil flips a chip — §9.5),
@@ -758,7 +509,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                 hits: results
                     .hits
                     .iter()
-                    .map(|hit| HitRow::of(hit, &results.marker, names.as_ref(), nikud))
+                    .map(|hit| hit_row(hit, &results.marker, names.as_ref(), nikud))
                     .collect(),
                 total: results.total,
                 page: page.max(1),
@@ -893,7 +644,7 @@ fn find_rung(
         hits: found
             .hits
             .iter()
-            .map(|hit| HitRow::of(hit, &marker, names.as_ref(), nikud))
+            .map(|hit| hit_row(hit, &marker, names.as_ref(), nikud))
             .collect(),
         total: found.total,
         page: page.max(1),
@@ -1205,49 +956,6 @@ fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Comp
 // something about this line, and what?* Otzaria's model, and the reason the
 // split is untouched by any of it.
 
-/// One mefaresh, as the tick-list shows it.
-#[derive(Serialize)]
-struct Mefaresh {
-    slug: String,
-    he_title: String,
-    en_title: String,
-    /// Whether the reader has ticked it on this sefer.
-    chosen: bool,
-    /// The folder it is drawn in (W44), or absent for one drawn loose.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    shelf: Option<String>,
-}
-
-/// The tick-list, and which lines to mark given what is ticked.
-#[derive(Serialize)]
-struct Mefarshim {
-    works: Vec<Mefaresh>,
-    /// Seforim that keep this one's order without commenting on it: the Shulchan
-    /// Arukh under the Tur, the Arukh HaShulchan under the Shulchan Arukh, the
-    /// Rambam's hilchos beside the chelek of Yoreh De'ah on the same subject.
-    ///
-    /// Its own list because it is its own claim. These were thrown away before —
-    /// not by a decision, but because the rule that found mefarshim answered a
-    /// bool, and *not a commentary* and *nothing to do with this sefer* had to
-    /// share the one `false`.
-    ///
-    /// Drawn flat, and no folders: there are two of these on Orach Chayim and
-    /// four on the Tur, and a tree over four rows is what W44 already calls
-    /// worse than the rows.
-    alongside: Vec<Mefaresh>,
-    /// The folders they stand in — rishonim, acharonim, and the authors with
-    /// more than one sefer among them (W44). Empty when there is nothing worth
-    /// grouping, and then the list is drawn flat.
-    folders: Vec<Branch>,
-    /// The segments a **ticked** mefaresh speaks on. Only these get a marker:
-    /// 2,749 of Berakhot's segments carry commentary from somebody, and a mark
-    /// on nearly every line is not a mark.
-    marked: Vec<String>,
-    /// How many segments carry commentary from anybody. For the sentence under
-    /// the list, so *you have ticked nobody* does not read as *nobody wrote*.
-    touched: usize,
-}
-
 /// The mefarshim on one sefer, and what the reader has ticked.
 #[tauri::command]
 fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
@@ -1305,27 +1013,6 @@ fn choose_mefaresh(
     Ok(state.marks(&slug)?.marked(&chosen).into_iter().collect())
 }
 
-/// One mefaresh's words on one line.
-#[derive(Serialize)]
-struct Said {
-    work: String,
-    he_title: String,
-    en_title: String,
-    /// Where this is, in the commentary — what a citation would name.
-    address: String,
-    lines: Vec<Line>,
-}
-
-/// What the ticked mefarshim say about one line, and whether anybody else did.
-#[derive(Serialize)]
-struct Comments {
-    said: Vec<Said>,
-    /// True when something comments here that the reader has **not** ticked.
-    /// *Nobody wrote about this line* and *none of the six you follow wrote
-    /// about this line* are different sentences, and the window says which.
-    others: bool,
-}
-
 /// Click a line: read the ticked mefarshim on it.
 #[tauri::command]
 fn mefarshim_at(
@@ -1366,7 +1053,7 @@ fn mefarshim_at(
                 .map_or(first, |to| to.max(first));
             sefer.segments[first..=last]
                 .iter()
-                .map(|s| line_of(sefer, s, nikud))
+                .map(|s| Line::of(sefer, s, nikud))
                 .collect()
         };
         let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
@@ -1399,62 +1086,13 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         lines: sefer
             .segments
             .iter()
-            .map(|s| line_of(sefer, s, nikud))
+            .map(|s| Line::of(sefer, s, nikud))
             .collect(),
         has_nikud,
     })
 }
 
 // ── Scans (spec.md §6.3, BUILDER.md W25) ────────────────────────────────────
-
-/// A scan opened into a pane.
-///
-/// The window is given the **file** and the mapping, and draws the page itself
-/// — the scan is the daf and there is nothing to typeset. What it is not given
-/// is any way to work out which daf a page is: that is arithmetic on a
-/// declaration, it lives in `girsa-scan`, and it is asked one page at a time.
-#[derive(Serialize)]
-struct ScanView {
-    work: Card,
-    pages: usize,
-    /// The page to open on: where this scan was left last time (spec.md §6.1's
-    /// position memory), or its first page.
-    at: usize,
-    /// The PDF itself, as a path the window turns into an `asset:` URL.
-    file: String,
-    /// Whether the once-per-sefer chore has been done. *No mapping yet* and
-    /// *nothing printed on this page* are different sentences.
-    paged: bool,
-    /// The sefer this is a scan of, where the reader has said.
-    of: Option<String>,
-    scheme: &'static str,
-    anchors: Vec<AnchorRow>,
-    /// Why nothing here can be cited, where that is so — a scan whose sefer is
-    /// not on this shelf, so far. Said rather than fallen back from.
-    trouble: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct AnchorRow {
-    page: usize,
-    /// Absent where the anchor says *these are not pages of the sefer*.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    at: Option<String>,
-}
-
-/// What one page of a scan is, for the header and for Ctrl+C.
-#[derive(Serialize)]
-struct PageSaid {
-    page: usize,
-    /// The whole mareh makom — `ברכות כג.`. Absent for a page the mapping does
-    /// not cover, where the window says *page 3 of the file* instead of
-    /// inventing a daf.
-    display: Option<String>,
-    reference: Option<String>,
-    /// The permanent id of the page, which is what a note anchors to and what
-    /// no mapping ever moves.
-    id: Option<String>,
-}
 
 /// Open a scan into a pane.
 #[tauri::command]
@@ -1489,94 +1127,6 @@ fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, Stri
 // that promise is a call that returns after one page: the reader can turn to
 // the sugya they were on, and the only cost of stopping is the page it was on.
 // ---------------------------------------------------------------------------
-
-/// One glyph the window read off a page, in pixels of the page at scale 1.
-#[derive(Deserialize)]
-struct DrawnRow {
-    text: String,
-    left: f32,
-    top: f32,
-    right: f32,
-    bottom: f32,
-}
-
-/// Where a scan has got to, and what it is being read by.
-#[derive(Serialize)]
-struct ReadingRow {
-    slug: String,
-    pages: usize,
-    read: usize,
-    /// The next page to read, or `null` when there is none left.
-    next: Option<usize>,
-    /// The engines that have been over it. More than one is normal: a PDF can
-    /// carry its own text for the pages that were typeset and none for the
-    /// plates.
-    by: Vec<String>,
-    /// Whether an OCR engine is installed at all. The window offers *read the
-    /// pictures* only when there is something to read them with — an offer that
-    /// cannot be taken is worse than no offer (spec.md §6.3: OCR is optional).
-    engine: Option<String>,
-    /// Corrections whose ink the current reading has no word under.
-    stranded: usize,
-}
-
-/// One word on a page, and the rectangle of the page its ink is on.
-#[derive(Serialize)]
-struct WordRow {
-    text: String,
-    left: f32,
-    top: f32,
-    right: f32,
-    bottom: f32,
-    confidence: f32,
-}
-
-impl WordRow {
-    fn of(word: &girsa_scan::Word) -> Self {
-        Self {
-            text: word.text.clone(),
-            left: word.at.left,
-            top: word.at.top,
-            right: word.at.right,
-            bottom: word.at.bottom,
-            confidence: word.confidence,
-        }
-    }
-}
-
-/// What is on one page, for drawing over it.
-#[derive(Serialize)]
-struct PageWordsRow {
-    page: usize,
-    by: Option<String>,
-    guessed: bool,
-    words: Vec<WordRow>,
-}
-
-/// *4 PDFs on this shelf aren't searchable yet*, and what it is about.
-#[derive(Serialize)]
-struct GapRow {
-    said: String,
-    pages: usize,
-    scans: Vec<ScannedRow>,
-    /// Notes written since the index was built, or `null` when there is no index
-    /// at all — a different answer from zero, and the larger gap of the two.
-    notes: Option<usize>,
-    /// Corrections made since then, same convention.
-    fixes: Option<usize>,
-    /// Scans carrying word corrections the index has not seen — `Unindexed`'s
-    /// third kind, which was counted in Rust and serialized nowhere, so the one
-    /// gap a reader creates by *fixing* something reached no surface at all.
-    corrected_scans: Option<usize>,
-}
-
-#[derive(Serialize)]
-struct ScannedRow {
-    slug: String,
-    title: String,
-    pages: usize,
-    read: usize,
-}
 
 /// How far a scan has been read.
 #[tauri::command]
@@ -1947,14 +1497,6 @@ fn scan_copy(
 
 // ── Corrections (spec.md §7, BUILDER.md W20) ────────────────────────────────
 
-/// A correction, and the line it landed on.
-#[derive(Serialize)]
-struct Fixed {
-    line: Line,
-    /// What to say: the words, and what they now read.
-    said: String,
-}
-
 /// Correct a typo from where you are reading (spec.md §7.5).
 ///
 /// The offsets are the ones the pane reports for a highlight — the same call
@@ -2003,7 +1545,7 @@ fn fix(
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: line_of(sefer, segment, nikud),
+        line: Line::of(sefer, segment, nikud),
         said: format!("{was} → {now}"),
     })
 }
@@ -2035,7 +1577,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: line_of(sefer, segment, nikud),
+        line: Line::of(sefer, segment, nikud),
         said: "הוחזר כפי שנדפס".to_string(),
     })
 }
@@ -2056,26 +1598,6 @@ fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), 
     state.reread_everything();
     state.save();
     Ok(())
-}
-
-/// Your corrections — all of them, or one sefer's.
-#[derive(Serialize)]
-struct PatchRow {
-    id: String,
-    segment: String,
-    work: String,
-    /// The sefer, in the window's language (W41).
-    title: String,
-    address: String,
-    kind: &'static str,
-    was: String,
-    now: String,
-    who: String,
-    when: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    note: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
 }
 
 #[tauri::command]
@@ -2110,82 +1632,6 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
 }
 
 // ── The links on a line, and repairing them (spec.md §8.3, W23) ─────────────
-
-/// One link, as the panel shows it.
-///
-/// Everything §8.3 asks a repair UI to show its work with: which end, what the
-/// corpus said, what it says now, how it was found, how much to believe it, and
-/// which of those were you.
-#[derive(Serialize)]
-struct LinkRow {
-    /// What names this edge in your layer — handed back to repair it.
-    edge: String,
-    /// `comments-on`, `quotes`, … as it stands now.
-    kind: &'static str,
-    /// What the corpus shipped, where your layer changed it.
-    was: Option<&'static str>,
-    outgoing: bool,
-    at: String,
-    work: String,
-    /// The sefer at the other end, in the window's language (W41).
-    title: String,
-    /// The first words at the other end (W37), so the row reads as a row of
-    /// reading rather than a row of provenance.
-    ///
-    /// Absent unless that sefer is **already open**. `span_on` set this precedent
-    /// and its reason holds here: the panel is not entitled to read forty seforim
-    /// off the disk to decorate a list. The case where it matters most is the one
-    /// where the commentary is in the column beside you anyway.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    preview: Option<String>,
-    address: String,
-    said: String,
-    /// `sefaria-seed`, `otzaria-seed`, `by-hand`.
-    method: &'static str,
-    confidence: f32,
-    /// The label the corpus used, verbatim — blank for 40% of them (T5).
-    label: String,
-    confirmed: bool,
-    rejected: bool,
-    mine: bool,
-    /// Which words of the line this link is about, where anything says (§8.4).
-    span: Option<(usize, usize)>,
-    /// Where that came from: `pinned` (you said) or `dibur` (the commentary
-    /// says). Absent when the link is on the whole segment.
-    span_from: Option<&'static str>,
-    /// Which of the four repairs have been applied to it.
-    changed: Vec<&'static str>,
-    who: Option<String>,
-    /// Whether this may be shown as a statement about the texts, rather than
-    /// as *these two are connected somehow*.
-    curated: bool,
-}
-
-/// What the links panel needs to draw itself.
-#[derive(Serialize)]
-struct Links {
-    links: Vec<LinkRow>,
-    /// No inbound cache, so the incoming half is missing. Said out loud: a
-    /// sidebar quietly short of half its links reads as a sefer nobody comments
-    /// on.
-    incoming_unknown: bool,
-    /// The types a link may be retyped to, **labelled**, in the order they are
-    /// offered. From `girsa_app::links::kinds`, which is where the Hebrew for a
-    /// kind of link lives — it used to be a lookup table in `linksview.ts` with
-    /// a `?? kind` fallback, so a tenth edge type printed an English slug into a
-    /// Hebrew interface and said nothing.
-    types: Vec<girsa_app::links::Named>,
-    /// Your lenses (§8.5, W24): saved filters, not hardcoded lists.
-    lenses: Vec<LensRow>,
-    /// Which one is on, if any.
-    lens: Option<String>,
-}
-
-#[derive(Serialize)]
-struct LensRow {
-    key: String,
-    title: String,
-}
 
 /// The links on a line — through a lens, and against a highlight (W23, W24).
 ///
@@ -2314,51 +1760,6 @@ fn first_words(state: &State, link: &girsa_app::Link, nikud: bool) -> Option<Str
     })
 }
 
-impl LinkRow {
-    fn of(
-        link: &girsa_app::Link,
-        language: girsa_app::session::Language,
-        preview: Option<String>,
-    ) -> Self {
-        Self {
-            edge: girsa_link::repair::name_of(
-                link.repaired
-                    .shipped
-                    .as_ref()
-                    .unwrap_or(&link.repaired.edge),
-            ),
-            kind: link.repaired.edge.edge_type.as_str(),
-            was: link.repaired.shipped.as_ref().map(|e| e.edge_type.as_str()),
-            outgoing: link.outgoing,
-            at: link.other.from.to_string(),
-            work: link.work.clone(),
-            title: language
-                .title_of(&link.he_title, &link.en_title)
-                .to_string(),
-            preview,
-            address: link.address.clone(),
-            said: link.said(),
-            method: link.repaired.edge.method.as_str(),
-            confidence: link.repaired.confidence(),
-            label: link.repaired.edge.source_label.clone(),
-            confirmed: link.repaired.confirmed,
-            rejected: link.repaired.rejected,
-            mine: link.repaired.mine,
-            span: link.span.as_ref().map(|span| (span.start, span.end)),
-            span_from: link.span.as_ref().map(|_| {
-                if link.repaired.pinned.is_some() {
-                    "pinned"
-                } else {
-                    "dibur"
-                }
-            }),
-            changed: link.repaired.changed.clone(),
-            who: link.repaired.who.clone(),
-            curated: link.repaired.is_curated(),
-        }
-    }
-}
-
 /// Confirm, reject, retype, reanchor, or take it all back.
 ///
 /// One command, because they are one thing: a statement about an edge, written
@@ -2467,18 +1868,6 @@ fn parse_anchor(text: &str) -> Result<girsa_link::Anchor, String> {
 
 // ── Exporting a fixed sefer (spec.md §7.4, BUILDER.md W22) ──────────────────
 
-/// What came out, and where it went.
-#[derive(Serialize)]
-struct Written {
-    path: String,
-    segments: usize,
-    corrections: usize,
-    stale: usize,
-    noted: usize,
-    /// What to say: the file, and what is in it.
-    said: String,
-}
-
 /// Write a sefer out with your corrections in it.
 ///
 /// Into your own layer, at `personal/exports/`, rather than through a save
@@ -2540,29 +1929,6 @@ fn export_sefer(
 
 // ── The OCR queue (spec.md §7.3, BUILDER.md W21) ────────────────────────────
 
-/// One candidate, as the queue shows it.
-#[derive(Serialize)]
-struct SuspectRow {
-    id: String,
-    rare: String,
-    common: String,
-    rare_count: u64,
-    common_count: u64,
-    /// `ד/ר`, where the letters are a pair that look alike in print.
-    confusion: Option<String>,
-    /// What the scanner did — `letter`, `added`, `dropped`, `swapped`.
-    how: &'static str,
-    /// Where to go and look: the first place, with the sefer named.
-    at: Option<String>,
-    work: Option<String>,
-    /// The sefer, in the window's language (W41). Absent only when the
-    /// candidate names no place at all — a sefer the catalogue has not caught
-    /// up with is named by its slug, because a row with no name on it is a row
-    /// a reader cannot act on.
-    title: Option<String>,
-    address: Option<String>,
-}
-
 /// The next candidates to review, best first.
 ///
 /// Re-read from disk every time: `girsa-suspects` is a batch job that runs
@@ -2602,20 +1968,6 @@ fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<Suspec
         .collect();
     state.queue = Some(queue);
     Ok(rows)
-}
-
-/// Where on the page a candidate's word is, and what to put in the box.
-#[derive(Serialize)]
-struct Standing {
-    at: String,
-    from_char: usize,
-    to_char: usize,
-    /// The word as printed, which is what the reader is about to change.
-    printed: String,
-    /// The common spelling, where it can be given without inventing text —
-    /// see [`girsa_fix::suspect::Suspect::suggestion`]. `null` on a pointed
-    /// word, and then the reader types.
-    suggestion: Option<String>,
 }
 
 /// Open a candidate: where its word sits in the segment the queue named.
@@ -2760,16 +2112,6 @@ fn copy(
 }
 
 // ── The buffer (spec.md §10.3, BUILDER.md W17) ──────────────────────────────
-
-/// What you are writing, and where it is kept.
-#[derive(Serialize)]
-struct Writing {
-    name: String,
-    text: String,
-    /// The file it lives in — a `.ksav` document in your own layer, which is
-    /// the whole of what "opens in real Ksav with zero conversion" means.
-    path: String,
-}
 
 #[tauri::command]
 fn buffers(shared: tauri::State<'_, Shared>) -> Result<Vec<String>, String> {
@@ -3040,54 +2382,6 @@ fn set_nikud(shared: tauri::State<'_, Shared>, on: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// The whole settings surface, in one call (B13).
-///
-/// > *"There is no settings panel … This is a step backwards from what you are
-/// > replacing."*
-///
-/// One command and one struct rather than a command per field: a panel that asks
-/// eleven questions to draw itself is a panel that draws itself wrong once, and
-/// the shortcut table has to come from `girsa_app::keys` or the card and the keys
-/// disagree.
-#[derive(Serialize)]
-struct SettingsView {
-    nikud: bool,
-    text_size: u16,
-    language: girsa_app::session::Language,
-    cite: girsa_cite::CiteStyle,
-    showing: girsa_fix::Showing,
-    theme: &'static str,
-    hebrew_font: String,
-    latin_font: String,
-    line_height: u16,
-    column_ch: u16,
-    /// The narrowest and widest a pane may be, in tenths of a per cent.
-    ///
-    /// Sent because the window has to draw a drag inside them, **and it used to
-    /// know them by heart**: `Math.min(85, Math.max(15, share))` in
-    /// `layout.ts`, against `ratio.min(1000)` in `girsa_app::workspace`. Two
-    /// clamps, two answers, and the one that decided what a reader could
-    /// actually do was the one in TypeScript.
-    share_bounds: [u16; 2],
-    /// Every shortcut, with what it is bound to now — the reader's binding where
-    /// they set one, the shipped default where they did not.
-    shortcuts: Vec<Shortcut>,
-    /// The families the reader may pick from: what this machine has, as far as the
-    /// window could tell us, plus what the stylesheet falls back to.
-    fonts: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct Shortcut {
-    id: &'static str,
-    he: &'static str,
-    en: &'static str,
-    /// What it answers to now.
-    bound: Option<String>,
-    /// What it shipped bound to, so *reset* has something to reset to.
-    shipped: &'static str,
-}
-
 #[tauri::command]
 fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
     let state = shared.lock().map_err(|_| "state is poisoned")?;
@@ -3244,87 +2538,6 @@ fn set_text_size(shared: tauri::State<'_, Shared>, percent: u16) -> Result<(), S
 // jobs — bringing a model in and embedding — run on their own thread and emit
 // progress, because §9.9 says embedding never blocks reading and a command that
 // held the state lock for thirteen days would be a novel way to disagree.
-
-/// Where the lane stands, as the settings panel and the search header show it.
-#[derive(Serialize)]
-struct LaneRow {
-    /// `off`, `adrift` or `on`. Three states, drawn as three states.
-    state: &'static str,
-    /// The sentence for the header. `None` when the lane is off, which is not a
-    /// line — there is no lane to be partial about.
-    said: Option<String>,
-    /// What the lane covers and what it does not. **Always present**, because a
-    /// partial lane that reads as a complete one is what §9.9 exists to prevent.
-    coverage: String,
-    /// The model directory, as the reader set it.
-    model: Option<String>,
-    /// Whether Girsa may go and get one. False in a fresh install.
-    may_fetch: bool,
-    /// The whole library, rather than a list.
-    everything: bool,
-    /// The seforim chosen, with what is embedded of each.
-    chosen: Vec<CoveredRow>,
-    /// How many seforim on the shelf are not in the lane at all.
-    outside: usize,
-    /// Seforim whose vectors were made by another model and are not being read.
-    other_model: Vec<String>,
-    /// What `lane_bring` would fetch, with its licence — shown before the
-    /// button does anything, because the terms are not Girsa's to grant.
-    offer: ModelOffer,
-}
-
-#[derive(Serialize)]
-struct CoveredRow {
-    slug: String,
-    title: String,
-    wanted: usize,
-    embedded: usize,
-}
-
-#[derive(Serialize)]
-struct ModelOffer {
-    name: &'static str,
-    by: &'static str,
-    licence: &'static str,
-    about: &'static str,
-    what: &'static str,
-    bytes: u64,
-}
-
-/// One adjacent result.
-#[derive(Serialize)]
-struct NearRow {
-    #[serde(flatten)]
-    at: AtRow,
-    text: String,
-    nearness: f32,
-}
-
-/// What the lane answered. Four fields and all four are drawn.
-#[derive(Serialize)]
-struct LaneAnswer {
-    /// The label these must be drawn under. From `girsa-lane`, worded once.
-    label: &'static str,
-    /// What the lane was measured to do, and at what size. From `girsa-lane`.
-    measured: &'static str,
-    near: Vec<NearRow>,
-    coverage: String,
-    /// Why there is nothing. Never an empty list with no reason attached.
-    refused: Option<String>,
-}
-
-/// How far a background job has got. One shape for both jobs.
-#[derive(Serialize, Clone)]
-struct LaneProgress {
-    /// `bring`, `embed` or `done`.
-    doing: &'static str,
-    /// What it is working on — a file name, or a sefer's title.
-    what: String,
-    done: u64,
-    of: u64,
-    /// Set when the job stopped for a reason worth showing.
-    trouble: Option<String>,
-}
 
 const BRING_EVENT: &str = "lane-bring";
 const EMBED_EVENT: &str = "lane-embed";
@@ -4083,100 +3296,6 @@ pub fn run() {
 // What is left is the two things that are not edges — marks and folders — and
 // the writing side.
 
-/// One of your notes, as a row.
-#[derive(Serialize)]
-struct NoteRow {
-    slug: String,
-    name: String,
-    title: String,
-    opening: String,
-    tags: Vec<String>,
-    paragraphs: usize,
-    edited: u64,
-    /// What it is about, as segment ids.
-    on: Vec<String>,
-}
-
-/// One paragraph of a note, for editing it.
-#[derive(Serialize)]
-struct ParaRow {
-    id: String,
-    text: String,
-}
-
-/// One mark, and where it lands in the line as it is drawn now.
-#[derive(Serialize)]
-struct MarkRow {
-    id: String,
-    kind: &'static str,
-    at: String,
-    label: Option<String>,
-    colour: Option<String>,
-    was: String,
-    tags: Vec<String>,
-    /// The characters it is on, in the text the pane drew — `None` for a
-    /// bookmark, and `None` with `stale` set when its words have gone.
-    span: Option<(usize, usize)>,
-    /// The words had to be looked for. Shown, because a highlight that moved
-    /// is a thing a reader is entitled to know about.
-    moved: bool,
-    /// Its words are gone, or are now there twice. **Not drawn and not
-    /// deleted** — reported, so it can be put right.
-    stale: bool,
-}
-
-/// Everything of yours on one line, less the notes — those are links.
-#[derive(Serialize)]
-struct Yours {
-    notes: Vec<NoteRow>,
-    marks: Vec<MarkRow>,
-    folders: Vec<String>,
-}
-
-impl NoteRow {
-    fn of(note: &girsa_note::Note) -> Self {
-        let opening = note
-            .paras()
-            .iter()
-            .map(|p| p.text.as_str())
-            .find(|text| !text.trim().is_empty())
-            .unwrap_or_default();
-        Self {
-            slug: note.slug.clone(),
-            name: note.name().to_string(),
-            title: note.title.clone(),
-            opening: opening.chars().take(120).collect(),
-            tags: note.tags.clone(),
-            paragraphs: note.paras().len(),
-            edited: note.edited,
-            on: note.on.iter().map(ToString::to_string).collect(),
-        }
-    }
-}
-
-impl MarkRow {
-    fn of(marked: &girsa_app::Marked) -> Self {
-        use girsa_note::mark::Placed;
-        let (span, moved, stale) = match &marked.placed {
-            Placed::Whole => (None, false, false),
-            Placed::At { span, moved } => (Some((span.start, span.end)), *moved, false),
-            Placed::Stale => (None, false, true),
-        };
-        Self {
-            id: marked.mark.id.as_str().to_string(),
-            kind: marked.mark.kind.as_str(),
-            at: marked.mark.at.to_string(),
-            label: marked.mark.label.clone(),
-            colour: marked.mark.colour.clone(),
-            was: marked.mark.was.clone(),
-            tags: marked.mark.tags.clone(),
-            span,
-            moved,
-            stale,
-        }
-    }
-}
-
 /// What you have on the line you are standing on.
 #[tauri::command]
 fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> {
@@ -4480,15 +3599,6 @@ fn bookmarks(shared: tauri::State<'_, Shared>) -> Result<Vec<MarkRow>, String> {
         .collect())
 }
 
-/// One saved query, as a row.
-#[derive(Serialize)]
-struct QueryRow {
-    name: String,
-    typed: String,
-    said: String,
-    tags: Vec<String>,
-}
-
 /// Keep the question you just asked.
 ///
 /// The chips are saved as the `chip → key` pairs the row itself sends, so
@@ -4587,28 +3697,6 @@ fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, 
     shelf.queries_mut().remove(&name).map_err(|e| e.to_string())
 }
 
-/// One chaburah folder, as a row.
-#[derive(Serialize)]
-struct FolderRow {
-    name: String,
-    title: String,
-    /// Its members, in the order you put them in — which is the order a shiur
-    /// goes in, so it is never sorted.
-    members: Vec<FolderMember>,
-    tags: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct FolderMember {
-    /// The member as it is written down: a segment id, `work:…` or `query:…`.
-    key: String,
-    /// What to put on the row.
-    said: String,
-    /// Where clicking it goes, for the two kinds that are places.
-    work: Option<String>,
-    at: Option<String>,
-}
-
 /// Your chaburah folders.
 #[tauri::command]
 fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
@@ -4701,17 +3789,6 @@ fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool,
         .collections_mut()
         .remove(&name)
         .map_err(|e| e.to_string())
-}
-
-/// One tag, and how many things carry it.
-#[derive(Serialize)]
-struct TagRow {
-    tag: String,
-    total: usize,
-    notes: usize,
-    marks: usize,
-    queries: usize,
-    collections: usize,
 }
 
 /// Every tag across your whole layer.

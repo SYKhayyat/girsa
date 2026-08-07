@@ -23,6 +23,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use girsa_app::view::{Card, Line, Move, Opening, Text};
+use girsa_app::workspace::{Axis, Workspace};
 use girsa_app::{display, Beside, Shelf};
 
 /// Berakhot with Rashi beside it — W9's acceptance, as a page to look at.
@@ -57,48 +59,54 @@ fn main() -> std::process::ExitCode {
     };
 
     // Two panes, the second following the first, which is what the app opens
-    // as when a reader splits a Gemara and puts Rashi beside it.
-    let state = serde_json::json!({
-        "workspace": {
-            "tabs": [{
-                "layout": {
-                    "kind": "split", "axis": "vertical", "ratio": 550,
-                    "first": {"kind": "leaf", "pane": 1},
-                    "second": {"kind": "leaf", "pane": 2},
-                },
-                "panes": [
-                    {"id": 1, "slug": LEADER},
-                    {"id": 2, "slug": FOLLOWER, "follows": 1},
-                ],
-                "focused": 1,
-            }],
-            "active": 0,
-        },
-        "nikud": true,
-        "text_size": 100,
-        // What a pane may be squeezed to. Written here **by hand**, from the
-        // constants in `girsa_app::workspace`, because this example cannot
-        // import the shell's DTOs — which is the wire-format finding, felt: this
-        // object is already missing `language`, `keys`, `look`, `cite` and
-        // `pairing`, and nothing anywhere said so.
-        "share_bounds": [
+    // as when a reader splits a Gemara and puts Rashi beside it. Built by
+    // `Workspace` itself, so the layout tree in the fixture is the tree the
+    // window makes rather than a hand-typed picture of one.
+    let mut workspace = Workspace::default();
+    let leader_pane = workspace.open_tab(LEADER, None);
+    let follower_pane = workspace
+        .split(leader_pane, Axis::Vertical, FOLLOWER, true)
+        .unwrap_or(leader_pane);
+    workspace.set_ratio(leader_pane, 550);
+
+    // `girsa_app::view::Opening`, the real type.
+    //
+    // This was fifteen keys built with `serde_json::json!` in the shell, and
+    // **nine** of them hand-typed here — and the comment that used to sit on
+    // this block named five of the six that were missing, so the comment
+    // documenting the drift had itself drifted. A field added to `Opening` now
+    // fails to compile until it is answered here, which is the whole of the
+    // argument for the DTOs living in this crate.
+    let session = girsa_app::Session::default();
+    let state = Opening {
+        workspace,
+        nikud: true,
+        text_size: 100,
+        positions: session.positions.clone(),
+        works: shelf.works().len(),
+        trouble: None,
+        cite: session.cite,
+        language: session.language,
+        keys: girsa_app::keys::Bound::of(&session.keys).table().clone(),
+        look: session.look.clone(),
+        share_bounds: [
             girsa_app::workspace::SMALLEST_SHARE,
             girsa_app::workspace::LARGEST_SHARE,
         ],
-        "positions": {},
-        "works": shelf.works().len(),
-        "trouble": serde_json::Value::Null,
+        // The desk is the shell's loopback, and there is not one out here.
+        pairing: Some("הכתיבה פועלת בחלון בלבד".to_string()),
         // Corrections are the shell's — they are written into your own layer,
         // and a page reading static files has none (W20).
-        "showing": "fixed",
-        "fixes": 0,
-    });
-    write(&out.join("state.json"), &state);
+        showing: session.showing,
+        fixes: 0,
+        suspects: 0,
+    };
+    write(&out.join("state.json"), &serde_json::json!(state));
 
-    let cards: Vec<serde_json::Value> = [LEADER, FOLLOWER, "mishnah-berakhot", "genesis"]
+    let cards: Vec<Card> = [LEADER, FOLLOWER, "mishnah-berakhot", "genesis"]
         .iter()
         .filter_map(|slug| shelf.work(slug))
-        .map(card)
+        .map(Card::of)
         .collect();
     write(&out.join("recent.json"), &serde_json::json!(cards));
 
@@ -107,33 +115,36 @@ fn main() -> std::process::ExitCode {
     // a second browser is to see the real thing, and a shelf of four seforim
     // would not show what 2,141 under `תלמוד` does to a scrolling list.
     write(&out.join("tree.json"), &serde_json::json!(shelf.tree()));
-    let mut by_shelf: BTreeMap<String, Vec<serde_json::Value>> = BTreeMap::new();
+    let mut by_shelf: BTreeMap<String, Vec<Card>> = BTreeMap::new();
     for work in shelf.works() {
         by_shelf
             .entry(girsa_app::taxonomy::shelf_key_of(work, shelf.arrangement()))
             .or_default()
-            .push(card(work));
+            .push(Card::of(work));
     }
     write(&out.join("shelf.json"), &serde_json::json!(by_shelf));
 
     for sefer in [&leader, &follower] {
-        let text = serde_json::json!({
-            "work": {
-                "slug": sefer.work.slug, "he_title": sefer.work.he_title,
-                "en_title": sefer.work.en_title, "categories": sefer.work.categories,
-                "author": sefer.work.author, "era": sefer.work.era,
-            },
-            "has_nikud": sefer.segments.iter().any(|s| display::has_marks(&s.text)),
-            "lines": sefer.segments.iter().map(|s| serde_json::json!({
-                "id": s.id.to_string(),
-                "address": s.id.address(),
-                "kind": s.kind.as_str(),
-                "runs": display::runs(&s.text),
-            })).collect::<Vec<_>>(),
-        });
+        // `Text`, `Card` and `Line`, the real types.
+        //
+        // This block used to build a **second** inline copy of a card — missing
+        // `source` and `scan`, and emitting `"era": work.era`, the raw code,
+        // where `card()` seventy lines below emitted `display::era_said(code)`.
+        // Two hand-written copies of one shape inside one 202-line file,
+        // disagreeing with each other about the value under a key they both
+        // spelled the same way.
+        let text = Text {
+            work: Card::of(&sefer.work),
+            has_nikud: sefer.segments.iter().any(|s| display::has_marks(&s.text)),
+            lines: sefer
+                .segments
+                .iter()
+                .map(|s| Line::of(sefer, s, true))
+                .collect(),
+        };
         write(
             &out.join(format!("text-{}.json", flatten(&sefer.work.slug))),
-            &text,
+            &serde_json::json!(text),
         );
 
         let companions = shelf.companions(&sefer.work.slug);
@@ -155,8 +166,15 @@ fn main() -> std::process::ExitCode {
         }
         moves.insert(
             segment.id.to_string(),
-            serde_json::json!([{
-                "pane": 2, "place": place, "relation": beside.relation(),
+            serde_json::json!([Move {
+                // The follower's pane, which `Workspace::split` handed out
+                // above — and the fixture used to type `2` because a hand-built
+                // JSON object cannot be told it is wrong.
+                pane: follower_pane,
+                place,
+                relation: beside.relation(),
+                // Which page of a scan. The follower here is Rashi, not a scan.
+                page: None,
             }]),
         );
     }
@@ -185,18 +203,4 @@ fn write(path: &Path, value: &serde_json::Value) {
 
 fn flatten(slug: &str) -> String {
     slug.replace('/', "_")
-}
-
-/// A work as the window's `Card` — the same fields the shell's command sends,
-/// because the page is the same page.
-fn card(work: &girsa_corpus::work::Work) -> serde_json::Value {
-    serde_json::json!({
-        "slug": work.slug,
-        "he_title": work.he_title,
-        "en_title": work.en_title,
-        "categories": work.categories,
-        "author": work.author,
-        "era": work.era.as_deref().map(display::era_said),
-        "source": work.source.as_str(),
-    })
 }

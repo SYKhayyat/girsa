@@ -544,15 +544,21 @@ fn one_rule_says_what_a_place_is_called_and_where_it_sits() {
     // The title. `Language::title_of` is the rule and `Names::of` is where a
     // row reaches it.
     //
-    // The one exception is `LinkRow`, and it is a real one: `girsa_app::Link`
-    // carries **both** names of the sefer at the other end, the way `Card`
-    // does, and the surface picks. That is the other correct shape — a row that
+    // The one exception is `LinkRow::of`, and it is a real one: `girsa_app::Link`
+    // carries **both** names of the sefer at the other end, the way `Card` does,
+    // and the surface picks. That is the other correct shape — a row that
     // carries a sefer rather than a name to print — and the defect was never
     // that two shapes exist. It was six rows of the first shape, each deciding
     // privately.
-    const MAY_CHOOSE: [&str; 3] = [
+    //
+    // `view.rs` is on this list for that one constructor. If a second row in
+    // there starts choosing, this check will not catch it, which is the cost of
+    // a whitelist being per-file — and it is the reason the list is three
+    // entries long rather than a habit.
+    const MAY_CHOOSE: [&str; 4] = [
         "girsa-app/src/naming.rs",
         "girsa-app/src/session.rs",
+        "girsa-app/src/view.rs",
         "app/src-tauri/src/lib.rs",
     ];
     let mut chose = Vec::new();

@@ -54,7 +54,13 @@ export interface Branch {
 /** What came of dropping files on the window. Both halves are reported. */
 export interface Dropped {
   added: Card[];
-  refused: { file: string; why: string }[];
+  refused: Refusal[];
+}
+
+/** A file the window would not take, and why. */
+export interface Refusal {
+  file: string;
+  why: string;
 }
 
 /** A stretch of words and how it is set — see `girsa_app::display::runs`. */
@@ -292,12 +298,27 @@ export interface Shortcut {
   shipped: string;
 }
 
+/**
+ * How a mekor is printed when you copy one (spec.md §5).
+ *
+ * **Two spellings, and both are right.** `girsa_cite::CiteStyle` derives
+ * `serde(rename_all = "snake_case")`, so what Rust *sends* is `hebrew_full`;
+ * `CiteStyle::name()` returns `hebrew-full`, and that is what
+ * `setCiteStyle` *takes*. The two live in a pinned sibling crate and this
+ * declares both rather than pretending one of them away — the field was
+ * `cite: string`, which is how the asymmetry went eleven months unremarked.
+ */
+export type CiteStyle = "hebrew_full" | "hebrew_short" | "english";
+
+/** The spelling the setter takes. See [`CiteStyle`]. */
+export type CiteStyleName = "hebrew-full" | "hebrew-short" | "english";
+
 /** The whole settings surface, in one call (B13). */
 export interface Settings {
   nikud: boolean;
   text_size: number;
   language: Language;
-  cite: string;
+  cite: CiteStyle;
   showing: Showing;
   theme: "system" | "light" | "dark";
   hebrew_font: string;
@@ -388,10 +409,18 @@ export interface Copied {
 import type { Presence } from "./presence.ts";
 export type { Presence };
 
-/** Where something asked Girsa to open — over the loopback, or a `girsa://`
+/**
+ * Where something asked Girsa to open — over the loopback, or a `girsa://`
  * link clicked in a document. The ref is turned into a segment id in Rust,
- * because which segments an address names is a question about the corpus. */
-export interface Landing {
+ * because which segments an address names is a question about the corpus.
+ *
+ * **Called `Asked` and not `Landing`** because `Landing` is also what a
+ * citation search comes back as, 725 lines below, and TypeScript merges two
+ * interfaces of one name rather than refusing them. So `Landing` was silently
+ * the union of both — `ref`, `slug`, `id`, `said`, `places`, `near` — and
+ * every use of it type-checked against fields the other one sends.
+ */
+export interface Asked {
   ref: string;
   slug: string;
   id: string;
@@ -432,6 +461,11 @@ export interface AppState {
   positions: Record<string, string>;
   works: number;
   trouble: string | null;
+  /** How a mekor is printed when you copy one (spec.md §5). */
+  cite: CiteStyle;
+  /** Why the desk is not paired, or `null` when it is. Rust has sent this
+   * since the desk existed and this interface did not declare it. */
+  pairing: string | null;
   showing: Showing;
   /** How many corrections you have made. */
   fixes: number;
@@ -910,7 +944,7 @@ export const api = {
   // webview knowing what a mark is.
   copy: (from: string, to: string, fromChar: number, toChar: number | null, note?: string) =>
     call<Copied>("copy", { from, to, fromChar, toChar, note: note ?? null }),
-  setCiteStyle: (style: "hebrew-full" | "hebrew-short" | "english") =>
+  setCiteStyle: (style: CiteStyleName) =>
     call<void>("set_cite_style", { style }),
 
   // --- the loopback (W16) -------------------------------------------------
@@ -1118,8 +1152,15 @@ export interface Offer {
 
 export interface Landing {
   said: string;
-  places: { reference: string; id: string; work: string }[];
+  places: PlaceRow[];
   near: string[];
+}
+
+/** One place a citation landed on. */
+export interface PlaceRow {
+  reference: string;
+  id: string;
+  work: string;
 }
 
 export interface Found {
@@ -1141,10 +1182,10 @@ export interface Found {
 /** Files dropped on the window, as they arrive from the shell. */
 /** Something asked Girsa to show a place: Ksav over the loopback, or a
  * `girsa://` citation clicked in a document or a compiled PDF. */
-export async function whenAskedToOpen(handler: (landing: Landing) => void): Promise<void> {
+export async function whenAskedToOpen(handler: (landing: Asked) => void): Promise<void> {
   if (!invoke) return;
   const { listen } = await import("@tauri-apps/api/event");
-  await listen<Landing>("girsa://open", (event) => handler(event.payload));
+  await listen<Asked>("girsa://open", (event) => handler(event.payload));
 }
 
 /** Something asked Girsa to put a phrase in the search — Ksav, when no
@@ -1218,6 +1259,8 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       look: { theme: "system", hebrew_font: "", latin_font: "", line_height: 195, column_ch: 0 },
       positions: {},
       works: 0,
+      cite: "hebrew_full",
+      pairing: "הכתיבה פועלת בחלון בלבד",
       showing: "fixed",
       fixes: 0,
       suspects: 0,

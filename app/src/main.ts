@@ -14,7 +14,7 @@ import {
   whenAskedToSearch,
   whenFilesDropped,
   type AppState,
-  type Landing,
+  type Asked,
   type Mefarshim,
   type PaneId,
   type Presence,
@@ -130,7 +130,7 @@ async function main(): Promise<void> {
 /** Something asked for a place: Ksav over the loopback, or a `girsa://` link
  * clicked in a Word document or a compiled PDF. It arrives already turned into
  * a segment id, so this is the same landing a search result gets. */
-async function whenAskedFor(landing: Landing): Promise<void> {
+async function whenAskedFor(landing: Asked): Promise<void> {
   await openFound(landing.slug, landing.id);
   say(`נפתח — ${landing.ref}`, false);
 }

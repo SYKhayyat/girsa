@@ -77,13 +77,55 @@ is **23**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That is the design and it is not yet the measurement. Of the shell's
-**4,776**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
+**3,853**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
 pass-through; the rest decides cache policy,
-sort orders, truncation lengths and patch provenance, and one block of it is a
-second implementation of the placement rule `Beside::between` is tested for. The
-sentence above says "supposed to be" until that is fixed rather than until it is
-reworded. (It also said *fifty* commands while there were 100 of them, which is
-the other half of the same problem: nothing checks a number in this file.)
+sort orders, truncation lengths and patch provenance. The sentence above says
+"supposed to be" until that is fixed rather than until it is reworded. (It also
+said *fifty* commands while there were 100 of them, which is the other half of
+the same problem: nothing checks a number in this file. Something does now.)
+
+### The wire format was described four times, and one copy could not be checked
+
+The rows the window draws lived in the shell — 52 structs, 936 lines — and were
+mirrored by hand into 59 TypeScript interfaces in `app/src/api.ts`, with
+**nothing verifying that the two agreed**. The fourth copy was the sharp one:
+`crates/girsa-app/examples/dev-fixtures.rs` emits the same JSON as static files
+for the browser build, and it **could not import** the shell's structs, because
+`girsa-app` cannot depend on `app/`. So it rebuilt every shape with
+`serde_json::json!`.
+
+It had already drifted three ways:
+
+- `state.json` carried nine keys where the command sends fifteen — and the
+  comment above it named five of the six that were missing, so the comment
+  documenting the drift had itself drifted;
+- `card()` was missing `scan`, under a doc comment reading *"the same fields the
+  shell's command sends"*;
+- and the text fixture built a **second** inline copy of a card, missing
+  `source` and `scan`, emitting `"era": work.era` — the raw code — where
+  `card()` seventy lines below emitted `display::era_said(code)`. Two
+  hand-written copies of one shape inside one 202-line file, disagreeing about
+  the value under a key they both spelled the same way.
+
+The two shapes the example got right for free were `Branch` and `Companion` —
+the only two commands whose return type was a `girsa-app` type. That is the
+argument, made by the example's own behaviour.
+
+The rows now live in `crates/girsa-app/src/view.rs`, so the fixture imports the
+real types and rustc holds that half; `app/test/wire.test.mjs` holds the other,
+comparing every `#[derive(Serialize)]` row against the interface that declares
+it. Two structs stayed in the shell and are the visible exceptions rather than
+the invisible rule: `FoundPage` carries `girsa_search` types and `Copied`
+carries a clipboard handle. `HitRow` moved and its constructor did not — the
+shape of a result row is `girsa-app`'s, and filling it from a
+`girsa_search::index::Hit` is the shell's, because the hit is.
+
+The gate found three more the day it was written: `api.ts` declared neither
+`cite` nor `pairing` although Rust has sent both since the desk existed;
+`CiteStyle` was typed as `string`, hiding that Rust *sends* `hebrew_full` and
+*takes* `hebrew-full`; and `export interface Landing` was declared **twice** in
+one file, which TypeScript merges rather than refuses, so `Landing` was silently
+the union of a citation landing and a `girsa://` link.
 
 **The sibling checkout has to be present.** Until `sefer-crates` is published,
 cloning Girsa alone will not build.

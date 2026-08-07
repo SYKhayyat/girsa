@@ -50,6 +50,9 @@ pub mod taxonomy;
 // Three composers each said "what this answer could not see" and none of them
 // could see the other two.
 pub mod unseen;
+// The wire format was described four times, and the fourth copy — the one that
+// feeds the browser build — had already drifted three ways.
+pub mod view;
 pub mod workspace;
 
 pub use adjacent::{Adjacency, Near};
