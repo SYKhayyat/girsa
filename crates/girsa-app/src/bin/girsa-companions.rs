@@ -122,6 +122,13 @@ fn main() -> std::process::ExitCode {
     let mut dropped = 0usize;
     for (work, mut with) in works {
         with.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        // How many there were before the cut. **Written into the row**, because
+        // a list that silently stops reads as all of them — Berakhot is joined
+        // to about 1,600 works and this keeps 200, and the other 1,400 were
+        // absent from the picker with nothing anywhere saying so. The number
+        // was printed to stdout at the end of the run, where a reader who never
+        // ran it cannot see it.
+        let joined = with.len();
         if with.len() > PER_WORK {
             truncated += 1;
             dropped += with.len() - PER_WORK;
@@ -129,6 +136,7 @@ fn main() -> std::process::ExitCode {
         }
         let row = serde_json::json!({
             "work": work,
+            "joined": joined,
             "with": with.iter().map(|(slug, n)| serde_json::json!({"slug": slug, "n": n}))
                 .collect::<Vec<_>>(),
         });

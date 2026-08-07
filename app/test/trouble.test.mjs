@@ -69,4 +69,56 @@ export async function run() {
   check("a Tauri rejection object", raw({ message: "invoke failed" }), "invoke failed");
   check("undefined", raw(undefined), "undefined");
   ok("and none of them throw", trouble(undefined).said.length > 0);
+
+  // ── the refusals this codebase makes on purpose ───────────────────────────
+  //
+  // Matched by the **name** Rust puts on them, not by the words. These fourteen
+  // used to be regexes against Rust's English `Display` prose, which made every
+  // error string in the repository load-bearing API with no test on the Rust
+  // side — reword `"there is no index here"` and both halves stayed green while
+  // the reader stopped being told what to run.
+
+  ok(
+    "a coded refusal is read by its code",
+    trouble("no-index: there is no index here", "search").said.includes("girsa-index build"),
+  );
+
+  // The whole point: the prose is free to change.
+  ok(
+    "and rewording the prose changes nothing a reader sees",
+    trouble("no-index: no index has been built for this corpus", "search").said.includes(
+      "girsa-index build",
+    ),
+  );
+
+  check(
+    "the same sentence, whatever was being done",
+    trouble("no-sefer: no sefer here called bavli/berakhot", "read_page").said,
+    trouble("no-sefer: no sefer here called anything at all", "search").said,
+  );
+
+  ok(
+    "a poisoned lock says to reopen the window",
+    trouble("poisoned: state is poisoned", "search").said.includes("מחדש"),
+  );
+
+  ok(
+    "a shelf dragged inside itself says so",
+    trouble("cycle: a shelf cannot be put inside itself", "general").said.includes("לתוך עצמו"),
+  );
+
+  // A colon in somebody else's message is not a code.
+  ok(
+    "an operating-system message that happens to have a colon is not read as a code",
+    trouble("open failed: The system cannot find the file specified. (os error 2)", "open_pdf")
+      .said.includes("אינו נמצא"),
+  );
+
+  // The detail keeps the whole string, code and all — it goes on `title`, for
+  // whoever is reading a log.
+  ok(
+    "the raw string survives with its code on it",
+    trouble("no-shelf: there is no shelf here").detail.startsWith("no-shelf: "),
+  );
+
 }

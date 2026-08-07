@@ -270,7 +270,49 @@ export interface Mefarshim {
   /** How many lines of this sefer anybody comments on, so *you have ticked
    * nobody* never reads as *nobody wrote*. */
   touched: number;
+  /**
+   * The list behind the door, woven in Rust: headings and seforim, in reading
+   * order, each sefer once (W44).
+   *
+   * The four arrays above are what it is woven **from**, and they stay because
+   * the picker and the tick-list each want a different one. What used to be
+   * here was the weave — `mefarshim.ts`'s `choices`, `following` and `listed`,
+   * 277 lines deciding four sections, three Hebrew headings and an ordering
+   * rule, beside a Rust module with twenty-five tests about this same list.
+   */
+  listed: Listed[];
+  /** Why the list is empty, when it is empty because the link graph has never
+   * been walked here. `null` when there is a cache and it holds nothing —
+   * which is a different statement, and used to be the same silence. */
+  unbuilt: string | null;
 }
+
+/** One row of the mefarshim list: a sefer you can open, tick, or both. */
+export interface Choice {
+  slug: string;
+  he_title: string;
+  en_title: string;
+  /** The corpus places this sefer on the one you are reading. */
+  declared: boolean;
+  /** How many edges join the two, where that is all there is. */
+  links: number;
+  /**
+   * Whether ticking it could mark a line — whether the graph has it commenting
+   * somewhere in this sefer.
+   *
+   * **Not the same question as `declared`.** A tick-box that can never mark
+   * anything is worse than no box.
+   */
+  tickable: boolean;
+  chosen: boolean;
+  /** The folder it stands in (W44). Absent for one drawn above the folders. */
+  shelf: string | null;
+}
+
+/** A heading, or a sefer — one row of the list behind the door. */
+export type Listed =
+  | { kind: "folder"; title: string; depth: number; count: number }
+  | { kind: "sefer"; choice: Choice };
 
 /** One mefaresh's words on one line. */
 export interface Said {

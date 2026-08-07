@@ -17,8 +17,7 @@
 // hold them — the same reason `preview.ts` holds B1's geometry. They are: what
 // the door should say given what is behind it, and which sefer to offer first.
 
-import type { Branch, Comments, Companion, Mefaresh } from "./api.ts";
-import type { Named } from "./names.ts";
+import type { Comments, Companion } from "./api.ts";
 
 /**
  * The declared commentaries, and only those.
@@ -74,173 +73,23 @@ export function doorTitle(companions: Companion[]): string {
   return `${found} · פתח ספר בטור שלצדו (Ctrl+\\)`;
 }
 
-/** One row of the list behind the door: a sefer you can open, tick, or both.
- *
- * Extends `Named` rather than restating its two fields, so that this module never
- * mentions either of a sefer's titles — `sources.test.mjs` fails the build if it
- * does, and the point of that guard is that nothing outside `names.ts` chooses
- * between them. */
-export interface Choice extends Named {
-  slug: string;
-  declared: boolean;
-  links: number;
-  /**
-   * Whether ticking this one could mark a line — that is, whether the link graph
-   * has it commenting somewhere in this sefer.
-   *
-   * Not the same question as `declared`. `Tosafot on Berakhot` declares itself a
-   * commentary; whether *this* corpus holds edges placing its comments on
-   * particular lines is a separate fact, and after W32 it is a fact worth
-   * distrusting. A tick-box that can never mark anything is worse than no box.
-   */
-  tickable: boolean;
-  chosen: boolean;
-  /** The folder it stands in (W44). Absent for one drawn above the folders. */
-  shelf?: string;
-}
-
-/**
- * The one list behind `מפרשים · N`, doing both jobs (W43).
- *
- * > *"there should be a way to have mefarshim also open like otzaria"* …
- * > *"but keep the split too — its also nice"*
- *
- * So: every row still opens that sefer into the column beside you, which is the
- * split, untouched. Rows the graph can place also carry a tick-box, which marks
- * their comments on the daf and opens them where you click. One door, because a
- * second door for the second reading of the same list is how a toolbar grows to
- * eleven buttons.
- *
- * The declared companions keep `ordered`'s order — a reader learns where Rashi
- * sits in the list and it must not move. Mefarshim the graph knows and the
- * metadata does not (the Ben Yehoyada on Berakhot, most of Otzaria's shelf)
- * follow, by slug, rather than being dropped.
- */
-export function choices(companions: Companion[], can: Mefaresh[]): Choice[] {
-  const graph = new Map(can.map((m) => [m.slug, m]));
-  // Spread, so both titles come along without this file naming either.
-  const rows: Choice[] = ordered(companions).map((c) => ({
-    ...c,
-    tickable: graph.has(c.slug),
-    chosen: graph.get(c.slug)?.chosen ?? false,
-    shelf: graph.get(c.slug)?.shelf,
-  }));
-  const listed = new Set(rows.map((r) => r.slug));
-  const rest = can
-    .filter((m) => !listed.has(m.slug))
-    .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
-    .map((m) => ({
-      ...m,
-      // Nothing declares these — the graph places them and the shelf says they
-      // are commentary, which is `stands`'s second half (W45).
-      declared: false,
-      links: 0,
-      tickable: true,
-    }));
-  return [...rows, ...rest];
-}
-
-/**
- * The `על סדר הספר` rows, in the shape the list draws.
- *
- * Same shape as a mefaresh row and deliberately so — these tick, mark and open
- * exactly like one. `declared: false` because none of them declares this sefer
- * as a base text and saying otherwise would be a claim the corpus has not made;
- * `tickable: true` because the graph places their comments, which is the only
- * thing a tick-box needs to be honest.
- */
-export function following(alongside: Mefaresh[]): Choice[] {
-  return [...alongside]
-    .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
-    .map((m) => ({ ...m, declared: false, links: 0, tickable: true }));
-}
-
-/** A heading, or a sefer — one row of the list behind the door. */
-export type Listed =
-  | { kind: "folder"; title: string; depth: number; count: number }
-  | { kind: "sefer"; choice: Choice };
-
-/**
- * The list in reading order: mefarshim in their folders, then everything else
- * (W44).
- *
- * > *"it would be nice if meforshim remained in their folders"*
- *
- * Four sections and they are four different claims, which is why they are not
- * one list of sixty rows:
- *
- * 1. the mefarshim the corpus places on this sefer's lines, in their folders —
- *    rishonim together, acharonim together, because that is the first thing
- *    anybody wants to know about a mefaresh;
- * 2. **`על סדר הספר`** — seforim that keep this one's order without commenting on
- *    it: the Shulchan Arukh under the Tur, the Arukh HaShulchan under the
- *    Shulchan Arukh, the Rambam's hilchos beside the chelek of Yoreh De'ah on the
- *    same ground. They tick and mark like a mefaresh and they are not one, and
- *    saying so is the whole of this section;
- * 3. the commentaries the corpus **declares** but whose comments it cannot place
- *    on a line, so they can be opened beside but not ticked;
- * 4. the seforim that merely share links, under a heading that says so — the Beit
- *    Yosef cites Berakhot 815 times and is not a commentary on it.
- *
- * Section 2 is new and it is the one the old shape could not hold: `stands`
- * answered a bool, so *follows this sefer's order* and *nothing to do with this
- * sefer* both came back `false` and the first was thrown away with the second.
- *
- * The folders come from Rust, so there is one idea of which shelf a sefer is on.
- * They cover section 1 only — section 2 is drawn flat, because there are two of
- * these on Orach Chayim and four on the Tur.
- */
-export function listed(rows: Choice[], folders: Branch[], alongside: Choice[] = []): Listed[] {
-  const out: Listed[] = [];
-  const shown = new Set<string>();
-  const sefer = (choice: Choice): Listed => {
-    shown.add(choice.slug);
-    return { kind: "sefer", choice };
-  };
-
-  // The mefarshim with no folder go first, above the headings, so a heading
-  // always has its own seforim under it and never somebody else's.
-  for (const row of rows) {
-    if (row.tickable && !row.shelf) out.push(sefer(row));
-  }
-  const walk = (branches: Branch[], depth: number): void => {
-    for (const branch of branches) {
-      const held = rows.filter((r) => r.shelf === branch.key);
-      if (held.length === 0 && branch.children.length === 0) continue;
-      out.push({ kind: "folder", title: branch.title, depth, count: branch.count });
-      for (const row of held) out.push(sefer(row));
-      walk(branch.children, depth + 1);
-    }
-  };
-  walk(folders, 0);
-
-  // The seforim that keep this one's order without commenting on it. Directly
-  // under the mefarshim, because they tick and mark exactly like one and are the
-  // second thing a person reaching for a mefaresh actually wants — not down with
-  // the merely-linked, which is where a bool had quietly filed them.
-  // Filtered against what is already drawn: a sefer the corpus also declares a
-  // companion would otherwise appear twice, once in its folder and once here,
-  // and a list that shows the same sefer under two headings is a list that has
-  // stopped meaning anything.
-  const following = alongside.filter((r) => !shown.has(r.slug));
-  if (following.length > 0) {
-    out.push({ kind: "folder", title: "על סדר הספר", depth: 0, count: following.length });
-    for (const row of following) out.push(sefer(row));
-  }
-
-  const rest = rows.filter((r) => !shown.has(r.slug));
-  const declared = rest.filter((r) => r.declared);
-  if (declared.length > 0) {
-    out.push({ kind: "folder", title: "פירושים בלי מקום בשורה", depth: 0, count: declared.length });
-    for (const row of declared) out.push(sefer(row));
-  }
-  const linked = rest.filter((r) => !r.declared);
-  if (linked.length > 0) {
-    out.push({ kind: "folder", title: "ספרים מקושרים", depth: 0, count: linked.length });
-    for (const row of linked) out.push(sefer(row));
-  }
-  return out;
-}
+// ── The weave moved to Rust (W44) ───────────────────────────────────────────
+//
+// `Choice`, `Listed`, `choices`, `following` and `listed` were here: 277 lines
+// deciding four sections, three Hebrew headings, an ordering rule and a
+// no-sefer-twice rule — beside `crates/girsa-app/src/mefarshim.rs`, which
+// carries twenty-five Rust tests about this same list and could not see any of
+// it. The giveaway was the shape this file needed to be given: `Mefarshim`
+// arrived as four parallel arrays that only `listed()` knew how to weave.
+//
+// It is `girsa_app::mefarshim::listed` now, and it arrives woven. `Choice` and
+// `Listed` are declared in `api.ts` with the rest of the wire format, where
+// `wire.test.mjs` holds them against the Rust.
+//
+// What stayed here is what a *window* decides: what the door should say given
+// what is behind it, and how to word the sentence under the list. Those are
+// label composition, they are tested here, and they are not information
+// architecture.
 
 /**
  * What a click on a line says when it opens nothing (W43).

@@ -262,6 +262,58 @@ pub enum Stands {
     AskTheEdges,
 }
 
+/// How much a sefer has to say in another before saying it counts as commenting.
+///
+/// Only ever consulted for [`Stands::AskTheEdges`] — a commentary that declares
+/// no base and whose shelf sits above a whole division, where the shelf permits
+/// the answer and cannot give it.
+///
+/// Bartenura on Torah puts 330 comments into Bereshis, 289 into Shemos and none
+/// at all anywhere in Kesuvim; the works that turn up with one or two are
+/// quoting in passing. The gap between those is three orders of magnitude, so
+/// the exact line matters much less than having one, and this is deliberately
+/// near the bottom of it: a real mefaresh with only a dozen comments on a sefer
+/// is still a mefaresh, and a stray reference does not reach a dozen.
+///
+/// It lived in `girsa_app::mefarshim`, private, while `Shelf::companions` and
+/// `Beside::between` answered the same question without it — and without
+/// [`stands`] either.
+pub const SAYS_ENOUGH_TO_BE_A_MEFARESH: usize = 12;
+
+/// [`stands`], with the one case it refuses to guess at settled by the count.
+///
+/// # Why the two are separate functions
+///
+/// [`stands`] holds the shelf and will not infer a relationship between two
+/// seforim from the existence of an edge — BUILDER.md rule 6. The caller holds
+/// the graph. This is the seam between them, and it is a function rather than a
+/// convention because there were **three** callers asking *which seforim relate
+/// to this one* and only one of them asked `stands` at all:
+///
+/// | | asked | answered from |
+/// |---|---|---|
+/// | `girsa_app::mefarshim::Marks::of` | `stands`, then its own private threshold | `inbound.jsonl`, `comments-on` only |
+/// | `girsa_app::Shelf::companions` | nothing — `commentary_on` in either direction | `companions.jsonl`, every edge type |
+/// | `girsa_app::beside::Joined::between` | nothing — `commentary_on` in either direction | both works' shards, every edge type |
+///
+/// So the Beit Yosef, which declares no base and is a mefaresh on the Tur by its
+/// shelf, was a mefaresh in the tick-list and **not** a companion in the picker
+/// — and the window's button counted the declared ones and said *5* over a list
+/// of forty.
+#[must_use]
+pub fn settled(commentary: &Work, base: &Work, edges: usize) -> Stands {
+    match stands(commentary, base) {
+        Stands::AskTheEdges => {
+            if edges >= SAYS_ENOUGH_TO_BE_A_MEFARESH {
+                Stands::On
+            } else {
+                Stands::Apart
+            }
+        }
+        settled => settled,
+    }
+}
+
 /// How one work stands to another — mefaresh, alongside, or neither.
 ///
 /// This is the question W43's tick-list, and anything else that says *these are
@@ -306,6 +358,17 @@ pub fn stands(commentary: &Work, base: &Work) -> Stands {
         return Stands::Apart;
     }
 
+    // A sefer with no shelf at all is not alongside anything.
+    //
+    // `canonical_path` answers an unfiled work with a **default top** rather
+    // than with nothing, so two seforim a reader dropped on the window — neither
+    // filed, both with an empty `categories` — matched each other on that
+    // default and came back `Alongside`. Which is a claim that they keep the
+    // same order, and would line them up by address: two unrelated files that
+    // both happen to be addressed `1:1` moving each other.
+    if commentary.categories.is_empty() || base.categories.is_empty() {
+        return Stands::Apart;
+    }
     let theirs = canonical_path(&base.categories);
     let Some(above) = commentary_shelf(commentary) else {
         // Not filed as commentary at all. It is not a mefaresh — but a sefer on

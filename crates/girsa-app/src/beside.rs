@@ -42,6 +42,7 @@ use girsa_corpus::segment::SegmentId;
 use girsa_link::store;
 
 use crate::shelf::{address_of, Open};
+use girsa_corpus::taxonomy::{self, Stands};
 
 /// What relates two open seforim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -170,25 +171,25 @@ impl Joined {
     /// the same seforim.
     #[must_use]
     pub fn between(leader: &Open, follower: &Open, root: &Path) -> Self {
-        let declared = if follower
-            .work
-            .commentary_on
-            .iter()
-            .any(|b| b.slug == leader.slug())
-        {
-            Some(true)
-        } else if leader
-            .work
-            .commentary_on
-            .iter()
-            .any(|b| b.slug == follower.slug())
-        {
-            Some(false)
-        } else {
-            None
+        let edges = edges_between(root, leader, follower);
+        // `taxonomy::settled`, the same predicate `Shelf::companions` and
+        // `mefarshim::Marks::of` ask. This asked a narrower one — the
+        // `commentary_on` field in either direction — so a mefaresh the corpus
+        // places by its shelf, which is most of Otzaria's and the Beit Yosef on
+        // the Tur, came back `Linked` rather than `Declared` and the column
+        // never fell back to lining up by address. It followed edges or nothing.
+        //
+        // How many edges join the two is the count `settled` wants for the one
+        // case the shelf refuses to guess at, and it is already in hand.
+        let joining = edges.values().map(Vec::len).sum::<usize>();
+        let declared = match taxonomy::settled(&follower.work, &leader.work, joining) {
+            Stands::On | Stands::Alongside => Some(true),
+            _ => match taxonomy::settled(&leader.work, &follower.work, joining) {
+                Stands::On | Stands::Alongside => Some(false),
+                _ => None,
+            },
         };
 
-        let edges = edges_between(root, leader, follower);
         let relation = match declared {
             Some(follower_is_commentary) => Relation::Declared {
                 follower_is_commentary,

@@ -27,6 +27,7 @@ use std::sync::Mutex;
 
 use girsa_app::shelf::{Companion, Open};
 use girsa_app::taxonomy::Branch;
+use girsa_app::trouble::{refuse, Code};
 use girsa_app::view::{
     AnchorRow, AtRow, Card, Comments, CoveredRow, DrawnRow, Dropped, Fixed, FolderMember,
     FolderRow, GapRow, HitRow, LandingRow, LaneAnswer, LaneProgress, LaneRow, LensRow, Line,
@@ -197,16 +198,32 @@ impl State {
         self.joined.clear();
     }
 
+    /// Why there is no shelf, named so the window need not read the prose.
+    ///
+    /// `girsa_app::trouble::refuse` puts a code on the front — `no-shelf: …` —
+    /// because `trouble.ts` used to turn this sentence into Hebrew by matching
+    /// `/no shelf at/i` against it, which made the wording load-bearing API with
+    /// no test on this side of the wire.
     fn trouble(&self) -> String {
-        self.trouble
-            .clone()
-            .unwrap_or_else(|| "there is no shelf here".to_string())
+        refuse(
+            Code::NoShelf,
+            self.trouble.as_deref().unwrap_or("there is no shelf here"),
+        )
     }
 
     fn no_search(&self) -> String {
-        self.no_search
-            .clone()
-            .unwrap_or_else(|| "there is no index here".to_string())
+        refuse(
+            Code::NoIndex,
+            self.no_search
+                .as_deref()
+                .unwrap_or("there is no index here"),
+        )
+    }
+
+    /// The one refusal that is not about the shelf: something panicked while
+    /// holding the state, so the lock is poisoned. Ninety-six commands say it.
+    fn poisoned() -> String {
+        refuse(Code::Poisoned, "state is poisoned")
     }
 
     /// What it takes to name a place: the shelf, the dates, and the language
@@ -292,7 +309,7 @@ pub(crate) type Shared = Mutex<State>;
 
 #[tauri::command]
 fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // The queue is 28,124 lines on the real corpus and this is asked on every
     // redraw, so it is read once and held. `suspects` re-reads it, which is
     // where a run of the batch job is noticed.
@@ -330,7 +347,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
 
 #[tauri::command]
 fn search(shared: tauri::State<'_, Shared>, query: String) -> Result<Vec<Card>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf.search(&query, 40).into_iter().map(Card::of).collect())
 }
@@ -339,7 +356,7 @@ fn search(shared: tauri::State<'_, Shared>, query: String) -> Result<Vec<Card>, 
 /// before anything has been typed.
 #[tauri::command]
 fn recent(shared: tauri::State<'_, Shared>) -> Result<Vec<Card>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let Some(shelf) = state.shelf.as_ref() else {
         return Ok(Vec::new());
     };
@@ -469,7 +486,7 @@ struct FoundPage {
 /// so the row that comes back is the row the search actually ran under.
 #[tauri::command]
 fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<FoundPage, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let size = PAGE;
     let paging = Paging {
         from: size * page.saturating_sub(1).min(usize::MAX / size.max(1)),
@@ -604,7 +621,7 @@ fn find_rung(
     page: usize,
     rung: String,
 ) -> Result<FoundPage, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let (chips, text) = state.chips.read(&query);
     state.chips = chips.clone();
     let nikud = state.session.nikud;
@@ -663,7 +680,7 @@ fn find_rung(
 /// engine offered and may not invent one.
 #[tauri::command]
 fn find_chip(shared: tauri::State<'_, Shared>, chip: String, key: String) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     set_chip(&mut state.chips, &chip, &key)
 }
 
@@ -721,7 +738,7 @@ fn find_narrow(
     row: Row,
     exclude: bool,
 ) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let Some(bar) = state.bar.as_ref() else {
         return Err(state.no_search());
     };
@@ -737,7 +754,7 @@ fn find_narrow(
 /// Back to the whole shelf.
 #[tauri::command]
 fn find_whole_shelf(shared: tauri::State<'_, Shared>) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.chips.scope = girsa_search::scope::Scope::everything();
     Ok(())
 }
@@ -816,14 +833,14 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
 /// [`shelf_works`]. 7,189 cards is not a browse, it is a dump.
 #[tauri::command]
 fn shelf_tree(shared: tauri::State<'_, Shared>) -> Result<Vec<Branch>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf.tree())
 }
 
 #[tauri::command]
 fn shelf_works(shared: tauri::State<'_, Shared>, key: String) -> Result<Vec<Card>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf.works_on(&key).into_iter().map(Card::of).collect())
 }
@@ -882,7 +899,7 @@ fn shelf_make(
     parent: String,
     title: String,
 ) -> Result<String, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let mut made = String::new();
@@ -908,7 +925,7 @@ fn shelf_reset(shared: tauri::State<'_, Shared>) -> Result<(), String> {
 /// Files dropped on the window become seforim.
 #[tauri::command]
 fn add_mine(shared: tauri::State<'_, Shared>, paths: Vec<String>) -> Result<Dropped, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
 
@@ -935,7 +952,7 @@ fn edit_shelf(
     shared: &tauri::State<'_, Shared>,
     change: impl FnOnce(&mut girsa_app::Arrangement) -> Result<(), girsa_app::arrangement::Refused>,
 ) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     shelf.edit(change).map_err(|e| e.to_string())
@@ -943,7 +960,7 @@ fn edit_shelf(
 
 #[tauri::command]
 fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Companion>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf.companions(&slug))
 }
@@ -959,7 +976,7 @@ fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Comp
 /// The mefarshim on one sefer, and what the reader has ticked.
 #[tauri::command]
 fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
     let marks = state.marks(&slug)?;
     let commentators = marks.commentators();
@@ -989,12 +1006,28 @@ fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim
             slug: work,
         }
     };
+    // The third answer. Nothing here and no cache is not nothing here.
+    let unbuilt = (!girsa_link::inbound::built(shelf.root()))
+        .then(|| "the link graph has not been walked yet — run girsa-link-types".to_string());
+    // The weave, in Rust. `mefarshim.ts`'s `choices`, `following` and `listed`
+    // did this between them, and the shape they needed to do it — four parallel
+    // arrays — is why the four are here at all.
+    let listed = girsa_app::mefarshim::listed(
+        &shelf.companions(&slug),
+        &commentators,
+        &alongside,
+        &folders,
+        &chosen,
+        shelf,
+    );
     Ok(Mefarshim {
         works: commentators.into_iter().map(&named).collect(),
         alongside: alongside.into_iter().map(&named).collect(),
         folders: folders.tree,
+        listed,
         marked,
         touched,
+        unbuilt,
     })
 }
 
@@ -1006,7 +1039,7 @@ fn choose_mefaresh(
     work: String,
     on: bool,
 ) -> Result<Vec<String>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.choose(&slug, &work, on);
     state.save();
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
@@ -1021,7 +1054,7 @@ fn mefarshim_at(
     at: String,
 ) -> Result<Comments, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
 
@@ -1077,7 +1110,7 @@ fn mefarshim_at(
 /// forty still pointed.
 #[tauri::command]
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let sefer = state.sefer(&slug)?;
     let has_nikud = sefer.segments.iter().any(|s| display::has_marks(&s.text));
@@ -1097,7 +1130,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
 /// Open a scan into a pane.
 #[tauri::command]
 fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
     // Where this scan was left last time. Looked up here rather than worked out
     // in the window from the id it remembered, for the reason in `page_of_id`.
@@ -1131,7 +1164,7 @@ fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, Stri
 /// How far a scan has been read.
 #[tauri::command]
 fn scan_reading(shared: tauri::State<'_, Shared>, slug: String) -> Result<ReadingRow, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
     let personal = state
         .shelf
@@ -1170,7 +1203,7 @@ fn scan_read_page(
     // The shelf has to be there, and this is where that is refused — the
     // personal path itself is `State::words`'s to find now.
     {
-        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        let state = shared.lock().map_err(|_| State::poisoned())?;
         state.shelf.as_ref().ok_or("there is no shelf here")?;
     }
     if width <= 0.0 || height <= 0.0 {
@@ -1200,7 +1233,7 @@ fn scan_read_page(
         );
     }
     {
-        let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
         state
             .words(&slug)?
             .record(girsa_scan::Read::new(
@@ -1224,7 +1257,7 @@ fn scan_ocr_page(
     png: Vec<u8>,
 ) -> Result<ReadingRow, String> {
     let personal = {
-        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        let state = shared.lock().map_err(|_| State::poisoned())?;
         state
             .shelf
             .as_ref()
@@ -1237,7 +1270,7 @@ fn scan_ocr_page(
     let read = girsa_scan::Engine::read(&engine, page, &girsa_scan::Image { png, width, height })
         .map_err(|e| e.to_string())?;
     {
-        let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
         state
             .words(&slug)?
             .record(read)
@@ -1253,7 +1286,7 @@ fn scan_words(
     slug: String,
     page: usize,
 ) -> Result<Option<PageWordsRow>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let words = state.words(&slug)?;
     Ok(words.page(page).map(|read| PageWordsRow {
         page: read.page,
@@ -1277,7 +1310,7 @@ fn scan_fix(
     says: String,
 ) -> Result<Option<PageWordsRow>, String> {
     {
-        let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
         let words = state.words(&slug)?;
         let was = words
             .as_read(page)
@@ -1309,7 +1342,7 @@ fn scan_fix(
 /// unmentioned, which is the state a bochur is in every single day.
 #[tauri::command]
 fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
     let personal = shelf.personal().to_path_buf();
     // Where the index is, if it is anywhere: two of the three gaps are *since the
@@ -1372,7 +1405,7 @@ fn scan_at(
     slug: String,
     page: usize,
 ) -> Result<PageSaid, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let style = state.session.cite;
     state.sefer(&slug)?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
@@ -1416,7 +1449,7 @@ fn scan_map(
     // refused rather than finding out from a mekor that lands elsewhere.
     let paging = girsa_scan::Paging::declare(of, scheme, anchors?).map_err(|e| e.to_string())?;
 
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_mut().ok_or("there is no shelf here")?;
     shelf
         .declare_paging(&slug, paging)
@@ -1431,7 +1464,7 @@ fn scan_map(
 /// Take a mapping back — better no mareh makom than a wrong one.
 #[tauri::command]
 fn scan_forget(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_mut().ok_or("there is no shelf here")?;
     shelf.forget_paging(&slug).map_err(|e| e.to_string())?;
     state.reread(&slug);
@@ -1450,7 +1483,7 @@ fn scan_page_of(
     slug: String,
     written: String,
 ) -> Result<Option<usize>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
     let sefer = state.open.get(&slug).ok_or("not open")?;
@@ -1476,7 +1509,7 @@ fn scan_copy(
     slug: String,
     page: usize,
 ) -> Result<Copied, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let style = state.session.cite;
     state.sefer(&slug)?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
@@ -1515,7 +1548,7 @@ fn fix(
 ) -> Result<Fixed, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let kind = girsa_fix::Kind::named(&kind).ok_or_else(|| format!("no such kind: {kind}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let slug = at.work().to_string();
 
@@ -1554,7 +1587,7 @@ fn fix(
 #[tauri::command]
 fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<Fixed, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let slug = at.work().to_string();
 
@@ -1591,7 +1624,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
 fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), String> {
     let showing =
         girsa_fix::Showing::named(&showing).ok_or_else(|| format!("no such setting: {showing}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.showing = showing;
     let trouble = state.trouble();
     state.shelf.as_mut().ok_or(trouble)?.set_showing(showing);
@@ -1602,7 +1635,7 @@ fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), 
 
 #[tauri::command]
 fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<PatchRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     // A patch row is a row about a place, like a hit and like a lane result —
     // and it was the fifth to work out a title and an address for itself.
     let names = state.names().ok_or_else(|| state.trouble())?;
@@ -1647,7 +1680,7 @@ fn links(
     to_char: Option<usize>,
 ) -> Result<Links, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let lens = lens.filter(|key| !key.is_empty());
 
@@ -1726,7 +1759,7 @@ fn link_pin(
     if from_char >= to_char {
         return Err("nothing is selected".to_string());
     }
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = who();
@@ -1773,7 +1806,7 @@ fn link_repair(
     value: Option<String>,
 ) -> Result<(), String> {
     use girsa_link::repair::Verdict;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = who();
@@ -1817,7 +1850,7 @@ fn link_reanchor(
         "to" => (from_anchor, girsa_link::Anchor::point(to)),
         other => return Err(format!("no such end: {other}")),
     };
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = who();
@@ -1839,7 +1872,7 @@ fn link_draw(
     let to: SegmentId = to.parse().map_err(|e| format!("{e}"))?;
     let edge_type = girsa_link::touching::type_named(&kind)
         .ok_or_else(|| format!("no such link type: {kind}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = who();
@@ -1882,7 +1915,7 @@ fn export_sefer(
 ) -> Result<Written, String> {
     let format = girsa_app::export::Format::named(&format)
         .ok_or_else(|| format!("no such format: {format}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let showing = state.session.showing;
     let personal = state
@@ -1936,7 +1969,7 @@ fn export_sefer(
 /// before it ran.
 #[tauri::command]
 fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<SuspectRow>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let names = state.names().ok_or_else(|| state.trouble())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let (queue, trouble) = girsa_fix::suspect::Queue::open(shelf.personal());
@@ -1978,7 +2011,7 @@ fn suspect_at(
     at: String,
 ) -> Result<Standing, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let (queue, _) = girsa_fix::suspect::Queue::open(shelf.personal());
@@ -2026,7 +2059,7 @@ fn suspect_decide(
         "fixed" => girsa_fix::suspect::Decision::Fixed,
         other => return Err(format!("no such decision: {other}")),
     };
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let personal = state
         .shelf
         .as_ref()
@@ -2092,7 +2125,7 @@ fn copy(
         Some(to) => to.parse().map_err(|e| format!("{e}"))?,
         None => from.clone(),
     };
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
@@ -2115,14 +2148,14 @@ fn copy(
 
 #[tauri::command]
 fn buffers(shared: tauri::State<'_, Shared>) -> Result<Vec<String>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(girsa_app::Buffer::list(shelf.personal()))
 }
 
 #[tauri::command]
 fn buffer_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Writing, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let buffer = girsa_app::Buffer::open(shelf.personal(), &name).map_err(|e| e.to_string())?;
     let path = girsa_app::Buffer::path(shelf.personal(), &name).map_err(|e| e.to_string())?;
@@ -2139,7 +2172,7 @@ fn buffer_save(
     name: String,
     text: String,
 ) -> Result<String, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let mut buffer = girsa_app::Buffer::new(name);
     buffer.text = text;
@@ -2169,7 +2202,7 @@ fn source_markup(
         Some(to) => to.parse().map_err(|e| format!("{e}"))?,
         None => from.clone(),
     };
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
@@ -2214,7 +2247,7 @@ fn who_cites(
     reference: String,
 ) -> Result<Vec<girsa_app::Citing>, String> {
     let place: girsa_ref::Ref = reference.parse().map_err(|e| format!("{e}"))?;
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(girsa_app::who_cites(shelf.personal(), &place))
 }
@@ -2228,7 +2261,7 @@ fn linkify(
     shared: tauri::State<'_, Shared>,
     text: String,
 ) -> Result<Vec<girsa_app::Linked>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let lexicon = state
         .lexicon
         .as_ref()
@@ -2266,7 +2299,7 @@ fn send_to_ksav(
         Some(to) => to.parse().map_err(|e| format!("{e}"))?,
         None => from.clone(),
     };
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
@@ -2292,7 +2325,7 @@ fn send_to_ksav(
 /// stores the ref.
 #[tauri::command]
 fn set_cite_style(shared: tauri::State<'_, Shared>, style: String) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.cite =
         girsa_cite::CiteStyle::named(&style).ok_or_else(|| format!("no such style: {style}"))?;
     state.save();
@@ -2301,7 +2334,7 @@ fn set_cite_style(shared: tauri::State<'_, Shared>, style: String) -> Result<(),
 
 #[tauri::command]
 fn open_tab(shared: tauri::State<'_, Shared>, slug: String) -> Result<PaneId, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // A sefer reopens where it was left, which is the whole point of
     // remembering (BUILDER.md W9, per-sefer position memory).
     let at = state.session.where_i_was(&slug).cloned();
@@ -2318,7 +2351,7 @@ fn split(
     slug: String,
     follow: bool,
 ) -> Result<Option<PaneId>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let axis = if axis == "horizontal" {
         Axis::Horizontal
     } else {
@@ -2331,7 +2364,7 @@ fn split(
 
 #[tauri::command]
 fn close_pane(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.close(pane);
     state.save();
     Ok(())
@@ -2340,7 +2373,7 @@ fn close_pane(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), Stri
 /// Close a whole tab, from the tab strip, without opening it first (W40).
 #[tauri::command]
 fn close_tab(shared: tauri::State<'_, Shared>, index: usize) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.close_tab(index);
     state.save();
     Ok(())
@@ -2348,7 +2381,7 @@ fn close_tab(shared: tauri::State<'_, Shared>, index: usize) -> Result<(), Strin
 
 #[tauri::command]
 fn focus(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.focus(pane);
     state.save();
     Ok(())
@@ -2360,7 +2393,7 @@ fn set_follows(
     pane: PaneId,
     leader: Option<PaneId>,
 ) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.set_follows(pane, leader);
     state.save();
     Ok(())
@@ -2368,7 +2401,7 @@ fn set_follows(
 
 #[tauri::command]
 fn set_ratio(shared: tauri::State<'_, Shared>, pane: PaneId, ratio: u16) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.set_ratio(pane, ratio);
     state.save();
     Ok(())
@@ -2376,7 +2409,7 @@ fn set_ratio(shared: tauri::State<'_, Shared>, pane: PaneId, ratio: u16) -> Resu
 
 #[tauri::command]
 fn set_nikud(shared: tauri::State<'_, Shared>, on: bool) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.nikud = on;
     state.save();
     Ok(())
@@ -2384,7 +2417,7 @@ fn set_nikud(shared: tauri::State<'_, Shared>, on: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let session = &state.session;
     let bound = girsa_app::keys::Bound::of(&session.keys);
     Ok(SettingsView {
@@ -2442,7 +2475,7 @@ fn set_look(
     shared: tauri::State<'_, Shared>,
     look: girsa_app::session::Look,
 ) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // Clamped in `girsa_app`, once — and by the same call `load` makes, so a
     // hand-edited session file is held to the same bounds a setter is. A window
     // that clamped and a command that clamped again is two readers of one rule,
@@ -2464,7 +2497,7 @@ fn bind_key(
     action: String,
     to: String,
 ) -> Result<Vec<Shortcut>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     if to.trim().is_empty() {
         state.session.keys.remove(&action);
     } else if let Some(press) = girsa_app::keys::Press::parse(&to) {
@@ -2494,7 +2527,7 @@ fn what_key(
     shared: tauri::State<'_, Shared>,
     press: girsa_app::keys::Press,
 ) -> Result<Option<String>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     Ok(girsa_app::keys::Bound::of(&state.session.keys)
         .what(&press)
         .map(ToString::to_string))
@@ -2509,7 +2542,7 @@ fn set_language(
     shared: tauri::State<'_, Shared>,
     language: girsa_app::session::Language,
 ) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.language = language;
     state.save();
     Ok(())
@@ -2517,7 +2550,7 @@ fn set_language(
 
 #[tauri::command]
 fn set_text_size(shared: tauri::State<'_, Shared>, percent: u16) -> Result<(), String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // The clamp is `Session::sane`, which is also what `load` runs — this line
     // used to be `percent.clamp(60, 250)`, sixty-eight lines below a doc comment
     // saying the clamping happens *"in one place, here, rather than in the
@@ -2583,7 +2616,7 @@ fn lane_row(state: &State) -> Result<LaneRow, String> {
 
 #[tauri::command]
 fn lane_state(shared: tauri::State<'_, Shared>) -> Result<LaneRow, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     lane_row(&state)
 }
 
@@ -2595,7 +2628,7 @@ fn lane_ask(
     text: String,
     limit: Option<usize>,
 ) -> Result<LaneAnswer, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let lane = state.lane.as_ref().ok_or_else(|| state.trouble())?;
     // Scoped by the same chip the literal search is scoped by, so *the whole
@@ -2634,7 +2667,7 @@ fn lane_set(
     on: bool,
     model: Option<String>,
 ) -> Result<LaneRow, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let no_shelf = state.trouble();
     // Two disjoint fields: the shelf read, the lane written. Taken apart by
     // hand because a method on `State` would borrow the whole of it.
@@ -2658,7 +2691,7 @@ fn lane_set(
 /// switch that makes that sentence true in a fresh install.
 #[tauri::command]
 fn lane_allow_fetch(shared: tauri::State<'_, Shared>, allow: bool) -> Result<LaneRow, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let no_shelf = state.trouble();
     // Two disjoint fields: the shelf read, the lane written. Taken apart by
     // hand because a method on `State` would borrow the whole of it.
@@ -2682,7 +2715,7 @@ fn lane_allow_fetch(shared: tauri::State<'_, Shared>, allow: bool) -> Result<Lan
 fn lane_bring(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result<(), String> {
     use tauri::Emitter;
     let (personal, may_fetch) = {
-        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        let state = shared.lock().map_err(|_| State::poisoned())?;
         let lane = state.lane.as_ref().ok_or("there is no lane here")?;
         (
             lane.lane().personal().to_path_buf(),
@@ -2755,7 +2788,7 @@ fn lane_choose(
     add: bool,
     all: bool,
 ) -> Result<LaneRow, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let no_shelf = state.trouble();
     // Two disjoint fields: the shelf read, the lane written. Taken apart by
     // hand because a method on `State` would borrow the whole of it.
@@ -2795,7 +2828,7 @@ fn lane_choose(
 fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result<(), String> {
     use tauri::Emitter;
     let (lane, root, slugs, titles, stop) = {
-        let state = shared.lock().map_err(|_| "state is poisoned")?;
+        let state = shared.lock().map_err(|_| State::poisoned())?;
         let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
         let held = state.lane.as_ref().ok_or("there is no lane here")?;
         if !held.state().is_on() {
@@ -2891,7 +2924,7 @@ fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
 /// Stop the embedding job. Costs the batch it is on and nothing else.
 #[tauri::command]
 fn lane_stop(shared: tauri::State<'_, Shared>) -> Result<(), String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     state
         .stop_embedding
         .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -2907,7 +2940,7 @@ fn lane_stop(shared: tauri::State<'_, Shared>) -> Result<(), String> {
 #[tauri::command]
 fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<Vec<Move>, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
 
     state.session.remember(at.clone());
     let followers = state.session.workspace.moved(pane, at.clone());
@@ -3300,7 +3333,7 @@ pub fn run() {
 #[tauri::command]
 fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
 
     // The line as the pane drew it — corrected, and with the nikud the reader
     // has on — because that is the string a highlight's offsets are against.
@@ -3335,7 +3368,7 @@ fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> 
 /// Every note you have, most recently touched first.
 #[tauri::command]
 fn notes(shared: tauri::State<'_, Shared>) -> Result<Vec<NoteRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let mut rows: Vec<NoteRow> = shelf.notes().all().map(NoteRow::of).collect();
     rows.sort_by(|a, b| b.edited.cmp(&a.edited).then_with(|| a.title.cmp(&b.title)));
@@ -3351,7 +3384,7 @@ fn note_write(
     text: String,
 ) -> Result<NoteRow, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = who();
@@ -3363,7 +3396,7 @@ fn note_write(
 /// One note, paragraph by paragraph, for editing it.
 #[tauri::command]
 fn note_read(shared: tauri::State<'_, Shared>, note: String) -> Result<Vec<ParaRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let held = shelf
         .notes()
@@ -3397,7 +3430,7 @@ fn note_edit(
     value: Option<String>,
     text: Option<String>,
 ) -> Result<Vec<ParaRow>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let mut held = shelf
@@ -3461,7 +3494,7 @@ fn note_edit(
 /// Throw a note away — the file, the sefer and the catalogue line.
 #[tauri::command]
 fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     // A note is a sefer, and a sefer that has gone may not stay open in a pane
@@ -3489,7 +3522,7 @@ fn mark_here(
     colour: Option<String>,
 ) -> Result<MarkRow, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let base = {
         let sefer = state.sefer(at.work())?;
@@ -3535,7 +3568,7 @@ fn mark_here(
 /// Take a mark back.
 #[tauri::command]
 fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     shelf
@@ -3552,7 +3585,7 @@ fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, S
 /// is handed offsets into the text it was already sent, and works nothing out.
 #[tauri::command]
 fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRow>, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let nikud = state.session.nikud;
     let drawn: HashMap<String, String> = {
         let sefer = state.sefer(&slug)?;
@@ -3584,7 +3617,7 @@ fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRo
 /// Every bookmark, most recent first — the *take me back* list.
 #[tauri::command]
 fn bookmarks(shared: tauri::State<'_, Shared>) -> Result<Vec<MarkRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf
         .marks()
@@ -3612,7 +3645,7 @@ fn query_keep(
     name: String,
     typed: String,
 ) -> Result<QueryRow, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let mut kept = girsa_note::SavedQuery::new(name, typed);
     for chip in state.chips.row() {
         if let Some(chosen) = chip.choices.iter().find(|choice| choice.chosen) {
@@ -3645,7 +3678,7 @@ fn query_keep(
 /// The questions you have kept.
 #[tauri::command]
 fn queries(shared: tauri::State<'_, Shared>) -> Result<Vec<QueryRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf
         .queries()
@@ -3665,7 +3698,7 @@ fn queries(shared: tauri::State<'_, Shared>) -> Result<Vec<QueryRow>, String> {
 /// the box is the window's business and *what the chips are* is not.
 #[tauri::command]
 fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let held = shelf
         .queries()
@@ -3691,7 +3724,7 @@ fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String
 /// Forget a saved query.
 #[tauri::command]
 fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     shelf.queries_mut().remove(&name).map_err(|e| e.to_string())
@@ -3700,7 +3733,7 @@ fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, 
 /// Your chaburah folders.
 #[tauri::command]
 fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let names = state.names().ok_or_else(|| state.trouble())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf
@@ -3755,7 +3788,7 @@ fn folder_edit(
     member: String,
 ) -> Result<usize, String> {
     let member: girsa_note::Member = member.parse()?;
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let mut folder = shelf.collections().get(&name).cloned().unwrap_or_else(|| {
@@ -3782,7 +3815,7 @@ fn folder_edit(
 /// copies.
 #[tauri::command]
 fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
-    let mut state = shared.lock().map_err(|_| "state is poisoned")?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     shelf
@@ -3794,7 +3827,7 @@ fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool,
 /// Every tag across your whole layer.
 #[tauri::command]
 fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let counted = girsa_note::Tags::of(
         shelf.notes(),
@@ -3821,7 +3854,7 @@ fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
 /// (W22): the files are the point and where they land is not.
 #[tauri::command]
 fn export_layer(shared: tauri::State<'_, Shared>, into: Option<String>) -> Result<String, String> {
-    let state = shared.lock().map_err(|_| "state is poisoned")?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let into = into.map_or_else(
         || shelf.personal().join("exports").join("my-layer"),

@@ -38,9 +38,13 @@ pub enum ShelfError {
         #[source]
         source: std::io::Error,
     },
-    #[error("no sefer here called {0}")]
+    // The code goes in the `Display`, so every path that stringifies this
+    // carries it — and it is `Code::NoSefer.as_str()` rather than a literal, so
+    // the name is spelled once. `trouble.ts` used to match `/no sefer here
+    // called/i` against the prose.
+    #[error("{code}: no sefer here called {0}", code = crate::trouble::Code::NoSefer.as_str())]
     NoSuchWork(String),
-    #[error("{0} is on the shelf and will not open: {1}")]
+    #[error("{code}: {0} is on the shelf and will not open: {1}", code = crate::trouble::Code::WillNotOpen.as_str())]
     Unreadable(String, String),
     #[error("{0}")]
     Refused(String),
@@ -92,7 +96,17 @@ pub struct Shelf {
     /// Work slug → the works it shares edges with, and how many. Absent until
     /// `girsa-companions` has been run; the shelf works without it, with a
     /// shorter list of seforim to open beside what you are reading.
-    linked: HashMap<String, Vec<(String, usize)>>,
+    linked: HashMap<String, Companions>,
+}
+
+/// What `girsa-companions` recorded about one sefer's joins.
+#[derive(Debug, Clone, Default)]
+struct Companions {
+    /// How many works are joined to it altogether. **Not `with.len()`** — the
+    /// cache keeps the 200 thickest joins and this is what there were, so a
+    /// truncated list can say so rather than reading as all of them.
+    joined: usize,
+    with: Vec<(String, usize)>,
 }
 
 /// A sefer offered for the column beside the one you are reading.
@@ -101,13 +115,43 @@ pub struct Companion {
     pub slug: String,
     pub he_title: String,
     pub en_title: String,
-    /// Whether the corpus declares the two related, or only records edges
-    /// between them. Shown, because a reader should be able to tell a stated
-    /// relationship from a counted one.
+    /// Whether the corpus relates the two, or only records edges between them.
+    /// Shown, because a reader should be able to tell a stated relationship
+    /// from a counted one.
+    ///
+    /// **`girsa_corpus::taxonomy::settled`**, which is the same question
+    /// `mefarshim::Marks::of` asks — and this used to ask a narrower one, the
+    /// `commentary_on` field in either direction. So the Beit Yosef, which
+    /// declares no base and is a mefaresh on the Tur by its shelf, was a
+    /// mefaresh in the tick-list and an undeclared link in the picker; the
+    /// window filters this field to count the button, so it read *5* over a
+    /// list of forty.
     pub declared: bool,
     /// How many edges join the two, where that is what relates them.
     pub links: usize,
+    /// How this sefer stands to the one you are reading, where the corpus can
+    /// say: a mefaresh on it, or its own sefer following the same order.
+    ///
+    /// `None` where only the edge count relates them.
+    pub stands: Option<Related>,
 }
+
+/// How the corpus places one sefer against another, for a row that says so.
+///
+/// `girsa_corpus::taxonomy::Stands` without the two answers a row cannot draw —
+/// *apart*, which is not offered at all, and *ask the edges*, which is a
+/// question rather than an answer and is settled before it gets here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Related {
+    /// A mefaresh: written **about** this sefer, keyed to its words.
+    On,
+    /// Its own sefer, following this one's order — the Shulchan Arukh on the
+    /// Tur, the Arukh HaShulchan on the Shulchan Arukh.
+    Alongside,
+}
+
+girsa_corpus::spelled!(Related { On => "on", Alongside => "alongside" });
 
 impl Shelf {
     /// Read the corpus catalogue, your own catalogue, your arrangement, and
@@ -515,10 +559,11 @@ impl Shelf {
                 en_title: work.en_title.clone(),
                 declared: true,
                 links: 0,
+                stands: self.related(&work.slug, slug, 0),
             });
         }
 
-        for (other, count) in self.linked.get(slug).into_iter().flatten() {
+        for (other, count) in self.linked.get(slug).into_iter().flat_map(|c| &c.with) {
             if let Some(at) = seen.get(other.as_str()) {
                 if let Some(existing) = out.get_mut(*at) {
                     existing.links = *count;
@@ -529,12 +574,19 @@ impl Shelf {
                 continue;
             };
             seen.insert(work.slug.as_str(), out.len());
+            // The question `mefarshim::Marks::of` asks, asked here too. This
+            // used to be `declared: false` flat, so a mefaresh the corpus places
+            // by its shelf rather than by a `commentary_on` field — the Beit
+            // Yosef on the Tur, and most of Otzaria's — was a counted link in
+            // the picker and a full mefaresh in the tick-list behind it.
+            let stands = self.related(&work.slug, slug, *count);
             out.push(Companion {
                 slug: work.slug.clone(),
                 he_title: work.he_title.clone(),
                 en_title: work.en_title.clone(),
-                declared: false,
+                declared: stands.is_some(),
                 links: *count,
+                stands,
             });
         }
 
@@ -545,6 +597,42 @@ impl Shelf {
                 .then(a.slug.cmp(&b.slug))
         });
         out
+    }
+
+    /// How many seforim are joined to this one, and how many of those the
+    /// companions cache kept.
+    ///
+    /// `(kept, joined)`. They differ where `girsa-companions` cut the list at
+    /// its `PER_WORK` — Berakhot is joined to about 1,600 works and the cache
+    /// keeps 200 — and until the cut was recorded in the file, **nothing could
+    /// tell a truncated list from a complete one**. The run printed the total
+    /// to stdout and a reader who never ran it saw a list that stopped.
+    ///
+    /// `(0, 0)` where there is no cache at all, which is a third answer and not
+    /// the same as *joined to nothing*: see `girsa_link::inbound::built`.
+    #[must_use]
+    pub fn joins(&self, slug: &str) -> (usize, usize) {
+        self.linked
+            .get(slug)
+            .map_or((0, 0), |c| (c.with.len(), c.joined))
+    }
+
+    /// How `commentary` stands to `base`, where the corpus can say.
+    ///
+    /// The one predicate. `girsa_corpus::taxonomy::stands` says so in its own
+    /// doc comment — *"this is the question W43's tick-list, and anything else
+    /// that says these are the mefarshim on this sefer, has to ask"* — and two
+    /// of the three things that say it were not asking.
+    #[must_use]
+    pub fn related(&self, commentary: &str, base: &str, edges: usize) -> Option<Related> {
+        let (Some(commentary), Some(base)) = (self.work(commentary), self.work(base)) else {
+            return None;
+        };
+        match girsa_corpus::taxonomy::settled(commentary, base, edges) {
+            girsa_corpus::taxonomy::Stands::On => Some(Related::On),
+            girsa_corpus::taxonomy::Stands::Alongside => Some(Related::Alongside),
+            _ => None,
+        }
     }
 
     /// Seforim whose title matches what has been typed, best first.
@@ -1147,10 +1235,16 @@ pub fn address_of(id: &SegmentId) -> Address {
 }
 
 /// `corpus/links/companions.jsonl`, if `girsa-companions` has written it.
-fn read_companions(root: &Path) -> HashMap<String, Vec<(String, usize)>> {
+fn read_companions(root: &Path) -> HashMap<String, Companions> {
     #[derive(serde::Deserialize)]
     struct Row {
         work: String,
+        /// How many works were joined to this one before `PER_WORK` cut the
+        /// list. Absent in a file written before the field existed, in which
+        /// case the list is taken at face value — which is what every reader of
+        /// this file did unconditionally, over a cut nothing recorded.
+        #[serde(default)]
+        joined: Option<usize>,
         with: Vec<Pair>,
     }
     #[derive(serde::Deserialize)]
@@ -1168,9 +1262,13 @@ fn read_companions(root: &Path) -> HashMap<String, Vec<(String, usize)>> {
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
     {
         if let Ok(row) = serde_json::from_str::<Row>(line) {
+            let with: Vec<(String, usize)> = row.with.into_iter().map(|p| (p.slug, p.n)).collect();
             out.insert(
                 row.work,
-                row.with.into_iter().map(|p| (p.slug, p.n)).collect(),
+                Companions {
+                    joined: row.joined.unwrap_or(with.len()),
+                    with,
+                },
             );
         }
     }

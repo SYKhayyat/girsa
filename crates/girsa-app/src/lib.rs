@@ -47,6 +47,9 @@ pub mod session;
 pub mod shelf;
 pub mod spans;
 pub mod taxonomy;
+// The window turned an error into a Hebrew sentence by matching 21 regexes
+// against the English prose of Rust's `Display` impls.
+pub mod trouble;
 // Three composers each said "what this answer could not see" and none of them
 // could see the other two.
 pub mod unseen;

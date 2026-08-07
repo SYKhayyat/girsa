@@ -62,9 +62,9 @@ pub struct Arrangement {
 /// Why an edit was refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Refused {
-    #[error("a shelf cannot be put inside itself")]
+    #[error("{code}: a shelf cannot be put inside itself", code = crate::trouble::Code::Cycle.as_str())]
     IntoItself,
-    #[error("{0} is already inside {1}")]
+    #[error("{code}: {0} is already inside {1}", code = crate::trouble::Code::Cycle.as_str())]
     IntoItsOwnChild(String, String),
 }
 

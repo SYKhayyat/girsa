@@ -38,21 +38,8 @@ use girsa_corpus::work::Work;
 use girsa_link::{inbound, EdgeType};
 use serde::Serialize;
 
-/// How much a sefer has to say here before saying it counts as commenting.
-///
-/// Only ever consulted for [`Stands::AskTheEdges`] — a commentary that declares
-/// no base and whose shelf sits above a whole division, where the shelf permits
-/// the answer and cannot give it.
-///
-/// Bartenura on Torah puts 330 comments into Bereshis, 289 into Shemos and none
-/// at all anywhere in Kesuvim; the works that turn up with one or two are quoting
-/// in passing. The gap between those is three orders of magnitude, so the exact
-/// line matters much less than having one, and this is deliberately near the
-/// bottom of it: a real mefaresh with only a dozen comments on a sefer is still
-/// a mefaresh, and a stray reference does not reach a dozen.
-const SAYS_ENOUGH_TO_BE_A_MEFARESH: usize = 12;
-
 use crate::arrangement::Arrangement;
+use crate::shelf::Companion;
 use crate::taxonomy::{shelf_key_of, Branch};
 
 /// Which works comment on which segment of one sefer.
@@ -154,21 +141,16 @@ impl Marks {
         // seforim from the existence of an edge, which is BUILDER.md rule 6.
         let mut standing: BTreeMap<&str, Stands> = BTreeMap::new();
         for (work, count) in &said_here {
+            // `taxonomy::settled`: the shelf's answer, with the one case it
+            // refuses to guess at resolved by how much this work says here.
+            // Bartenura on Torah puts 330 comments into Bereshis and none
+            // anywhere in Kesuvim, and a work with a handful is passing through.
+            //
+            // The threshold was private to this module while `Shelf::companions`
+            // and `Beside::between` answered the same question without asking
+            // `stands` at all.
             let verdict = shelf.work(work).map_or(Stands::Apart, |w| {
-                match girsa_corpus::taxonomy::stands(w, base) {
-                    // The shelf allows it and cannot choose. What it says here is
-                    // the corpus's own statement about where it speaks: Bartenura
-                    // on Torah puts 330 comments into Bereshis and none anywhere
-                    // in Kesuvim, and a work with a handful is passing through.
-                    Stands::AskTheEdges => {
-                        if *count >= SAYS_ENOUGH_TO_BE_A_MEFARESH {
-                            Stands::On
-                        } else {
-                            Stands::Apart
-                        }
-                    }
-                    settled => settled,
-                }
+                girsa_corpus::taxonomy::settled(w, base, *count)
             });
             standing.insert(work, verdict);
         }
@@ -444,6 +426,236 @@ fn folder(
         // rows behind one heading is what W44 was for.
         loose: false,
     })
+}
+
+/// One row of the list behind `מפרשים · N`: a sefer you can open, tick, or both.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Choice {
+    pub slug: String,
+    pub he_title: String,
+    pub en_title: String,
+    /// The corpus places this sefer on the one you are reading — a mefaresh, or
+    /// a sefer following its order. See `girsa_corpus::taxonomy::settled`.
+    pub declared: bool,
+    /// How many edges join the two, where that is all there is.
+    pub links: usize,
+    /// Whether ticking it could mark a line — that is, whether the link graph
+    /// has it commenting somewhere in this sefer.
+    ///
+    /// **Not the same question as `declared`.** `Tosafot on Berakhot` declares
+    /// itself a commentary; whether *this* corpus holds edges placing its
+    /// comments on particular lines is a separate fact. A tick-box that can
+    /// never mark anything is worse than no box.
+    pub tickable: bool,
+    pub chosen: bool,
+    /// The folder it stands in (W44). `None` for one drawn above the folders.
+    pub shelf: Option<String>,
+}
+
+/// A heading, or a sefer — the list behind the door, in reading order.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Listed {
+    Folder {
+        title: String,
+        depth: usize,
+        count: usize,
+    },
+    Sefer {
+        choice: Box<Choice>,
+    },
+}
+
+/// The three headings this list draws that are not a shelf's own name.
+///
+/// In Rust because they are **what the sections mean**, not how they look, and
+/// because a heading invented in the window is a heading no Rust test can hold.
+/// `girsa_app::links::kinds` made the same move for edge types.
+mod heading {
+    /// Seforim that keep this one's order without commenting on it.
+    pub const ALONGSIDE: &str = "על סדר הספר";
+    /// Declared commentaries whose comments the graph cannot place on a line.
+    pub const NO_PLACE: &str = "פירושים בלי מקום בשורה";
+    /// Merely joined by edges — the Beit Yosef cites Berakhot 815 times.
+    pub const LINKED: &str = "ספרים מקושרים";
+}
+
+/// The whole list behind the door, woven once.
+///
+/// # Why this is here and not in the window
+///
+/// It was 277 lines of TypeScript beside a module with twenty-five Rust tests
+/// about this same list, and the giveaway was the shape it had to be given:
+/// `Mefarshim` arrived as **four parallel arrays** — `works`, `alongside`,
+/// `folders`, `marked` — that only `listed()` in `mefarshim.ts` knew how to
+/// weave together. Four sections, three Hebrew headings, and an ordering rule,
+/// all decided in the one place nothing could test them against the corpus.
+///
+/// # The four sections, and why they are four
+///
+/// They are four different claims:
+///
+/// 1. the mefarshim the corpus places on this sefer's lines, in their folders —
+///    rishonim together, acharonim together, because that is the first thing
+///    anybody wants to know about a mefaresh;
+/// 2. **`על סדר הספר`** — seforim that keep this one's order without commenting
+///    on it: the Shulchan Arukh under the Tur, the Arukh HaShulchan under the
+///    Shulchan Arukh. They tick and mark like a mefaresh and they are not one,
+///    and saying so is the whole of this section;
+/// 3. the commentaries the corpus **declares** but whose comments it cannot
+///    place on a line, so they can be opened beside but not ticked;
+/// 4. the seforim that merely share links, under a heading that says so.
+///
+/// A sefer appears **once**. A list that shows the same sefer under two
+/// headings is a list that has stopped meaning anything.
+#[must_use]
+pub fn listed(
+    companions: &[Companion],
+    can_mark: &[String],
+    alongside: &[String],
+    folders: &Folders,
+    chosen: &[String],
+    shelf: &crate::shelf::Shelf,
+) -> Vec<Listed> {
+    let placeable: BTreeSet<&str> = can_mark.iter().map(String::as_str).collect();
+    let named = |slug: &str, declared: bool, links: usize, tickable: bool| {
+        let work = shelf.work(slug);
+        Choice {
+            he_title: work.map_or_else(|| slug.to_string(), |w| w.he_title.clone()),
+            en_title: work.map_or_else(|| slug.to_string(), |w| w.en_title.clone()),
+            declared,
+            links,
+            tickable,
+            chosen: chosen.iter().any(|c| c == slug),
+            shelf: folders.of.get(slug).cloned(),
+            slug: slug.to_string(),
+        }
+    };
+
+    // The companions, in the order a reader learns: placed first, then by how
+    // much joins them, then by slug so the same daf opened twice is the same
+    // list. Sorted rather than taken as it arrived, because `companions()`
+    // builds in two passes.
+    let mut rows: Vec<Choice> = companions
+        .iter()
+        .map(|c| {
+            named(
+                &c.slug,
+                c.declared,
+                c.links,
+                placeable.contains(c.slug.as_str()),
+            )
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        b.declared
+            .cmp(&a.declared)
+            .then(b.links.cmp(&a.links))
+            .then(a.slug.cmp(&b.slug))
+    });
+    // Mefarshim the graph knows and the catalogue does not — the Ben Yehoyada on
+    // Berakhot, most of Otzaria's shelf — follow rather than being dropped.
+    let offered: BTreeSet<String> = rows.iter().map(|r| r.slug.clone()).collect();
+    let mut rest: Vec<Choice> = can_mark
+        .iter()
+        .filter(|slug| !offered.contains(*slug))
+        .map(|slug| named(slug, false, 0, true))
+        .collect();
+    rest.sort_by(|a, b| a.slug.cmp(&b.slug));
+    rows.extend(rest);
+
+    let mut out: Vec<Listed> = Vec::new();
+    let mut shown: BTreeSet<String> = BTreeSet::new();
+    let mut say = |out: &mut Vec<Listed>, shown: &mut BTreeSet<String>, choice: &Choice| {
+        shown.insert(choice.slug.clone());
+        out.push(Listed::Sefer {
+            choice: Box::new(choice.clone()),
+        });
+    };
+
+    // The mefarshim with no folder go first, above the headings, so a heading
+    // always has its own seforim under it and never somebody else's.
+    for row in rows.iter().filter(|r| r.tickable && r.shelf.is_none()) {
+        say(&mut out, &mut shown, row);
+    }
+    walk(&folders.tree, 0, &rows, &mut out, &mut shown, &mut say);
+
+    // Directly under the mefarshim, because they tick and mark exactly like one
+    // and are the second thing a person reaching for a mefaresh wants — not down
+    // with the merely-linked, which is where a bool had quietly filed them.
+    let mut following: Vec<Choice> = alongside
+        .iter()
+        .filter(|slug| !shown.contains(*slug))
+        .map(|slug| named(slug, false, 0, true))
+        .collect();
+    following.sort_by(|a, b| a.slug.cmp(&b.slug));
+    section(
+        heading::ALONGSIDE,
+        &following,
+        &mut out,
+        &mut shown,
+        &mut say,
+    );
+
+    let left: Vec<Choice> = rows
+        .iter()
+        .filter(|r| !shown.contains(&r.slug))
+        .cloned()
+        .collect();
+    let (declared, linked): (Vec<Choice>, Vec<Choice>) = left.into_iter().partition(|r| r.declared);
+    section(heading::NO_PLACE, &declared, &mut out, &mut shown, &mut say);
+    section(heading::LINKED, &linked, &mut out, &mut shown, &mut say);
+    out
+}
+
+/// One heading and the seforim under it, or nothing at all.
+fn section(
+    title: &str,
+    rows: &[Choice],
+    out: &mut Vec<Listed>,
+    shown: &mut BTreeSet<String>,
+    say: &mut impl FnMut(&mut Vec<Listed>, &mut BTreeSet<String>, &Choice),
+) {
+    if rows.is_empty() {
+        return;
+    }
+    out.push(Listed::Folder {
+        title: title.to_string(),
+        depth: 0,
+        count: rows.len(),
+    });
+    for row in rows {
+        say(out, shown, row);
+    }
+}
+
+/// The folder tree, depth-first, with each folder's own seforim under it.
+fn walk(
+    branches: &[Branch],
+    depth: usize,
+    rows: &[Choice],
+    out: &mut Vec<Listed>,
+    shown: &mut BTreeSet<String>,
+    say: &mut impl FnMut(&mut Vec<Listed>, &mut BTreeSet<String>, &Choice),
+) {
+    for branch in branches {
+        let held: Vec<&Choice> = rows
+            .iter()
+            .filter(|r| r.shelf.as_deref() == Some(branch.key.as_str()))
+            .collect();
+        if held.is_empty() && branch.children.is_empty() {
+            continue;
+        }
+        out.push(Listed::Folder {
+            title: branch.title.clone(),
+            depth,
+            count: branch.count,
+        });
+        for row in held {
+            say(out, shown, row);
+        }
+        walk(&branch.children, depth + 1, rows, out, shown, say);
+    }
 }
 
 #[cfg(test)]
@@ -1216,6 +1428,304 @@ mod tests {
         assert!(
             arukh.commentators().iter().any(|w| w == "mishnah-berurah"),
             "the Mishnah Berurah is not a mefaresh on Orach Chayim"
+        );
+    }
+
+    // ── the list behind the door (W43, W44) ─────────────────────────────────
+    //
+    // These were `app/test/mefarshim.test.mjs`, asserting against hand-written
+    // TypeScript constants. They are here now, against the same types the
+    // window is sent, in the module that already carried twenty-five tests
+    // about this list and could not see the weave.
+
+    fn shelf_of(works: &[(&str, &str)]) -> crate::shelf::Shelf {
+        let works: Vec<Work> = works
+            .iter()
+            .map(|(slug, title)| {
+                let mut work = crate::shelf::tests::work(slug);
+                work.he_title = (*title).to_string();
+                work
+            })
+            .collect();
+        crate::shelf::tests::shelf_of(works, std::path::Path::new("no-personal-layer"))
+    }
+
+    fn companion(slug: &str, declared: bool, links: usize) -> Companion {
+        Companion {
+            slug: slug.to_string(),
+            he_title: slug.to_string(),
+            en_title: slug.to_string(),
+            declared,
+            links,
+            stands: declared.then_some(crate::shelf::Related::On),
+        }
+    }
+
+    /// The list as a shape a test can read: `# heading` or a slug.
+    fn shape(rows: &[Listed]) -> Vec<String> {
+        rows.iter()
+            .map(|row| match row {
+                Listed::Folder { title, .. } => format!("# {title}"),
+                Listed::Sefer { choice } => choice.slug.clone(),
+            })
+            .collect()
+    }
+
+    fn folder(key: &str, title: &str, count: usize) -> Branch {
+        Branch {
+            key: key.to_string(),
+            title: title.to_string(),
+            here: count,
+            count,
+            mine: false,
+            edited: false,
+            children: Vec::new(),
+            loose: false,
+        }
+    }
+
+    #[test]
+    fn a_mefaresh_the_graph_can_place_is_tickable_and_says_whether_it_is_ticked() {
+        // One list, two jobs: click a row to open that sefer in the column
+        // beside you — the split, which the reader asked to keep — or tick it
+        // to have its comments marked on the daf. Every row does the first.
+        // Only a row whose comments the graph can actually place does the
+        // second: a checkbox that will never mark a line teaches the reader
+        // that the ticks do nothing.
+        let shelf = shelf_of(&[
+            ("rashi", "רש״י"),
+            ("tosafot", "תוספות"),
+            ("ben-yehoyada", "בן יהוידע"),
+        ]);
+        let companions = [
+            companion("rashi", true, 3139),
+            companion("tosafot", true, 812),
+        ];
+        let can_mark = ["rashi".to_string(), "ben-yehoyada".to_string()];
+        let rows = listed(
+            &companions,
+            &can_mark,
+            &[],
+            &Folders::default(),
+            &["rashi".to_string()],
+            &shelf,
+        );
+        let ticks: Vec<(String, bool)> = rows
+            .iter()
+            .filter_map(|row| match row {
+                Listed::Sefer { choice } if choice.tickable => {
+                    Some((choice.slug.clone(), choice.chosen))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            ticks,
+            [
+                ("rashi".to_string(), true),
+                ("ben-yehoyada".to_string(), false)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_declared_commentary_with_no_edges_is_offered_and_not_tickable() {
+        // Tosafos declares itself a commentary and this graph has no edges from
+        // it. It is still offered — the split opens it fine — but ticking it
+        // would mark nothing, so it gets no tick-box rather than a dead one.
+        let shelf = shelf_of(&[("rashi", "רש״י"), ("tosafot", "תוספות")]);
+        let rows = listed(
+            &[
+                companion("rashi", true, 3139),
+                companion("tosafot", true, 812),
+            ],
+            &["rashi".to_string()],
+            &[],
+            &Folders::default(),
+            &[],
+            &shelf,
+        );
+        let tosafot = rows.iter().find_map(|row| match row {
+            Listed::Sefer { choice } if choice.slug == "tosafot" => Some(choice.clone()),
+            _ => None,
+        });
+        let tosafot = tosafot.expect("Tosafos is offered");
+        assert!(!tosafot.tickable, "a dead tick-box");
+        assert!(tosafot.declared, "and it is still a declared commentary");
+    }
+
+    #[test]
+    fn a_mefaresh_the_graph_knows_and_the_catalogue_does_not_is_still_offered() {
+        // The Ben Yehoyada is not in Sefaria's declared list for Berakhot and
+        // comments on it all the same. Dropping it would hide a real mefaresh
+        // behind a metadata gap.
+        let shelf = shelf_of(&[("rashi", "רש״י"), ("ben-yehoyada", "בן יהוידע")]);
+        let rows = listed(
+            &[companion("rashi", true, 3139)],
+            &["rashi".to_string(), "ben-yehoyada".to_string()],
+            &[],
+            &Folders::default(),
+            &[],
+            &shelf,
+        );
+        assert_eq!(shape(&rows), ["rashi", "ben-yehoyada"]);
+    }
+
+    #[test]
+    fn no_sefer_is_listed_twice_however_many_sections_could_claim_it() {
+        // A list that shows the same sefer under two headings is a list that
+        // has stopped meaning anything.
+        let shelf = shelf_of(&[("rashi", "רש״י"), ("shulchan-arukh", "שולחן ערוך")]);
+        let rows = listed(
+            &[
+                companion("rashi", true, 3139),
+                companion("shulchan-arukh", true, 40),
+            ],
+            &["rashi".to_string(), "shulchan-arukh".to_string()],
+            &["shulchan-arukh".to_string()],
+            &Folders::default(),
+            &[],
+            &shelf,
+        );
+        let seforim: Vec<String> = shape(&rows)
+            .into_iter()
+            .filter(|row| !row.starts_with("# "))
+            .collect();
+        let mut once = seforim.clone();
+        once.sort();
+        once.dedup();
+        assert_eq!(seforim.len(), once.len(), "{seforim:?}");
+    }
+
+    #[test]
+    fn the_mefarshim_stand_in_their_folders_and_the_loose_one_above_them() {
+        // Four sections and four different claims, in reading order. A heading
+        // always has its own seforim under it and never somebody else's, which
+        // is why the folderless mefarshim come first.
+        let shelf = shelf_of(&[
+            ("rashi", "רש״י"),
+            ("tosafot", "תוספות"),
+            ("pnei", "פני יהושע"),
+            ("loose", "בודד"),
+            ("beit-yosef", "בית יוסף"),
+            ("declared-nowhere", "מוצהר"),
+        ]);
+        let mut folders = Folders {
+            tree: vec![
+                folder("ראשונים", "ראשונים", 2),
+                folder("אחרונים", "אחרונים", 1),
+            ],
+            ..Folders::default()
+        };
+        for (slug, shelf_key) in [
+            ("rashi", "ראשונים"),
+            ("tosafot", "ראשונים"),
+            ("pnei", "אחרונים"),
+        ] {
+            folders.of.insert(slug.to_string(), shelf_key.to_string());
+        }
+        let rows = listed(
+            &[
+                companion("rashi", true, 3139),
+                companion("tosafot", true, 812),
+                companion("pnei", true, 40),
+                companion("loose", true, 5),
+                companion("beit-yosef", false, 815),
+                companion("declared-nowhere", true, 0),
+            ],
+            &[
+                "rashi".to_string(),
+                "tosafot".to_string(),
+                "pnei".to_string(),
+                "loose".to_string(),
+            ],
+            &[],
+            &folders,
+            &[],
+            &shelf,
+        );
+        assert_eq!(
+            shape(&rows),
+            [
+                "loose",
+                "# ראשונים",
+                "rashi",
+                "tosafot",
+                "# אחרונים",
+                "pnei",
+                // A declared commentary the graph cannot place on any line:
+                // offered, under a heading saying why it has no tick-box.
+                "# פירושים בלי מקום בשורה",
+                "declared-nowhere",
+                // And a sefer that merely shares links, said as that.
+                "# ספרים מקושרים",
+                "beit-yosef",
+            ]
+        );
+        assert_eq!(
+            shape(&rows).iter().filter(|r| !r.starts_with("# ")).count(),
+            6,
+            "grouping the list lost somebody"
+        );
+    }
+
+    #[test]
+    fn a_folder_with_nothing_in_it_is_not_drawn() {
+        // The heading is the claim, and the claim has to be true of what is
+        // under it.
+        let shelf = shelf_of(&[("rashi", "רש״י")]);
+        let rows = listed(
+            &[companion("rashi", true, 1)],
+            &[],
+            &[],
+            &Folders {
+                tree: vec![folder("ריק", "ריק", 0)],
+                ..Folders::default()
+            },
+            &[],
+            &shelf,
+        );
+        assert_eq!(shape(&rows), ["# פירושים בלי מקום בשורה", "rashi"]);
+    }
+
+    #[test]
+    fn the_seforim_that_follow_this_ones_order_are_their_own_section() {
+        // `על סדר הספר` — directly under the mefarshim, because they tick and
+        // mark exactly like one and are the second thing a person reaching for
+        // a mefaresh wants. Not down with the merely-linked, which is where a
+        // bool had quietly filed them.
+        let shelf = shelf_of(&[("rashi", "רש״י"), ("arukh", "ערוך השולחן")]);
+        let rows = listed(
+            &[companion("rashi", true, 3139)],
+            &["rashi".to_string()],
+            &["arukh".to_string()],
+            &Folders::default(),
+            &[],
+            &shelf,
+        );
+        assert_eq!(shape(&rows), ["rashi", "# על סדר הספר", "arukh"]);
+    }
+
+    #[test]
+    fn with_nothing_read_from_the_graph_no_row_is_tickable() {
+        let shelf = shelf_of(&[("rashi", "רש״י"), ("tosafot", "תוספות")]);
+        let rows = listed(
+            &[
+                companion("rashi", true, 3139),
+                companion("tosafot", true, 812),
+            ],
+            &[],
+            &[],
+            &Folders::default(),
+            &[],
+            &shelf,
+        );
+        assert!(
+            !rows.iter().any(|row| matches!(
+                row,
+                Listed::Sefer { choice } if choice.tickable
+            )),
+            "a tick-box with no graph behind it"
         );
     }
 }

@@ -408,6 +408,25 @@ pub struct Mefarshim {
     /// How many segments carry commentary from anybody. For the sentence under
     /// the list, so *you have ticked nobody* does not read as *nobody wrote*.
     pub touched: usize,
+    /// The list behind the door, in reading order — headings and seforim, woven
+    /// once (W44).
+    ///
+    /// **The four arrays above are what it was woven from**, and they are kept
+    /// because the picker and the tick-list each want a different one of them.
+    /// What moved into Rust is the *weave*: four sections, three Hebrew
+    /// headings, an ordering rule and a no-sefer-twice rule, which were 277
+    /// lines of TypeScript beside a module carrying twenty-five Rust tests
+    /// about this same list.
+    pub listed: Vec<crate::mefarshim::Listed>,
+    /// Why the list is empty when it is empty for a reason.
+    ///
+    /// `mefarshim::Marks::of` reads `inbound.jsonl`, and a sefer with no such
+    /// file has nothing commenting on it — which is true, and is **not the same
+    /// statement** as *`girsa-link-types` has never run here*. `Marks::of`'s own
+    /// doc says as much and leaves it to the caller; the caller did not make it,
+    /// so a corpus with no inbound cache answered *nobody comments on this
+    /// sefer* about all 7,189 of them.
+    pub unbuilt: Option<String>,
 }
 
 /// One mefaresh's words on one line.

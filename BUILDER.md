@@ -1634,6 +1634,63 @@ takes the shelf so it can ask.
 **Acceptance.** The tick-list on the Tur has the Beit Yosef, Prisha, Bach and
 Drisha in it, and does not have Rashi on Berakhot.
 
+**Amended after the fact: the rule had three callers and one of them asked it.**
+`taxonomy::stands` says in its own doc comment that it is *"the question W43's
+tick-list, and anything else that says these are the mefarshim on this sefer,
+has to ask"*. Three things say it:
+
+| | reads | asked |
+|---|---|---|
+| `Shelf::companions` — the picker | `companions.jsonl`, every edge type | nothing: the `commentary_on` field |
+| `mefarshim::Marks::of` — the tick-list | `inbound.jsonl`, `comments-on` only | `stands`, then its own private threshold |
+| `Beside::between` — the column | both works' shards, every edge type | nothing: the `commentary_on` field |
+
+Three data sources, three rules, three on-disk caches with three generators, and
+**no test that they agree**. So the Beit Yosef — this section's own example,
+declared nowhere and a mefaresh on the Tur by its shelf — was a full mefaresh in
+the tick-list, an *undeclared* counted link in the picker, and `Relation::Linked`
+rather than `Declared` in the column, which meant the pane never fell back to
+lining up by address. And `mefarshim.ts` filters the picker's `declared` flag to
+count the button, so the button read **5** over a list of forty.
+
+`taxonomy::settled` is `stands` with the one case it refuses to guess at settled
+by an edge count, and all three ask it. The threshold that resolves that case
+moved out of `girsa_app::mefarshim`, where it was private, to sit beside the rule
+it belongs to.
+
+Three silent gaps closed in the doing:
+
+- **Two unfiled seforim were `Alongside` each other.** `canonical_path` answers a
+  work with no categories with a *default top*, so two files a reader dropped on
+  the window matched on that default — a claim that they keep the same order,
+  which would line them up by address. Four `beside.rs` tests caught it the
+  moment the picker and the column started asking the same question.
+- **`companions.jsonl` recorded a truncated list as a complete one.**
+  `girsa-companions` keeps the 200 thickest joins per work — Berakhot has about
+  1,600 — and printed what it dropped to stdout at the end of the run. The row
+  carries the total now, and `Shelf::joins` reports both.
+- **No inbound cache read as *nobody comments on this sefer*.** `Marks::of`'s doc
+  says a missing file is not an error and leaves the distinction to the caller;
+  the caller did not make it. `Mefarshim.unbuilt` does.
+
+`crates/girsa-app/tests/one_answer_to_which_seforim_relate.rs` holds it — five
+tests, and it does **not** collapse the three. They are three questions, and a
+generous offer, a strict list and a placement rule are all correct answers to
+different ones. What it holds is that they use one predicate where they mean one
+thing.
+
+**Amended again: the list itself was woven in TypeScript.** `mefarshim.ts` held
+the whole information architecture of the picker — four sections, three Hebrew
+headings, an ordering rule and a no-sefer-twice rule, 277 lines — beside
+`mefarshim.rs`, which carried twenty-five Rust tests about this same list and
+could not see any of it. The giveaway was the shape the window had to be given:
+`Mefarshim` arrived as **four parallel arrays** that only `listed()` knew how to
+weave.
+
+`girsa_app::mefarshim::listed` is the weave. The four arrays stay, because the
+picker and the tick-list each want a different one; what moved is the decision.
+The window draws what it is sent.
+
 ---
 
 ### W46 · A sefer that says it is a commentary is filed with the commentaries

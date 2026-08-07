@@ -77,12 +77,43 @@ is **23**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That is the design and it is not yet the measurement. Of the shell's
-**3,853**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
+**3,886**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
 pass-through; the rest decides cache policy,
 sort orders, truncation lengths and patch provenance. The sentence above says
 "supposed to be" until that is fixed rather than until it is reworded. (It also
 said *fifty* commands while there were 100 of them, which is the other half of
 the same problem: nothing checks a number in this file. Something does now.)
+
+### A refusal carries a name, not a sentence to be pattern-matched
+
+`app/src/trouble.ts` turned an error into a Hebrew sentence by matching
+**twenty-one regular expressions against the English prose of Rust's `Display`
+impls** — `/no search index/i`, `/no sefer here called/i`, `/state is
+poisoned/i`. Which makes every error string in the repository load-bearing API,
+and the only test asserting any of them was on the TypeScript side, against a
+hand-typed copy. Reword `"there is no index here"` and both halves stay green
+while the reader stops being told what to run.
+
+Seven of the twenty-one match prose this project does not own — an `os error 2`,
+a `connection refused`, a `serde_json` message. Those stay regexes, and that is
+honest: matching somebody else's words is the only thing available.
+
+The other fourteen are this codebase refusing on purpose, and they carry a name
+now:
+
+```text
+no-index: there is no index here
+```
+
+`girsa_app::trouble::Code`, in front of the prose, which is still English and
+still for whoever is reading a log — and no longer what decides the sentence a
+reader sees. A prefix rather than a typed error because a hundred Tauri commands
+return `Result<T, String>` and a typed error across all of them is a change to a
+hundred signatures for one question; when the wire grows a place for structured
+errors, `trouble.rs` is the one place that has to move.
+
+`every_refusal_this_codebase_names_has_a_sentence_in_the_window` fails if a code
+Rust can send has no line in the window's table.
 
 ### The wire format was described four times, and one copy could not be checked
 

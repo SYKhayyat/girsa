@@ -9,7 +9,8 @@
 import { api, type Card, type Mefarshim } from "./api.ts";
 import { field } from "./controls.ts";
 import { sefer } from "./names.ts";
-import { choices, following, listed, ticked, type Choice, type Listed } from "./mefarshim.ts";
+import { ticked } from "./mefarshim.ts";
+import type { Choice, Listed } from "./api.ts";
 
 type Chosen = (slug: string) => void;
 
@@ -39,7 +40,7 @@ export class Picker {
   private cursor = 0;
   private chosen: Chosen = () => {};
   private beside: string | null = null;
-  private mefarshim: Mefarshim = { works: [], alongside: [], folders: [], marked: [], touched: 0 };
+  private mefarshim: Mefarshim = { works: [], alongside: [], folders: [], listed: [], marked: [], touched: 0, unbuilt: null };
   private tick: (work: string, on: boolean) => void = () => {};
   /** The sentence under the list: how much of the sefer has commentary at all. */
   private readonly said: HTMLElement;
@@ -109,13 +110,13 @@ export class Picker {
   private async refresh(): Promise<void> {
     const query = this.input.value.trim();
     if (query.length === 0 && this.beside) {
-      // Sorted in `choices` rather than taken as it arrived: `companions()`
-      // builds its list in two passes, and the same daf opened twice must offer
-      // the same order. Mefarshim first — a reader who pressed this button came
-      // for one.
-      const rows = choices(await api.companions(this.beside), this.mefarshim.works);
+      // The list arrives woven. `choices`, `following` and `listed` did it here
+      // — four sections, three Hebrew headings, an ordering rule and a
+      // no-sefer-twice rule, in 277 lines of TypeScript beside a Rust module
+      // with twenty-five tests about this same list. It is
+      // `girsa_app::mefarshim::listed` now; this draws it.
       this.fill(
-        listed(rows, this.mefarshim.folders, following(this.mefarshim.alongside)).map(listedRow),
+        this.mefarshim.listed.map(listedRow),
         "אין ספר שהחיבור מעיד עליו — חפש אחד",
       );
       // Both groups tick, so both groups count. Reporting only the mefarshim

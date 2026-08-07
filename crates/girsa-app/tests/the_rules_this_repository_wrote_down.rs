@@ -566,10 +566,19 @@ fn one_rule_says_what_a_place_is_called_and_where_it_sits() {
         if named.ends_with(SELF) || MAY_CHOOSE.iter().any(|ok| named.ends_with(ok)) {
             continue;
         }
-        // `Language::title_of`, which takes both names — not
+        // `Language::title_of(&w.he_title, &w.en_title)` — the call that picks
+        // one of a sefer's two names. On one line, so this is not
         // `Arrangement::title_of`, which names a *shelf* by its key and is a
         // different question with an unfortunately similar name.
-        if body.contains("title_of(&") && body.contains("en_title") {
+        //
+        // A row that carries **both** names, the way `Card` and
+        // `mefarshim::Choice` do, is the other correct shape and is not this:
+        // it hands the choice to `names.ts`, which is the one place in the
+        // window allowed to make it.
+        if body
+            .lines()
+            .any(|line| line.contains("title_of(") && line.contains("he_title"))
+        {
             chose.push(named);
         }
     }
@@ -701,5 +710,51 @@ fn no_crate_reads_another_crates_file_by_string_surgery() {
          crate's record — the question is a fact about the **log format**, \
          which is `girsa-personal`'s: see `girsa_personal::since`.",
         wrong.join("\n  ")
+    );
+}
+
+#[test]
+fn every_refusal_this_codebase_names_has_a_sentence_in_the_window() {
+    // `app/src/trouble.ts` turned an error into a Hebrew sentence by matching
+    // **twenty-one regular expressions against the English prose of Rust's
+    // `Display` impls** — which makes every error string in this repository
+    // load-bearing API, and the only test asserting any of them was on the
+    // TypeScript side against a hand-typed copy. Reword `"there is no index
+    // here"` and both halves stay green while the reader stops being told what
+    // to run and gets the generic fallback.
+    //
+    // Seven of the twenty-one match prose this project does not own — `os error
+    // 2`, `connection refused`, `EOF while parsing`. Those stay regexes, and
+    // that is honest. The other fourteen carry a name now
+    // (`girsa_app::trouble::Code`), and this is what holds the two lists
+    // together across the language boundary.
+    let root = repo();
+    let ts = std::fs::read_to_string(root.join("app/src/trouble.ts"))
+        .unwrap_or_else(|e| panic!("trouble.ts reads: {e}"));
+    let table = ts
+        .split_once("const CODED: Record<string, (doing: string) => string> = {")
+        .map(|(_, rest)| rest.split_once("\n};").map_or(rest, |(table, _)| table))
+        .unwrap_or_else(|| panic!("trouble.ts declares CODED"));
+
+    let mut missing = Vec::new();
+    for (_, spelt) in girsa_app::trouble::Code::SPELLINGS {
+        // `"no-index":` for a name with a dash in it, `poisoned:` for one
+        // without — TypeScript quotes a key only when it has to.
+        let quoted = format!("\"{spelt}\":");
+        let bare = format!("\n  {spelt}:");
+        if !table.contains(&quoted) && !table.contains(&bare) {
+            missing.push(*spelt);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "a refusal Rust can send that the window has no sentence for: {missing:?}\n\n\
+         Add a line to `CODED` in `app/src/trouble.ts`. A code with no line \
+         falls through to the generic *something went wrong*, which is the \
+         silence this whole arrangement replaced.",
+    );
+    assert!(
+        girsa_app::trouble::Code::SPELLINGS.len() >= 8,
+        "the code list is suspiciously short"
     );
 }

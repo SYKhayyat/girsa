@@ -75,6 +75,51 @@ const DOING: Record<Doing, string> = {
  * a sentence that still names what failed and still puts the raw string one hover
  * away — an unrecognised error is a worse message, never a missing one.
  */
+
+/**
+ * The refusals this codebase makes on purpose, by the **name** Rust puts on
+ * them rather than by the words.
+ *
+ * `girsa_app::trouble::Code`, written as `no-index: there is no index here`.
+ * These fourteen used to be matched by regular expression against the English
+ * prose of Rust's `Display` impls — which made every error string in the
+ * repository load-bearing API, with the only test asserting any of them on
+ * *this* side, against a hand-typed copy. Reword `"there is no index here"` and
+ * both halves stayed green while the reader stopped being told what to run.
+ *
+ * `crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs` fails if a
+ * code Rust can send has no line here.
+ */
+const CODED: Record<string, (doing: string) => string> = {
+  "no-index": () => "אין אינדקס חיפוש — יש לבנות אותו: girsa-index build",
+  "no-shelf": () => "אין מדף כאן — ייתכן שהייבוא לא רץ",
+  "no-sefer": () => "אין ספר בשם הזה במדף",
+  "will-not-open": () => "הספר רשום במדף ואינו נפתח — פרטים בהצבה על ההודעה",
+  poisoned: () => "המצב הפנימי נפגם — יש לפתוח את החלון מחדש",
+  "no-such": (doing) => `${doing} נכשלה — נתבקש דבר שאינו קיים`,
+  cycle: () => "לא ניתן להכניס מדף לתוך עצמו",
+  "read-only": (doing) => `${doing} נכשלה — אין אפשרות לכתוב לשכבה האישית`,
+  "no-lane": () => "הלשון הסמוכה כבויה — אפשר להדליק אותה בהגדרות",
+  "no-desk": () => `${KSAV} אינו מחובר`,
+  "no-page": () => "אין עמוד כזה בסריקה",
+};
+
+/** What Rust put in front of the colon, if it put anything. */
+function codeOf(detail: string): string | undefined {
+  const at = detail.indexOf(": ");
+  if (at <= 0) return undefined;
+  const name = detail.slice(0, at);
+  return name in CODED ? name : undefined;
+}
+
+/**
+ * The refusals this codebase does **not** own.
+ *
+ * An `os error 2`, a `connection refused`, a `serde_json` message, whatever a
+ * `PostError` says. Matching somebody else's `Display` by its words is the only
+ * thing available for these, and that is honest — unlike doing it to our own,
+ * which is what `CODED` above ended.
+ */
 const FAMILIES: { match: RegExp; said: (doing: string) => string }[] = [
   {
     // `PostError::NotRunning` — "ksav is not running".
@@ -110,54 +155,18 @@ const FAMILIES: { match: RegExp; said: (doing: string) => string }[] = [
     said: (doing) => `${doing} נכשלה — התשובה לא נקראה כראוי`,
   },
 
-  // ---------------------------------------------------------------- this side
-  //
-  // The shell's own refusals. Every one of these is a deliberate sentence on the
-  // Rust side and every one of them is in English, because `Error` is written for
-  // whoever is reading a log. They are the *right* refusals; they were simply
-  // never given a reader's wording. Where one names a command to run, the Hebrew
-  // names it too — that is the (b) clause of the rule this module exists for, not
-  // a leak.
-  {
-    match: /no search index/i,
-    said: () => "אין אינדקס חיפוש — יש לבנות אותו: girsa-index build",
-  },
-  {
-    match: /no shelf at/i,
-    said: () => "אין מדף כאן — ייתכן שהייבוא לא רץ",
-  },
-  {
-    match: /no sefer here called/i,
-    said: () => "אין ספר בשם הזה במדף",
-  },
-  {
-    match: /will not open/i,
-    said: () => "הספר רשום במדף ואינו נפתח — פרטים בהצבה על ההודעה",
-  },
-  {
-    match: /state is poisoned/i,
-    said: () => "המצב הפנימי נפגם — יש לפתוח את החלון מחדש",
-  },
-  {
-    match: /no such (?:rung|chip|lens|mode)/i,
-    said: (doing) => `${doing} נכשלה — נתבקש דבר שאינו קיים`,
-  },
-  {
-    // A shelf dragged inside itself, a folder into its own child. `girsa-app`
-    // refuses these on purpose and the refusal is the interesting part.
-    match: /inside itself|would contain itself|cycle/i,
-    said: () => "לא ניתן להכניס מדף לתוך עצמו",
-  },
-  {
-    match: /read-only|readonly|will not write/i,
-    said: (doing) => `${doing} נכשלה — אין אפשרות לכתוב לשכבה האישית`,
-  },
+  // The fourteen refusals this codebase makes on purpose used to be matched
+  // here, by their English words. They are `CODED` above now, by name.
 ];
 
 /** Turn anything a `catch` can hold into a sentence and a detail. */
 export function trouble(e: unknown, doing: Doing = "general"): Trouble {
   const detail = raw(e);
   const what = DOING[doing] ?? DOING.general;
+  // The name first, and the words only if there is no name. A refusal this
+  // codebase made carries one; a refusal from the operating system does not.
+  const code = codeOf(detail);
+  if (code) return { said: CODED[code](what), detail };
   for (const family of FAMILIES) {
     if (family.match.test(detail)) return { said: family.said(what), detail };
   }
