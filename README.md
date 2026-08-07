@@ -45,6 +45,13 @@ nothing of yours is ever kept in it. The window looks for the corpus at
 `GIRSA_CORPUS` and for your layer at `GIRSA_PERSONAL`, else beside the session
 file in the app's data directory.
 
+**11**<!--=crates--> crates, and **16**<!--=bins--> command-line binaries
+across them. Every number in this file that is a fact about this repository is
+marked like those two and re-counted by
+`crates/girsa-app/tests/the_numbers_in_the_readme_are_measurements.rs` on every
+push — because this file said *"a window and fifty commands"* while there were a
+hundred of them, and nothing said so.
+
 | Crate | Purpose |
 |---|---|
 | `girsa-personal` | The one file your own layer is written in: an append-only jsonl log with tombstones, shared by every store under `personal/` |
@@ -61,13 +68,17 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and **100** commands, and it is supposed to be
-**nothing that decides anything**. Where a pane lands, what may sit beside what,
-and what the nikud toggle takes off are all answered in `girsa-app`, because those
-can be tested and a webview cannot.
+`app/` is the Tauri shell: a window and **100**<!--=commands--> commands, and it
+is supposed to be **nothing that decides anything**. Where a pane lands, what may
+sit beside what, and what the nikud toggle takes off are all answered in
+`girsa-app`, because those can be tested and a webview cannot. The window itself
+is **23**<!--=window-modules--> TypeScript modules and one stylesheet of
+**2,504**<!--=styles-lines--> lines — no framework, three runtime dependencies,
+and no fossils.
 
-That is the design and it is not yet the measurement. Of the shell's 4,590 lines,
-about 150 — 23 commands — are genuine pass-through; the rest decides cache policy,
+That is the design and it is not yet the measurement. Of the shell's
+**4,600**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
+pass-through; the rest decides cache policy,
 sort orders, truncation lengths and patch provenance, and one block of it is a
 second implementation of the placement rule `Beside::between` is tested for. The
 sentence above says "supposed to be" until that is fixed rather than until it is
@@ -277,28 +288,10 @@ with the same refusals it gives a person; and the semantic lane is in, off until
 you turn it on, over a model you side-load and a corpus you choose. **The spec is
 built.** All four verify commands green in all three repositories.
 
-| | What holds |
-|---|---|
-| **W1** · scaffolding | Three repos, pinned, dual-licensed. A breaking change to a shared crate fails in `sefer-crates` CI before it reaches either app — proven by breaking one. |
-| **W2** · `girsa-hebrew` | The normalizer, and the line between what it will and will not do. 372-row regression corpus **harvested from 400 real seforim**, not written by hand. |
-| **W3** · `girsa-ref` | The resolver. **100.00% exact on 2,970 real citations**, 0 wrong. Lexicon of 6,594 works and 24,731 spellings, built from Sefaria's schemas. |
-| **W4** · `girsa-source` | The Source Packet. Ksav compiles it, and an arriving quote is put through the **real Typst compiler** rather than merely deserialized. |
-| **W5** · fetch | 12,826 files, 3.4 GB on disk. Resumable — killed at 47%, resumed with nothing refetched. |
-| **W6** · segment IDs | `girsa:mishnah-berurah/1:1#7`. One typo fix, 501 links: **line numbers moved 501, permanent ids moved 0.** And across a **re-import**: one se'if added upstream to a 4,182-se'if sefer renames nothing and mints one name. Run over the whole shelf — **7,189 works, all 5,000,545 ids kept, none minted, none moved.** |
-| **W7** · import | Sefaria spine, Otzaria fill. **7,189 works · 5,000,545 segments**, each named once and never again. Mishnah Berurah 18,120/701 and Shulchan Arukh O.C. 697/4,171 — `spec.md` §2's numbers, exactly. |
-| **W8** · links | The graph, on segment ids rather than line numbers. **4,182,344 edges** from 5,108,893 rows — 81.9%, and **92.6%** of the rows whose sefer is on the shelf at all. Every dropped row counted under why, and **nothing left ambiguous**. Mishnah Berakhot 1:1 → the Rambam on it, end to end. |
-| **W9** · the workspace | Tabs, splits, RTL, nikud toggle, per-sefer position memory — and **a commentary column that follows the text**. Berakhot open with Rashi beside it: move the Gemara to 2a:6 and the Rashi column moves to 2a:6:1. **1,718 of Berakhot's 2,749 lines have a Rashi**; on the other 1,031 the column says *אין כאן* and stays where it is. |
-| **W10** · the shelf | One taxonomy over two corpora's vocabularies: **15 shelves, 7,189 seforim, each on exactly one**. Editable — move, rename, reorder, make a shelf — as **one file in your own layer**, which a re-import cannot touch. A file you drop in is a sefer with permanent ids like any other. |
-| **W11** · the index | **5,000,545 segments in 4m 8s**, one normalized index, built by the *same* code the query bar normalizes with. A bare `משעה שהכהנים נכנסים` finds the fully menukad first line of Shas, and the highlight lands on `שֶׁהַכֹּהֲנִים` — the word as printed. Nothing widened at import: `שבת` does not find `ובשבת`, and that is the point. |
-| **W12** · Torat Emet | The literal mode, and the default. The three operators that get used — the word, the letters it **contains**, those letters **in order** with others between — plus **within X words of each other, in either order**. Every query carries a plan saying exactly what was asked of the index, and a test asserts that plan is the typed words with their nikud off and nothing else. On the shelf: `קדש` is 31,483 segments, `--contains קדש` is 301,910, and the difference is a thing the reader asked for. |
-| **W13** · the ladder | Two columns of one table (§9.6), and the difference between them is the work order: the default mode **offers** the rungs with their counts and applies nothing; Smart climbs them and says so. The counts are computed from the query the click would run, so the promise and the result cannot disagree — checked both ways. Two rungs are named and not offered, because a missing chip reads as *there is nothing down that road*: nikud is already off in every mode, and the root rung is what §9.4 rejected every analyser for. |
-| **W19** · closing the loop | The ref is **in the document** — it was not, for three orders, and §10.2's promise was quietly false until now. Out of that one change: `#מראה_מקומות()` prints the sources at the back, *where did I use this* is a scan of your own layer, and a `.ksav` file is a sefer on the shelf whose words are read by the crate that wrote them. Linkify wraps only what is certain, and says so when nothing is. |
-| **W18** · cite on selection | *Where is this from* and *who quotes this* are **one call** — 61 places for the Mishnah's own line, 59 when Berakhot is left out. Ctrl+Shift+M in Ksav; Tab cycles; no fit opens Girsa's search with the phrase in it. `אמר רבי יוחנן` is 12,347 places and is reported as a turn of speech rather than offered as a source. |
-| **W17** · the buffer | Ctrl+E, a drawer at the foot of the window, and **real Ksav markup from the first keystroke** — `girsa-ksav`, the writer Ksav compiles, not a second one in TypeScript. A buffer is a `.ksav` file in your own layer, and Ksav's suite compiles one this window wrote and reads the mekor off the page, below its quote. |
-| **W16** · the pairing | A desk on loopback in each application, token-gated, presence asked rather than assumed — `Live`, `NotRunning` and `Stale` are three different things and the window says which. Ctrl+Shift+C sends into the open document with no clipboard at all; `/cite` and `/quote` let Ksav re-print a citation or re-read a quote from the corpus as it stands. Tested through a real socket, including the 401. And `girsa:…` **is** the deep link — the ref the document already stores. |
-| **W15** · the clipboard | One Ctrl+C, three flavours — and the third is written natively, because a webview's custom format is a private encoding no other application can read. Only the highlighted part travels; the ref is a span when the quote is. The citation is `girsa-cite`, compiled into both apps, and **the test is that Girsa reads back what Girsa printed** — which found two defects in `girsa-ref` and fixed them there. Checked in Ksav against a packet Girsa really sent, asserted **on the laid-out page**. |
-| **W30** · the semantic lane | *I remember a Rishon who says something like this but not the words* — **measured, not hoped.** A half-remembered line finds its se'if **in the top 16 of 240 every time, and first 8 times in 10**; a *question* about a se'if finds it once in five, so the box asks for a line rather than a question. Mean-centring, the standard repair, made it worse and was not built. The model is side-loaded — a picker by default, a fetch button behind a setting that ships off — so the day a better encoder exists it is a setting and not a release. Off is off: the corpus tree is byte-identical before and after, and every answer carries *adjacent — found by meaning rather than by these words* and a sentence saying what is **not** in the index. 4.5 segments/second, resumable, and it never blocks reading. |
-| **W14** · the rest of §9 | The other three modes, the chip row, and the five facets. **A facet row's count is the number clicking it gives you** — the ladder's promise, one section on, asserted for every row of every dimension. On the shelf: `יתגבר כארי` is 79 segments; the rail says `חסידות 26`, and clicking it gives 26. The two instruments the index cannot answer say so by name instead of approximating: a dilug reads letters and a notarikon is four patterns each matching half the vocabulary. |
+The work orders behind that, and what each one is asserted on, are in
+[`BUILDER.md`](BUILDER.md) under *What holds, per work order* — twenty rows of
+`W`-numbers, which are a builder's index and were living in a reader's document.
+Everything in this file below here is the reasoning, and it does not need them.
 
 The segments file is the load-bearing part and it is worth one line: each record
 **carries its own id**, so the file can be sorted, reordered, appended to or
