@@ -1683,3 +1683,83 @@ later — a `text.txt` of segments that are only words is greppable, and one ful
    asserted against the same segments before and after.
 
 **Not required for W35 to be reconsidered — required for it to be worth doing.**
+
+---
+
+# Still open from the 31 July report — carried here 6 August 2026
+
+`BUILT-2026-07-31.md` was a report on a round of work, and its §6 and §14 were the
+only part of it that described the future rather than the past. The report is gone
+— it was a changelog entry wearing a filename, and the tree it measured is
+preserved at the tag `built-2026-07-31`, which is a better record than a tracked
+file that has to be read past. What was live in it is here, where live work orders
+live, re-verified against the tree on 6 August.
+
+These are stated at the size §6 stated them. None is blocked on anything but time,
+except B33, which is blocked on hardware.
+
+**B19 · The transmission chain has no panel.** `girsa-chain back/forward/path/fork`
+all work; `grep -i chain app/src/*.ts` still returns nothing, so no reader can
+reach any of it. Four Tauri commands and one panel — presentation, not model work.
+The `--width` widening for a fork two hops apart is a second, smaller piece.
+
+The 6 August lamdan report adds the part that changes the order of this: `chain.rs`
+is 1,052 lines whose only callers are a developer CLI and `girsa-mcp`, and it is
+why `inbound`'s cache holds whole edge rows rather than a summary and why
+`Graph::work` is an eager whole-work load. **A feature no reader can reach set the
+memory shape of the feature every reader uses.** Building the panel is what makes
+that trade honest; not building it is what makes it a cost with no payer.
+
+**B20 · Nothing rebuilds the index incrementally — half done.** `Writer` can now
+`delete_term` a work and re-add it, so *a work* is replaceable. What is still a
+four-minute full rebuild is a note or a correction: the corrections half needs the
+overlay taught to the indexer, and the README rules out both easy answers. B7's
+honest notice is what makes shipping this incrementally safe and is not a
+substitute for it.
+
+**B22 · The rest of the personal layer.** Four pieces: linkify over notes,
+`girsa-notes merge` (there is no `merge` in that binary), a `comp_date` on a note
+so it can be a hop in the chain, and your own sefer in the resolver's lexicon at
+import. **The merge first** — it is the substitute for the sync that was ruled
+against, and `girsa-personal::Log` now makes it nearly free: two append-only files
+replayed in one pass, which is what `Layer::merge` already became.
+
+**B23 · `.ksav` on the shelf.** The containment is flat and nothing writes back.
+The second half needs a decision about what editing a `.ksav` from the shelf means
+when Ksav may have it open, and that decision is the work. Related, and newly
+sharper: `who_cites` answers over `personal/ksav/*.ksav` only, so a document
+written in the real Ksav is invisible to it.
+
+**B32 · Nothing drives a pointer.** The one job that closes five gaps at once —
+§4 items 21–24 of the grade, plus the accessibility claim that has only ever been
+asserted statically. It needs a CI job that *runs* both applications rather than
+building them, with `Ksav/.github/scripts/wasm-smoke.mjs` as the precedent. The
+`compile_error!` for a bare `cargo build --release` of the shell — the trap that
+cost an audit an hour — belongs in the same change and is four lines.
+
+**B33 · macOS.** No Mac, no runner. Both applications compile for it and neither
+has been run on it. The only item here that needs hardware.
+
+**B34 · Property and model-based tests.** Three sweeps landed inside other orders.
+The three asked for are still missing, and there is no `proptest` in any manifest:
+generated refs through `girsa-cite`'s round trip; fuzzing the Ksav markup for
+panics (*nothing should panic, everything should be a named refusal with a
+location*); and fuzzing `Ref` parsing against `is_well_formed`.
+
+**B31 · The two god modules.** `main.ts` came down by five modules. Girsa's shell
+`lib.rs` has gone the other way — 4,087 lines and 91 commands then, **4,590 lines
+and 100 commands now**, because the settings commands went into it. Stated rather
+than buried, twice now. The lamdan report says where the seam actually is and it
+is not where B31 guessed: the shell's problem is not its length, it is that
+**4% of it is pass-through** and the rest decides things — cache policy,
+truncation lengths, sort orders, patch provenance — which is what the DTO move is
+for.
+
+**W49 · The chrome is Hebrew only.** 312 Hebrew string literals across 19 TS files.
+W41 built the language setting and made every sefer *name* follow it, which is the
+half that was asked for by name; the buttons, headings and messages did not
+follow. A string table and a translation pass, not a plumbing change.
+
+**And the line that matters more than any of the above: nobody has written a sefer
+in Ksav.** Everything in every report in this repository is a promise tested by its
+author.

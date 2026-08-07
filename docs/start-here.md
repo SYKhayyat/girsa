@@ -21,7 +21,7 @@ it is about 4 GB of text plus the link graph.
 ```
 cargo run -p girsa-corpus --bin girsa-fetch          # the seforim
 cargo run -p girsa-link  --bin girsa-link-import     # the links between them
-cargo run -p girsa-link  --bin girsa-link-inbound    # the reverse index
+cargo run -p girsa-link  --bin girsa-link-types      # the caches that read them backwards
 cargo run -p girsa-search --bin girsa-index          # the search index
 ```
 
@@ -111,7 +111,7 @@ That is the loop. Everything else is detail.
 |---|---|
 | Otzar HaChochma | [`from-otzar.md`](from-otzar.md) |
 | Bar Ilan / the Responsa Project | [`from-bar-ilan.md`](from-bar-ilan.md) |
-| Word, for writing | [`from-word.md`](from-word.md) |
+| Word, for writing | `Ksav/docs/from-word.md`, in the pen's own repository |
 | Nothing in particular | [`shortcuts.md`](shortcuts.md), and press things |
 
 ## What this does not do

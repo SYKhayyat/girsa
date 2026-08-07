@@ -61,10 +61,18 @@ plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
 `sefer-crates`, pinned to an exact version and resolved from the sibling
 checkout during development.
 
-`app/` is the Tauri shell: a window and fifty commands, and **nothing
-that decides anything**. Where a pane lands, what may sit beside what, and what the
-nikud toggle takes off are all answered in `girsa-app`, because those can be
-tested and a webview cannot.
+`app/` is the Tauri shell: a window and **100** commands, and it is supposed to be
+**nothing that decides anything**. Where a pane lands, what may sit beside what,
+and what the nikud toggle takes off are all answered in `girsa-app`, because those
+can be tested and a webview cannot.
+
+That is the design and it is not yet the measurement. Of the shell's 4,590 lines,
+about 150 — 23 commands — are genuine pass-through; the rest decides cache policy,
+sort orders, truncation lengths and patch provenance, and one block of it is a
+second implementation of the placement rule `Beside::between` is tested for. The
+sentence above says "supposed to be" until that is fixed rather than until it is
+reworded. (It also said *fifty* commands while there were 100 of them, which is
+the other half of the same problem: nothing checks a number in this file.)
 
 **The sibling checkout has to be present.** Until `sefer-crates` is published,
 cloning Girsa alone will not build.

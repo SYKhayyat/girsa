@@ -20,8 +20,10 @@ This directory is for somebody **using** it. B36 is the order that asked for it:
 | [`shortcuts.md`](shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
 | [`images/`](images/) | screenshots, and an honest note about why there are none yet |
 
-Ksav's own pages are at [`../../Ksav/docs/`](../../Ksav/docs/) — a getting-started,
-a *coming from Word*, and its own generated shortcut card.
+Ksav's own pages are in the pen's repository, at `Ksav/docs/` — a
+getting-started, a *coming from Word*, and its own generated shortcut card. Not
+a link, because a link out of this repository is a link that is broken for
+anybody who cloned only this one, which is everybody reading it on GitHub.
 
 ## The two generated pages
 

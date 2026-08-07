@@ -165,7 +165,7 @@ jobs:
       #
       # `package.json` has defined `test` since the runner was written and no
       # gate has ever called it. Seven test files, and among them
-      # `sources.test.mjs` — which `BUILT.md §10` holds up as *"the entire
+      # `sources.test.mjs`, which the 31 July report called *"the entire
       # argument for that shape of test"* after it caught a raw `<select>` in
       # code written a week after the guard. It caught that because somebody ran
       # it by hand.

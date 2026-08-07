@@ -179,10 +179,19 @@ fn a_quote_on_its_way_to_ksav_carries_the_edition_it_came_from() {
 
 /// The reproduction, against whatever corpus this checkout actually has.
 ///
-/// Skipped rather than passed when there is no corpus: a check that goes green
-/// because it found nothing to look at is the failure mode the `GRADER`
-/// document is about. It says so out loud instead.
+/// `#[ignore]`, not a `return`. This used to argue that printing `SKIPPED` and
+/// returning "says so out loud instead" — and it does not: `cargo test`
+/// captures stderr on a *passing* test, so what CI printed was a green tick and
+/// `finished in 0.00s`. It was the forty-fourth such function, and the only one
+/// the sweep that removed the other forty-three did not reach, because it spells
+/// its guard by hand instead of through `corpus_or_skip!`.
+///
+/// The property underneath — a `work.json` edition survives into the catalogue —
+/// is asserted on a synthetic shelf by `the_shelf_knows_which_edition_it_is_reading`
+/// above. This one is the reproduction against a real download, and reads as
+/// `1 ignored` rather than as a green tick: `cargo test -- --ignored`.
 #[test]
+#[ignore = "needs an imported corpus; the_shelf_knows_which_edition_it_is_reading asserts the property"]
 fn every_work_json_edition_survives_into_the_catalogue() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
     let index = root.join("works/index.jsonl");
