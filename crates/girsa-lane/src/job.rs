@@ -84,6 +84,13 @@ impl Job {
     /// is at the front of it, and because a job that skipped about would make
     /// *how far has it got* unanswerable.
     ///
+    /// This is not in tension with `Model::embed` grouping a batch by token
+    /// length, and the two used to look as though it were. The job's order is
+    /// what a reader sees and what makes a run resumable; the order rows sit in
+    /// **inside one forward pass** is arithmetic nobody observes, and grouping
+    /// them there is what stops one 512-token se'if making fifteen 20-token ones
+    /// cost 512 tokens each. They come back in the order they were handed over.
+    ///
     /// The values are indices into the work's `segments`, not copies of the
     /// text — a sefer's words are already in memory once and this refuses to be
     /// the second time.

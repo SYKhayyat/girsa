@@ -42,17 +42,24 @@ pub const WIDTH: usize = 220;
 pub struct Snippet {
     /// The text, with matches in `[brackets]` and elisions as `…`.
     pub text: String,
-    /// Characters dropped from the front.
-    pub before: usize,
-    /// Characters dropped from the end.
-    pub after: usize,
+    /// Whether anything was dropped from the front.
+    ///
+    /// A `bool` and not a count, and the count is not a loss. These were
+    /// `text[..from_byte].chars().count()` and `text[to_byte..].chars().count()`
+    /// — **two walks of the whole segment, per hit, per page of results** — in
+    /// a module built because segments in this corpus reach 1,275,307
+    /// characters. Nothing outside this file ever read the numbers; what they
+    /// were asked was `is_partial`, and what draws is an `…`.
+    pub before: bool,
+    /// Whether anything was dropped from the end.
+    pub after: bool,
 }
 
 impl Snippet {
     /// Whether the segment is longer than what is shown.
     #[must_use]
-    pub fn is_partial(&self) -> bool {
-        self.before > 0 || self.after > 0
+    pub const fn is_partial(&self) -> bool {
+        self.before || self.after
     }
 }
 
@@ -117,17 +124,19 @@ pub fn snippet(text: &str, marks: &[(usize, usize)], width: usize) -> Snippet {
     }
     out.push_str(text.get(at..to_byte).unwrap_or_default());
 
-    let before = text[..from_byte].chars().count();
-    let after = text[to_byte..].chars().count();
+    // The question, not a count of the answer. `from_byte > 0` is exactly
+    // *something was dropped from the front*, and it costs nothing.
+    let before = from_byte > 0;
+    let after = to_byte < text.len();
     // Elisions are shown. A snippet that silently starts mid-sentence reads as a
     // segment that starts mid-sentence.
     let text = format!(
         "{}{}{}",
-        if before > 0 { "…" } else { "" },
+        if before { "…" } else { "" },
         out,
-        if after > 0 { "…" } else { "" }
+        if after { "…" } else { "" }
     );
-    debug_assert!(!window.is_empty() || before + after == 0 || out.is_empty());
+    debug_assert!(!window.is_empty() || !(before || after) || out.is_empty());
     Snippet {
         text,
         before,
@@ -172,7 +181,7 @@ mod tests {
             "{}",
             shown.text
         );
-        assert!(shown.before > 0, "it elided the opening");
+        assert!(shown.before, "it elided the opening");
         assert!(shown.text.starts_with('…'), "and said so: {}", shown.text);
         assert!(shown.is_partial());
     }
@@ -196,11 +205,14 @@ mod tests {
         assert!(shown.text.chars().count() <= WIDTH + 2, "{}", shown.text);
         // The window reaches the end of the segment, so nothing is elided after
         // the match — the whole 220 characters is the run-up plus the tail.
-        assert_eq!(shown.after, 0);
+        assert!(!shown.after);
         assert!(shown.text.ends_with("סוף"), "{}", shown.text);
         // And what *is* elided is the half-megabyte in front, said with an ellipsis
-        // rather than silently dropped.
-        assert!(shown.before > 100_000, "{}", shown.before);
+        // rather than silently dropped. **How much** is not recorded and never
+        // was read: two `chars().count()`s over the whole segment to produce a
+        // number whose only consumer was `is_partial`, in the module that exists
+        // because segments reach 1,275,307 characters.
+        assert!(shown.before);
         assert!(shown.text.starts_with('…'));
     }
 
@@ -209,8 +221,8 @@ mod tests {
         let text = "מאימתי קורין את שמע בערבית";
         let shown = of(text, &[(0, "מאימתי".len())]);
         assert_eq!(shown.text, "[מאימתי] קורין את שמע בערבית");
-        assert_eq!(shown.before, 0);
-        assert_eq!(shown.after, 0);
+        assert!(!shown.before);
+        assert!(!shown.after);
         assert!(!shown.is_partial());
     }
 
@@ -230,8 +242,11 @@ mod tests {
     fn no_marks_gives_the_opening_which_is_the_only_honest_choice() {
         let text = "א".repeat(1000);
         let shown = of(&text, &[]);
-        assert_eq!(shown.before, 0);
-        assert_eq!(shown.after, 1000 - WIDTH);
+        assert!(!shown.before);
+        assert!(shown.after);
+        // The window is the width, and the rest is elided out loud. That the
+        // remainder is `1000 - WIDTH` characters is arithmetic nothing displays.
+        assert_eq!(shown.text.chars().count(), WIDTH + 1);
         assert!(shown.text.ends_with('…'));
     }
 

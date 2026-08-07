@@ -547,12 +547,78 @@ impl Embedder for Model {
             truncated.push(row.len() >= window);
             ids.push(row);
         }
-        let vectors = self.run(&ids).map_err(ModelError::ran)?;
+        // Grouped by length before the forward pass, and put back in the order
+        // they came in.
+        //
+        // # The two rules that were fighting, and neither module knew
+        //
+        // `Model::run` pads a batch to its longest row, so a batch of sixteen
+        // holding one 512-token se'if and fifteen 20-token ones costs **16×512**
+        // through every layer. The standard fix is to sort the work by length —
+        // and `girsa_lane::job` says the opposite in as many words: *"in order,
+        // because a reader who starts the job and then opens the sefer is at the
+        // front of it, and because a job that skipped about would make how far
+        // has it got unanswerable."*
+        //
+        // Both are right, and they are about different things. The job's order
+        // is what a reader sees and what makes the run resumable; the batch's
+        // order is arithmetic nobody observes. So the grouping happens **here**,
+        // inside one call, over rows the job already chose — the job hands them
+        // over in reading order, they come back in reading order, and the
+        // padding waste in between is gone. That same batch is now one pass of
+        // 1×512 and one of 15×20.
+        let mut order: Vec<usize> = (0..ids.len()).collect();
+        order.sort_by_key(|at| ids.get(*at).map_or(0, Vec::len));
+
+        let mut vectors: Vec<Vec<f32>> = vec![Vec::new(); ids.len()];
+        let mut group: Vec<usize> = Vec::new();
+        for at in order {
+            let longest = group
+                .first()
+                .and_then(|first| ids.get(*first))
+                .map_or(0, Vec::len);
+            let mine = ids.get(at).map_or(0, Vec::len);
+            // A new pass when this row would more than half again the padding
+            // the group is already paying. Cheap to state, and it is the only
+            // number here that is a judgement rather than a fact.
+            if !group.is_empty() && mine * 2 > longest * 3 {
+                self.run_into(&ids, &group, &mut vectors)?;
+                group.clear();
+            }
+            group.push(at);
+        }
+        self.run_into(&ids, &group, &mut vectors)?;
+
         Ok(vectors
             .into_iter()
             .zip(truncated)
             .map(|(vector, truncated)| Embedded { vector, truncated })
             .collect())
+    }
+}
+
+impl Model {
+    /// Embed one group of rows and put each answer back where its row was.
+    fn run_into(
+        &self,
+        ids: &[Vec<u32>],
+        group: &[usize],
+        into: &mut [Vec<f32>],
+    ) -> Result<(), ModelError> {
+        if group.is_empty() {
+            return Ok(());
+        }
+        let rows: Vec<Vec<u32>> = group
+            .iter()
+            .filter_map(|at| ids.get(*at).cloned())
+            .collect();
+        let vectors = self.run(&rows).map_err(ModelError::ran)?;
+        for (at, vector) in group.iter().zip(vectors) {
+            if let Some(slot) = into.get_mut(*at) {
+                *slot = vector;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1035,5 +1101,47 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_segment_embeds_the_same_alone_as_it_does_in_a_batch() {
+        // The property the whole batching rests on, and the one the grouping
+        // could have broken. `Model::run` masks the padding out of the attention
+        // as well as out of the average precisely so that *"a batch of sixteen
+        // does not embed a segment differently from a batch of one"* — which
+        // would make a reader's vectors depend on the order the job happened to
+        // run in.
+        //
+        // `embed` now cuts a batch into groups by token length, so that one long
+        // se'if does not make fifteen short ones cost 512 tokens each. If the
+        // masking were wrong, this is what would say so.
+        let dir = scratch("batch-vs-alone");
+        a_whole_tiny_bert(&dir);
+        let model = Model::side_loaded(&dir).expect("a tiny BERT loads");
+
+        // Deliberately uneven: one long, several short. This is the shape the
+        // grouping is for.
+        let texts = [
+            "א",
+            "ב ג ד א ב ג ד א ב ג ד א ב",
+            "ג ד",
+            "א ב ג",
+            "ד א ב ג ד א ב ג ד",
+            "ב",
+        ];
+        let together = model.embed(&texts).expect("the batch embeds");
+        assert_eq!(together.len(), texts.len(), "and in the order given");
+
+        for (at, text) in texts.iter().enumerate() {
+            let alone = model.embed(&[*text]).expect("one embeds");
+            let (a, b) = (&alone[0].vector, &together[at].vector);
+            assert_eq!(a.len(), b.len());
+            for (n, (one, many)) in a.iter().zip(b).enumerate() {
+                assert!(
+                    (one - many).abs() < 1e-5,
+                    "`{text}` embedded differently in a batch: component {n} is                      {many} against {one} alone"
+                );
+            }
+        }
     }
 }
