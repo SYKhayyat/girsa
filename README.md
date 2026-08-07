@@ -2762,6 +2762,29 @@ version of it:
   empty, refused or off, the sentence is drawn — composed once in Rust so the
   window, the CLI, the MCP tool and the test cannot drift. A sefer half-embedded
   reports **both** numbers, for the reason a scan stopped at page 40 of 302 does.
+- **And every answer states what the lane was measured to do** — added 6 August
+  2026, and it is a correction rather than an addition. The sentence *"measured
+  on a half-remembered statement, and it works poorly on a question. It does not
+  pasken"* existed, in exactly one place: the MCP tool description. **A robot was
+  told and the reader was not.** It is `girsa_lane::MEASURED` now, one string,
+  drawn in the window under every answer and read by the MCP surface from the
+  same constant.
+
+  It gained a clause it never had: **over 240 se'ifim, not over the whole shelf.**
+  Every number in the table above is at n=240. A 0.11 cosine margin — 0.74 for the
+  right answer against 0.63 for unrelated se'ifim — is a different claim at 240
+  candidates than at 5,000,545: at 240 the tail is empty, and at five million the
+  tail *is* the answer set. Nothing measured says which way that goes. It may
+  hold; nobody has looked. Re-running `examples/measure.rs` over ~50,000 segments
+  would replace that clause with a number, and it is the one afternoon this
+  feature still owes.
+- **The offer of the whole shelf says what it costs.** `Chosen::everything()` is
+  a first-class standing choice with a tested branch in the coverage sentence, so
+  the thirteen days were being offered as an equal option to the 54 seconds the
+  measurements came from — with the thirteen days written down in a module note
+  the reader never opens. The sentence now spends the measured throughput:
+  *"this lane covers the whole library — 1,200,000 of 5,000,545 segments so far,
+  about 13 days of embedding left."*
 - **It is never a rung on the ladder.** `girsa-search` does not depend on
   `girsa-lane`, so no relaxation rung can reach a vector even by accident — and
   adding a `Rung::Meaning` variant does not compile, which is the proof. Every

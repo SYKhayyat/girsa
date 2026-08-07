@@ -208,15 +208,19 @@ pub fn catalogue() -> Value {
         {
             "name": "adjacent",
             "title": "Adjacent by meaning, not by these words",
-            "description": "\
+            // The last sentence is `girsa_lane::MEASURED` rather than a copy
+            // of it. It used to be written out here — and this was the *only*
+            // place in the tree that said what the lane is known to be bad at,
+            // so a robot was told and a reader was not. One string now, drawn
+            // in the window under the results as well.
+            "description": format!("\
     A separate lane, and it must be reported as one. Give it a line as you half \
     remember it and it returns passages that are ADJACENT — found by an embedding \
     model rather than by matching any word you passed. It is off unless the reader \
     turned it on and side-loaded a model, and it only covers what the reader chose \
     to embed: every answer carries a `coverage` sentence saying what is in the \
     index and what is not, and you must not present these results as the places a \
-    phrase appears, or as complete. Measured to work on a half-remembered \
-    statement and to work poorly on a question. It does not pasken.",
+    phrase appears, or as complete. It is {}", girsa_lane::MEASURED),
             "inputSchema": {
                 "type": "object",
                 "properties": {

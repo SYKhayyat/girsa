@@ -115,10 +115,24 @@ impl Coverage {
         let mut said = if self.chosen.is_empty() {
             "nothing is in the semantic lane yet".to_string()
         } else if self.everything {
+            // The cost goes in the sentence that makes the offer.
+            //
+            // `Chosen::everything()` is a first-class standing choice and this
+            // branch is *tested*, so the whole shelf is presented to a reader as
+            // an equal option to the one the numbers came from — and the numbers
+            // are 54 seconds for Hilchos Tefillah against about thirteen days
+            // for 5,000,545 segments, measured, at
+            // `crate::model::SEGMENTS_A_SECOND`. That figure was written down in
+            // a module note and said nowhere a reader looks.
+            let left = self.wanted().saturating_sub(self.embedded());
             format!(
-                "this lane covers the whole library — {} of {} segments so far",
+                "this lane covers the whole library — {} of {} segments so far{}",
                 thousands(self.embedded()),
-                thousands(self.wanted())
+                thousands(self.wanted()),
+                match crate::model::how_long(left) {
+                    Some(when) => format!(", {when} of embedding left"),
+                    None => String::new(),
+                }
             )
         } else {
             let whole = self.embedded() >= self.wanted();
@@ -324,5 +338,49 @@ mod tests {
         assert_eq!(thousands(999), "999");
         assert_eq!(thousands(1_000), "1,000");
         assert_eq!(thousands(5_000_545), "5,000,545");
+    }
+
+    #[test]
+    fn the_offer_of_the_whole_shelf_carries_what_it_costs() {
+        // `Chosen::everything()` is a first-class standing choice with a tested
+        // branch in this sentence, so the whole shelf was presented as an equal
+        // option to the one the numbers came from — 54 seconds for Hilchos
+        // Tefillah against about thirteen days for 5,000,545 segments, measured,
+        // and said in a module note the reader never opens.
+        let mut coverage = Coverage {
+            everything: true,
+            ..Coverage::default()
+        };
+        coverage.chosen.push(Covered {
+            slug: "shulchan-arukh/orach-chayim".into(),
+            title: "שולחן ערוך".into(),
+            wanted: 5_000_545,
+            embedded: 1_200_000,
+        });
+        let said = coverage.said();
+        assert!(said.contains("1,200,000 of 5,000,545"), "{said}");
+        assert!(
+            said.contains("days") && said.contains("embedding left"),
+            "the sentence that offers the whole shelf does not say what it costs: {said}"
+        );
+    }
+
+    #[test]
+    fn a_finished_lane_over_everything_is_not_offered_a_wait() {
+        let mut coverage = Coverage {
+            everything: true,
+            ..Coverage::default()
+        };
+        coverage.chosen.push(Covered {
+            slug: "a".into(),
+            title: "א".into(),
+            wanted: 240,
+            embedded: 240,
+        });
+        let said = coverage.said();
+        assert!(
+            !said.contains("left"),
+            "nothing is left, and it said there was: {said}"
+        );
     }
 }

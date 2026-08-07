@@ -102,9 +102,28 @@
 //! made for OCR, and for the same reason.
 //!
 //! **4 · Throughput is the reason you choose the corpus.** 4.5 segments a second
-//! on one CPU, release build, batches of 16. That is 54 seconds for Hilchos
-//! Tefillah and **about thirteen days for all 5,000,545 segments** — which is
-//! why §16 #20 makes the corpus a choice and why [`crate::job`] is resumable.
+//! on one CPU, release build, batches of 16 — [`SEGMENTS_A_SECOND`]. That is 54
+//! seconds for Hilchos Tefillah and **about thirteen days for all 5,000,545
+//! segments** — which is why §16 #20 makes the corpus a choice and why
+//! [`crate::job`] is resumable. The thirteen days are now *in the sentence that
+//! offers the whole shelf*: `Coverage::said` spends this constant, because
+//! `Chosen::everything()` is a first-class standing choice and until 6 August
+//! 2026 the line that made the offer did not mention what it costs.
+//!
+//! **5 · Everything above is at n=240, and the offer is at n=5,000,545.** This
+//! is the limit the crate did not name, and it names its others with real
+//! rigour. Hilchos Tefillah is 240 se'ifim; the shelf is five million segments.
+//! *Top-16 of 240* and *a 0.11 cosine margin* — 0.74 for the right answer
+//! against 0.63 for unrelated se'ifim — are a different claim at each size. **At
+//! 240 the tail is empty. At 5,000,545 the tail is the answer set**, and there
+//! is nothing in this measurement that says how a 0.11 margin behaves against
+//! twenty thousand times as many candidates. It may hold. It has not been
+//! looked at.
+//!
+//! So the honest thing is said out loud rather than assumed either way, in
+//! [`crate::MEASURED`], drawn under every answer the window shows. Re-running
+//! `examples/measure.rs` over ~50,000 segments would replace that sentence with
+//! a number, and that is the one afternoon this feature still owes.
 //!
 //! # The tokenizer is part of the model
 //!
@@ -152,6 +171,43 @@ pub const MOST_TOKENS: usize = 512;
 /// laptop. The job is resumable at any batch boundary, so this is also the
 /// most work a reader can lose by closing the window.
 pub const BATCH: usize = 16;
+
+/// Segments a second, measured: one CPU, release build, batches of [`BATCH`].
+///
+/// The number behind *"about thirteen days for all 5,000,545 segments"* in the
+/// module note. It is a constant rather than a sentence because
+/// [`crate::Coverage::said`] now spends it: a reader offered
+/// [`crate::Chosen::everything`] is being offered thirteen days, and until this
+/// existed the sentence that made the offer did not mention them.
+///
+/// A floor rather than a promise. It is what one ordinary laptop did; a faster
+/// machine finishes sooner and nobody is disappointed by that direction.
+pub const SEGMENTS_A_SECOND: f64 = 4.5;
+
+/// How long embedding `segments` more of them takes, in the words a sentence
+/// wants — `None` when there is nothing left to do.
+///
+/// Rounded coarsely on purpose. *"About two weeks"* is the decision the reader
+/// is making; *"13 days, 4 hours"* is a precision this measurement does not
+/// have and would invite somebody to check a clock against.
+#[must_use]
+pub fn how_long(segments: usize) -> Option<String> {
+    if segments == 0 {
+        return None;
+    }
+    let seconds = segments as f64 / SEGMENTS_A_SECOND;
+    let (n, unit) = if seconds < 90.0 {
+        (seconds.ceil(), "second")
+    } else if seconds < 90.0 * 60.0 {
+        ((seconds / 60.0).ceil(), "minute")
+    } else if seconds < 36.0 * 3600.0 {
+        ((seconds / 3600.0).ceil(), "hour")
+    } else {
+        ((seconds / 86_400.0).ceil(), "day")
+    };
+    let n = n as u64;
+    Some(format!("about {n} {unit}{}", if n == 1 { "" } else { "s" }))
+}
 
 /// Why the lane could not embed anything.
 #[derive(Debug, thiserror::Error)]
@@ -883,5 +939,19 @@ mod tests {
         std::fs::write(&path, bytes).expect("writes");
         let said = fingerprint(b"{}", &path).expect_err("refused").to_string();
         assert!(said.contains("safetensors header"), "{said}");
+    }
+
+    #[test]
+    fn how_long_says_the_size_of_the_decision_and_not_a_clock_reading() {
+        assert_eq!(how_long(0), None, "nothing left is not a wait");
+        assert_eq!(how_long(240).as_deref(), Some("about 54 seconds"));
+        assert!(how_long(5_000_545)
+            .as_deref()
+            .unwrap_or("")
+            .ends_with("days"));
+        // The measured thirteen. Coarse on purpose: "about 13 days" is the
+        // decision a reader is making, and "13 days, 4 hours" is a precision
+        // 4.5 segments a second does not have.
+        assert_eq!(how_long(5_000_545).as_deref(), Some("about 13 days"));
     }
 }

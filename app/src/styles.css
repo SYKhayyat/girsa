@@ -2199,11 +2199,19 @@ body {
 /* What is in the index and what is not. Never hidden, never collapsed: a
  * partial lane that reads as a complete one is the defect this whole section
  * exists to avoid, and `:empty { display: none }` would be how it happened. */
+/* What the lane was measured to do, and what it is known to be bad at. Same
+   weight as the coverage line below it: two admissions, neither of them a
+   footnote. */
+.lane-measured,
 .lane-coverage {
   margin: 0 0 8px;
   font-family: var(--plain);
   font-size: 12px;
   color: var(--ink-quiet);
+}
+
+.lane-measured {
+  margin-bottom: 2px;
 }
 
 .lane-refused,

@@ -95,6 +95,16 @@ export class LaneColumn {
     label.textContent = answer.label;
     box.append(label);
 
+    // What the model was measured to do, and over how many se'ifim. Drawn
+    // whether or not anything was found, and before the coverage line, because
+    // they are two different admissions: this one is about what the lane is
+    // known to be bad at, and the next is about how much of the shelf it has
+    // seen. Both sentences are composed in Rust.
+    const measured = document.createElement("p");
+    measured.className = "lane-measured";
+    measured.textContent = answer.measured;
+    box.append(measured);
+
     // What is in the index and what is not. Drawn whether or not anything was
     // found, because it is a statement about the answer and not a suggestion.
     const coverage = document.createElement("p");

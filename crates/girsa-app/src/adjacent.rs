@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
 use girsa_lane::coverage::Covered;
-use girsa_lane::{Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MOST};
+use girsa_lane::{Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MEASURED, MOST};
 
 use crate::shelf::Shelf;
 
@@ -73,6 +73,15 @@ pub struct Near {
 pub struct Answer {
     /// The label this must be drawn under. One wording, from `girsa-lane`.
     pub label: &'static str,
+    /// What the lane was **measured** to do, and at what size —
+    /// [`girsa_lane::MEASURED`].
+    ///
+    /// Drawn, like the other three. This sentence existed before this field
+    /// did, in `girsa_mcp::tools`, where it told an *agent* that the lane works
+    /// on a half-remembered statement and poorly on a question and does not
+    /// pasken. The reader was told none of it. A limit stated to a robot and
+    /// not to the person is not a stated limit.
+    pub measured: &'static str,
     pub near: Vec<Near>,
     /// What the lane covers and what it does not, in words.
     pub coverage: String,
@@ -225,6 +234,7 @@ impl Adjacency {
         let coverage = self.coverage.said();
         let refuse = |why: String| Answer {
             label: ADJACENT,
+            measured: MEASURED,
             near: Vec::new(),
             coverage: coverage.clone(),
             refused: Some(why),
@@ -276,6 +286,7 @@ impl Adjacency {
 
         Answer {
             label: ADJACENT,
+            measured: MEASURED,
             near,
             coverage,
             refused: None,
@@ -390,6 +401,7 @@ mod tests {
         // construct an `Answer` that says nothing about why it says nothing.
         let answer = Answer {
             label: ADJACENT,
+            measured: MEASURED,
             near: Vec::new(),
             coverage: Coverage::default().said(),
             refused: Some("the semantic lane is off".to_string()),

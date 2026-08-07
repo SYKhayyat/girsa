@@ -572,10 +572,19 @@ export interface Near {
   nearness: number;
 }
 
-/** What the lane answered. All four fields are drawn. */
+/** What the lane answered. All five fields are drawn. */
 export interface LaneAnswer {
   /** The label these must be drawn under, worded once in Rust. */
   label: string;
+  /**
+   * What the lane was measured to do, and at what size — worded once in Rust.
+   *
+   * It works on a half-remembered statement, poorly on a question, over 240
+   * se'ifim rather than over the whole shelf, and it does not pasken. Every
+   * word of that used to be in an MCP tool description, where an agent could
+   * read it and the reader could not.
+   */
+  measured: string;
   near: Near[];
   coverage: string;
   /** Why there is nothing. Never an empty list with no reason attached. */

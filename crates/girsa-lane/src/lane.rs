@@ -47,6 +47,31 @@ use crate::vectors::{VectorError, Vectors};
 /// be three different claims.
 pub const ADJACENT: &str = "adjacent — found by meaning rather than by these words";
 
+/// What the lane was **measured** to do, and at what size.
+///
+/// # Why this is a constant and not prose in four places
+///
+/// It was prose in one place, and that place was a tool description for a
+/// robot: `girsa_mcp::tools`, which told an agent *"measured to work on a
+/// half-remembered statement and to work poorly on a question. It does not
+/// pasken."* That is the most honest writing about this feature anywhere in the
+/// repository and **the reader could not see any of it.** The window drew
+/// [`ADJACENT`] and a coverage count and nothing about what the thing is known
+/// to be bad at.
+///
+/// The second clause is the one nobody had written down at all. The measurement
+/// in [`crate::model`] is over **240 se'ifim** of Hilchos Tefillah: top-16 of
+/// 240 every time, first 8 times in 10, at a cosine spread of 0.74 against 0.63.
+/// A 0.11 margin over 240 candidates is a *different claim* from a 0.11 margin
+/// over five million — at 240 the tail is empty, and at 5,000,545 the tail is
+/// the answer set. The crate names its other limits with real rigour (the
+/// question-vs-statement asymmetry, mean-centring tried and rejected on
+/// evidence, throughput) and did not name this one, while offering
+/// [`crate::Chosen::everything`] as a standing choice.
+pub const MEASURED: &str = "measured on a half-remembered statement, and it works poorly \
+                            on a question — over 240 se'ifim, not over the whole shelf. \
+                            It does not pasken.";
+
 /// How many adjacent results a lane returns when nobody says.
 pub const MOST: usize = 10;
 

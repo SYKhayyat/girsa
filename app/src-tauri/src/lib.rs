@@ -3153,6 +3153,8 @@ struct NearRow {
 struct LaneAnswer {
     /// The label these must be drawn under. From `girsa-lane`, worded once.
     label: &'static str,
+    /// What the lane was measured to do, and at what size. From `girsa-lane`.
+    measured: &'static str,
     near: Vec<NearRow>,
     coverage: String,
     /// Why there is nothing. Never an empty list with no reason attached.
@@ -3237,6 +3239,7 @@ fn lane_ask(
     let answer = lane.ask(shelf, &text, &scoped, limit.unwrap_or(girsa_lane::MOST));
     Ok(LaneAnswer {
         label: answer.label,
+        measured: answer.measured,
         near: answer
             .near
             .iter()

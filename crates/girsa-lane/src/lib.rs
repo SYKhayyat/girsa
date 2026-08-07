@@ -41,6 +41,8 @@ pub use bring::{bring, BringError, Offer, BEREL};
 pub use chosen::Chosen;
 pub use coverage::{Coverage, Covered};
 pub use job::Job;
-pub use lane::{Adjacent, Lane, LaneError, Run, Settings, Standing, State, ADJACENT, MOST};
-pub use model::{Embedded, Embedder, Model, ModelError};
+pub use lane::{
+    Adjacent, Lane, LaneError, Run, Settings, Standing, State, ADJACENT, MEASURED, MOST,
+};
+pub use model::{how_long, Embedded, Embedder, Model, ModelError, SEGMENTS_A_SECOND};
 pub use vectors::{VectorError, Vectors};
