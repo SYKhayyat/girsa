@@ -622,6 +622,30 @@ own compaction, so every file any earlier version wrote replays to exactly what
 it always meant — which is the property to insist on here and nowhere else,
 `personal/` being the one directory a reader cannot re-download.
 
+**Amended again: derived once is not derived.** A note lives twice — the `.md`
+you can open in vim, and the `segments.jsonl` the shelf and the search index
+read. The second was derived from the first exactly once, when the note was
+written, and never again. `Notes::open` read only the `.md`; `Shelf::read` and
+the index build read only `segments.jsonl`. So editing a note outside this
+application — which "exportable as plain files" invites in as many words — left
+two versions of it: the words you wrote, and the words the search box can find.
+
+Worse, the machinery that exists to make a gap loud made this one silent.
+`since.rs` stats the `.md`, sees it is newer than the index, and says *N notes
+are not searchable yet*; you rebuild; the build reads the **stale**
+`segments.jsonl`; the stamp is now newer than the `.md`; the gap reports zero. A
+closed loop in which *"never a silent gap"* reports success over a gap of its own
+making — and the reason it costs a rebuild to learn nothing is that neither half
+of the loop ever compared the two files to each other.
+
+`Notes::open` now does: two `stat` calls per note, and a re-shelve when the `.md`
+is the newer of the two. Missing counts as stale, because a note with no shelf
+entry is the same problem arrived at from the other side. `note.rs`'s
+`a_note_edited_in_vim_is_what_the_search_box_finds` writes a note, sleeps past
+the filesystem's timestamp granularity, rewrites the file the way an editor
+would, reopens, and reads `segments.jsonl` — it fails on the old code, which is
+the only reason to believe it.
+
 ### W28 · Chain tracing, semantic lane, MCP
 
 Trace forward from a Gemara to how it became halacha; backward from a ruling to

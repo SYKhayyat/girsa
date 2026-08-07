@@ -589,6 +589,11 @@ impl Notes {
             let slug = format!("{SHELF}/{name}");
             let (note, said) = Note::parse(&slug, &body);
             trouble.extend(said);
+            if stale(&path, &notes.personal, &slug) {
+                if let Err(e) = notes.shelve(&note) {
+                    trouble.push(format!("{}: {e}", path.display()));
+                }
+            }
             notes.by_slug.insert(slug, note);
         }
         (notes, trouble)
@@ -788,6 +793,41 @@ impl Notes {
     #[must_use]
     pub fn by_tag(&self, tag: &str) -> Vec<&Note> {
         self.all().filter(|note| note.has_tag(tag)).collect()
+    }
+}
+
+/// Whether a note's file has moved on since the shelf entry derived from it.
+///
+/// # The loop this closes
+///
+/// This module says *the file is the truth (spec.md §4.1) and the catalogue
+/// entry is derived from it* — and it was derived **once**, when the note was
+/// written, and never again. `Notes::open` read only the `.md`; `Shelf::read`
+/// and the index build read only `segments.jsonl`. So editing a note in vim,
+/// which the design explicitly invites, left two versions of it: the words you
+/// wrote, and the words the search box can find.
+///
+/// And the machinery that exists to make that loud made it silent instead:
+///
+/// 1. `since.rs` stats the `.md`, sees it is newer than the index, and says *N
+///    notes are not searchable yet*.
+/// 2. You rebuild the index. It reads the **stale** `segments.jsonl`.
+/// 3. The stamp is now newer than the `.md`, so the gap reports zero.
+///
+/// A closed loop in which *"never a silent gap"* reports success over a gap it
+/// created. Re-deriving on open is what makes the sentence in the module note
+/// true.
+///
+/// Missing counts as stale: a note with no shelf entry is a note the search box
+/// cannot see, which is the same problem arrived at from the other side.
+fn stale(md: &Path, personal: &Path, slug: &str) -> bool {
+    let Ok(note) = std::fs::metadata(md).and_then(|m| m.modified()) else {
+        return false;
+    };
+    let shelved = girsa_corpus::import::work_dir(personal, slug).join("segments.jsonl");
+    match std::fs::metadata(&shelved).and_then(|m| m.modified()) {
+        Ok(shelved) => note > shelved,
+        Err(_) => true,
     }
 }
 
@@ -1018,5 +1058,56 @@ pub(crate) mod tests {
             std::fs::read_to_string(personal.join("works/index.jsonl")).unwrap_or_default();
         assert!(!catalogue.contains("note/מאימתי"));
         let _ = std::fs::remove_dir_all(&personal);
+    }
+
+    #[test]
+    fn a_note_edited_in_vim_is_what_the_search_box_finds() {
+        // This module says *the file is the truth and the catalogue entry is
+        // derived from it*. It was derived once, when the note was written, and
+        // never again — `Notes::open` read only the `.md`, `Shelf::read` and the
+        // index build read only `segments.jsonl`.
+        //
+        // And the gap machinery made it worse rather than louder: `since.rs`
+        // stats the `.md`, says *N notes are not searchable yet*, you rebuild
+        // the index, it reads the **stale** `segments.jsonl`, the stamp is now
+        // newer than the `.md`, and the gap reports zero. A closed loop in which
+        // *"never a silent gap"* reports success over a gap it created.
+        let dir = std::env::temp_dir().join("girsa-note-vim");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut notes = Notes::open(&dir).0;
+        let mut note = Note::new("note/בדיקה", "בדיקה", "me");
+        note.append("ראשון");
+        notes.write(note).expect("it is written");
+
+        let md = path_in(&dir, "בדיקה");
+        let shelved = girsa_corpus::import::work_dir(&dir, "note/בדיקה").join("segments.jsonl");
+        assert!(
+            std::fs::read_to_string(&shelved)
+                .expect("shelved")
+                .contains("ראשון"),
+            "the premise: writing a note shelves it"
+        );
+
+        // Now edit it the way the design invites, with something that is not
+        // this application. `vim` rewrites the file whole; the front matter and
+        // the banner survive because they are in the file it opened.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let edited = std::fs::read_to_string(&md)
+            .expect("vim reads")
+            .replace("ראשון", "שני");
+        std::fs::write(&md, &edited).expect("vim writes");
+
+        let (reopened, trouble) = Notes::open(&dir);
+        assert!(trouble.is_empty(), "{trouble:?}");
+        assert!(reopened.get("בדיקה").is_some(), "the note is still there");
+        let on_the_shelf = std::fs::read_to_string(&shelved).expect("shelved");
+        assert!(
+            on_the_shelf.contains("שני"),
+            "the shelf entry was not re-derived — the search box would still find \
+             the old words: {on_the_shelf}"
+        );
+        assert!(!on_the_shelf.contains("ראשון"), "and not the old ones too");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
