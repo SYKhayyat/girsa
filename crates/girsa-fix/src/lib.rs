@@ -42,6 +42,8 @@ use std::fmt;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use girsa_personal::Log;
+
 use girsa_corpus::segment::SegmentId;
 use serde::{Deserialize, Serialize};
 
@@ -322,10 +324,27 @@ pub enum FixError {
 /// One file, one line each, under your own layer — `personal/corrections.jsonl`.
 /// Greppable and diffable for the same reason the corpus is (spec.md §4.1), and
 /// because handing it to somebody else is a feature rather than an export.
+///
+/// # One line written per correction
+///
+/// The file is a [`Log`]: a correction is appended, taking one back appends a
+/// tombstone, and the file is rewritten only when it has grown past twice what
+/// it holds. It used to be serialized in full on every single mutation, which
+/// made the reading pane's three-second budget (spec.md §7.5) a function of how
+/// many typos you had ever fixed — see the crate docs on `girsa-personal`.
 #[derive(Debug, Clone)]
 pub struct Layer {
-    path: PathBuf,
+    log: Log,
     by_segment: BTreeMap<SegmentId, Vec<Patch>>,
+}
+
+impl From<girsa_personal::LogError> for FixError {
+    fn from(e: girsa_personal::LogError) -> Self {
+        Self::Io {
+            path: e.path,
+            source: e.source,
+        }
+    }
 }
 
 /// What a merge did.
@@ -344,6 +363,15 @@ pub fn path_in(personal: &Path) -> PathBuf {
     personal.join("corrections.jsonl")
 }
 
+/// What names a correction in the file.
+///
+/// The patch id, which is a fingerprint of what the correction claims — so the
+/// same correction made twice is one line, and a tombstone naming it is
+/// unambiguous.
+fn key_of(patch: &Patch) -> String {
+    patch.id.to_string()
+}
+
 impl Layer {
     /// Read your corrections.
     ///
@@ -352,26 +380,22 @@ impl Layer {
     /// un-correcting a library.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let path = path_in(personal);
+        let log = Log::at(path_in(personal));
+        let live = log.live("a correction", key_of);
         let mut layer = Self {
-            path,
+            log,
             by_segment: BTreeMap::new(),
         };
-        let mut trouble = Vec::new();
-        let Ok(body) = std::fs::read_to_string(&layer.path) else {
-            return (layer, trouble);
-        };
-        for (n, line) in body.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<Patch>(line) {
-                Ok(patch) => layer.hold(patch),
-                Err(e) => trouble.push(format!(
-                    "{}: line {} is not a correction: {e}",
-                    layer.path.display(),
-                    n + 1
-                )),
+        let mut trouble = live.trouble;
+        for patch in live.records {
+            layer.hold(patch);
+        }
+        // The one moment the whole file is written, and only when it has grown
+        // past twice what it holds. Failing to tidy up is not a reason to
+        // refuse a reader their corrections, so it is reported and not returned.
+        if Log::bloated(live.lines, layer.count()) {
+            if let Err(e) = layer.compact() {
+                trouble.push(e.to_string());
             }
         }
         (layer, trouble)
@@ -382,9 +406,13 @@ impl Layer {
     #[must_use]
     pub fn nowhere() -> Self {
         Self {
-            path: PathBuf::new(),
+            log: Log::nowhere(),
             by_segment: BTreeMap::new(),
         }
+    }
+
+    fn compact(&self) -> Result<(), FixError> {
+        Ok(self.log.rewrite(self.all())?)
     }
 
     fn hold(&mut self, patch: Patch) {
@@ -398,7 +426,7 @@ impl Layer {
 
     #[must_use]
     pub fn path(&self) -> &Path {
-        &self.path
+        self.log.path()
     }
 
     #[must_use]
@@ -462,13 +490,14 @@ impl Layer {
 
         let id = patch.id.clone();
         let segment = patch.segment.clone();
-        self.hold(patch);
-        if let Err(e) = self.save() {
-            // Put it back the way it was, so what is in memory and what is on
-            // disk are the same corrections.
-            self.forget(&segment, &id);
-            return Err(e);
+        // Written down before it is held, so what is in memory and what is on
+        // disk are the same corrections — and with one line appended rather
+        // than the whole layer serialized, there is nothing to put back if it
+        // fails.
+        if !already {
+            self.log.append(&patch)?;
         }
+        self.hold(patch);
         self.on(&segment)
             .iter()
             .find(|p| p.id == id)
@@ -496,8 +525,8 @@ impl Layer {
         let Some(segment) = self.all().find(|p| p.id == *id).map(|p| p.segment.clone()) else {
             return Ok(false);
         };
+        self.log.took(&[id.as_str()])?;
         let gone = self.forget(&segment, id);
-        self.save()?;
         Ok(gone)
     }
 
@@ -505,6 +534,12 @@ impl Layer {
     ///
     /// Idempotent: a patch is named by what it claims, so the same file taken
     /// twice is the same corrections.
+    ///
+    /// Their file is a log too, so it is replayed rather than read line by line
+    /// — a correction they made and took back is not one they are offering, and
+    /// a correction they changed their mind about twice is still one
+    /// correction. Their tombstones stop at their own file: what is being taken
+    /// is what they hold, never a deletion of what I hold.
     ///
     /// # Errors
     ///
@@ -514,55 +549,47 @@ impl Layer {
             path: file.display().to_string(),
             source,
         })?;
-        let mut merged = Merged::default();
-        for line in body.lines().filter(|l| !l.trim().is_empty()) {
-            let Ok(patch) = serde_json::from_str::<Patch>(line) else {
-                merged.refused += 1;
-                continue;
-            };
+        let theirs = girsa_personal::replay::<Patch>(
+            &body,
+            &file.display().to_string(),
+            "a correction",
+            key_of,
+        );
+        let mut merged = Merged {
+            refused: theirs.trouble.len(),
+            ..Merged::default()
+        };
+        let mut taking: Vec<Patch> = Vec::new();
+        for patch in theirs.records {
             let held = self.on(&patch.segment);
             if held.iter().any(|p| p.id == patch.id) {
                 merged.already_had += 1;
                 continue;
             }
-            if held.iter().any(|p| overlaps(&p.span(), &patch.span())) {
+            // Against what I hold *and* against what this same file has already
+            // offered: two of their corrections claiming the same letters is
+            // the same refusal as one of theirs against one of mine, and it
+            // used to be caught only because each was held before the next was
+            // read.
+            let clashes_within = taking
+                .iter()
+                .any(|p| p.segment == patch.segment && overlaps(&p.span(), &patch.span()));
+            if clashes_within || held.iter().any(|p| overlaps(&p.span(), &patch.span())) {
                 // Their correction and mine claim the same letters. Refused,
                 // and counted — a merge that quietly dropped one would be the
                 // system choosing between two people's readings.
                 merged.refused += 1;
                 continue;
             }
+            taking.push(patch);
+        }
+        // One append for the whole file, and held only once it is down.
+        self.log.append_all(taking.iter())?;
+        for patch in taking {
             self.hold(patch);
             merged.taken += 1;
         }
-        self.save()?;
         Ok(merged)
-    }
-
-    fn save(&self) -> Result<(), FixError> {
-        if self.path.as_os_str().is_empty() {
-            return Ok(());
-        }
-        let io = |source: std::io::Error| FixError::Io {
-            path: self.path.display().to_string(),
-            source,
-        };
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(io)?;
-        }
-        let mut body = String::new();
-        for patch in self.all() {
-            let line = serde_json::to_string(patch)
-                .map_err(|e| io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
-            body.push_str(&line);
-            body.push('\n');
-        }
-        // Written beside and renamed over, so a machine that stops halfway
-        // through leaves the corrections it had rather than half of them.
-        let temp = self.path.with_extension("jsonl.writing");
-        std::fs::write(&temp, body).map_err(io)?;
-        std::fs::rename(&temp, &self.path).map_err(io)?;
-        Ok(())
     }
 
     /// One segment's text, corrected.

@@ -1763,6 +1763,7 @@ version = "0.1.0"
 dependencies = [
  "girsa-corpus",
  "girsa-hebrew",
+ "girsa-personal",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -1801,6 +1802,7 @@ name = "girsa-link"
 version = "0.1.0"
 dependencies = [
  "girsa-corpus",
+ "girsa-personal",
  "girsa-ref",
  "serde",
  "serde_json",
@@ -1814,6 +1816,16 @@ dependencies = [
  "girsa-corpus",
  "girsa-hebrew",
  "girsa-link",
+ "girsa-personal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "girsa-personal"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.19",

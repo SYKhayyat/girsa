@@ -44,6 +44,7 @@ file in the app's data directory.
 
 | Crate | Purpose |
 |---|---|
+| `girsa-personal` | The one file your own layer is written in: an append-only jsonl log with tombstones, shared by every store under `personal/` |
 | `girsa-corpus` | Storage, ingest, schemas, permanent segment IDs |
 | `girsa-search` | tantivy indices, the five modes, the ladder, the chips and the facets |
 | `girsa-link` | The typed link graph, your repairs to it, later mining |
@@ -1146,12 +1147,50 @@ measures the machine's share of that on a sefer the size of Mishnah Berurah —
 the page, re-reading the whole sefer twice on the way:
 
 ```
-18120 segments, no corrections yet:        75 ms
-18120 segments, 1000 corrections already: 217 ms
+18120 segments, no corrections yet:        123 ms
+18120 segments, 1000 corrections already:  176 ms
+18120 segments, 16000 corrections already: 509 ms
 ```
 
 The second number is the one worth having. An overlay that is fast when it is
 empty and quadratic when it is not fails a year in, when nobody is looking.
+
+### It was, and the test stopped one size short of saying so
+
+The third line is new, and so is the reason it can be measured at all.
+
+The layer used to be **serialized in full on every mutation** — `Layer::add`
+wrote every patch you had ever made, so the cost of correcting one typo was a
+function of how many you had already fixed. The old numbers were 75 ms empty and
+217 ms at a thousand: 142 ms of file, linearly, which puts the three-second line
+at about twenty thousand corrections. The test measured to a thousand and
+stopped, and its own comment named the failure it was stopping short of —
+*"fast when it is empty and quadratic when it is not."*
+
+That is how a guardrail goes green over the thing it guards, and it was five
+other files' problem too. Marks, saved questions, folders, link repairs and the
+spelling queue were all the same store written five more times, and the queue is
+the one that hurt: **28,124 entries on the real corpus**, rewritten in full every
+time you said yes or no to one of them, in a feature whose whole pitch is being
+handed thousands of ranked candidates.
+
+All six are now one thing — `girsa-personal`'s `Log`. The file is the same jsonl
+it always was, read as an append-only log: a record is a line, a later line for
+the same key wins, `{"gone":"…"}` takes one back, and the file is rewritten only
+when it has grown past twice what it holds. Nothing had to be migrated, because
+a file with no repeats and no tombstones is its own compaction — which matters
+here more than anywhere else in the tree, `personal/` being the one directory you
+cannot re-download.
+
+What is left of the slope at 16,000 corrections is reading them in order to apply
+them, which no design gets out of.
+
+The guard is not the timing, which is a bad thing to assert on.
+`crates/girsa-fix/tests/a_correction_is_one_line_written.rs` asserts the property
+underneath: after writing a correction that sorts *before* every one already
+held, the bytes that were in the file are still in the file, unchanged, in the
+same places. That is true of an append and false of a rewrite — including a
+rewrite that happens to produce a file of the same length.
 
 In the window it is: highlight the word, **Ctrl+K**, the box opens on the word
 with the word already in it, type it right, Enter. No dialog, no navigation, and

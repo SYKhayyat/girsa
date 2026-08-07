@@ -224,6 +224,10 @@ fn notes_since(personal: &Path, built: Option<SystemTime>) -> Written {
 /// the count is exact; where none do, every line is counted. Over-reporting sends
 /// a reader to rebuild an index they might not have needed to; under-reporting is
 /// the silence this module exists to close, and of the two only one is a lie.
+///
+/// A tombstone is not a correction. The file is an append-only log, so taking a
+/// correction back writes a line too — and a line that says a correction is gone
+/// is not something for the index to go and find.
 fn fixes_since(personal: &Path, built: Option<SystemTime>) -> Written {
     let Some(built) = built else {
         return Written::NoIndex;
@@ -235,16 +239,15 @@ fn fixes_since(personal: &Path, built: Option<SystemTime>) -> Written {
     let Ok(body) = std::fs::read_to_string(&path) else {
         return Written::Since(0);
     };
-    let lines = body.lines().filter(|l| !l.trim().is_empty()).count();
-    if !body.contains("\"when\"") {
-        return Written::Since(lines);
-    }
-    Written::Since(
+    let corrections = || {
         body.lines()
             .filter(|l| !l.trim().is_empty())
-            .filter(|l| when_after(l, built))
-            .count(),
-    )
+            .filter(|l| !girsa_personal::is_tombstone(l))
+    };
+    if !body.contains("\"when\"") {
+        return Written::Since(corrections().count());
+    }
+    Written::Since(corrections().filter(|l| when_after(l, built)).count())
 }
 
 /// Whether a correction's own `when` is after the build.

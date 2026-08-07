@@ -11,6 +11,9 @@ authors.workspace = true
 [dependencies]
 girsa-corpus.workspace = true
 girsa-ref.workspace = true
+# Your judgments about the shipped graph are your own layer, written in the one
+# format the rest of it is — appended to, not rewritten per confirmed link.
+girsa-personal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

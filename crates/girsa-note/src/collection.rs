@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::standing::Standing;
+use girsa_personal::Log;
 use serde::{Deserialize, Serialize};
 
 /// One thing in a folder.
@@ -197,40 +198,47 @@ pub fn path_in(personal: &Path) -> PathBuf {
 }
 
 /// Your folders.
+///
+/// # One line written per folder
+///
+/// The file is a [`Log`]: writing one down appends it, throwing one away appends
+/// a tombstone, and the file is rewritten only when it has grown past twice what
+/// it holds. Editing a folder — which is what adding a member is — appends the
+/// folder as it now stands, so a chaburah list built up over a term costs one
+/// line an edit instead of the whole file.
 #[derive(Debug, Clone)]
 pub struct Collections {
-    path: PathBuf,
+    log: Log,
     by_name: BTreeMap<String, Collection>,
+}
+
+impl From<girsa_personal::LogError> for CollectionError {
+    fn from(e: girsa_personal::LogError) -> Self {
+        Self::Io {
+            path: e.path,
+            source: e.source,
+        }
+    }
 }
 
 impl Collections {
     /// Read them. A line that will not parse costs that folder and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let path = path_in(personal);
-        let mut collections = Self {
-            path,
-            by_name: BTreeMap::new(),
+        let log = Log::at(path_in(personal));
+        let live = log.live("a folder", |c: &Collection| c.name.clone());
+        let mut trouble = live.trouble;
+        let collections = Self {
+            log,
+            by_name: live
+                .records
+                .into_iter()
+                .map(|c| (c.name.clone(), c))
+                .collect(),
         };
-        let mut trouble = Vec::new();
-        let Ok(body) = std::fs::read_to_string(&collections.path) else {
-            return (collections, trouble);
-        };
-        for (n, line) in body.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<Collection>(line) {
-                Ok(collection) => {
-                    collections
-                        .by_name
-                        .insert(collection.name.clone(), collection);
-                }
-                Err(e) => trouble.push(format!(
-                    "{}: line {} is not a folder: {e}",
-                    collections.path.display(),
-                    n + 1
-                )),
+        if Log::bloated(live.lines, collections.by_name.len()) {
+            if let Err(e) = collections.compact() {
+                trouble.push(e.to_string());
             }
         }
         (collections, trouble)
@@ -240,9 +248,13 @@ impl Collections {
     #[must_use]
     pub fn nowhere() -> Self {
         Self {
-            path: PathBuf::new(),
+            log: Log::nowhere(),
             by_name: BTreeMap::new(),
         }
+    }
+
+    fn compact(&self) -> Result<(), CollectionError> {
+        Ok(self.log.rewrite(self.all())?)
     }
 
     #[must_use]
@@ -286,18 +298,10 @@ impl Collections {
             return Err(CollectionError::Unnamed);
         }
         let name = collection.name.clone();
-        let replaced = self.by_name.insert(name.clone(), collection);
-        if let Err(e) = self.write() {
-            match replaced {
-                Some(old) => {
-                    self.by_name.insert(name, old);
-                }
-                None => {
-                    self.by_name.remove(&name);
-                }
-            }
-            return Err(e);
-        }
+        // Written down before it is held, so a folder that will not save is not
+        // one the shelf says you have.
+        self.log.append(&collection)?;
+        self.by_name.insert(name.clone(), collection);
         self.by_name.get(&name).ok_or(CollectionError::Unnamed)
     }
 
@@ -308,11 +312,11 @@ impl Collections {
     ///
     /// If your layer will not write.
     pub fn remove(&mut self, name: &str) -> Result<bool, CollectionError> {
-        let gone = self.by_name.remove(name).is_some();
-        if gone {
-            self.write()?;
+        if !self.by_name.contains_key(name) {
+            return Ok(false);
         }
-        Ok(gone)
+        self.log.took(&[name])?;
+        Ok(self.by_name.remove(name).is_some())
     }
 
     /// The file, as it goes to disk.
@@ -326,23 +330,6 @@ impl Collections {
             }
         }
         body
-    }
-
-    fn write(&self) -> Result<(), CollectionError> {
-        if self.path.as_os_str().is_empty() {
-            return Ok(());
-        }
-        let io = |source: std::io::Error| CollectionError::Io {
-            path: self.path.display().to_string(),
-            source,
-        };
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(io)?;
-        }
-        let temp = self.path.with_extension("jsonl.writing");
-        std::fs::write(&temp, self.to_text()).map_err(io)?;
-        std::fs::rename(&temp, &self.path).map_err(io)?;
-        Ok(())
     }
 }
 

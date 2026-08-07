@@ -30,6 +30,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use girsa_personal::Log;
 use serde::{Deserialize, Serialize};
 
 /// A question, kept.
@@ -145,38 +146,46 @@ pub fn path_in(personal: &Path) -> PathBuf {
 }
 
 /// The questions you have kept.
+///
+/// # One line written per question
+///
+/// The file is a [`Log`]: keeping one appends it, forgetting one appends a
+/// tombstone, and the file is rewritten only when it has grown past twice what
+/// it holds. The name is what a query is asked for by, so it is also what names
+/// it in the file — which is why saving over a name replaces it.
 #[derive(Debug, Clone)]
 pub struct Queries {
-    path: PathBuf,
+    log: Log,
     by_name: BTreeMap<String, SavedQuery>,
+}
+
+impl From<girsa_personal::LogError> for QueryError {
+    fn from(e: girsa_personal::LogError) -> Self {
+        Self::Io {
+            path: e.path,
+            source: e.source,
+        }
+    }
 }
 
 impl Queries {
     /// Read them. A line that will not parse costs that query and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let path = path_in(personal);
-        let mut queries = Self {
-            path,
-            by_name: BTreeMap::new(),
+        let log = Log::at(path_in(personal));
+        let live = log.live("a saved query", |q: &SavedQuery| q.name.clone());
+        let mut trouble = live.trouble;
+        let queries = Self {
+            log,
+            by_name: live
+                .records
+                .into_iter()
+                .map(|q| (q.name.clone(), q))
+                .collect(),
         };
-        let mut trouble = Vec::new();
-        let Ok(body) = std::fs::read_to_string(&queries.path) else {
-            return (queries, trouble);
-        };
-        for (n, line) in body.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<SavedQuery>(line) {
-                Ok(query) => {
-                    queries.by_name.insert(query.name.clone(), query);
-                }
-                Err(e) => trouble.push(format!(
-                    "{}: line {} is not a saved query: {e}",
-                    queries.path.display(),
-                    n + 1
-                )),
+        if Log::bloated(live.lines, queries.by_name.len()) {
+            if let Err(e) = queries.compact() {
+                trouble.push(e.to_string());
             }
         }
         (queries, trouble)
@@ -186,9 +195,13 @@ impl Queries {
     #[must_use]
     pub fn nowhere() -> Self {
         Self {
-            path: PathBuf::new(),
+            log: Log::nowhere(),
             by_name: BTreeMap::new(),
         }
+    }
+
+    fn compact(&self) -> Result<(), QueryError> {
+        Ok(self.log.rewrite(self.all())?)
     }
 
     #[must_use]
@@ -229,18 +242,10 @@ impl Queries {
             return Err(QueryError::Empty);
         }
         let name = query.name.clone();
-        let replaced = self.by_name.insert(name.clone(), query);
-        if let Err(e) = self.write() {
-            match replaced {
-                Some(old) => {
-                    self.by_name.insert(name, old);
-                }
-                None => {
-                    self.by_name.remove(&name);
-                }
-            }
-            return Err(e);
-        }
+        // Written down before it is held, so a question that will not save is
+        // not one the list says you kept.
+        self.log.append(&query)?;
+        self.by_name.insert(name.clone(), query);
         self.by_name.get(&name).ok_or(QueryError::Unnamed)
     }
 
@@ -250,11 +255,11 @@ impl Queries {
     ///
     /// If your layer will not write.
     pub fn remove(&mut self, name: &str) -> Result<bool, QueryError> {
-        let gone = self.by_name.remove(name).is_some();
-        if gone {
-            self.write()?;
+        if !self.by_name.contains_key(name) {
+            return Ok(false);
         }
-        Ok(gone)
+        self.log.took(&[name])?;
+        Ok(self.by_name.remove(name).is_some())
     }
 
     /// The file, as it goes to disk.
@@ -268,23 +273,6 @@ impl Queries {
             }
         }
         body
-    }
-
-    fn write(&self) -> Result<(), QueryError> {
-        if self.path.as_os_str().is_empty() {
-            return Ok(());
-        }
-        let io = |source: std::io::Error| QueryError::Io {
-            path: self.path.display().to_string(),
-            source,
-        };
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(io)?;
-        }
-        let temp = self.path.with_extension("jsonl.writing");
-        std::fs::write(&temp, self.to_text()).map_err(io)?;
-        std::fs::rename(&temp, &self.path).map_err(io)?;
-        Ok(())
     }
 }
 

@@ -25,6 +25,23 @@
 //! The budget below is the spec's three seconds. The numbers are printed, so a
 //! change that makes this eight times slower is visible in the run and not only
 //! when it crosses the line — run with `--nocapture` to see them.
+//!
+//! # Why there are three sizes and not two
+//!
+//! This test used to stop at a thousand corrections, and a thousand was the last
+//! size at which it passed. The layer was serialized in full on every mutation,
+//! so the cost of correcting *one* typo grew with how many you had already
+//! fixed: 142 ms of the 217 ms it printed was attributable to the thousand
+//! patches already on the file, linearly, which put the three-second line at
+//! about twenty thousand corrections and the test's last measurement at
+//! one-twentieth of it.
+//!
+//! Naming a failure and then measuring up to just short of it is how a guardrail
+//! goes green over the thing it guards. So the third size is the whole sefer
+//! corrected — every line of Mishnah Berurah that has a word to fix, which is
+//! sixteen years at three typos a day. The layer is an append-only log now
+//! (`girsa-personal`), and what is left of the slope is reading your corrections
+//! in order to apply them, which no design gets out of.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -44,6 +61,11 @@ const SLUG: &str = "mishnah-berurah";
 
 /// The whole of spec.md §7.5, in milliseconds.
 const BUDGET: Duration = Duration::from_secs(3);
+
+/// Every line of the sefer that has a word to fix — three typos a day for
+/// sixteen years, and more corrections than one person will ever make on one
+/// sefer.
+const A_LIFETIME: usize = 16_000;
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("girsa-three-seconds-{name}"));
@@ -134,26 +156,33 @@ fn correcting_a_typo_from_where_you_are_reading_fits_in_the_budget() {
     );
 }
 
-#[test]
-fn it_is_still_in_the_budget_after_a_year_of_corrections() {
-    // The failure this guards against is the one that arrives later: an
-    // overlay that is fast when it is empty and quadratic when it is not. A
-    // thousand corrections is a reader who fixes three typos a day for a year.
-    let root = scratch("after-a-year");
-    let at = shelf_with_a_typo(&root);
-    let personal = root.join("personal");
-
-    let mut layer = girsa_fix::Layer::open(&personal).0;
-    let read = import::read_back(&root, SLUG).expect("reads");
-    for (n, segment) in read.segments.iter().enumerate().take(1_000) {
+/// Fill the layer with a correction on each of the first `how_many` lines that
+/// have a word to fix. Returns how many were made.
+fn corrections_already(
+    root: &Path,
+    personal: &Path,
+    skipping: &SegmentId,
+    how_many: usize,
+) -> usize {
+    let mut layer = girsa_fix::Layer::open(personal).0;
+    let read = import::read_back(root, SLUG).expect("reads");
+    for (n, segment) in read.segments.iter().enumerate() {
+        if layer.count() >= how_many {
+            break;
+        }
         // `<b>סעיף 1</b> יתגבר …` — the ninth letter onwards is `יתגבר`, on
         // every line but the one the test corrects.
-        if segment.id == at {
+        if segment.id == *skipping {
             continue;
         }
         let letters: Vec<char> = segment.text.chars().collect();
         let start = 3 + format!("סעיף {}", n + 1).chars().count() + 5;
-        let was: String = letters[start..start + 5].iter().collect();
+        let Some(was) = letters
+            .get(start..start + 5)
+            .map(|w| w.iter().collect::<String>())
+        else {
+            continue;
+        };
         if was != "יתגבר" {
             continue;
         }
@@ -168,14 +197,54 @@ fn it_is_still_in_the_budget_after_a_year_of_corrections() {
             ))
             .expect("takes it");
     }
-    assert!(layer.count() > 900, "{} corrections", layer.count());
+    layer.count()
+}
+
+#[test]
+fn it_is_still_in_the_budget_after_a_year_of_corrections() {
+    // The failure this guards against is the one that arrives later: an
+    // overlay that is fast when it is empty and quadratic when it is not. A
+    // thousand corrections is a reader who fixes three typos a day for a year.
+    let root = scratch("after-a-year");
+    let at = shelf_with_a_typo(&root);
+    let personal = root.join("personal");
+
+    let made = corrections_already(&root, &personal, &at, 1_000);
+    assert!(made > 900, "{made} corrections");
 
     let (took, corrected) = correct_it(&root, &personal, &at);
     assert_eq!(corrected, "ובו סעיף אחד כל הדבר הזה מוקדם ובשבת");
     println!(
-        "{SEGMENTS} segments, {} corrections already: {} ms",
-        layer.count(),
+        "{SEGMENTS} segments, {made} corrections already: {} ms",
         took.as_millis()
     );
     assert!(took < BUDGET, "correcting one typo took {took:?}");
+}
+
+#[test]
+fn it_is_still_in_the_budget_with_the_whole_sefer_corrected() {
+    // Sixteen thousand corrections: every line of the sefer that has a word to
+    // fix, which is three typos a day for sixteen years. Under a layer that
+    // rewrote itself on every mutation this was ~2.3 seconds of file on top of
+    // the reading, and getting *here* meant writing 128 million lines to make
+    // sixteen thousand corrections — so the test could not have been written,
+    // never mind passed.
+    let root = scratch("whole-sefer");
+    let at = shelf_with_a_typo(&root);
+    let personal = root.join("personal");
+
+    let made = corrections_already(&root, &personal, &at, A_LIFETIME);
+    assert!(made >= A_LIFETIME, "{made} corrections");
+
+    let (took, corrected) = correct_it(&root, &personal, &at);
+    assert_eq!(corrected, "ובו סעיף אחד כל הדבר הזה מוקדם ובשבת");
+    println!(
+        "{SEGMENTS} segments, {made} corrections already: {} ms",
+        took.as_millis()
+    );
+    assert!(
+        took < BUDGET,
+        "correcting one typo among {made} took {took:?}, and spec.md §7.5 says three seconds is \
+         the whole interaction — including the reader"
+    );
 }

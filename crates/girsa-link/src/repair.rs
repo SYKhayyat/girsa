@@ -24,6 +24,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use girsa_personal::Log;
 use serde::{Deserialize, Serialize};
 
 use crate::{Anchor, Edge, EdgeType, Method};
@@ -91,18 +92,39 @@ impl Repair {
         }
     }
 
+    /// Which kind of statement this is, as one word.
+    ///
+    /// Not [`Repair::as_str`], which is what the UI says and splits `Judged`
+    /// into *confirmed* and *rejected*. Those are two verdicts of **one**
+    /// statement and the second replaces the first, so the thing that names a
+    /// record in the file has to see them as the same.
+    const fn kind(&self) -> &'static str {
+        match self {
+            Self::Judged { .. } => "judged",
+            Self::Retyped { .. } => "retyped",
+            Self::Reanchored { .. } => "reanchored",
+            Self::Pinned { .. } => "pinned",
+            Self::Drawn { .. } => "drawn",
+        }
+    }
+
     /// Whether two repairs are the same kind of statement, and so replace each
     /// other rather than piling up.
-    const fn same_kind(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (Self::Judged { .. }, Self::Judged { .. })
-                | (Self::Retyped { .. }, Self::Retyped { .. })
-                | (Self::Reanchored { .. }, Self::Reanchored { .. })
-                | (Self::Pinned { .. }, Self::Pinned { .. })
-                | (Self::Drawn { .. }, Self::Drawn { .. })
-        )
+    fn same_kind(&self, other: &Self) -> bool {
+        self.kind() == other.kind()
     }
+}
+
+/// What names a repair in the file: the edge, and which statement about it.
+///
+/// One of each kind per edge — retyping twice is one retype and the last word
+/// stands — so the key is the pair, and a tombstone naming it takes back that
+/// one statement and leaves the others.
+///
+/// `\u{1f}` is the unit separator, which cannot occur in an edge name (two
+/// segment ids and an arrow) and so cannot make two different pairs one key.
+fn key_of(record: &Record) -> String {
+    format!("{}\u{1f}{}", record.edge, record.repair.kind())
 }
 
 /// One record in your layer: which edge, what you said, and when.
@@ -144,10 +166,26 @@ pub enum RepairError {
 }
 
 /// Your repairs, all of them: `personal/links.jsonl`.
+///
+/// # One line written per judgment
+///
+/// The file is a [`Log`]: a statement about an edge is appended, taking one back
+/// appends a tombstone, and the file is rewritten only when it has grown past
+/// twice what it holds. It used to be serialized in full every time you
+/// confirmed a single link.
 #[derive(Debug, Clone)]
 pub struct Repairs {
-    path: PathBuf,
+    log: Log,
     by_edge: BTreeMap<String, Vec<Record>>,
+}
+
+impl From<girsa_personal::LogError> for RepairError {
+    fn from(e: girsa_personal::LogError) -> Self {
+        Self::Io {
+            path: e.path,
+            source: e.source,
+        }
+    }
 }
 
 /// Where they live under a personal layer.
@@ -160,26 +198,19 @@ impl Repairs {
     /// Read them. A line that will not parse costs that repair and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let path = path_in(personal);
+        let log = Log::at(path_in(personal));
+        let live = log.live("a repair", key_of);
         let mut repairs = Self {
-            path,
+            log,
             by_edge: BTreeMap::new(),
         };
-        let mut trouble = Vec::new();
-        let Ok(body) = std::fs::read_to_string(&repairs.path) else {
-            return (repairs, trouble);
-        };
-        for (n, line) in body.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<Record>(line) {
-                Ok(record) => repairs.hold(record),
-                Err(e) => trouble.push(format!(
-                    "{}: line {} is not a repair: {e}",
-                    repairs.path.display(),
-                    n + 1
-                )),
+        let mut trouble = live.trouble;
+        for record in live.records {
+            repairs.hold(record);
+        }
+        if Log::bloated(live.lines, repairs.count()) {
+            if let Err(e) = repairs.compact() {
+                trouble.push(e.to_string());
             }
         }
         (repairs, trouble)
@@ -190,9 +221,13 @@ impl Repairs {
     #[must_use]
     pub fn nowhere() -> Self {
         Self {
-            path: PathBuf::new(),
+            log: Log::nowhere(),
             by_edge: BTreeMap::new(),
         }
+    }
+
+    fn compact(&self) -> Result<(), RepairError> {
+        Ok(self.log.rewrite(self.by_edge.values().flatten())?)
     }
 
     fn hold(&mut self, record: Record) {
@@ -206,7 +241,7 @@ impl Repairs {
 
     #[must_use]
     pub fn path(&self) -> &Path {
-        &self.path
+        self.log.path()
     }
 
     #[must_use]
@@ -406,14 +441,18 @@ impl Repairs {
     }
 
     fn record(&mut self, edge: String, repair: Repair, who: &str) -> Result<(), RepairError> {
-        self.hold(Record {
+        let record = Record {
             edge,
             repair,
             who: who.to_string(),
             when: now_seconds(),
             note: None,
-        });
-        self.save()
+        };
+        // Written down before it is held, so what the panel shows and what the
+        // file says are the same judgments.
+        self.log.append(&record)?;
+        self.hold(record);
+        Ok(())
     }
 
     /// Take back everything you said about one edge. `false` if you had said
@@ -430,33 +469,14 @@ impl Repairs {
     ///
     /// If your layer cannot be written.
     pub fn undo_named(&mut self, edge: &str) -> Result<bool, RepairError> {
-        let gone = self.by_edge.remove(edge).is_some();
-        self.save()?;
-        Ok(gone)
-    }
-
-    fn save(&self) -> Result<(), RepairError> {
-        if self.path.as_os_str().is_empty() {
-            return Ok(());
-        }
-        let io = |source: std::io::Error| RepairError::Io {
-            path: self.path.display().to_string(),
-            source,
+        let Some(held) = self.by_edge.get(edge) else {
+            return Ok(false);
         };
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(io)?;
-        }
-        let mut body = String::new();
-        for record in self.by_edge.values().flatten() {
-            let line = serde_json::to_string(record)
-                .map_err(|e| io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
-            body.push_str(&line);
-            body.push('\n');
-        }
-        let temp = self.path.with_extension("jsonl.writing");
-        std::fs::write(&temp, body).map_err(io)?;
-        std::fs::rename(&temp, &self.path).map_err(io)?;
-        Ok(())
+        // One tombstone per statement, because the key is the pair. Taking back
+        // everything said about an edge is taking back each thing said.
+        let stones: Vec<String> = held.iter().map(key_of).collect();
+        self.log.took(&stones)?;
+        Ok(self.by_edge.remove(edge).is_some())
     }
 
     /// The shipped edges with your layer over them.

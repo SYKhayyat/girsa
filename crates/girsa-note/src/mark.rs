@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::standing::Standing;
+use girsa_personal::Log;
 use serde::{Deserialize, Serialize};
 
 /// What a mark is.
@@ -287,37 +288,50 @@ pub fn path_in(personal: &Path) -> PathBuf {
     personal.join("marks.jsonl")
 }
 
+/// What names a mark in the file.
+fn key_of(mark: &Mark) -> String {
+    mark.id.to_string()
+}
+
 /// Everything you have marked.
+///
+/// # One line written per mark
+///
+/// The file is a [`Log`]: a mark is appended, taking one back appends a
+/// tombstone, and the file is rewritten only when it has grown past twice what
+/// it holds. It used to be serialized in full on every highlight.
 #[derive(Debug, Clone)]
 pub struct Marks {
-    path: PathBuf,
+    log: Log,
     by_segment: BTreeMap<SegmentId, Vec<Mark>>,
+}
+
+impl From<girsa_personal::LogError> for MarkError {
+    fn from(e: girsa_personal::LogError) -> Self {
+        Self::Io {
+            path: e.path,
+            source: e.source,
+        }
+    }
 }
 
 impl Marks {
     /// Read them. A line that will not parse costs that mark and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let path = path_in(personal);
+        let log = Log::at(path_in(personal));
+        let live = log.live("a mark", key_of);
         let mut marks = Self {
-            path,
+            log,
             by_segment: BTreeMap::new(),
         };
-        let mut trouble = Vec::new();
-        let Ok(body) = std::fs::read_to_string(&marks.path) else {
-            return (marks, trouble);
-        };
-        for (n, line) in body.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<Mark>(line) {
-                Ok(mark) => marks.hold(mark),
-                Err(e) => trouble.push(format!(
-                    "{}: line {} is not a mark: {e}",
-                    marks.path.display(),
-                    n + 1
-                )),
+        let mut trouble = live.trouble;
+        for mark in live.records {
+            marks.hold(mark);
+        }
+        if Log::bloated(live.lines, marks.count()) {
+            if let Err(e) = marks.compact() {
+                trouble.push(e.to_string());
             }
         }
         (marks, trouble)
@@ -327,9 +341,13 @@ impl Marks {
     #[must_use]
     pub fn nowhere() -> Self {
         Self {
-            path: PathBuf::new(),
+            log: Log::nowhere(),
             by_segment: BTreeMap::new(),
         }
+    }
+
+    fn compact(&self) -> Result<(), MarkError> {
+        Ok(self.log.rewrite(self.all())?)
     }
 
     fn hold(&mut self, mark: Mark) {
@@ -426,11 +444,17 @@ impl Marks {
             }
         }
         let (at, id) = (mark.at.clone(), mark.id.clone());
-        self.hold(mark);
-        if let Err(e) = self.save() {
-            self.forget(&at, &id);
-            return Err(e);
+        // Written down before it is held, so what is on the screen and what is
+        // on the disk are the same marks — and with one line appended there is
+        // nothing to put back if it fails.
+        let already = self
+            .by_segment
+            .get(&at)
+            .is_some_and(|held| held.iter().any(|kept| kept.id == id));
+        if !already {
+            self.log.append(&mark)?;
         }
+        self.hold(mark);
         self.by_segment
             .get(&at)
             .and_then(|held| held.iter().find(|m| m.id == id))
@@ -459,8 +483,8 @@ impl Marks {
         let Some(at) = self.all().find(|m| m.id == *id).map(|m| m.at.clone()) else {
             return Ok(false);
         };
+        self.log.took(&[id.to_string()])?;
         let gone = self.forget(&at, id);
-        self.save()?;
         Ok(gone)
     }
 
@@ -476,23 +500,6 @@ impl Marks {
             }
         }
         body
-    }
-
-    fn save(&self) -> Result<(), MarkError> {
-        if self.path.as_os_str().is_empty() {
-            return Ok(());
-        }
-        let io = |source: std::io::Error| MarkError::Io {
-            path: self.path.display().to_string(),
-            source,
-        };
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(io)?;
-        }
-        let temp = self.path.with_extension("jsonl.writing");
-        std::fs::write(&temp, self.to_text()).map_err(io)?;
-        std::fs::rename(&temp, &self.path).map_err(io)?;
-        Ok(())
     }
 }
 

@@ -19,6 +19,10 @@ girsa-link.workspace = true
 # Tags and titles are Hebrew, and two Hebrew strings are compared in one place
 # in this codebase (W2). Nothing here folds a gershayim by hand.
 girsa-hebrew.workspace = true
+# The one file format your own layer is written in. Marks, saved questions and
+# folders are appended to rather than rewritten, so keeping a hundredth
+# highlight costs what the first did.
+girsa-personal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -13,6 +13,10 @@ girsa-corpus.workspace = true
 # The OCR queue is a question about words, and what a word is belongs to one
 # crate (W2). Nothing here splits Hebrew by hand.
 girsa-hebrew.workspace = true
+# The one file format your own layer is written in. Appended to rather than
+# rewritten, so a reader's thousandth correction costs what their first did and
+# a decision on the 28,124-entry suspect queue costs one line.
+girsa-personal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

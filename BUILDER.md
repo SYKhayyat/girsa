@@ -513,11 +513,37 @@ machinery, different claim, and it unifies with the `emends` edge type.
 **three-second interaction** from where you are reading, nobody does it. Measure
 it.
 
+**Amended after the fact, because *measure it* was satisfied by a measurement
+that stopped just short of the failure.** `three_seconds.rs` measured at zero
+corrections and at a thousand, printed 75 ms and 217 ms, and its own comment
+named what it was watching for — *"an overlay that is fast when it is empty and
+quadratic when it is not."* It was. `Layer::add` serialized **every** patch on
+every call, so the 142 ms of difference was linear in what you already had and
+the three-second line sat at about twenty thousand corrections — one order of
+magnitude past the last size measured.
+
+So the acceptance is now: **measure past where it would have failed.** The third
+case corrects sixteen thousand lines of Mishnah Berurah, which is three typos a
+day for sixteen years, and it is a case the old design could not have run at all
+— getting there would have meant writing 128 million lines to make 16,000
+corrections.
+
+And the timing is not the guard. A wall-clock assertion fails on a loaded machine
+and teaches nobody anything; what is asserted is the property underneath, in
+`crates/girsa-fix/tests/a_correction_is_one_line_written.rs`: write a correction
+that sorts **before** every one already held, and every byte that was in the file
+is still in the file, in the same place. True of an append, false of a rewrite,
+and false even when the rewrite lands a file of identical length.
+
 ### W21 · OCR-error detection
 
 A word appearing once in the corpus, one edit-distance from a word appearing ten
 thousand times, is almost certainly an error. Batch job → **ranked reviewable
 queue**. This is worth more than the editor.
+
+*The queue reaches **28,124 entries** on the real corpus, and going down that
+list is the whole motion. Every decision used to rewrite all 28,124 lines; it now
+appends the one that changed. See W20's amendment and `girsa-personal`.*
 
 ### W22 · Export a fixed sefer
 
@@ -576,6 +602,25 @@ that touches this sugya?"* is the same query as *"who quotes this Rishon?"*
 
 Local, exportable as plain files, no account. Optional encrypted sync of the
 personal layer only — never the corpus, never telemetry.
+
+**Amended after the fact: one store, not six.** Marks, saved questions, folders,
+corrections, link repairs and the spelling queue each grew their own copy of the
+same file store, and each copy had the same defect — the whole collection
+serialized on every mutation — plus its own hand-written
+write-beside-and-rename. Six correct solutions to one problem, none of which
+knew about the other five.
+
+They are now one: `girsa-personal`'s `Log`. Same jsonl, read as an append-only
+log — a record is a line, a later line for the same key wins, `{"gone":"…"}`
+takes one back, and the file is rewritten only when it has grown past twice what
+it holds. It is a leaf crate on purpose: `girsa-fix`, `girsa-note` and
+`girsa-link` are siblings and none may depend on another, so a crate is the only
+place the seventh copy could have *not* been written.
+
+Nothing had to be migrated. A file with no repeated keys and no tombstones is its
+own compaction, so every file any earlier version wrote replays to exactly what
+it always meant — which is the property to insist on here and nowhere else,
+`personal/` being the one directory a reader cannot re-download.
 
 ### W28 · Chain tracing, semantic lane, MCP
 

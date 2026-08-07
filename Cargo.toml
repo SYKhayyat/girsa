@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/girsa-personal",
     "crates/girsa-corpus",
     "crates/girsa-search",
     "crates/girsa-link",
@@ -27,6 +28,10 @@ repository = "https://github.com/SYKhayyat/girsa"
 authors = ["Shaul Khayyat"]
 
 [workspace.dependencies]
+# Your own layer's one file format. A leaf: it knows about jsonl and about
+# nothing else in the tree, which is what lets `girsa-fix`, `girsa-note` and
+# `girsa-link` share it without any of them depending on another.
+girsa-personal = { version = "=0.1.0", path = "crates/girsa-personal" }
 girsa-corpus = { version = "=0.1.0", path = "crates/girsa-corpus" }
 girsa-search = { version = "=0.1.0", path = "crates/girsa-search" }
 girsa-link = { version = "=0.1.0", path = "crates/girsa-link" }

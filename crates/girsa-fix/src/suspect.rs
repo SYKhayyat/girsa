@@ -37,6 +37,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
+use girsa_personal::Log;
 use serde::{Deserialize, Serialize};
 
 use crate::{fingerprint, FixError};
@@ -455,9 +456,15 @@ pub struct Refreshed {
 /// Yours, beside your corrections, for the same reason (spec.md §11): the batch
 /// job rebuilds it whenever the corpus changes, and the one thing it must never
 /// rebuild is what you have already looked at.
+/// # One line written per decision
+///
+/// The queue on the real corpus is **28,124 entries**, and the whole motion the
+/// feature is for is going down that list saying yes or no. Every decision used
+/// to serialize all 28,124 of them; now it appends the one that changed, and the
+/// file is rewritten only when it has grown past twice what it holds.
 #[derive(Debug, Clone)]
 pub struct Queue {
-    path: PathBuf,
+    log: Log,
     entries: Vec<Suspect>,
 }
 
@@ -472,34 +479,28 @@ impl Queue {
     /// reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let path = queue_in(personal);
-        let mut queue = Self {
-            path,
-            entries: Vec::new(),
+        let log = Log::at(queue_in(personal));
+        let live = log.live("a candidate", |s: &Suspect| s.id.clone());
+        let mut trouble = live.trouble;
+        let queue = Self {
+            log,
+            entries: live.records,
         };
-        let mut trouble = Vec::new();
-        let Ok(body) = std::fs::read_to_string(&queue.path) else {
-            return (queue, trouble);
-        };
-        for (n, line) in body.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<Suspect>(line) {
-                Ok(suspect) => queue.entries.push(suspect),
-                Err(e) => trouble.push(format!(
-                    "{}: line {} is not a candidate: {e}",
-                    queue.path.display(),
-                    n + 1
-                )),
+        if Log::bloated(live.lines, queue.entries.len()) {
+            if let Err(e) = queue.compact() {
+                trouble.push(e.to_string());
             }
         }
         (queue, trouble)
     }
 
+    fn compact(&self) -> Result<(), FixError> {
+        Ok(self.log.rewrite(self.entries.iter())?)
+    }
+
     #[must_use]
     pub fn path(&self) -> &Path {
-        &self.path
+        self.log.path()
     }
 
     #[must_use]
@@ -569,7 +570,10 @@ impl Queue {
         }
 
         self.entries = entries;
-        self.save()?;
+        // A rebuild is a replacement, so this is the one write that is still a
+        // whole file — and it is also the compaction, since it lands exactly
+        // the entries the queue now holds.
+        self.compact()?;
         Ok(report)
     }
 
@@ -579,33 +583,16 @@ impl Queue {
     ///
     /// If the queue cannot be written.
     pub fn decide(&mut self, id: &str, decision: Decision) -> Result<bool, FixError> {
-        let Some(entry) = self.entries.iter_mut().find(|s| s.id == id) else {
+        let Some(at) = self.entries.iter().position(|s| s.id == id) else {
             return Ok(false);
         };
-        entry.decided = Some(decision);
-        self.save()?;
+        // Decided on a copy and written down before the queue holds it, so a
+        // decision that will not save is not one the reader is shown as made.
+        let mut decided = self.entries[at].clone();
+        decided.decided = Some(decision);
+        self.log.append(&decided)?;
+        self.entries[at] = decided;
         Ok(true)
-    }
-
-    fn save(&self) -> Result<(), FixError> {
-        let io = |source: std::io::Error| FixError::Io {
-            path: self.path.display().to_string(),
-            source,
-        };
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(io)?;
-        }
-        let mut body = String::new();
-        for entry in &self.entries {
-            let line = serde_json::to_string(entry)
-                .map_err(|e| io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
-            body.push_str(&line);
-            body.push('\n');
-        }
-        let temp = self.path.with_extension("jsonl.writing");
-        std::fs::write(&temp, body).map_err(io)?;
-        std::fs::rename(&temp, &self.path).map_err(io)?;
-        Ok(())
     }
 }
 
