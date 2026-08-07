@@ -35,6 +35,26 @@
 //! `inbound.jsonl`, and W28's landing index has since made that a seek. See the
 //! module note on `girsa_link::touching`.
 //!
+//! # The masks are built from the graph **as you have it**
+//!
+//! An edge's type is what the corpus shipped *plus what you have said about
+//! it* — that is what `girsa_link::repair::Repairs` means everywhere else, and it is
+//! what the link panel shows. The masks were built from the shipped label
+//! alone, so a reader who retyped an edge saw the new type in the sidebar and
+//! searched by the old one: **one question, two answers**, and the facet was
+//! the one that could not be argued with.
+//!
+//! So this takes `personal` as well, and applies your repairs before it counts.
+//! Leaving it off still works and is still honest — the masks are then the
+//! shipped answer and the run says so out loud — but the arrangement that
+//! matters is the one in the README, where it is passed.
+//!
+//! It is the reader's own cache either way: `touching.bits` lives beside the
+//! corpus, and a corpus shared between two readers who have retyped different
+//! edges is a corpus with one of their answers in it. That is the same trade
+//! the search index already makes (`girsa-index build index corpus personal`),
+//! and it is stated in the same place.
+//!
 //! # They are caches and they are allowed to be missing
 //!
 //! Same rule as `girsa-companions` (spec.md §4.1): delete them and run this
@@ -58,9 +78,11 @@ use girsa_link::EdgeType;
 /// finished cache is the size of the graph again.
 const FLUSH_BYTES: usize = 256 * 1024 * 1024;
 
-const USAGE: &str = "usage: girsa-link-types <corpus>
+const USAGE: &str = "usage: girsa-link-types <corpus> [personal]
 
-  Counts the edge types the corpus ships, and what each of them is called.";
+  Counts the edge types the corpus ships, and what each of them is called.
+  With <personal>, the link types you have repaired are counted as you have
+  them — without it, as the corpus shipped them, and the run says which.";
 
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();
@@ -77,6 +99,11 @@ fn main() -> std::process::ExitCode {
     let Some(root) = args.word(0).map(PathBuf::from) else {
         return argv::refuse(USAGE);
     };
+    // Optional, and its absence is reported rather than assumed: the masks
+    // are a facet a reader searches by, and a facet built from labels the
+    // reader has already corrected is the sidebar and the search bar giving two
+    // answers to one question.
+    let personal = args.word(1).map(PathBuf::from);
     let links = root.join("links");
     if !links.is_dir() {
         eprintln!(
@@ -177,7 +204,25 @@ fn main() -> std::process::ExitCode {
 
     // The masks, which are positional and so have to come after everything that
     // could still move a row, and need a reading order the walk does not have.
-    let masks = match write_masks(&root) {
+    let repairs = match &personal {
+        Some(personal) => {
+            let (repairs, trouble) = girsa_link::repair::Repairs::open(personal);
+            for line in trouble {
+                eprintln!("{line}");
+            }
+            eprintln!("  your layer: {} edges retyped", repairs.retyped_count());
+            Some(repairs)
+        }
+        None => {
+            eprintln!(
+                "  no personal layer given — the masks are the types the corpus shipped. If you \
+                 have retyped any edge, the sidebar will show your type and the facet will not; \
+                 pass <personal> to build them as you have them."
+            );
+            None
+        }
+    };
+    let masks = match write_masks(&root, repairs.as_ref()) {
         Ok(masks) => masks,
         Err(e) => {
             eprintln!("cannot write the link-type masks: {e}");
@@ -262,7 +307,10 @@ struct Masks {
 ///
 /// Only if the catalogue itself cannot be read. A single work that cannot be
 /// resolved is counted, not fatal.
-fn write_masks(root: &Path) -> Result<Masks, std::io::Error> {
+fn write_masks(
+    root: &Path,
+    repairs: Option<&girsa_link::repair::Repairs>,
+) -> Result<Masks, std::io::Error> {
     let catalogue = root.join("works/index.jsonl");
     let body = std::fs::read_to_string(&catalogue)?;
     let slugs: Vec<String> = body
@@ -288,13 +336,19 @@ fn write_masks(root: &Path) -> Result<Masks, std::io::Error> {
         // Both ends of every edge, and only the ends that land in *this* work.
         // An edge inside one work contributes both of its ends here, which is
         // what a facet asking "is anything said about this line" wants.
+        //
+        // The type is the one you have, not the one that was shipped: an edge
+        // you retyped is filed under what you called it. Without a personal
+        // layer this is the shipped label, which is the same value `over` would
+        // have returned for a reader who has said nothing.
         let mut ends: Vec<(&girsa_link::Anchor, EdgeType)> = Vec::new();
         for edge in &edges {
+            let kind = repairs.map_or(edge.edge_type, |repairs| repairs.type_of(edge));
             if edge.from.from.work() == slug {
-                ends.push((&edge.from, edge.edge_type));
+                ends.push((&edge.from, kind));
             }
             if edge.to.from.work() == slug {
-                ends.push((&edge.to, edge.edge_type));
+                ends.push((&edge.to, kind));
             }
         }
         let masks = girsa_link::touching::masks_for(ends, &ordered);
@@ -422,6 +476,49 @@ mod tests {
     }
 
     #[test]
+    fn a_type_you_repaired_is_the_type_the_facet_counts() {
+        // The bug this argument exists for. The masks were built from the
+        // shipped label, so a reader who retyped an edge saw the new type in
+        // the link panel — which reads through `Repairs` — and searched by the
+        // old one. One question, two answers, and the facet was the one nobody
+        // could argue with.
+        let root = std::env::temp_dir().join("girsa-link-types-retyped");
+        let _ = std::fs::remove_dir_all(&root);
+        a_little_shelf(&root);
+        let personal = root.join("personal");
+
+        // The edge as the cache holds it, so the repair is filed under the name
+        // `Repairs` itself would compute — a hand-typed key here would test
+        // that this test can spell.
+        let (edges, _) = inbound::touching_work(&root, "bavli/berakhot").expect("the cache");
+        let edge = edges.first().expect("one edge lands in Berakhot").clone();
+        assert_eq!(edge.edge_type, EdgeType::CommentsOn);
+
+        let (mut repairs, trouble) = girsa_link::repair::Repairs::open(&personal);
+        assert!(trouble.is_empty(), "{trouble:?}");
+        repairs
+            .retype(&edge, EdgeType::References, "me")
+            .expect("your layer takes it");
+        assert_eq!(repairs.retyped_count(), 1);
+        assert_eq!(repairs.type_of(&edge), EdgeType::References);
+
+        write_masks(&root, Some(&repairs)).expect("the masks are written");
+        let berakhot = girsa_corpus::import::ordered_ids(&root, "bavli/berakhot").expect("ids");
+        let touching::Touching::Known(masks) = touching::read(&root, "bavli/berakhot", &berakhot)
+        else {
+            panic!("the masks just written were refused");
+        };
+        assert!(
+            masks[2].contains(EdgeType::References),
+            "the facet does not know what the reader called it"
+        );
+        assert!(
+            !masks[2].contains(EdgeType::CommentsOn),
+            "the shipped type is still counted, so the reader has two of them"
+        );
+    }
+
+    #[test]
     fn a_mask_is_set_on_both_ends_of_an_edge_and_only_where_it_lands() {
         // The whole reason this pass exists. Rashi's shard holds the edge;
         // Berakhot's shard holds nothing, and *"what comments on this line"* is
@@ -430,7 +527,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         a_little_shelf(&root);
 
-        let done = write_masks(&root).expect("the masks are written");
+        let done = write_masks(&root, None).expect("the masks are written");
         assert_eq!(done.works, 2);
         assert_eq!(done.segments, 5);
 
@@ -477,7 +574,7 @@ mod tests {
         )
         .expect("the old format");
 
-        let done = write_masks(&root).expect("the masks are written");
+        let done = write_masks(&root, None).expect("the masks are written");
         assert_eq!(done.superseded, 1);
         assert!(
             !old.exists(),

@@ -497,22 +497,14 @@ fn folders(shelf: &Shelf) -> Result<(), String> {
 }
 
 fn tags(shelf: &Shelf) -> Result<(), String> {
-    let tags = girsa_note::Tags::of(
-        shelf.notes(),
-        shelf.marks(),
-        shelf.queries(),
-        shelf.collections(),
-    );
+    let tags = girsa_note::Tags::of(&shelf.layer());
     for (tag, tally) in tags.iter() {
-        println!(
-            "{:<24} {:>3}   notes {} · marks {} · queries {} · folders {}",
-            tag,
-            tally.total(),
-            tally.notes,
-            tally.marks,
-            tally.queries,
-            tally.collections
-        );
+        let carried: Vec<String> = tally
+            .iter()
+            .filter(|(_, count)| *count > 0)
+            .map(|(kind, count)| format!("{} {count}", kind.as_str()))
+            .collect();
+        println!("{:<24} {:>3}   {}", tag, tally.total(), carried.join(" · "));
     }
     println!("{} tags", tags.count());
     Ok(())
@@ -520,22 +512,12 @@ fn tags(shelf: &Shelf) -> Result<(), String> {
 
 fn export(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
     let into = PathBuf::from(rest.first().ok_or("export <directory>")?);
-    let written = girsa_note::export(
-        shelf.notes(),
-        shelf.marks(),
-        shelf.queries(),
-        shelf.collections(),
-        &into,
-    )
-    .map_err(|e| e.to_string())?;
-    println!(
-        "{}: {} notes · {} marks · {} queries · {} folders",
-        into.display(),
-        written.notes,
-        written.marks,
-        written.queries,
-        written.collections
-    );
+    let written = girsa_note::export(&shelf.layer(), &into).map_err(|e| e.to_string())?;
+    let said: Vec<String> = written
+        .iter()
+        .map(|(kind, count)| format!("{count} {}", kind.as_str()))
+        .collect();
+    println!("{}: {}", into.display(), said.join(" · "));
     Ok(())
 }
 

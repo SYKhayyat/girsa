@@ -828,13 +828,22 @@ export interface FolderRow {
   tags: string[];
 }
 
+/** One kind of thing carrying one tag, and how many. */
+export interface Carried {
+  /** `note`, `mark`, `query`, `collection` — Rust's `Taggable`, spelled. */
+  kind: string;
+  count: number;
+  /** What that kind is called, in Hebrew, in the plural. Sent rather than
+   * typed out here: this file had four of them, so a fifth taggable noun was
+   * an edit to a window that has never been told what a mark is. */
+  said: string;
+}
+
 export interface TagRow {
   tag: string;
   total: number;
-  notes: number;
-  marks: number;
-  queries: number;
-  collections: number;
+  /** What carries it, by kind — only the kinds that do. */
+  carried: Carried[];
 }
 
 /** Whether the real shell is behind us, or the browser fixtures are. */

@@ -352,6 +352,24 @@ impl Shelf {
         &mut self.collections
     }
 
+    /// The four stores of your own layer, borrowed together (W27).
+    ///
+    /// Everything that is about *your layer* rather than about one store takes
+    /// this. The four accessors above stay, because a caller that wants the
+    /// marks wants the marks; what does not stay is four of them being passed
+    /// in a row — `girsa_note::Tags::of` and `girsa_note::export` each took the
+    /// full set positionally, from two call sites apiece, and a fifth store
+    /// meant editing all six.
+    #[must_use]
+    pub fn layer(&self) -> girsa_note::Layer<'_> {
+        girsa_note::Layer {
+            notes: &self.notes,
+            marks: &self.marks,
+            queries: &self.queries,
+            collections: &self.collections,
+        }
+    }
+
     /// Write a note down, and put it on the shelf as a sefer.
     ///
     /// The catalogue entry goes into `works` here as well as onto the disk, so

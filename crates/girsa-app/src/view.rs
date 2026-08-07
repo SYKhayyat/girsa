@@ -203,10 +203,43 @@ pub struct FolderMember {
 pub struct TagRow {
     pub tag: String,
     pub total: usize,
-    pub notes: usize,
-    pub marks: usize,
-    pub queries: usize,
-    pub collections: usize,
+    /// What carries it, by kind — **only the kinds that do**.
+    ///
+    /// Four named columns before, and the window turned them into a sentence
+    /// with four Hebrew plurals typed into `yoursview.ts`. A fifth taggable
+    /// noun was a Rust edit, a wire edit and a TypeScript edit, in a file whose
+    /// whole design is that it is told what things are called.
+    pub carried: Vec<CarriedRow>,
+}
+
+/// One kind of thing carrying one tag, and how many.
+#[derive(Serialize)]
+pub struct CarriedRow {
+    /// `note`, `mark`, `query`, `collection`.
+    pub kind: girsa_note::Taggable,
+    pub count: usize,
+    /// What that kind is called, in Hebrew, in the plural.
+    pub said: String,
+}
+
+impl TagRow {
+    /// One tag's row.
+    #[must_use]
+    pub fn of(tag: &str, tally: &girsa_note::Tally) -> Self {
+        Self {
+            tag: tag.to_string(),
+            total: tally.total(),
+            carried: tally
+                .iter()
+                .filter(|(_, count)| *count > 0)
+                .map(|(kind, count)| CarriedRow {
+                    kind,
+                    count,
+                    said: kind.said().to_string(),
+                })
+                .collect(),
+        }
+    }
 }
 
 /// A sefer, as the shelf lists it.

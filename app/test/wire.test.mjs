@@ -51,6 +51,7 @@ const NOT_A_ROW = new Set([
 /** Rust name → the TypeScript interface it is declared as. */
 const CALLED = new Map([
   ["AnchorRow", "Anchor"],
+  ["CarriedRow", "Carried"],
   ["CoveredRow", "LaneCovered"],
   ["GapRow", "Gap"],
   ["HitRow", "Hit"],

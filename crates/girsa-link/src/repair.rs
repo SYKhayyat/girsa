@@ -459,6 +459,44 @@ impl Repairs {
         Ok(())
     }
 
+    /// The type this edge has **as you have it** — what the corpus shipped,
+    /// unless you said otherwise.
+    ///
+    /// The one-field question, so a caller that wants only the label does not
+    /// have to build a whole [`Repaired`] to read one enum off it. `girsa-link-types`
+    /// asks it two million times.
+    #[must_use]
+    pub fn type_of(&self, shipped: &Edge) -> EdgeType {
+        let Some(records) = self.by_edge.get(&name_of(shipped)) else {
+            return shipped.edge_type;
+        };
+        records
+            .iter()
+            .rev()
+            .find_map(|record| match &record.repair {
+                Repair::Retyped { edge_type } => crate::touching::type_named(edge_type),
+                _ => None,
+            })
+            .unwrap_or(shipped.edge_type)
+    }
+
+    /// How many edges you have retyped.
+    ///
+    /// Reported by `girsa-link-types` before it starts, because the number is
+    /// how a reader tells *the cache is built from my graph* from *the cache is
+    /// built from the shipped one and I forgot the argument*.
+    #[must_use]
+    pub fn retyped_count(&self) -> usize {
+        self.by_edge
+            .values()
+            .filter(|records| {
+                records
+                    .iter()
+                    .any(|record| matches!(record.repair, Repair::Retyped { .. }))
+            })
+            .count()
+    }
+
     /// Take back everything you said about one edge. `false` if you had said
     /// nothing.
     ///

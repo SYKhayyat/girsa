@@ -22,7 +22,11 @@
 pub mod buffer;
 pub mod citing;
 pub mod documents;
+// The one errand a clipboard cannot express: a document's worth of quotes,
+// re-read against the corpus as it stands now (spec.md §10.2).
+pub mod refreshing;
 
 pub use buffer::{Buffer, BufferError};
 pub use citing::{linkify, who_cites, Citing, Linked};
 pub use documents::Documents;
+pub use refreshing::{refreshed, Refreshed, Wanted};

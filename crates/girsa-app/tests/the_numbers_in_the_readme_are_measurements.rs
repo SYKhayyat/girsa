@@ -107,6 +107,15 @@ fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
             .count(),
     );
     out.insert("bins", under_crates(root, "src/bin", "rs"));
+    // The checks that read this repository's own source. Counted rather than
+    // typed, because a file whose whole subject is *the rule was written down
+    // and nothing enforced it* should not carry a number nothing enforces.
+    out.insert(
+        "rules",
+        read(&root.join("crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs"))
+            .matches("#[test]")
+            .count(),
+    );
     out.insert("window-modules", files_in(&root.join("app/src"), "ts"));
     out.insert("styles-lines", lines_of(&root.join("app/src/styles.css")));
     out

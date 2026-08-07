@@ -90,7 +90,7 @@ is **24**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That sentence used to say *supposed to be*, and it was measured: of the
-shell's **3,789**<!--=shell-lines--> lines, about 150 — 23 commands — were
+shell's **3,769**<!--=shell-lines--> lines, about 150 — 23 commands — were
 genuine pass-through, and the rest decided cache policy, sort orders,
 truncation lengths, patch provenance, which fonts a Hebrew reader is offered,
 what makes a directory a corpus, and what to do with a chip key it did not
@@ -308,6 +308,35 @@ exactly as many segments as the schema promised.** The first needs the corpus.
 The second is a property of this code, is true of any shelf, and now runs
 everywhere.
 
+### The design lives in prose, and prose is not checkable
+
+That is the diagnosis this repository was given, and it is the one finding every
+other finding is downstream of: **98,488 insertions against 2,334 deletions in
+59 commits over four days.** Each pass solved its problem correctly, in
+isolation, and wrote down eloquently why its solution was right. Not one of them
+went back to notice that six earlier passes had solved the same problem — so the
+invariants exist, beautifully argued, next to callers that break them:
+
+> `store.rs` — *"The importer calls this."* Three callers, all tests.
+> `since.rs` — *"Shared, so a search panel that finds an index and one that does
+> not cannot be two answers to one question."* Forty lines away, a second
+> `find_index` with a different accept predicate.
+> `beside.rs` — *"Built once per pair of open panes."* Once per **scroll event**,
+> reading both works' shards.
+
+Writing it down was mistaken for enforcing it. So
+`crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs` is
+**22**<!--=rules--> checks that read this repository's own source and fail when
+a rule stated in a doc comment stops being true — a slug worked out twice, a
+query prepared twice, a chip family read with a silent fallback, Ksav markup
+composed outside the desk, a refusal Rust can send that the window has no
+sentence for.
+
+It is a grep, and a grep is a blunt instrument; every check in there says in its
+own comment what it can and cannot catch. That is the trade. A rule nothing
+checks is a rule that has already drifted at least once in this repository, and
+a blunt check that fires is worth more than an elegant argument that does not.
+
 The shell is a workspace member that is not built by default — it cannot compile
 until the frontend has been built into `app/dist`, and the four commands above
 have to stay quick without a node toolchain anywhere near them. That is what
@@ -339,7 +368,7 @@ directory that is not already an index, because that argument order has been
 transposed here once and it cost the corpus:
 
 ```sh
-cargo run --release -p girsa-link  --bin girsa-link-types -- corpus
+cargo run --release -p girsa-link  --bin girsa-link-types -- corpus personal
 cargo run --release -p girsa-search --bin girsa-index -- build index corpus personal
 cargo run --release -p girsa-search --bin girsa-index -- stamp index
 cargo run --release -p girsa-search --bin girsa-index -- find  index corpus יתגבר כארי
@@ -1150,13 +1179,32 @@ answer:
 | `POST /open` | *show me this place* — the window opens the sefer and lands on the segment |
 | `POST /cite` | *print this ref in that style* |
 | `POST /quote` | *the words again*, read out of the corpus as it stands now |
+| `POST /refresh` | *this whole document again* — every citation in it, re-read |
+| `POST /where-from` | *where is this phrase from?* — cite-on-selection |
+| `POST /search` | *nothing fitted* — put the phrase in the search and open it |
+| `POST /linkify` | *which of these are citations?* — only the certain ones |
+| `POST /document` | *I have saved a document here* — so *where did I use this* is true |
 
-The last two are what make a citation alive. Because a Ksav document stores the
-**ref** and not the printed string, a whole sefer can be switched from
-abbreviated to full-form citations, and every quote regenerated against a
+`/cite` and `/quote` are what make a citation alive. Because a Ksav document
+stores the **ref** and not the printed string, a whole sefer can be switched
+from abbreviated to full-form citations, and every quote regenerated against a
 corrected edition (§7) — but only if something knows the title, the words the
 schema uses for a level, and the text. All three live in the library, so Ksav
 asks rather than keeping a copy that nobody would remember to update.
+
+`/refresh` is the one that makes the port worth having. Everything Girsa
+*hands* Ksav, the operating system could carry: a source on the clipboard is
+push, one direction, no reply, and Ctrl+V is the whole protocol. What a
+clipboard cannot be is a **question**. §10.2's promise is stated about a
+document — forty citations at once, some of which name a sefer this shelf does
+not have — and one call comes back with a row for each, in the order the
+document has them, a reason in the ones that failed and the other
+thirty-nine still refreshed. The decision *one missing sefer is not a failed
+document* is made once, in the library.
+
+What comes back is rows, not a rewritten file. A correction somebody else made
+silently changing the words in the sefer you are writing is the surprise §7.1
+is built to avoid, so the writer sees what moved and says yes.
 
 **Localhost is not private**, and the token is not decoration: every process on
 the machine can reach a loopback port, and so can a web page. So it is required
@@ -2763,7 +2811,7 @@ So the graph is walked once more and each edge is written a second time, into th
 file of the work its far end lands in:
 
 ```
-$ cargo run --release -p girsa-link --bin girsa-link-types -- corpus
+$ cargo run --release -p girsa-link --bin girsa-link-types -- corpus personal
 two caches written beside the edges:
   shards read        5790
   edges              4182337
@@ -2776,6 +2824,15 @@ Identical rows to `edges.jsonl`, read back by the same reader, so the two halves
 of a segment's links cannot come to mean different things. An edge whose two ends
 are in one sefer is **not** written here — its own shard has it, and a caller
 reading both files wants their union to be each edge once.
+
+`personal` is there for the second cache. An edge's type is what the corpus
+shipped **plus what you have said about it** — that is what `girsa_link::Repairs`
+means in the link panel, which shows your type the moment you set it. The masks
+were built from the shipped label alone, so a reader who retyped an edge saw the
+new type in the sidebar and searched by the old one: one question, two answers,
+and the facet was the one that could not be argued with. Leave `personal` off and
+the masks are the shipped answer, which is still true — the run says so in a
+sentence rather than leaving you to notice.
 
 A hop is then two file reads, cached for the life of a walk. A three-deep trace
 out of the first mishnah of Berakhot reads 8 works and takes 1.6 seconds; the

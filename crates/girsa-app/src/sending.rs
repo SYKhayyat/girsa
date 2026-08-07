@@ -94,6 +94,15 @@ pub enum SendError {
     /// silent wrongness this system exists to make impossible.
     #[error("{work} is on the shelf and has no {address}")]
     NoSuchPlace { work: String, address: String },
+    /// The ref names a different sefer than the one handed over.
+    ///
+    /// [`Open::at`] matches on the **address** — `1:1` is `1:1` — so a ref for
+    /// one work looked up in another resolves happily and comes back with the
+    /// wrong sefer's words under the right sefer's citation. Every caller in
+    /// this tree opens the sefer the ref names first; this is here so that the
+    /// one that forgets gets an error rather than a plausible quote.
+    #[error("{asked} is not {holding}")]
+    NotThisSefer { asked: String, holding: String },
 }
 
 /// The three flavours, and the source they all say.
@@ -241,6 +250,12 @@ pub fn quote(
     style: CiteStyle,
     nikud: bool,
 ) -> Result<Sent, SendError> {
+    if reference.work_slug() != sefer.work.slug {
+        return Err(SendError::NotThisSefer {
+            asked: reference.work_slug(),
+            holding: sefer.work.slug.clone(),
+        });
+    }
     let missing = |address: &Address| SendError::NoSuchPlace {
         work: sefer.work.he_title.clone(),
         address: address.to_string(),
@@ -371,6 +386,24 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::pretend::{sefer, shulchan_arukh};
+
+    #[test]
+    fn a_ref_for_another_sefer_is_refused_and_not_answered() {
+        // `Open::at` matches on the address, and every sefer has a `1:1`. A ref
+        // for משנה ברורה looked up in שולחן ערוך used to come back with the
+        // Shulchan Arukh's words under the Shulchan Arukh's citation — a quote
+        // nobody asked for, printed as though somebody had.
+        //
+        // Found by `girsa_desk::refreshing`, whose test hands one sefer to
+        // every ref in a document on purpose.
+        let sefer = shulchan_arukh();
+        let elsewhere: Ref = "girsa:mishnah-berurah/1:1".parse().expect("a ref");
+        let refused = quote(&sefer, &elsewhere, None, CiteStyle::HebrewFull, false);
+        assert!(
+            matches!(refused, Err(SendError::NotThisSefer { .. })),
+            "{refused:?}"
+        );
+    }
 
     fn id(n: u32) -> SegmentId {
         format!("girsa:shulchan-arukh/orach-chayim/1:{n}#{n}")

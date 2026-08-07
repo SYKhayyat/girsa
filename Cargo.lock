@@ -1800,6 +1800,7 @@ dependencies = [
  "girsa-note",
  "girsa-personal",
  "girsa-ref",
+ "girsa-source",
  "serde",
  "serde_json",
  "thiserror 2.0.19",

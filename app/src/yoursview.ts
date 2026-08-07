@@ -438,13 +438,12 @@ export class YoursView {
     count.className = "yours-about";
     // What a tag is on, not only how many: a tag on one note and a tag on
     // forty highlights are different things.
-    count.textContent = [
-      tag.notes > 0 ? `${tag.notes} הערות` : "",
-      tag.marks > 0 ? `${tag.marks} סימונים` : "",
-      tag.queries > 0 ? `${tag.queries} שאילתות` : "",
-      tag.collections > 0 ? `${tag.collections} תיקיות` : "",
-    ]
-      .filter(Boolean)
+    //
+    // The list comes from Rust, kinds and Hebrew plurals and all. It was four
+    // ternaries with four nouns typed here, which made a fifth taggable thing —
+    // a scan, a link repair — an edit to this file.
+    count.textContent = tag.carried
+      .map((carried) => `${carried.count} ${carried.said}`)
       .join(" · ");
     row.append(name, count);
     return row;

@@ -76,6 +76,32 @@ girsa_corpus::spelled!(Dimension {
     Tag => "tag",
 });
 
+/// Where a dimension's rows come from, and therefore what a click on one does.
+///
+/// # Why this is a type and not four `match` arms in three functions
+///
+/// It was. [`Catalogue::seforim_under`], [`narrow`] and [`exclude`] each
+/// matched on [`Dimension`] itself, and each of them had a `Dimension::Link`
+/// arm saying *not this way* in its own words. Adding a seventh dimension meant
+/// finding all three and knowing which of them applied — and the failure of
+/// getting it wrong is a facet that draws, counts, and narrows to nothing.
+///
+/// Now the question is asked once. A dimension says where it lives, and each of
+/// the three functions handles the *kinds of place* rather than the list of
+/// dimensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Through {
+    /// A property of a **sefer**, so the shelf's catalogue answers it and the
+    /// click narrows to the seforim under the row. Costs nothing to add: the
+    /// facts are already read from `works/index.jsonl`.
+    Catalogue,
+    /// A column of the **index**, so the query narrows itself and the catalogue
+    /// is not consulted. Adding one of these is a `SCHEMA_VERSION` bump and a
+    /// 3.6 GB rebuild — which is the honest price of a facet over a property of
+    /// a segment, and is why it is stated here rather than discovered.
+    Column,
+}
+
 impl Dimension {
     /// Every dimension, in the order spec.md §9.8 lists them.
     pub const ALL: [Self; 6] = [
@@ -96,6 +122,40 @@ impl Dimension {
             Self::Author => "author",
             Self::Link => "link type",
             Self::Tag => "tag",
+        }
+    }
+
+    /// Where this dimension's rows come from. See [`Through`].
+    #[must_use]
+    pub const fn through(self) -> Through {
+        match self {
+            Self::Sefer | Self::Shelf | Self::Era | Self::Author | Self::Tag => Through::Catalogue,
+            Self::Link => Through::Column,
+        }
+    }
+
+    /// Which rows of this dimension one sefer counts towards.
+    ///
+    /// The one place that says what a dimension *is*, for everything the
+    /// catalogue answers. [`Facets::of`] counts with it and
+    /// [`Catalogue::seforim_under`] matches against it, so the facet a reader
+    /// sees and the set a click narrows to cannot describe different things —
+    /// which they could when each was a `match` of its own.
+    ///
+    /// More than one row for `Shelf`: every prefix of the path, so narrowing to
+    /// `תלמוד` and to `תלמוד/בבלי/אחרונים` are both real rows.
+    #[must_use]
+    pub fn keys_of(self, slug: &str, facts: &Facts) -> Vec<String> {
+        match self {
+            Self::Sefer => vec![slug.to_string()],
+            Self::Shelf => (1..=facts.shelf.len())
+                .map(|depth| facts.shelf[..depth].join("/"))
+                .collect(),
+            Self::Era => vec![facts.era.clone().unwrap_or_else(|| NO_ERA.to_string())],
+            Self::Author => facts.author.clone().into_iter().collect(),
+            Self::Tag => facts.tags.clone(),
+            // A column of the index, counted by tantivy. Nothing a sefer says.
+            Self::Link => Vec::new(),
         }
     }
 }
@@ -210,25 +270,26 @@ impl Catalogue {
     /// seforim on it, because the index knows seforim and not shelves.
     #[must_use]
     pub fn seforim_under(&self, dimension: Dimension, key: &str) -> Vec<String> {
+        if dimension.through() == Through::Column {
+            // Not a property of a sefer at all. Narrowing by it never comes
+            // through the catalogue, and an empty list here is the honest
+            // answer rather than a missed arm.
+            return Vec::new();
+        }
         self.rows
             .iter()
-            .filter(|(slug, facts)| match dimension {
-                Dimension::Sefer => slug.as_str() == key,
-                // A prefix, so `תלמוד` takes the Bavli and the Yerushalmi with
-                // it — which is what clicking the shelf above them means.
-                Dimension::Shelf => {
-                    facts.shelf.join("/") == key
-                        || facts.shelf.join("/").starts_with(&format!("{key}/"))
-                }
-                Dimension::Era => facts.era.as_deref().unwrap_or(NO_ERA) == key,
-                Dimension::Author => facts.author.as_deref().unwrap_or_default() == key,
-                // `same_tag` rather than `==`: `girsa-note` decides when two tags
-                // are the same tag, and a facet with its own opinion about that
-                // would narrow to a different set than the tag list shows.
-                Dimension::Tag => facts.tags.iter().any(|tag| girsa_note::same_tag(tag, key)),
-                // Not a property of a sefer at all — it is a column of the
-                // index, and narrowing by it never goes through the catalogue.
-                Dimension::Link => false,
+            .filter(|(slug, facts)| {
+                dimension.keys_of(slug, facts).iter().any(|had| {
+                    // `same_tag` rather than `==`: `girsa-note` decides when two
+                    // tags are the same tag, and a facet with its own opinion
+                    // would narrow to a different set than the tag list shows.
+                    // Harmless on the rest — a slug, an era code and a shelf
+                    // path all normalize to themselves.
+                    girsa_note::same_tag(had, key)
+                        // …and the shelf's prefix rule, which is what clicking
+                        // the shelf *above* a shelf means.
+                        || (dimension == Dimension::Shelf && had.starts_with(&format!("{key}/")))
+                })
             })
             .map(|(slug, _)| slug.clone())
             .collect()
@@ -312,19 +373,25 @@ impl Facets {
                 depth: 0,
             });
             // Every prefix of the shelf path, so a reader can narrow to
-            // `תלמוד` or to `תלמוד/בבלי/אחרונים` and both rows are real.
-            for depth in 1..=facts.shelf.len() {
-                let key = facts.shelf[..depth].join("/");
-                let row = shelf.entry(key).or_insert((0, depth - 1));
+            // `תלמוד` or to `תלמוד/בבלי/אחרונים` and both rows are real. The
+            // depth comes back with it because the rail indents by it.
+            for key in Dimension::Shelf.keys_of(slug, facts) {
+                let depth = key.matches('/').count();
+                let row = shelf.entry(key).or_insert((0, depth));
                 row.0 += count;
             }
-            *era.entry(facts.era.clone().unwrap_or_else(|| NO_ERA.to_string()))
-                .or_default() += count;
-            if let Some(name) = &facts.author {
-                *author.entry(name.clone()).or_default() += count;
-            }
-            for own in &facts.tags {
-                *tag.entry(own.clone()).or_default() += count;
+            // The rest are flat, and every one of them is counted from
+            // `keys_of` — the same function `seforim_under` matches against, so
+            // the number on a chip and the set the click narrows to are one
+            // decision rather than two that agree today.
+            for (dimension, into) in [
+                (Dimension::Era, &mut era),
+                (Dimension::Author, &mut author),
+                (Dimension::Tag, &mut tag),
+            ] {
+                for key in dimension.keys_of(slug, facts) {
+                    *into.entry(key).or_default() += count;
+                }
             }
         }
 
@@ -414,12 +481,12 @@ impl Facets {
 /// Narrow a scope to one facet row — the click (spec.md §9.8).
 #[must_use]
 pub fn narrow(scope: &Scope, catalogue: &Catalogue, dimension: Dimension, row: &Row) -> Scope {
-    match dimension {
-        Dimension::Link => match girsa_link::touching::type_named(&row.key) {
+    match dimension.through() {
+        Through::Column => match girsa_link::touching::type_named(&row.key) {
             Some(kind) => scope.clone().linked(kind),
             None => scope.clone(),
         },
-        _ => scope
+        Through::Catalogue => scope
             .clone()
             .only(catalogue.seforim_under(dimension, &row.key), &row.label),
     }
@@ -428,12 +495,12 @@ pub fn narrow(scope: &Scope, catalogue: &Catalogue, dimension: Dimension, row: &
 /// Rule one facet row out — the other click.
 #[must_use]
 pub fn exclude(scope: &Scope, catalogue: &Catalogue, dimension: Dimension, row: &Row) -> Scope {
-    match dimension {
-        Dimension::Link => match girsa_link::touching::type_named(&row.key) {
+    match dimension.through() {
+        Through::Column => match girsa_link::touching::type_named(&row.key) {
             Some(kind) => scope.clone().unlinked(kind),
             None => scope.clone(),
         },
-        _ => scope
+        Through::Catalogue => scope
             .clone()
             .without(catalogue.seforim_under(dimension, &row.key), &row.label),
     }
@@ -720,6 +787,68 @@ mod tests {
         let facets = Facets::of(&counts(&[("bavli/berakhot", 20)], &[], false), &shelf());
         assert!(facets.tag.is_empty());
         assert!(facets.rows(Dimension::Tag).is_empty());
+    }
+
+    #[test]
+    fn every_dimension_says_where_it_comes_from_and_is_reachable_both_ways() {
+        // The check the report's *eight files, one column* is really about. A
+        // seventh dimension added to the enum and to `ALL`, and forgotten in
+        // `Facets::of`, is a chip that draws with no rows and narrows to
+        // nothing — and every existing test still passes, because they all name
+        // the six dimensions that were there when they were written.
+        //
+        // So: nothing is asserted about *which* dimensions exist. Every one of
+        // them has to answer `through()`, and every catalogue-backed one has to
+        // return its own keys for a sefer that has all of them.
+        let facts = Facts {
+            title: "משנה ברורה".into(),
+            shelf: vec!["הלכה".into(), "אחרונים".into()],
+            era: Some("AH".into()),
+            author: Some("החפץ חיים".into()),
+            tags: vec!["הלכות שבת".into()],
+        };
+        for dimension in Dimension::ALL {
+            let keys = dimension.keys_of("mishnah-berurah", &facts);
+            match dimension.through() {
+                Through::Catalogue => assert!(
+                    !keys.is_empty(),
+                    "{dimension:?} goes through the catalogue and this sefer counts towards no \
+                     row of it — a chip that draws and narrows to nothing"
+                ),
+                Through::Column => assert!(
+                    keys.is_empty(),
+                    "{dimension:?} is a column of the index and answered from the catalogue too"
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn narrowing_to_a_shelf_takes_the_shelves_under_it() {
+        // The prefix rule, moved out of `seforim_under`'s hand-written match
+        // and into `keys_of` + one `starts_with`. It is the one rule in here
+        // that is not an equality, so it is the one worth a test of its own.
+        let catalogue = Catalogue {
+            rows: [(
+                "berakhot".to_string(),
+                Facts {
+                    title: "ברכות".into(),
+                    shelf: vec!["תלמוד".into(), "בבלי".into()],
+                    era: None,
+                    author: None,
+                    tags: Vec::new(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let under = catalogue.seforim_under(Dimension::Shelf, "תלמוד");
+        assert_eq!(under, ["berakhot"], "the shelf above did not take it");
+        assert_eq!(
+            catalogue.seforim_under(Dimension::Shelf, "תלמוד/בבלי"),
+            ["berakhot"]
+        );
+        assert!(catalogue.seforim_under(Dimension::Shelf, "תלמו").is_empty());
     }
 
     #[test]

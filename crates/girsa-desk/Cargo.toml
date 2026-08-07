@@ -22,6 +22,7 @@ girsa-personal.workspace = true
 girsa-cite.workspace = true
 girsa-ksav.workspace = true
 girsa-ref.workspace = true
+girsa-source.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true

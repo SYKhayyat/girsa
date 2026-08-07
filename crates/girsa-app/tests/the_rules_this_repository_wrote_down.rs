@@ -950,3 +950,172 @@ fn nothing_below_the_desk_knows_what_ksav_looks_like() {
   ")
     );
 }
+
+#[test]
+fn no_store_of_your_own_layer_rewrites_its_file_to_record_one_line() {
+    // The fourth of the four doc comments §19 asked for as a test, and the one
+    // that had no check.
+    //
+    // Six stores held a `BTreeMap`, and `save()` serialized the whole of it and
+    // wrote the file — so correcting the eight thousandth typo wrote eight
+    // thousand lines, and a lifetime of corrections was O(n²) bytes to record
+    // O(n) statements. Every one of the six had a comment about atomicity above
+    // its `write` + `rename`, which is the shape of this whole finding: the
+    // rule was written down and the cost was not.
+    //
+    // `girsa_personal::Log` is the one file format now: append a line, tombstone
+    // a line, compact when the tombstones outweigh the live rows. This checks
+    // that the six are still on it and still append-only.
+    //
+    // Note what is *not* here. `note.rs` renames — a note is a `.md` file and
+    // rewriting one is rewriting the note. `girsa-scan/store.rs`,
+    // `girsa-lane/lane.rs` and `chosen.rs` rename too, and each writes a single
+    // document rather than a list of statements. Atomic whole-file writes are
+    // right for those and wrong for these, which is why this names the six.
+    let root = repo();
+    for (path, holds) in [
+        ("crates/girsa-fix/src/lib.rs", "your corrections"),
+        ("crates/girsa-fix/src/suspect.rs", "the OCR queue"),
+        ("crates/girsa-note/src/mark.rs", "your marks"),
+        ("crates/girsa-note/src/query.rs", "your saved queries"),
+        (
+            "crates/girsa-note/src/collection.rs",
+            "your chaburah folders",
+        ),
+        (
+            "crates/girsa-link/src/repair.rs",
+            "your repairs to the link graph",
+        ),
+    ] {
+        let text = std::fs::read_to_string(root.join(path))
+            .unwrap_or_else(|e| panic!("{path} reads: {e}"));
+        assert!(
+            text.contains("Log::at") || text.contains("girsa_personal::Log"),
+            "{path} holds {holds} and is no longer on `girsa_personal::Log`. A store that keeps \
+             its own file writes the whole of it to record one line, which is what the log \
+             replaced."
+        );
+        assert!(
+            !text.contains("fs::rename"),
+            "{path} holds {holds} and writes a whole file again — the temp-then-rename that \
+             `girsa_personal::Log` exists to end. Appending one line does not need to be atomic \
+             over the other eight thousand."
+        );
+    }
+}
+
+#[test]
+fn what_two_open_panes_have_in_common_is_worked_out_once() {
+    // `girsa_app::beside`:
+    //
+    //   Built once per pair of open panes.
+    //
+    // It was built per **scroll event**, out of a Tauri command that reads both
+    // works' shards — so following a commentary down a page rebuilt the whole
+    // joining, multi-MB shard reads and all, at the rate the reader's finger
+    // moved. The doc comment above it said what the code did not do.
+    //
+    // It is held on the pane now and `Beside::over` re-aims the held one, so
+    // the two callers below are the two places a *pair* changes: the pane that
+    // has just been joined, and the one whose partner moved. A third would be a
+    // third answer to what two panes have in common, and the fourth would be
+    // back in the scroll handler.
+    let root = repo();
+    let shell = std::fs::read_to_string(root.join("app/src-tauri/src/lib.rs"))
+        .unwrap_or_else(|e| panic!("the shell reads: {e}"));
+    let built = shell.matches("Beside::over(").count();
+    assert!(
+        built <= 2,
+        "the shell builds a `Beside` {built} times. `girsa_app::beside` says *built once per \
+         pair of open panes*, and every extra site is a pair being re-derived somewhere that is \
+         not a pairing — which is how it ended up in a scroll handler."
+    );
+    assert!(
+        !shell.contains("Beside::between("),
+        "the shell calls `Beside::between` itself. That is the expensive half — both works' \
+         shards — and it belongs behind `Shelf`, which caches a pairing; `Beside::over` is what \
+         a caller holding one already asks."
+    );
+}
+
+#[test]
+fn a_test_that_finds_nothing_says_so() {
+    // `tools/check-ksav-fixture.sh`:
+    //
+    //   a check that passes because it could not find what it checks is the
+    //   exact failure this script exists to end
+    //
+    // Written about a missing fixture, and true of a missing corpus: 43 test
+    // functions built a shelf, found no seforim on it, and printed `ok` in
+    // 0.00s. The rule was written down in one shell script and broken by four
+    // dozen Rust tests.
+    //
+    // What the fixture crate fixed for the tests, this holds for the next one:
+    // an acceptance test that walks a shelf has to assert that it found
+    // something before it asserts anything about what it found. Checked by
+    // asking for the one thing an empty run cannot produce — a non-zero
+    // assertion on a count.
+    let root = repo();
+    let mut silent = Vec::new();
+    for (path, text) in sources(&root) {
+        if !path.contains("/tests/") {
+            continue;
+        }
+        // A test file that builds a shelf from the fixture and never asserts
+        // that anything is on it.
+        if !text.contains("girsa_fixture") {
+            continue;
+        }
+        let counts = text.contains("assert!(") || text.contains("assert_eq!(");
+        let looks = text.contains("is_empty()") || text.contains(".len()") || text.contains("> 0");
+        if !(counts && looks) {
+            silent.push(path);
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "a test builds a fixture shelf and never asserts that anything is on it:\n  {}\n\n\
+         `tools/check-ksav-fixture.sh` wrote the rule down: a check that passes because it could \
+         not find what it checks is the failure, not the skip.",
+        silent.join("\n  ")
+    );
+}
+
+#[test]
+fn the_four_rules_this_file_was_asked_for_are_all_here() {
+    // Not a source scan — a list, and the one check in this file whose subject
+    // is the file itself.
+    //
+    // §19 named four doc comments and asked for four tests. Three of them were
+    // written, the fourth was not, and nothing said which — the same shape as
+    // every finding above it. So the four are named here: a rule that loses its
+    // test loses it loudly.
+    let root = repo();
+    let me = std::fs::read_to_string(
+        root.join("crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs"),
+    )
+    .unwrap_or_else(|e| panic!("this file reads: {e}"));
+    for (check, rule) in [
+        (
+            "fn slug_of_has_one_implementation",
+            "a slug is worked out once",
+        ),
+        (
+            "fn find_index_has_one_implementation",
+            "an index is found once",
+        ),
+        (
+            "fn a_prepared_query_is_never_rebuilt_to_be_asked_again",
+            "a query is prepared once",
+        ),
+        (
+            "fn no_store_of_your_own_layer_rewrites_its_file_to_record_one_line",
+            "a correction is one line, not a file",
+        ),
+    ] {
+        assert!(
+            me.contains(check),
+            "the check for *{rule}* is gone. It is one of the four this file was written for."
+        );
+    }
+}

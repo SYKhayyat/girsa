@@ -1,6 +1,6 @@
 //! The library's side of the loopback (spec.md §10.6, BUILDER.md W16).
 //!
-//! Three errands, and each of them is Ksav asking the library a question only
+//! Eight errands, and each of them is Ksav asking the library a question only
 //! the library can answer:
 //!
 //! | | |
@@ -8,9 +8,15 @@
 //! | `POST /open` | *show me this place* — the window opens the sefer and scrolls to it |
 //! | `POST /cite` | *print this ref in that style* — the citation, re-printed |
 //! | `POST /quote` | *give me this source again* — the words, from the corpus as it stands now |
+//! | `POST /refresh` | *give me this whole document again* — every citation in it, re-read (§10.2) |
 //! | `POST /where-from` | *where is this phrase from?* — cite-on-selection (W18) |
 //! | `POST /search` | *nothing fitted* — put the phrase in the search and open it |
 //! | `POST /linkify` | *which of these are citations?* — the certain ones (W19) |
+//! | `POST /document` | *I have saved a document here* — so *where did I use this* is true (§10.4) |
+//!
+//! (It said *three* while there were six of them, then seven. The count is in
+//! the same sentence as the list now, which is the only arrangement that
+//! notices.)
 //!
 //! # Why `/cite` and `/quote` exist at all
 //!
@@ -24,6 +30,20 @@
 //! crates exist to prevent: two catalogues, and the one in the pen is the one
 //! nobody updates. So the formatter is shared code (`girsa-cite`) and the
 //! *facts* stay in the library, one loopback call away.
+//!
+//! # Which of these a clipboard could have carried
+//!
+//! Handing a **source** to Ksav is a push: one direction, no reply, and the
+//! operating system already owns a channel that does it — which is the honest
+//! reading of `send_to_ksav`, and the reason a loopback port has to earn
+//! itself against Ctrl+V.
+//!
+//! It earns itself on the errands above, which are all **pulls**: a question
+//! whose answer has to land back inside the asking application, and which a
+//! clipboard cannot express at all. `/refresh` is the clearest of them —
+//! spec.md §10.2's promise is stated about a *document*, forty citations at a
+//! time, three of which may fail differently. There is no version of that with
+//! one direction and no reply channel.
 
 use girsa_app::sending::about;
 use girsa_app::Shelf;
@@ -82,6 +102,7 @@ fn answer(handle: &tauri::AppHandle, path: &str, body: &str) -> Reply {
     // The two errands that carry a phrase rather than a ref, first.
     match path {
         "/where-from" => return where_from(handle, body),
+        "/refresh" => return refresh(handle, body),
         "/search" => return search(handle, body),
         "/linkify" => return linkify(handle, body),
         "/document" => return document(handle, body),
@@ -199,6 +220,59 @@ fn quote(handle: &tauri::AppHandle, reference: &Ref, asked: &Asked, text: bool) 
             Err(e) => Reply::refused(500, e.to_string()),
         },
         Err(e) => Reply::refused(404, e.to_string()),
+    }
+}
+
+/// *Give me this whole document again, as the corpus stands now* (spec.md
+/// §10.2).
+///
+/// The errand `/quote` could not be. §10.2 promises regeneration over a
+/// **document**, and a pen that made forty `/quote` calls would be deciding,
+/// forty times over, what a missing sefer means to the other thirty-nine.
+/// `girsa_desk::refreshing` decides it once: a citation that cannot be
+/// refreshed is a row with a reason in it.
+///
+/// The sefer is opened per citation through the same cache the window reads
+/// through, so a document quoting one sefer forty times opens it once.
+fn refresh(handle: &tauri::AppHandle, body: &str) -> Reply {
+    #[derive(Deserialize)]
+    struct Document {
+        /// The document itself. Parsed here with the scanner both applications
+        /// compile, so *what does this document cite* has one answer.
+        markup: String,
+        #[serde(default)]
+        style: Option<String>,
+        /// Whether the words come back pointed. Absent is the reader's own
+        /// setting — the window is open and it is their library.
+        #[serde(default)]
+        nikud: Option<bool>,
+    }
+    let Ok(document) = serde_json::from_str::<Document>(body) else {
+        return Reply::refused(400, "that is not a document");
+    };
+    let shared = handle.state::<Shared>();
+    let Ok(mut state) = shared.lock() else {
+        return Reply::refused(500, "the library is busy");
+    };
+    let style = document
+        .style
+        .as_deref()
+        .and_then(CiteStyle::named)
+        .unwrap_or(state.session.cite);
+    let nikud = document.nikud.unwrap_or(state.session.nikud);
+
+    let rows = girsa_desk::refreshed(&document.markup, |reference, range| {
+        let sefer = state.sefer(&reference.work_slug())?;
+        girsa_app::quote(sefer, reference, range, style, nikud).map_err(|e| e.to_string())
+    });
+    let trouble = rows.iter().filter(|row| row.is_trouble()).count();
+    match serde_json::to_string(&serde_json::json!({
+        "quotes": rows,
+        "total": rows.len(),
+        "trouble": trouble,
+    })) {
+        Ok(json) => Reply::ok(json),
+        Err(e) => Reply::refused(500, e.to_string()),
     }
 }
 

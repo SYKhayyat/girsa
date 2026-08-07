@@ -3732,22 +3732,10 @@ fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool,
 fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let counted = girsa_note::Tags::of(
-        shelf.notes(),
-        shelf.marks(),
-        shelf.queries(),
-        shelf.collections(),
-    );
+    let counted = girsa_note::Tags::of(&shelf.layer());
     Ok(counted
         .iter()
-        .map(|(tag, tally)| TagRow {
-            tag: tag.to_string(),
-            total: tally.total(),
-            notes: tally.notes,
-            marks: tally.marks,
-            queries: tally.queries,
-            collections: tally.collections,
-        })
+        .map(|(tag, tally)| TagRow::of(tag, tally))
         .collect())
 }
 
@@ -3763,22 +3751,14 @@ fn export_layer(shared: tauri::State<'_, Shared>, into: Option<String>) -> Resul
         || shelf.personal().join("exports").join("my-layer"),
         PathBuf::from,
     );
-    let written = girsa_note::export(
-        shelf.notes(),
-        shelf.marks(),
-        shelf.queries(),
-        shelf.collections(),
-        &into,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(format!(
-        "{} · {} הערות · {} סימונים · {} שאילתות · {} תיקיות",
-        into.display(),
-        written.notes,
-        written.marks,
-        written.queries,
-        written.collections
-    ))
+    let written = girsa_note::export(&shelf.layer(), &into).map_err(|e| e.to_string())?;
+    // Composed from the list rather than typed out, so a fifth store appears
+    // in this sentence without anybody remembering to add it.
+    let said: Vec<String> = written
+        .iter()
+        .map(|(kind, count)| format!("{count} {}", kind.said()))
+        .collect();
+    Ok(format!("{} · {}", into.display(), said.join(" · ")))
 }
 
 /// Kept honest: the workspace type the window draws is the one the tests are

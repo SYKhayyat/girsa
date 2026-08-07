@@ -98,6 +98,114 @@ pub fn same_tag(a: &str, b: &str) -> bool {
     girsa_hebrew::normalize(a.trim()) == girsa_hebrew::normalize(b.trim())
 }
 
+/// A kind of thing in your layer that can carry a tag.
+///
+/// # Why this is a list and not four function arguments
+///
+/// It was four. `Tally` had four named fields, `Tags::of` took four positional
+/// references, [`export`] took five, `girsa_app::Shelf` exposed four accessors
+/// and the window passed four of them twice — **six signatures for one noun**,
+/// so adding a fifth taggable thing (a scan, a link repair; both are already
+/// nouns under `personal/`) meant six edits before a line of it counted
+/// anything.
+///
+/// One list, and the compiler holds the rest: a new variant is a `match` arm
+/// [`Layer::tags_on`] and [`Layer::count`] will not compile without, and every
+/// tally, total and export row follows from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Taggable {
+    Note,
+    Mark,
+    Query,
+    Collection,
+}
+
+girsa_corpus::spelled!(Taggable {
+    Note => "note",
+    Mark => "mark",
+    Query => "query",
+    Collection => "collection",
+});
+
+impl Taggable {
+    /// Every kind, in declared order.
+    pub const ALL: &'static [Self] = &[Self::Note, Self::Mark, Self::Query, Self::Collection];
+
+    /// How many kinds there are — the width of a [`Tally`].
+    pub const HOW_MANY: usize = Self::ALL.len();
+
+    /// What this kind is called, in Hebrew, in the plural.
+    ///
+    /// Here rather than in the window, which held four of them in a
+    /// `.filter(Boolean).join(" · ")` — so a fifth taggable noun was a
+    /// TypeScript edit to a file that has never been told what a mark is.
+    #[must_use]
+    pub const fn said(self) -> &'static str {
+        match self {
+            Self::Note => "הערות",
+            Self::Mark => "סימונים",
+            Self::Query => "שאילתות",
+            Self::Collection => "תיקיות",
+        }
+    }
+
+    /// Where this kind sits in a [`Tally`].
+    #[must_use]
+    const fn at(self) -> usize {
+        match self {
+            Self::Note => 0,
+            Self::Mark => 1,
+            Self::Query => 2,
+            Self::Collection => 3,
+        }
+    }
+}
+
+/// The four stores of your own layer, borrowed together.
+///
+/// Every function that is about *your layer* rather than about one store takes
+/// this. It is what made [`Taggable`] worth having: a fifth store is a field
+/// here and a variant there, and nothing downstream grows an argument.
+#[derive(Debug, Clone, Copy)]
+pub struct Layer<'a> {
+    pub notes: &'a Notes,
+    pub marks: &'a Marks,
+    pub queries: &'a Queries,
+    pub collections: &'a Collections,
+}
+
+impl Layer<'_> {
+    /// Every tag carried by everything of one kind, one thing at a time.
+    ///
+    /// One of the two `match`es a new taggable noun has to be added to, and the
+    /// reason a new one cannot be forgotten.
+    pub fn tags_on(&self, kind: Taggable) -> Box<dyn Iterator<Item = &String> + '_> {
+        match kind {
+            Taggable::Note => Box::new(self.notes.all().flat_map(|n| n.tags.iter())),
+            Taggable::Mark => Box::new(self.marks.all().flat_map(|m| m.tags.iter())),
+            Taggable::Query => Box::new(self.queries.all().flat_map(|q| q.tags.iter())),
+            Taggable::Collection => Box::new(self.collections.all().flat_map(|c| c.tags.iter())),
+        }
+    }
+
+    /// How many things of one kind there are.
+    #[must_use]
+    pub fn count(&self, kind: Taggable) -> usize {
+        match kind {
+            Taggable::Note => self.notes.all().count(),
+            Taggable::Mark => self.marks.count(),
+            Taggable::Query => self.queries.count(),
+            Taggable::Collection => self.collections.count(),
+        }
+    }
+
+    /// How many things your layer holds altogether.
+    #[must_use]
+    pub fn how_much(&self) -> usize {
+        Taggable::ALL.iter().map(|kind| self.count(*kind)).sum()
+    }
+}
+
 /// Everything you have tagged, tag by tag, with how many things carry it.
 ///
 /// One tag per row, spelled the way it was first written. The count is what a
@@ -109,44 +217,50 @@ pub struct Tags {
 }
 
 /// How many of each kind of thing carry one tag.
+///
+/// Keyed by [`Taggable`] rather than four named fields, for the reason in that
+/// type's note.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Tally {
-    pub notes: usize,
-    pub marks: usize,
-    pub queries: usize,
-    pub collections: usize,
+    counts: [usize; Taggable::HOW_MANY],
 }
 
 impl Tally {
+    /// How many things of one kind carry this tag.
+    #[must_use]
+    pub const fn of(&self, kind: Taggable) -> usize {
+        self.counts[kind.at()]
+    }
+
+    /// Every kind and its count, in declared order.
+    pub fn iter(&self) -> impl Iterator<Item = (Taggable, usize)> + '_ {
+        Taggable::ALL.iter().map(|kind| (*kind, self.of(*kind)))
+    }
+
     #[must_use]
     pub const fn total(&self) -> usize {
-        self.notes + self.marks + self.queries + self.collections
+        let mut sum = 0;
+        let mut at = 0;
+        while at < Taggable::HOW_MANY {
+            sum += self.counts[at];
+            at += 1;
+        }
+        sum
     }
 }
 
 impl Tags {
     /// Count the tags across the whole of your layer.
     #[must_use]
-    pub fn of(notes: &Notes, marks: &Marks, queries: &Queries, collections: &Collections) -> Self {
+    pub fn of(layer: &Layer<'_>) -> Self {
         let mut tags = Self::default();
-        for note in notes.all() {
-            for tag in &note.tags {
-                tags.row(tag).notes += 1;
-            }
-        }
-        for mark in marks.all() {
-            for tag in &mark.tags {
-                tags.row(tag).marks += 1;
-            }
-        }
-        for query in queries.all() {
-            for tag in &query.tags {
-                tags.row(tag).queries += 1;
-            }
-        }
-        for collection in collections.all() {
-            for tag in &collection.tags {
-                tags.row(tag).collections += 1;
+        for kind in Taggable::ALL {
+            // Collected first: `row` borrows `tags` mutably while the iterator
+            // borrows the layer, which is two borrows the compiler is right to
+            // refuse and one `Vec` of references to satisfy.
+            let carried: Vec<&String> = layer.tags_on(*kind).collect();
+            for tag in carried {
+                tags.row(tag).counts[kind.at()] += 1;
             }
         }
         tags
@@ -183,13 +297,35 @@ impl Tags {
     }
 }
 
-/// What an export wrote.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// What an export wrote, by kind.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Exported {
-    pub notes: usize,
-    pub marks: usize,
-    pub queries: usize,
-    pub collections: usize,
+    written: [usize; Taggable::HOW_MANY],
+}
+
+impl Exported {
+    /// How many of one kind were written.
+    #[must_use]
+    pub const fn of(&self, kind: Taggable) -> usize {
+        self.written[kind.at()]
+    }
+
+    /// Every kind and how many, in declared order.
+    pub fn iter(&self) -> impl Iterator<Item = (Taggable, usize)> + '_ {
+        Taggable::ALL.iter().map(|kind| (*kind, self.of(*kind)))
+    }
+
+    /// How many things were written altogether.
+    #[must_use]
+    pub const fn total(&self) -> usize {
+        let mut sum = 0;
+        let mut at = 0;
+        while at < Taggable::HOW_MANY {
+            sum += self.written[at];
+            at += 1;
+        }
+        sum
+    }
 }
 
 /// Why an export stopped.
@@ -214,13 +350,7 @@ pub enum ExportError {
 /// # Errors
 ///
 /// If the destination cannot be written.
-pub fn export(
-    notes: &Notes,
-    marks: &Marks,
-    queries: &Queries,
-    collections: &Collections,
-    into: &Path,
-) -> Result<Exported, ExportError> {
+pub fn export(layer: &Layer<'_>, into: &Path) -> Result<Exported, ExportError> {
     let io = |path: &Path| {
         let path = path.display().to_string();
         move |source| ExportError::Io {
@@ -230,28 +360,43 @@ pub fn export(
     };
     std::fs::create_dir_all(into).map_err(io(into))?;
 
-    let notes_dir = into.join("notes");
+    // A note is a file each, because a note *is* a file each — which is the
+    // claim §11 makes, and this is where it is either true or a conversion.
+    let notes_dir = into.join(where_it_goes(Taggable::Note));
     std::fs::create_dir_all(&notes_dir).map_err(io(&notes_dir))?;
     let mut written = Exported::default();
-    for note in notes.all() {
+    for note in layer.notes.all() {
         let path = notes_dir.join(note::file_name(&note.slug));
         std::fs::write(&path, note.to_text()).map_err(io(&path))?;
-        written.notes += 1;
+        written.written[Taggable::Note.at()] += 1;
     }
 
-    let marks_path = into.join("marks.jsonl");
-    std::fs::write(&marks_path, marks.to_text()).map_err(io(&marks_path))?;
-    written.marks = marks.count();
-
-    let queries_path = into.join("queries.jsonl");
-    std::fs::write(&queries_path, queries.to_text()).map_err(io(&queries_path))?;
-    written.queries = queries.count();
-
-    let collections_path = into.join("collections.jsonl");
-    std::fs::write(&collections_path, collections.to_text()).map_err(io(&collections_path))?;
-    written.collections = collections.count();
+    for (kind, text) in [
+        (Taggable::Mark, layer.marks.to_text()),
+        (Taggable::Query, layer.queries.to_text()),
+        (Taggable::Collection, layer.collections.to_text()),
+    ] {
+        let path = into.join(where_it_goes(kind));
+        std::fs::write(&path, text).map_err(io(&path))?;
+        written.written[kind.at()] = layer.count(kind);
+    }
 
     Ok(written)
+}
+
+/// What one store is exported as. `Taggable::Note` is a directory of files.
+///
+/// Spelled out rather than made up from the variant: `marks.jsonl` and
+/// `queries.jsonl` are the store's own file names, and `querys.jsonl` is what a
+/// generated plural would have written.
+#[must_use]
+const fn where_it_goes(kind: Taggable) -> &'static str {
+    match kind {
+        Taggable::Note => "notes",
+        Taggable::Mark => "marks.jsonl",
+        Taggable::Query => "queries.jsonl",
+        Taggable::Collection => "collections.jsonl",
+    }
 }
 
 #[cfg(test)]
@@ -260,6 +405,32 @@ mod tests {
     // library code, where a panic would take the reader's window with it.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn the_kinds_are_a_list_and_every_one_of_them_has_a_slot() {
+        // `at()` is hand-written because a `const fn` cannot be derived, and a
+        // hand-written index into an array is exactly the thing that goes wrong
+        // quietly: two kinds sharing a slot would add their counts together and
+        // read as a popular tag.
+        let mut seen = std::collections::BTreeSet::new();
+        for kind in Taggable::ALL {
+            assert!(kind.at() < Taggable::HOW_MANY, "{kind:?} is off the end");
+            assert!(seen.insert(kind.at()), "{kind:?} shares a slot");
+        }
+        assert_eq!(seen.len(), Taggable::HOW_MANY);
+        assert_eq!(Taggable::SPELLINGS.len(), Taggable::HOW_MANY);
+    }
+
+    #[test]
+    fn a_tally_totals_every_kind_and_not_the_four_it_was_written_with() {
+        let mut tally = Tally::default();
+        for kind in Taggable::ALL {
+            tally.counts[kind.at()] = 1;
+        }
+        assert_eq!(tally.total(), Taggable::HOW_MANY);
+        assert_eq!(tally.iter().count(), Taggable::HOW_MANY);
+        assert!(tally.iter().all(|(_, n)| n == 1));
+    }
 
     #[test]
     fn two_spellings_of_one_word_are_one_tag() {
