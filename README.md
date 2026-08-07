@@ -9,8 +9,11 @@ is the pen. The pairing is the idea.
 Five minutes, end to end, and it is the whole idea.
 
 - **[`docs/`](docs/)** — for a reader: getting started, *coming from Otzar
-  HaChochma* and *from Bar Ilan*, and the keyboard card (generated from the source,
-  so it cannot drift).
+  HaChochma* and *from Bar Ilan*, and the keyboard card (generated from the
+  source, and diffed against it on every push by
+  [`tools/check-card.sh`](tools/check-card.sh) — a generated file with nothing
+  checking that anybody re-generated it is a hand-maintained file with a
+  disclaimer).
 - **[`spec.md`](spec.md)** — what Girsa is.
 - **[`BUILDER.md`](BUILDER.md)** — what to do on day one: work orders, binding
   rules, the verified traps in the data, and what may not be decided alone.
@@ -138,8 +141,14 @@ exactly as many segments as the schema promised.** The first needs the corpus.
 The second is a property of this code, is true of any shelf, and now runs
 everywhere.
 
-The shell is its own cargo project — it cannot build until the frontend has
-been built into `app/dist`, and the four commands above have to stay quick:
+The shell is a workspace member that is not built by default — it cannot compile
+until the frontend has been built into `app/dist`, and the four commands above
+have to stay quick without a node toolchain anywhere near them. That is what
+`default-members` in the root manifest says. It used to say `exclude`, which
+satisfied the same constraint and also cut the crate off from
+`[workspace.lints]`, `[workspace.dependencies]` and the lockfile — so the 5,018
+lines that own every byte of the interop were the one place a new workspace lint
+could not reach:
 
 ```sh
 npm --prefix app install

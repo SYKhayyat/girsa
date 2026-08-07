@@ -6,6 +6,33 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # The sefer-crates commit this repository is built against.
+  #
+  # `Cargo.toml` pins the shared crates to `=0.5.0`, on purpose: sefer-crates is
+  # a separate repository, so a breaking change there is no longer one atomic
+  # commit that compile-checks both applications, and the exact pin is what
+  # makes taking a new version a deliberate act on this side.
+  #
+  # The checkout below used to have no `ref:` at all, which undid the pin
+  # entirely — CI resolved `=0.5.0` against whatever sefer-crates `main` happened
+  # to be at that second. **Three of this repository's eleven CI runs died on
+  # it**, fifteen seconds in: run 30673098247,
+  # `error: failed to select a version for the requirement girsa-hebrew =
+  # "=0.5.0"`. 27% of CI history red because a different repository's default
+  # branch had not caught up.
+  #
+  # A commit rather than a tag because sefer-crates has no tags, and a SHA is
+  # the stronger pin anyway: a tag can be moved and this cannot. Bumping the
+  # version pins in `Cargo.toml` means bumping this line in the same commit, and
+  # that is the point of it.
+  SEFER_CRATES_REF: 5a589afdd17281bda52fc168e0a37177058971fd
+
+# A push that supersedes another push should not make the machine finish the
+# first one. Pushes currently stack, and every superseded run pays a full
+# compile of tantivy and candle before anyone reads its result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rust:
@@ -18,9 +45,11 @@ jobs:
       # Girsa depends on the shared crates by exact version with a `path` to a
       # sibling checkout, so the sibling has to be here. Once sefer-crates is
       # published this step becomes unnecessary and the pin alone does the work.
+      # Until then the `ref:` is the pin — see SEFER_CRATES_REF above.
       - uses: actions/checkout@v4
         with:
           repository: SYKhayyat/sefer-crates
+          ref: ${{ env.SEFER_CRATES_REF }}
           path: sefer-crates
 
       # The pen. Not built here — only its fixture is read, by the last step.
@@ -73,15 +102,28 @@ jobs:
         run: bash tools/check-ksav-fixture.sh
         working-directory: Girsa
 
-  # The window, which is where the whole Girsa half of the Ksav loop lives.
+      # The other generated artifact, and it had no gate.
+      #
+      # The README says the shortcut card is "generated from the source, so it
+      # cannot drift." It is generated; nothing checked that anybody had
+      # re-generated it. Same script shape as the line above, for the same
+      # reason — the repository invented generate-and-diff for the *other*
+      # application's fixture and did not apply it to its own card.
+      - name: The shortcut card is still what girsa-card prints
+        run: bash tools/check-card.sh
+        working-directory: Girsa
+
+  # The window, which is where the whole Girsa half of the Ksav loop lives:
+  # 5,018 lines and all 100 tauri commands.
   #
-  # `app/src-tauri` is `exclude`d from the workspace because it cannot build
-  # until the frontend has been built into `app/dist`, and the root
-  # `cargo build --all-targets` has to stay green without a node toolchain. That
-  # constraint is real; leaving 4,501 lines and all 91 tauri commands in no gate
-  # at all was the wrong conclusion drawn from it. The ordering it needs is a
-  # `needs:`-shaped edge inside one job, not an exemption — build the frontend
-  # first, then check the crate.
+  # `app/src-tauri` cannot compile until the frontend has been built into
+  # `app/dist`, and root `cargo build --all-targets` has to stay green without a
+  # node toolchain. That constraint is real and it is now expressed as
+  # `default-members` in the root manifest rather than as `exclude` — so the
+  # shell is a workspace member that is simply not built by default, and it
+  # inherits `[workspace.lints]` and `[workspace.dependencies]` like everything
+  # else. What this job still owes is the *ordering*: build the frontend first,
+  # then check the crate.
   shell:
     runs-on: ubuntu-latest
     steps:
@@ -91,6 +133,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: SYKhayyat/sefer-crates
+          ref: ${{ env.SEFER_CRATES_REF }}
           path: sefer-crates
 
       # What `tauri` links against on Linux. The webview is the platform's,
@@ -117,6 +160,23 @@ jobs:
           cache-dependency-path: Girsa/app/package-lock.json
       - run: npm ci
         working-directory: Girsa/app
+
+      # The window's own tests, which ran when he remembered.
+      #
+      # `package.json` has defined `test` since the runner was written and no
+      # gate has ever called it. Seven test files, and among them
+      # `sources.test.mjs` — which `BUILT.md §10` holds up as *"the entire
+      # argument for that shape of test"* after it caught a raw `<select>` in
+      # code written a week after the guard. It caught that because somebody ran
+      # it by hand.
+      #
+      # This is GRADE finding N-3 — *"the gates were built and then never
+      # switched on"* — recurring one layer down, three days after N-3 was
+      # closed. Before `npm run build`, because a type error should not have to
+      # wait behind a bundle.
+      - run: npm test
+        working-directory: Girsa/app
+
       # `app/dist`, which the crate below embeds and cannot compile without.
       - run: npm run build
         working-directory: Girsa/app
@@ -124,16 +184,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      # One workspace now, so one cache — the same key the library job saves
+      # under. This job used to key on `Girsa/app/src-tauri` and rebuild
+      # tantivy, candle and all nine crates a second time: 27m48s against the
+      # library job's 2m44s on a cold cache.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: Girsa/app/src-tauri
+          workspaces: Girsa
 
       # `check` rather than `build`: what this gate is for is the refactor in a
       # shared crate that breaks a caller nothing compiles. That shows up here.
+      # Run from `app/src-tauri` so cargo selects the shell out of the workspace
+      # — the root default members deliberately leave it out.
       - run: cargo check --all-targets
         working-directory: Girsa/app/src-tauri
-      # The workspace's `unwrap_used`/`expect_used` cannot be inherited by an
-      # excluded crate, so this crate declares them itself — see its Cargo.toml.
       - run: cargo clippy --all-targets --all-features -- -D warnings
         working-directory: Girsa/app/src-tauri
       - run: cargo fmt -- --check

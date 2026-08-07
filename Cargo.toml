@@ -12,12 +12,45 @@ members = [
     "crates/girsa-app",
     "crates/girsa-mcp",
     "crates/girsa-fixture",
+    "app/src-tauri",
 ]
-# The Tauri shell is its own cargo project, the way `tauri` expects and the way
-# Ksav has it. It stays out of this workspace on purpose: it cannot build until
-# the frontend has been built into `app/dist`, and `cargo build --all-targets`
-# at the root is the check every work order has to keep green.
-exclude = ["app/src-tauri"]
+
+# The Tauri shell is a member, and is not built by default.
+#
+# It used to be `exclude`d, for a reason that is real: it cannot compile until
+# the frontend has been built into `app/dist`, and root `cargo build
+# --all-targets` has to stay green on a machine with no node toolchain. But
+# `exclude` was the wrong instrument for that constraint, and it cost more than
+# it looks:
+#
+#   - `[workspace.lints]` cannot reach an excluded crate, so the shell
+#     re-declared `unwrap_used`/`expect_used` by hand — and a *third* lint added
+#     to the workspace would silently miss the 5,018 lines that own all the
+#     interop.
+#   - `[workspace.dependencies]` cannot reach it either, so eleven path
+#     dependencies and the `=0.5.0` sefer-crates pins are spelled twice.
+#   - Two lockfiles, two target directories, two caches: on a cold CI cache the
+#     shell job took 27m48s against the library job's 2m44s, because it rebuilt
+#     tantivy, candle and all nine crates a second time.
+#
+# `default-members` satisfies the constraint exactly. `cargo build`,
+# `cargo test` and `cargo clippy` at the root select the default members, so
+# `build.rs` never runs and `app/dist` is never needed; `cargo check` run from
+# `app/src-tauri` still selects the shell, because cargo picks the package from
+# the working directory. One workspace, one lockfile, one set of lints.
+default-members = [
+    "crates/girsa-personal",
+    "crates/girsa-corpus",
+    "crates/girsa-search",
+    "crates/girsa-link",
+    "crates/girsa-fix",
+    "crates/girsa-note",
+    "crates/girsa-scan",
+    "crates/girsa-lane",
+    "crates/girsa-app",
+    "crates/girsa-mcp",
+    "crates/girsa-fixture",
+]
 
 [workspace.package]
 version = "0.1.0"

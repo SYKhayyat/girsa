@@ -31,3 +31,7 @@ dist/
 
 # The test runner's build output. Rebuilt by `npm test` every run (app/test/run.mjs).
 app/.tmp-test/
+
+# One workspace, one lockfile. The shell is a member (see the root manifest);
+# a stray lockfile here would be a second resolution of the same graph.
+/app/src-tauri/Cargo.lock
