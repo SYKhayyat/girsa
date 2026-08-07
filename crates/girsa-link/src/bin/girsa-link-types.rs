@@ -11,15 +11,29 @@
 //! need that reversed, and neither can afford to read 665 MB to answer one
 //! question:
 //!
-//! - **`touching.jsonl`** — which *kinds* of link touch each segment, for
-//!   §9.8's link-type facet. Both ends of every edge, deduplicated, no far end
-//!   kept. See [`girsa_link::touching`].
 //! - **`inbound.jsonl`** — the edges themselves, filed under the work their far
 //!   end lands in, for W28's chain tracing, which asks *what links here* again
-//!   at every hop. See [`girsa_link::inbound`].
+//!   at every hop. Sorted by where its rows land and indexed, so a panel reads
+//!   the kilobytes for one place. See [`girsa_link::inbound`].
+//! - **`touching.bits`** — which *kinds* of link touch each segment, for §9.8's
+//!   link-type facet: one 16-bit mask per segment in reading order. See
+//!   [`girsa_link::touching`].
 //!
-//! One walk writes both, because the walk is the expensive part: three minutes
-//! over 5,790 shards, and doing it twice would be six.
+//! One walk writes the first, because the walk is the expensive part: three
+//! minutes over 5,790 shards, and doing it twice would be six. The masks are a
+//! third pass over what the walk produced, and they have to be, because a mask
+//! is **positional** and the walk does not know a work's reading order — only
+//! its ids. That is `girsa_corpus::import::ordered_ids`, one work at a time.
+//!
+//! # The masks used to be 449 MB of prose
+//!
+//! `touching.jsonl` was one JSON row per `(endpoint, type)` plus the list of
+//! every sefer at the other end — 448.7 MB over 6,268 files, read once, at
+//! index-build time, to produce nine bits per segment. Orach Chayim's was 4.14
+//! MB to say 4,171 numbers; it is now 8.4 KB. The `w` list existed so a phone
+//! reader could ask *which of my mefarshim speak here* without reading
+//! `inbound.jsonl`, and W28's landing index has since made that a seek. See the
+//! module note on `girsa_link::touching`.
 //!
 //! # They are caches and they are allowed to be missing
 //!
@@ -37,10 +51,6 @@ use std::time::Instant;
 
 use girsa_link::store::Row;
 use girsa_link::EdgeType;
-
-/// Flush when this many rows are held. Bounds memory rather than time: the
-/// graph is four million edges and every one of them is two rows.
-const FLUSH_EVERY: usize = 2_000_000;
 
 /// Flush the inbound cache when this many bytes are held. Bytes rather than
 /// rows, because a row here is a whole edge and not a two-field summary — the
@@ -69,7 +79,6 @@ fn main() -> std::process::ExitCode {
         links.display()
     );
 
-    let mut writer = girsa_link::touching::Writer::default();
     let mut inbound = girsa_link::inbound::Writer::default();
     let mut edges = 0usize;
     let mut unreadable = 0usize;
@@ -86,20 +95,10 @@ fn main() -> std::process::ExitCode {
                 unparsed += 1;
                 continue;
             };
-            // The type is read from the row's own label the same way
-            // `store::read_back` reads it, so the cache says exactly what the
-            // graph says (T2, T5: a blank label is `references` and is not an
-            // error).
-            let edge_type = EdgeType::from_sefaria(&row.label);
             let (Some(from), Some(to)) = (work_of(&row.from), work_of(&row.to)) else {
                 unparsed += 1;
                 continue;
             };
-            // Each end's row names the **other** work (W31), so a consumer can
-            // ask *which of my selected mefarshim speak here* off 1 MB instead of
-            // reading 27 MB of `inbound.jsonl`.
-            writer.record(from, &row.from, edge_type, to);
-            writer.record(to, &row.to, edge_type, from);
             // The line as it stands, not a re-serialisation of it: the inbound
             // cache is the same rows in the same shape, read back by the same
             // reader (see `girsa_link::inbound`).
@@ -107,12 +106,6 @@ fn main() -> std::process::ExitCode {
             edges += 1;
         }
         done += 1;
-        if writer.buffered() >= FLUSH_EVERY {
-            if let Err(e) = writer.flush(&root) {
-                eprintln!("cannot write: {e}");
-                return std::process::ExitCode::FAILURE;
-            }
-        }
         if inbound.buffered_bytes() >= FLUSH_BYTES {
             if let Err(e) = inbound.flush(&root) {
                 eprintln!("cannot write: {e}");
@@ -123,7 +116,7 @@ fn main() -> std::process::ExitCode {
             eprint!("\r  {done}/{} shards, {edges} edges", shards.len());
         }
     }
-    if let Err(e) = writer.flush(&root).and_then(|()| inbound.flush(&root)) {
+    if let Err(e) = inbound.flush(&root) {
         eprintln!("cannot write: {e}");
         return std::process::ExitCode::FAILURE;
     }
@@ -151,13 +144,29 @@ fn main() -> std::process::ExitCode {
         }
     }
 
+    // The masks, which are positional and so have to come after everything that
+    // could still move a row, and need a reading order the walk does not have.
+    let masks = match write_masks(&root) {
+        Ok(masks) => masks,
+        Err(e) => {
+            eprintln!("cannot write the link-type masks: {e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
     println!("two caches written beside the edges:");
     println!("  shards read        {done}");
     println!("  edges              {edges}");
     println!(
-        "  type rows          {}   (both ends of each, deduplicated)",
-        writer.len()
+        "  link-type masks    {} works, {} segments   ({} works have no segments on this shelf)",
+        masks.works, masks.segments, masks.unreadable
     );
+    if masks.superseded > 0 {
+        println!(
+            "  touching.jsonl     {} deleted   (the 449 MB this replaced)",
+            masks.superseded
+        );
+    }
     println!(
         "  inbound rows       {}   ({} skipped — both ends in one work, whose own shard holds them)",
         inbound.len(),
@@ -194,6 +203,91 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
     std::process::ExitCode::SUCCESS
+}
+
+/// What the mask pass did.
+#[derive(Debug, Default)]
+struct Masks {
+    works: usize,
+    segments: usize,
+    /// Works in the catalogue whose segments could not be read. Counted rather
+    /// than fatal: a catalogue row with no imported text is a work the shelf
+    /// knows about and the importer has not reached, and one of those is not a
+    /// reason to abandon the other seven thousand.
+    unreadable: usize,
+    /// `touching.jsonl` files removed. The format this replaced.
+    superseded: usize,
+}
+
+/// One 16-bit mask per segment of every work, in reading order.
+///
+/// A third pass rather than part of the walk, and it has to be. A mask is
+/// **positional**, the walk knows only ids, and reading order is
+/// `segments.jsonl` — so the resolution happens where the order is, one work at
+/// a time, off `inbound::touching_work`, which is the union of *what this work
+/// points at* and *what points at this work* with each edge exactly once.
+///
+/// # Errors
+///
+/// Only if the catalogue itself cannot be read. A single work that cannot be
+/// resolved is counted, not fatal.
+fn write_masks(root: &Path) -> Result<Masks, std::io::Error> {
+    let catalogue = root.join("works/index.jsonl");
+    let body = std::fs::read_to_string(&catalogue)?;
+    let slugs: Vec<String> = body
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Slug>(l).ok())
+        .map(|w| w.slug)
+        .collect();
+
+    let mut out = Masks::default();
+    for (done, slug) in slugs.iter().enumerate() {
+        if done % 500 == 0 {
+            eprint!("\r  masks: {done}/{} works", slugs.len());
+        }
+        let Ok(ordered) = girsa_corpus::import::ordered_ids(root, slug) else {
+            out.unreadable += 1;
+            continue;
+        };
+        if ordered.is_empty() {
+            continue;
+        }
+        let (edges, _) = girsa_link::inbound::touching_work(root, slug).unwrap_or_default();
+        // Both ends of every edge, and only the ends that land in *this* work.
+        // An edge inside one work contributes both of its ends here, which is
+        // what a facet asking "is anything said about this line" wants.
+        let mut ends: Vec<(&girsa_link::Anchor, EdgeType)> = Vec::new();
+        for edge in &edges {
+            if edge.from.from.work() == slug {
+                ends.push((&edge.from, edge.edge_type));
+            }
+            if edge.to.from.work() == slug {
+                ends.push((&edge.to, edge.edge_type));
+            }
+        }
+        let masks = girsa_link::touching::masks_for(ends, &ordered);
+        girsa_link::touching::write(root, slug, &ordered, &masks)?;
+        out.works += 1;
+        out.segments += masks.len();
+
+        // The old format, and only once its replacement is on disk. BUILDER.md
+        // rule 3 — when a thing is replaced the old thing goes in the same
+        // change — but a 4 MB file nothing reads is still better than no file
+        // at all if the write above had failed.
+        let superseded = girsa_link::touching::superseded_path(root, slug);
+        if superseded.is_file() && std::fs::remove_file(&superseded).is_ok() {
+            out.superseded += 1;
+        }
+    }
+    eprintln!("\r  masks: {}/{} works          ", slugs.len(), slugs.len());
+    Ok(out)
+}
+
+/// The one field of a catalogue row this pass needs.
+#[derive(serde::Deserialize)]
+struct Slug {
+    slug: String,
 }
 
 /// Every `edges.jsonl` under the links tree.
@@ -260,24 +354,103 @@ mod tests {
         assert_eq!(work_of("not a ref"), None);
     }
 
-    #[test]
-    fn both_ends_of_a_real_edge_land_in_their_own_works() {
-        let root = std::env::temp_dir().join("girsa-link-types-bin");
-        let _ = std::fs::remove_dir_all(&root);
-        let mut writer = touching::Writer::default();
-        let from = "girsa:bavli/rashi-on-berakhot/2a:1:3#3";
-        let to = "girsa:bavli/berakhot/2a:1#1";
-        let from_work = work_of(from).expect("a slug");
-        let to_work = work_of(to).expect("a slug");
-        writer.record(from_work, from, EdgeType::CommentsOn, to_work);
-        writer.record(to_work, to, EdgeType::CommentsOn, from_work);
-        writer.flush(&root).expect("writes");
+    /// A two-work shelf with one edge across it, written the way the importer
+    /// leaves things.
+    fn a_little_shelf(root: &Path) {
+        let mut catalogue = String::new();
+        for (slug, count) in [("bavli/berakhot", 3), ("bavli/rashi-on-berakhot", 2)] {
+            catalogue.push_str(&format!("{{\"slug\":\"{slug}\"}}\n"));
+            let dir = girsa_corpus::import::work_dir(root, slug);
+            std::fs::create_dir_all(&dir).expect("a work directory");
+            let mut body = String::new();
+            for n in 1..=count {
+                body.push_str(&format!(
+                    "{{\"id\":\"girsa:{slug}/2a:1#{n}\",\"kind\":\"text\",\"text\":\"…\"}}\n"
+                ));
+            }
+            std::fs::write(dir.join("segments.jsonl"), body).expect("segments");
+        }
+        std::fs::create_dir_all(root.join("works")).expect("works/");
+        std::fs::write(root.join("works/index.jsonl"), catalogue).expect("a catalogue");
 
+        // Rashi's second comment, on Berakhot's third segment. Stored once, in
+        // the shard of the work it points *from* (spec.md §8.2).
+        let line = "{\"from\":\"girsa:bavli/rashi-on-berakhot/2a:1#2\",\
+                    \"to\":\"girsa:bavli/berakhot/2a:1#3\",\"type\":\"comments-on\",\
+                    \"method\":\"sefaria-seed\",\"label\":\"commentary\"}";
+        let shard = girsa_corpus::import::slug_dir(&root.join("links"), "bavli/rashi-on-berakhot");
+        std::fs::create_dir_all(&shard).expect("a shard directory");
+        std::fs::write(shard.join("edges.jsonl"), format!("{line}\n")).expect("a shard");
+
+        let mut into = inbound::Writer::default();
+        into.push_row("bavli/rashi-on-berakhot", "bavli/berakhot", line);
+        into.flush(root).expect("the inbound cache");
+        for path in inbound_paths(&root.join("links")) {
+            inbound::sort_and_index_at(&path).expect("the landing index");
+        }
+    }
+
+    #[test]
+    fn a_mask_is_set_on_both_ends_of_an_edge_and_only_where_it_lands() {
+        // The whole reason this pass exists. Rashi's shard holds the edge;
+        // Berakhot's shard holds nothing, and *"what comments on this line"* is
+        // asked from Berakhot's side every time.
+        let root = std::env::temp_dir().join("girsa-link-types-masks");
+        let _ = std::fs::remove_dir_all(&root);
+        a_little_shelf(&root);
+
+        let done = write_masks(&root).expect("the masks are written");
+        assert_eq!(done.works, 2);
+        assert_eq!(done.segments, 5);
+
+        let berakhot = girsa_corpus::import::ordered_ids(&root, "bavli/berakhot").expect("ids");
+        let touching::Touching::Known(masks) = touching::read(&root, "bavli/berakhot", &berakhot)
+        else {
+            panic!("the masks just written were refused");
+        };
         assert_eq!(
-            touching::read_back(&root, "bavli/berakhot")
-                .expect("reads")
-                .len(),
-            1
+            masks.iter().map(|m| !m.is_empty()).collect::<Vec<_>>(),
+            [false, false, true],
+            "the end the edge was NOT stored under is the one a reader asks from"
+        );
+        assert!(masks[2].contains(EdgeType::CommentsOn));
+
+        let rashi =
+            girsa_corpus::import::ordered_ids(&root, "bavli/rashi-on-berakhot").expect("ids");
+        let touching::Touching::Known(his) =
+            touching::read(&root, "bavli/rashi-on-berakhot", &rashi)
+        else {
+            panic!("refused");
+        };
+        assert_eq!(
+            his.iter().map(|m| !m.is_empty()).collect::<Vec<_>>(),
+            [false, true]
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_pass_deletes_the_449_mb_format_it_replaced() {
+        // BUILDER.md rule 3: when a thing is replaced the old thing goes in the
+        // same change. A 4 MB file per work that nothing reads is exactly what
+        // a `grep` six months from now presents as authoritative.
+        let root = std::env::temp_dir().join("girsa-link-types-supersede");
+        let _ = std::fs::remove_dir_all(&root);
+        a_little_shelf(&root);
+        let old = touching::superseded_path(&root, "bavli/berakhot");
+        std::fs::create_dir_all(old.parent().expect("a parent")).expect("dir");
+        std::fs::write(
+            &old,
+            "{\"a\":\"girsa:bavli/berakhot/2a:1#1\",\"t\":\"comments-on\"}\n",
+        )
+        .expect("the old format");
+
+        let done = write_masks(&root).expect("the masks are written");
+        assert_eq!(done.superseded, 1);
+        assert!(
+            !old.exists(),
+            "touching.jsonl outlived the format that read it"
         );
         let _ = std::fs::remove_dir_all(&root);
     }

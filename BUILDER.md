@@ -700,7 +700,27 @@ surface; and there is an independent reproduction someone else can run.
 
 ---
 
-### W31 · `touching.jsonl` needs the source work — **filed from OtzariaSonim, 31 July 2026**
+### W31 · `touching.jsonl` needs the source work — **shipped, then reversed 6 August 2026**
+
+> **Read this first.** W31 shipped and has since been **taken out**, and the
+> reason is not that it was wrong when it was written. `touching.jsonl` no
+> longer exists; the file beside the edges is `touching.bits`, one 16-bit mask
+> per segment in reading order, 9.7 MB for the whole shelf against W31's 448.7
+> MB over 6,268 files.
+>
+> W31's argument was that answering *which of my ticked mefarshim speak here*
+> meant reading `inbound.jsonl` — 27.3 MB and 156,076 rows for Orach Chayim —
+> and on a 192 MB heap that is the difference between opening the sefer and an
+> `OutOfMemoryError`. True when written. **W28 then sorted `inbound.jsonl` by
+> where its rows land and wrote `inbound.idx` beside it**, so that question is
+> now a seek into *4,171 places rather than 159,273 rows*. The 12× file was
+> paying for a read that had stopped happening one work order later, and nobody
+> went back to notice — which is the pattern the 6 August lamdan report is
+> about, arriving at the file that report used as its example.
+>
+> The order is kept, unedited below, because the measurement in it is still the
+> best record of what the format cost and why. The **acceptance test it asks
+> for is still the right one** and now runs against the masks.
 
 **Where this came from.** `Videos/OtzariaSonim` is the keypad-phone reader — the
 "thin reader against the same data files" that `spec.md` §12 says is the answer if

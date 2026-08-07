@@ -106,6 +106,31 @@ impl EdgeType {
             Self::References => "references",
         }
     }
+
+    /// Every kind there is, in the order their bits are written.
+    ///
+    /// The order is the wire format of [`crate::touching::Mask`] and may not be
+    /// rearranged: a mask written before a reordering would light up the wrong
+    /// facet rows after one. A **new** kind goes on the end, where it takes a
+    /// bit nothing has ever set — which is why the mask is a `u16` for nine
+    /// kinds rather than the `u8` that fits them.
+    pub const ALL: [Self; 9] = [
+        Self::CommentsOn,
+        Self::Quotes,
+        Self::Paraphrases,
+        Self::Codifies,
+        Self::Disputes,
+        Self::Emends,
+        Self::ParallelTo,
+        Self::Translates,
+        Self::References,
+    ];
+
+    /// This kind's one bit in a [`crate::touching::Mask`].
+    #[must_use]
+    pub const fn bit(self) -> u16 {
+        1 << (self as u16)
+    }
 }
 
 /// Where an edge lands: one segment, or a run of them in reading order.

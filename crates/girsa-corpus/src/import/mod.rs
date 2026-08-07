@@ -886,6 +886,57 @@ pub fn uncatalogue(personal: &Path, slug: &str) -> Result<bool, ImportError> {
     Ok(gone)
 }
 
+/// A work's segment ids, in reading order, without lexing its text.
+///
+/// The ids are what every derived artifact is keyed on and the text is 99.7% of
+/// the bytes. `serde_json::from_str` into an `id`-only struct still walks every
+/// escape of a segment that reaches 1,275,307 characters, so *skipping the
+/// field* costs the same as reading it. This does not: `id` is the first field
+/// of every line `write` produces, so the answer is between byte 7 and the next
+/// quote.
+///
+/// A line that is not that shape falls back to the parser rather than being
+/// dropped. Being fast is not a reason to be one segment short.
+///
+/// # Errors
+///
+/// If the file is missing, or a line has no readable id. A missing id fails the
+/// read rather than being skipped — an ordered list silently one entry short
+/// shifts every position after it, and positions are what the caller wanted.
+pub fn ordered_ids(root: &Path, slug: &str) -> Result<Vec<SegmentId>, ImportError> {
+    const OPENING: &str = "{\"id\":\"";
+
+    let path = work_dir(root, slug).join("segments.jsonl");
+    let body = fs::read_to_string(&path).map_err(ImportError::io(&path))?;
+    let mut ids = Vec::new();
+    for line in body.lines().filter(|l| !l.trim().is_empty()) {
+        let text = match line.strip_prefix(OPENING).and_then(|rest| {
+            // A segment id has no quote and no backslash in it — it is
+            // `girsa:<slug>/<path>#<ordinal>` and every part of that is
+            // constrained by `SegmentId`'s own parser. So the next quote is
+            // the end of the field and not an escape.
+            let end = rest.find('"')?;
+            (!rest[..end].contains('\\')).then(|| rest[..end].to_string())
+        }) {
+            Some(text) => text,
+            None => {
+                #[derive(serde::Deserialize)]
+                struct IdOnly {
+                    id: String,
+                }
+                serde_json::from_str::<IdOnly>(line)
+                    .map_err(|e| ImportError::malformed(&path, e.to_string()))?
+                    .id
+            }
+        };
+        let id: SegmentId = text.parse().map_err(|e: crate::segment::SegmentIdError| {
+            ImportError::malformed(&path, e.to_string())
+        })?;
+        ids.push(id);
+    }
+    Ok(ids)
+}
+
 /// Read back what [`write`] wrote.
 ///
 /// # Errors

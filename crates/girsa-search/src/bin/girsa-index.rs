@@ -264,6 +264,14 @@ struct Tally {
     /// whole run means the cache was never built, and the link facet then
     /// reports *not built* rather than a column of zeros (spec.md §9.8).
     with_links: usize,
+    /// Works whose masks were built against a different segmentation, and were
+    /// therefore refused.
+    ///
+    /// The one failure a positional cache has that the anchor-keyed file it
+    /// replaced did not: a stale anchor file is short, a stale mask file is
+    /// **wrong**, and wrong in a way that produces a facet column indistinguish-
+    /// able from a correct one. Named per work, because the fix is per work.
+    links_stale: Vec<String>,
 }
 
 fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
@@ -337,13 +345,31 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
             // allowed to be missing: what is not allowed is reading its
             // absence as *nothing is commented on*, which is why the build
             // records whether it was there.
-            let touching = girsa_link::touching::read_back(&root, &work.slug).unwrap_or_default();
-            if !touching.is_empty() {
-                tally.with_links += 1;
-            }
+            //
+            // Since the cache became one 16-bit mask per segment there is a
+            // third thing it can be, and it is the one that would be silent:
+            // masks written against a segmentation this work no longer has.
+            // The ids are passed in so the file can be refused rather than
+            // believed — every mask after an inserted se'if is about the line
+            // above it, and the facet column would look exactly like a good one.
             let ids: Vec<girsa_corpus::segment::SegmentId> =
                 imported.segments.iter().map(|s| s.id.clone()).collect();
-            let by_segment = girsa_link::touching::by_segment(&touching, &ids);
+            let by_segment = match girsa_link::touching::read(&root, &work.slug, &ids) {
+                girsa_link::touching::Touching::Known(masks) => {
+                    tally.with_links += 1;
+                    masks
+                }
+                girsa_link::touching::Touching::Unbuilt => vec![Default::default(); ids.len()],
+                girsa_link::touching::Touching::NotThisSegmentation { held, wanted } => {
+                    eprintln!(
+                        "  {}: link-type masks are for {held} segments and this work has \
+                         {wanted} — not read. Run girsa-link-types.",
+                        work.slug
+                    );
+                    tally.links_stale.push(work.slug.clone());
+                    vec![Default::default(); ids.len()]
+                }
+            };
 
             // What somebody has read off the pages of this sefer, if it is a
             // scan (W26). Read once per work rather than once per page, and
@@ -357,10 +383,8 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
             let mut page = 0;
 
             for (at, segment) in imported.segments.iter().enumerate() {
-                let kinds: Vec<girsa_link::EdgeType> = by_segment
-                    .get(at)
-                    .map(|set| set.iter().copied().collect())
-                    .unwrap_or_default();
+                let kinds: Vec<girsa_link::EdgeType> =
+                    by_segment.get(at).copied().unwrap_or_default().kinds();
                 // A page of a scan is counted through the pages, never read
                 // off the segment's ordinal — splitting one mints `#47.1` and
                 // the arithmetic would quietly slip by one from there
@@ -473,6 +497,21 @@ fn build(index_dir: &Path, roots: &[String]) -> std::process::ExitCode {
         for slug in &tally.unreadable {
             println!("  {slug}");
         }
+    }
+
+    // Said out loud and not merely counted: these works are in the index with
+    // an empty link column, and the reason is a rebuildable cache that has gone
+    // out of date rather than a graph that says nothing about them.
+    if !tally.links_stale.is_empty() {
+        println!(
+            "\n{} works have link-type masks for a segmentation they no longer have. \
+             They were NOT read, and those works have no link facet:",
+            tally.links_stale.len()
+        );
+        for slug in &tally.links_stale {
+            println!("  {slug}");
+        }
+        println!("\n  Fix: cargo run --release -p girsa-link --bin girsa-link-types -- <corpus>");
     }
 
     // The count that matters: everything the shelf held is findable. A

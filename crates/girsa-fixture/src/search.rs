@@ -45,16 +45,23 @@ pub fn build(root: &Path, index_dir: &Path) {
     for work in &works {
         let imported = import::read_back(root, &work.slug)
             .unwrap_or_else(|e| panic!("{} will not read back: {e}", work.slug));
-        let touching = girsa_link::touching::read_back(root, &work.slug).unwrap_or_default();
         let ids: Vec<girsa_corpus::segment::SegmentId> =
             imported.segments.iter().map(|s| s.id.clone()).collect();
-        let by_segment = girsa_link::touching::by_segment(&touching, &ids);
+        // The fixture builds its own masks a moment earlier, so anything other
+        // than `Known` here means the two halves of this crate disagree about
+        // the shelf they just built — which is worth failing on rather than
+        // indexing an empty facet.
+        let by_segment = match girsa_link::touching::read(root, &work.slug, &ids) {
+            girsa_link::touching::Touching::Known(masks) => masks,
+            other => panic!(
+                "{}: the fixture's own masks were refused: {other:?}",
+                work.slug
+            ),
+        };
 
         for (at, segment) in imported.segments.iter().enumerate() {
-            let kinds: Vec<girsa_link::EdgeType> = by_segment
-                .get(at)
-                .map(|set| set.iter().copied().collect())
-                .unwrap_or_default();
+            let kinds: Vec<girsa_link::EdgeType> =
+                by_segment.get(at).copied().unwrap_or_default().kinds();
             writer
                 .add(segment, &kinds)
                 .unwrap_or_else(|e| panic!("cannot index {}: {e}", segment.id));

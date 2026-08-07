@@ -264,10 +264,13 @@ fn import(root: &Path) {
     writer.flush(root).expect("the fixture edges are written");
 }
 
-/// The `girsa-link-types` half: the touching cache, the inbound cache, and the
-/// landing index over it.
+/// The `girsa-link-types` half: the inbound cache, the landing index over it,
+/// and the per-segment link-type masks.
+///
+/// The same three phases in the same order the tool runs them, and the order is
+/// load-bearing: the masks are positional, so they come after everything that
+/// could still move a row.
 fn caches(root: &Path) {
-    let mut touch = touching::Writer::default();
     let mut into = inbound::Writer::default();
     let mut edges = 0usize;
 
@@ -275,19 +278,15 @@ fn caches(root: &Path) {
         let body = std::fs::read_to_string(&path).expect("a fixture shard reads");
         for line in body.lines().filter(|l| !l.trim().is_empty()) {
             let row: Row = serde_json::from_str(line).expect("a fixture edge parses");
-            let edge_type = EdgeType::from_sefaria(&row.label);
             let (Some(from), Some(to)) = (work_of(&row.from), work_of(&row.to)) else {
                 panic!("a fixture edge names no work: {line}");
             };
-            touch.record(from, &row.from, edge_type, to);
-            touch.record(to, &row.to, edge_type, from);
             into.push_row(from, to, line);
             edges += 1;
         }
     }
     assert!(edges > 0, "the fixture graph has no edges");
 
-    touch.flush(root).expect("the touching cache is written");
     // Writes `links/inbound.built`, which is what `inbound::built` reads and what
     // keeps a missing cache from being read as a zero.
     into.flush(root).expect("the inbound cache is written");
@@ -295,6 +294,34 @@ fn caches(root: &Path) {
     for path in inbound_files(&root.join("links")) {
         inbound::sort_and_index_at(&path).expect("the landing index is built");
     }
+
+    let mut masked = 0usize;
+    for work in works(root) {
+        let Ok(ordered) = girsa_corpus::import::ordered_ids(root, &work.slug) else {
+            continue;
+        };
+        if ordered.is_empty() {
+            continue;
+        }
+        let (touching_edges, _) = inbound::touching_work(root, &work.slug).unwrap_or_default();
+        let mut ends: Vec<(&girsa_link::Anchor, EdgeType)> = Vec::new();
+        for edge in &touching_edges {
+            if edge.from.from.work() == work.slug {
+                ends.push((&edge.from, edge.edge_type));
+            }
+            if edge.to.from.work() == work.slug {
+                ends.push((&edge.to, edge.edge_type));
+            }
+        }
+        let masks = touching::masks_for(ends, &ordered);
+        touching::write(root, &work.slug, &ordered, &masks).expect("the fixture masks are written");
+        masked += usize::from(masks.iter().any(|m| !m.is_empty()));
+    }
+    assert!(
+        masked > 0,
+        "no fixture work has a link-type mask set — the facet would be empty and every \
+         test over it would pass"
+    );
 }
 
 fn works(root: &Path) -> Vec<Work> {

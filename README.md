@@ -858,10 +858,22 @@ $ girsa-link-types corpus
   took               98s
 ```
 
-4,182,344 — W8's number exactly, walked from the other side. The 273 MB that
-costs sits beside the edges as `touching.jsonl`, and it is a cache: delete it
-and run the tool again. What is **not** allowed is an index reading its absence
-as a zero, so the index writes down whether it had it:
+4,182,337 — W8's number exactly, walked from the other side. What it costs sits
+beside the edges as `touching.bits`: **one 16-bit mask per segment in reading
+order**, 9.7 MB for the whole shelf and 8,370 bytes for Shulchan Arukh, Orach
+Chayim's 4,171 se'ifim.
+
+It was `touching.jsonl` until 6 August — one JSON row per `(endpoint, type)`
+carrying the list of every sefer at the other end, **448.7 MB over 6,268
+files** — and its one consumer destructured that list away to produce nine bits
+per segment. Orach Chayim's was 3.95 MB to say 4,171 numbers. The `w` list
+existed so a phone reader could ask *which of my mefarshim speak here* without
+reading `inbound.jsonl`; W28's landing index has since made that a seek into
+4,171 places rather than a walk over 159,273 rows, so the 472× file was paying
+for a read that no longer happens.
+
+It is a cache: delete it and run the tool again. What is **not** allowed is an
+index reading its absence as a zero, so the index writes down whether it had it:
 
 ```
 $ cat index/girsa-build.json
@@ -872,6 +884,14 @@ Without that file the link facet says *not built* rather than showing an empty
 column. *Nothing here is commented on* and *nobody worked out what is commented
 on* are different statements, and a column of zeros says the first while meaning
 the second — which is exactly the silent gap §9.7 forbids one facet over.
+
+A mask is **positional**, which is a hazard the anchor-keyed file it replaced did
+not have: a stale anchor file is merely short, and a stale mask lights up the
+wrong lines. So every file names the segmentation it was built for — a count and
+a fingerprint of the ids — and the index build **refuses** one that does not
+match, per work, by name, with the command to run. That is
+`girsa-lane/src/vectors.rs`'s rule borrowed one directory over:
+*the same model at a different width is also another model.*
 
 Adding the column bumped the index's schema to 2, which is what the stamp is
 for: the old index was refused rather than read, and rebuilt. It cost time —

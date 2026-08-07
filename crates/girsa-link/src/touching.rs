@@ -1,99 +1,277 @@
 //! Which kinds of link touch each segment — the graph read from the segment's
 //! side (BUILDER.md W14, spec.md §9.8).
 //!
-//! §9.8 asks results to carry a **link type** facet: *of these 300 hits, 120
-//! are in segments something comments on*. That question is asked of a segment
-//! and the graph is not stored that way. spec.md §8.2: an edge is *directed,
-//! inverse derived and never stored twice*, and W8 stored each one in the shard
-//! of the work it points **from**. So Berakhot's own shard holds the handful of
-//! edges Berakhot makes, and the two million edges that land **on** Berakhot are
+//! §9.8 asks results to carry a **link type** facet: *of these 300 hits, 120 are
+//! in segments something comments on*. That question is asked of a segment and
+//! the graph is not stored that way. spec.md §8.2: an edge is *directed, inverse
+//! derived and never stored twice*, and W8 stored each one in the shard of the
+//! work it points **from**. So Berakhot's own shard holds the handful of edges
+//! Berakhot makes, and the two million edges that land **on** Berakhot are
 //! scattered across every shard in the corpus.
 //!
-//! Deriving the inverse per query would mean reading all 691 MB of the graph to
-//! draw one facet row. So it is derived **once**, here, and written beside the
-//! edges:
+//! Deriving the inverse per query would mean reading all 665 MB of the graph to
+//! draw one facet row. So it is derived **once** and written beside the edges,
+//! as one 16-bit mask per segment in reading order:
 //!
-//! ```jsonl
-//! corpus/links/bavli/berakhot/touching.jsonl
-//! {"a":"girsa:bavli/berakhot/2a:1#1","t":"comments-on","w":["bavli/rashi-on-berakhot","bavli/tosafot-on-berakhot"]}
+//! ```text
+//! corpus/links/bavli/berakhot/touching.bits
 //! ```
 //!
-//! One row per (endpoint, type) an edge puts on this work, from **both** ends —
-//! which is the whole point, and why it is not simply a copy of `edges.jsonl` — and
-//! since W31 the row also names **which seforim** those links came from.
+//! ## Nine bits, and it used to be a nine-bit answer written as prose
 //!
-//! # `w` — which sefer the link came from (W31)
+//! This file was `touching.jsonl` until 6 August 2026 — one JSON row per
+//! `(endpoint, type)`, plus a list of every sefer at the other end:
 //!
-//! Filed from OtzariaSonim, the keypad-phone reader, on its first day against this
-//! corpus. The row used to be endpoint plus type, and **no consumer asks whether a
-//! segment has a `comments-on`.** They ask whether it has one *from the mefarshim
-//! currently selected* — the per-book commentator filter, which is also spec.md
-//! §8.5's lenses and §8.4's gutter density map. That question needs the source
-//! work, and it was the one field not stored, so the only way to answer was the
-//! file this one exists to avoid:
+//! ```jsonl
+//! {"a":"girsa:bavli/berakhot/2a:1#1","t":"comments-on","w":["bavli/rashi-on-berakhot", …]}
+//! ```
 //!
-//! | Shulchan Arukh, Orach Chayim | size | answers *which segments light up?* |
-//! |---|---|---|
-//! | `touching.jsonl` before | 1.15 MB | no — no work slug |
-//! | `touching.jsonl` after | 4.14 MB | **yes — 652 seforim, one streaming pass** |
-//! | `inbound.jsonl` | 27.3 MB | yes, by reading all 156,076 edges |
+//! **449 MB across 6,268 files**, and its only consumer destructured it as
+//! `(anchor, edge_type, _)` — throwing the `w` list away — to produce a
+//! `Vec<BTreeSet<EdgeType>>` that is consumed once, at index-build time, and is
+//! **nine bits per segment**. Shulchan Arukh, Orach Chayim is 4,171 se'ifim:
+//! 4.14 MB of rows to say 4,171 numbers. It is now 8.4 KB, which is the
+//! numbers.
 //!
-//! On a phone with a 192 MB heap that is the difference between opening שולחן ערוך
-//! and an `OutOfMemoryError`.
+//! ## Where the `w` field went, and why that is not a loss
 //!
-//! **Grouped onto the row, and that was measured.** One row per work is the obvious
-//! encoding; it took the summary layer from 261 MB to **636 MB, which is 92.4% of
-//! the 0.69 GB of `inbound.jsonl` this file exists to avoid.** A summary the size of
-//! the thing it summarises is not a summary. With the works on one row the anchor
-//! and the type are written once for the two hundred seforim that comment on a
-//! se'if, and the layer lands at **471 MB — 68% of `inbound`, largest file 4.56 MB**.
-//! Bigger than the 261 MB it was, which is the price of answering the question at
-//! all, and 165 MB cheaper than the shape that did not think about it.
+//! `w` was W31, filed from OtzariaSonim — a keypad-phone reader with a 192 MB
+//! heap — because the question a reader actually asks is not *does this segment
+//! have a `comments-on`* but *does it have one from the mefarshim I ticked*, and
+//! answering that meant reading `inbound.jsonl`: 27.3 MB and 156,076 rows for
+//! Orach Chayim. That was true when W31 was written and it is not true now.
+//! W28's landing index sorts `inbound.jsonl` by where its rows land and writes
+//! `inbound.idx` beside it, so *which works comment on this place* is a seek and
+//! a few kilobytes — **4,171 places, not 159,273 rows**. The 12× file that
+//! existed to avoid a read that no longer happens is the wrong side of that
+//! trade.
 //!
-//! The field is **optional on read**: files exist without it, and a reader that
-//! refused them would mean a re-import to open a sefer. A row that does not say
-//! comes back with an empty list — *this row does not record which sefer* — and
-//! never as a guess.
+//! Girsa's own answer to the same question never used `w` at all:
+//! `girsa_app::mefarshim` reads `inbound.jsonl`, and its module note records
+//! what the phone was doing all along — *"a bitmap per commentator, one bit per
+//! line"*. Building an external reader's cache is defensible. Building it twelve
+//! times larger than the shape that reader already uses is not.
+//!
+//! ## The fingerprint, and why a stale mask must not be read
+//!
+//! A mask is **positional**, and that is a real hazard this file did not have
+//! when it was keyed by anchor: a stale anchor file is merely incomplete, and a
+//! stale mask lights up the wrong lines. So the header carries the number of
+//! segments and a fingerprint of the ids it was built against, and
+//! [`read`] refuses a file that does not match rather than returning it.
+//! `girsa-index` reports that refusal in its build report, the same way it
+//! reports the file being absent.
+//!
+//! This is `girsa_lane::vectors`' rule, which is the best paranoia in this
+//! repository: *the same model at a different width is also another model.* Two
+//! segmentations produce masks where the arithmetic runs happily and the facet
+//! column looks exactly like a good one.
 //!
 //! # It is a cache, and it may be missing
 //!
 //! spec.md §4.1: the files are the truth and anything faster is rebuildable.
 //! Delete this and run `girsa-link-types` again. What must never happen is the
-//! facet quietly reading a **zero** off an index built without it — *no links
-//! of that kind* and *nobody worked out the link types* are different
-//! statements, and the index records which one it is (see
+//! facet quietly reading a **zero** off an index built without it — *no links of
+//! that kind* and *nobody worked out the link types* are different statements,
+//! and the index records which one it is (see
 //! `girsa_search::index::BuildReport`).
-//!
-//! # The anchor is written out, not resolved to segments
-//!
-//! An endpoint can be a run — `Rashi on Berakhot 2a` covers a daf — and turning
-//! a run into the segments it names needs that work's segments in reading
-//! order, which the walker does not have and the indexer does. So the anchor is
-//! written as it stands and expanded by [`span_of`] at the one place that knows.
-//! Storing the expansion instead would also mean storing **positions**, and a
-//! position is the one thing this project may not write down (spec.md §3).
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Write;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::slug_dir;
 use girsa_corpus::segment::SegmentId;
 
-use crate::{Anchor, Edge, EdgeType};
+use crate::{Anchor, EdgeType};
 
-/// Where a work's incoming-and-outgoing link types live.
+/// The bytes every mask file begins with. The trailing digit is the format:
+/// change the layout, change the digit, and every older file is refused by the
+/// same code path that refuses a stale one.
+const MAGIC: &[u8; 16] = b"girsa-touching-1";
+
+/// Where a work's per-segment link-type masks live.
 #[must_use]
-pub fn types_path(root: &Path, slug: &str) -> PathBuf {
+pub fn bits_path(root: &Path, slug: &str) -> PathBuf {
+    slug_dir(&root.join("links"), slug).join("touching.bits")
+}
+
+/// The file this replaced, so a run can delete what it superseded.
+#[must_use]
+pub fn superseded_path(root: &Path, slug: &str) -> PathBuf {
     slug_dir(&root.join("links"), slug).join("touching.jsonl")
+}
+
+/// Every kind of link touching one segment, in sixteen bits.
+///
+/// Nine kinds and a `u16`, so a tenth takes a bit no file has ever set rather
+/// than a format change. Bit order is [`EdgeType::ALL`] and is the wire format.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Mask(u16);
+
+impl Mask {
+    /// Nothing touches this segment — which is a statement, and different from
+    /// nobody having worked the masks out. That second one is [`Touching`].
+    pub const NONE: Self = Self(0);
+
+    #[must_use]
+    pub const fn contains(self, kind: EdgeType) -> bool {
+        self.0 & kind.bit() != 0
+    }
+
+    pub const fn insert(&mut self, kind: EdgeType) {
+        self.0 |= kind.bit();
+    }
+
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The kinds set, in [`EdgeType::ALL`] order.
+    #[must_use]
+    pub fn kinds(self) -> Vec<EdgeType> {
+        EdgeType::ALL
+            .into_iter()
+            .filter(|kind| self.contains(*kind))
+            .collect()
+    }
+
+    #[must_use]
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+}
+
+impl FromIterator<EdgeType> for Mask {
+    fn from_iter<I: IntoIterator<Item = EdgeType>>(kinds: I) -> Self {
+        let mut mask = Self::NONE;
+        for kind in kinds {
+            mask.insert(kind);
+        }
+        mask
+    }
+}
+
+/// What is on disk for one work.
+///
+/// Three answers and not two, for the reason spec.md §4.1 gives: a caller that
+/// cannot tell *nothing comments here* from *nobody has worked it out* will
+/// eventually print the first when it means the second.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Touching {
+    /// No file. `girsa-link-types` has not run for this work.
+    Unbuilt,
+    /// A file built against a different segmentation, and therefore not read.
+    ///
+    /// Positional data outlives the positions it was written for. Both counts
+    /// are carried so the report can say which way it drifted.
+    NotThisSegmentation { held: usize, wanted: usize },
+    /// One mask per segment, in reading order.
+    Known(Vec<Mask>),
+}
+
+// Deliberately no `or_default()` here. Both callers `match` on all three
+// variants and each does something different with the two that are not
+// `Known` — one prints the work and the command to fix it, the other panics
+// because it built the file a moment earlier. A convenience that collapsed the
+// three into "empty" would be the exact silent zero this enum exists to stop.
+
+/// A fingerprint of a work's segment ids, in reading order.
+///
+/// FNV-1a over the ids as they are written, with the count folded in. Not a
+/// cryptographic hash and not trying to be: it is here to catch a re-import,
+/// not an adversary.
+#[must_use]
+pub fn fingerprint(ordered: &[SegmentId]) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x1000_0000_01b3;
+    let mut hash = OFFSET;
+    let mut byte = |b: u8| {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(PRIME);
+    };
+    for id in ordered {
+        for b in id.to_string().as_bytes() {
+            byte(*b);
+        }
+        byte(b'\n');
+    }
+    for b in (ordered.len() as u64).to_le_bytes() {
+        byte(b);
+    }
+    hash
+}
+
+/// Write one work's masks.
+///
+/// # Errors
+///
+/// If the directory cannot be made or the file cannot be written.
+pub fn write(
+    root: &Path,
+    slug: &str,
+    ordered: &[SegmentId],
+    masks: &[Mask],
+) -> std::io::Result<()> {
+    let path = bits_path(root, slug);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut body = Vec::with_capacity(MAGIC.len() + 12 + masks.len() * 2);
+    body.extend_from_slice(MAGIC);
+    body.extend_from_slice(&(masks.len() as u32).to_le_bytes());
+    body.extend_from_slice(&fingerprint(ordered).to_le_bytes());
+    for mask in masks {
+        body.extend_from_slice(&mask.0.to_le_bytes());
+    }
+    fs::write(&path, body)
+}
+
+/// Read one work's masks, against the segments they are about to be used with.
+///
+/// `ordered` is not a convenience — it is the check. A mask file names a
+/// segmentation and this is where the two are made to agree.
+#[must_use]
+pub fn read(root: &Path, slug: &str, ordered: &[SegmentId]) -> Touching {
+    let path = bits_path(root, slug);
+    let Ok(body) = fs::read(&path) else {
+        return Touching::Unbuilt;
+    };
+    let head = MAGIC.len() + 12;
+    if body.len() < head || &body[..MAGIC.len()] != MAGIC {
+        // A file of another format is not a file about these segments. Same
+        // answer as a stale one, because the caller's move is the same: say so,
+        // and rebuild.
+        return Touching::NotThisSegmentation {
+            held: 0,
+            wanted: ordered.len(),
+        };
+    }
+    let mut four = [0u8; 4];
+    four.copy_from_slice(&body[MAGIC.len()..MAGIC.len() + 4]);
+    let held = u32::from_le_bytes(four) as usize;
+    let mut eight = [0u8; 8];
+    eight.copy_from_slice(&body[MAGIC.len() + 4..head]);
+    let stamped = u64::from_le_bytes(eight);
+
+    if held != ordered.len() || stamped != fingerprint(ordered) || body.len() < head + held * 2 {
+        return Touching::NotThisSegmentation {
+            held,
+            wanted: ordered.len(),
+        };
+    }
+    let masks = body[head..head + held * 2]
+        .chunks_exact(2)
+        .map(|pair| Mask(u16::from_le_bytes([pair[0], pair[1]])))
+        .collect();
+    Touching::Known(masks)
 }
 
 /// The positions an anchor names in the work it belongs to, in reading order.
 ///
 /// The one implementation of *which segments does this endpoint cover*. Both
-/// the reading pane (`girsa_app::beside`) and the indexer ask it, and two
+/// the reading pane (`girsa_app::beside`) and the mask builder ask it, and two
 /// answers that drifted would put a commentary against a line the graph does
 /// not join it to.
 ///
@@ -111,226 +289,27 @@ pub fn span_of(
     Some(from.min(to)..=to.max(from))
 }
 
-/// One end of one edge, as it is written down.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Row {
-    /// The anchor, in the text every id travels as.
-    pub a: String,
-    /// The edge type, as [`EdgeType::as_str`] writes it.
-    pub t: String,
-    /// The seforim at the **other** end — the ones whose links these are (W31).
-    ///
-    /// A list, and grouped onto the `(anchor, type)` row rather than given a row
-    /// each. One row per work was the obvious encoding and it was measured: the
-    /// summary layer went from 261 MB to **636 MB, which is 92.4% of the 0.69 GB of
-    /// `inbound.jsonl` it exists to avoid.** A summary the size of the thing it
-    /// summarises is not a summary. Grouped, the anchor and the type are written
-    /// once for the two hundred seforim that comment on a se'if, and the layer lands
-    /// at 471 MB — 68% of `inbound` rather than 92%.
-    ///
-    /// Empty in files written before W31, and empty means *this row does not say* —
-    /// never *nothing comments here*.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub w: Vec<String>,
-}
-
-/// Collects both ends of every edge and writes one file per work touched.
+/// Fold `(endpoint, kind)` pairs into one mask per segment, in reading order.
 ///
-/// The same discipline as [`crate::store::Writer`], for the same reason: a run
-/// is many flushes, so a shard is appended to within a run — and appending to
-/// what the **last** run left would double every count silently.
-#[derive(Debug, Default)]
-pub struct Writer {
-    /// work → (anchor, type) → the seforim at the other end.
-    ///
-    /// A map and not a set of serialised lines since W31: the works have to be
-    /// gathered onto one row before anything is written, or the grouping that keeps
-    /// this file a summary cannot happen.
-    by_work: BTreeMap<String, BTreeMap<(String, String), BTreeSet<String>>>,
-    written: usize,
-    opened: BTreeSet<String>,
-}
-
-impl Writer {
-    /// Record what this edge puts on each of its two ends.
-    ///
-    /// An edge from A to B is a fact about A **and** a fact about B. A facet
-    /// built from the stored direction alone would tell a reader that nothing
-    /// comments on Berakhot.
-    pub fn push(&mut self, edge: &Edge) {
-        let (near, far) = (edge.from.from.work(), edge.to.from.work());
-        // Each end's row names the **other** work: a row filed under the Mishnah
-        // Berurah saying `mishnah-berurah` tells a reader standing in it nothing.
-        self.record(near, &edge.from.to_string(), edge.edge_type, far);
-        self.record(far, &edge.to.to_string(), edge.edge_type, near);
-    }
-
-    /// One end, by the work it lands in.
-    ///
-    /// Deduplicated within the buffer: thousands of edges land on one daf and
-    /// they are the same row. What survives across a flush is deduplicated on
-    /// read instead — see [`read_back`].
-    pub fn record(&mut self, slug: &str, anchor: &str, edge_type: EdgeType, from_work: &str) {
-        let works = self
-            .by_work
-            .entry(slug.to_string())
-            .or_default()
-            .entry((anchor.to_string(), edge_type.as_str().to_string()))
-            .or_default();
-        // A self-edge would say a sefer is its own source, which is true and
-        // useless; the filter asks *which other sefer*, so it is left off.
-        if from_work == slug {
-            self.written += 1;
-            return;
-        }
-        if works.insert(from_work.to_string()) {
-            self.written += 1;
-        }
-    }
-
-    /// How many rows are being held, so a caller can flush before memory
-    /// becomes the reason the run did not finish.
-    #[must_use]
-    pub fn buffered(&self) -> usize {
-        self.by_work
-            .values()
-            .map(|rows| {
-                rows.values()
-                    .map(BTreeSet::len)
-                    .sum::<usize>()
-                    .max(rows.len())
-            })
-            .sum()
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.written
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.written == 0
-    }
-
-    /// Write everything held and forget it.
-    ///
-    /// # Errors
-    ///
-    /// If a file cannot be created or written to.
-    pub fn flush(&mut self, root: &Path) -> Result<(), std::io::Error> {
-        for (slug, rows) in std::mem::take(&mut self.by_work) {
-            let path = types_path(root, &slug);
-            if let Some(dir) = path.parent() {
-                fs::create_dir_all(dir)?;
-            }
-            let first_touch = self.opened.insert(slug);
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(!first_touch)
-                .write(first_touch)
-                .truncate(first_touch)
-                .open(&path)?;
-            let mut body = String::new();
-            for ((anchor, edge_type), works) in rows {
-                let Ok(line) = serde_json::to_string(&Row {
-                    a: anchor,
-                    t: edge_type,
-                    w: works.into_iter().collect(),
-                }) else {
-                    continue;
-                };
-                body.push_str(&line);
-                body.push('\n');
-            }
-            file.write_all(body.as_bytes())?;
-        }
-        Ok(())
-    }
-}
-
-/// Read one work's link types back, deduplicated.
-///
-/// # Errors
-///
-/// If the file exists and cannot be read. A work with no file is a work no
-/// edge touches, which is not an error — and is **not** what the facet reports
-/// when the cache was never built. That difference is the index's to keep.
-pub fn read_back(
-    root: &Path,
-    slug: &str,
-) -> Result<Vec<(Anchor, EdgeType, Vec<String>)>, std::io::Error> {
-    let path = types_path(root, slug);
-    if !path.is_file() {
-        return Ok(Vec::new());
-    }
-    let body = fs::read_to_string(&path)?;
-    // Merged on `(anchor, type)`, and the **works are unioned** rather than the
-    // second row dropped. A run is many flushes, so one se'if's works can be split
-    // across two rows of the same file — keeping the first and discarding the rest
-    // would be the filter answering wrongly rather than slowly, which is the worse
-    // of the two failures.
-    let mut merged: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
-    let mut order: Vec<(String, String)> = Vec::new();
-    for line in body.lines().filter(|l| !l.trim().is_empty()) {
-        let Ok(row) = serde_json::from_str::<Row>(line) else {
-            continue;
-        };
-        let key = (row.a, row.t);
-        if !merged.contains_key(&key) {
-            order.push(key.clone());
-        }
-        merged.entry(key).or_default().extend(row.w);
-    }
-    let mut out = Vec::new();
-    for key in order {
-        let Some(works) = merged.remove(&key) else {
-            continue;
-        };
-        let Some(anchor) = parse_anchor(&key.0) else {
-            continue;
-        };
-        let Some(edge_type) = type_named(&key.1) else {
-            continue;
-        };
-        out.push((anchor, edge_type, works.into_iter().collect()));
-    }
-    Ok(out)
-}
-
-/// Every kind of link touching each segment of a work, in reading order.
-///
-/// Given the work's segments as the indexer holds them. A segment no edge
-/// touches gets an empty set, not a missing entry — the caller is indexing
-/// every segment either way.
+/// A segment no edge touches gets [`Mask::NONE`], not a missing entry — the
+/// caller is indexing every segment either way.
 #[must_use]
-pub fn by_segment(
-    rows: &[(Anchor, EdgeType, Vec<String>)],
+pub fn masks_for<'a>(
+    ends: impl IntoIterator<Item = (&'a Anchor, EdgeType)>,
     ordered: &[SegmentId],
-) -> Vec<BTreeSet<EdgeType>> {
+) -> Vec<Mask> {
     let position: std::collections::HashMap<&SegmentId, usize> =
         ordered.iter().enumerate().map(|(i, id)| (id, i)).collect();
-    let mut out = vec![BTreeSet::new(); ordered.len()];
-    for (anchor, edge_type, _) in rows {
+    let mut out = vec![Mask::NONE; ordered.len()];
+    for (anchor, kind) in ends {
         let Some(range) = span_of(anchor, |id| position.get(id).copied()) else {
             continue;
         };
         for slot in out.get_mut(range).unwrap_or_default() {
-            slot.insert(*edge_type);
+            slot.insert(kind);
         }
     }
     out
-}
-
-/// `girsa:x/1:1#1-girsa:x/1:3#3` → a run; a single id → a point.
-fn parse_anchor(text: &str) -> Option<Anchor> {
-    match text.split_once("-girsa:") {
-        Some((from, to)) => Some(Anchor::span(
-            from.parse().ok()?,
-            format!("girsa:{to}").parse().ok()?,
-        )),
-        None => Some(Anchor::point(text.parse().ok()?)),
-    }
 }
 
 /// An edge type by the name it was written under.
@@ -341,19 +320,7 @@ fn parse_anchor(text: &str) -> Option<Anchor> {
 /// folded into the catch-all — a type invented on read is a claim nobody made.
 #[must_use]
 pub fn type_named(name: &str) -> Option<EdgeType> {
-    [
-        EdgeType::CommentsOn,
-        EdgeType::Quotes,
-        EdgeType::Paraphrases,
-        EdgeType::Codifies,
-        EdgeType::Disputes,
-        EdgeType::Emends,
-        EdgeType::ParallelTo,
-        EdgeType::Translates,
-        EdgeType::References,
-    ]
-    .into_iter()
-    .find(|t| t.as_str() == name)
+    EdgeType::ALL.into_iter().find(|t| t.as_str() == name)
 }
 
 #[cfg(test)]
@@ -362,21 +329,10 @@ mod tests {
     // library code, where a panic would take the reader's window with it.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::Method;
     use girsa_corpus::segment::Ordinal;
 
     fn id(work: &str, seif: u32, n: u32) -> SegmentId {
         SegmentId::new(work, vec!["1".into(), seif.to_string()], Ordinal::root(n))
-    }
-
-    fn edge(from: Anchor, to: Anchor, edge_type: EdgeType) -> Edge {
-        Edge {
-            from,
-            to,
-            edge_type,
-            method: Method::SefariaSeed,
-            source_label: String::new(),
-        }
     }
 
     fn dir(name: &str) -> PathBuf {
@@ -386,218 +342,111 @@ mod tests {
     }
 
     #[test]
-    fn an_edge_is_recorded_against_both_of_its_ends() {
-        // The whole reason this file exists. Rashi's shard holds the edge;
-        // Berakhot's shard holds nothing, and *"what comments on this line"* is
-        // asked from Berakhot's side every time.
-        let root = dir("girsa-touching-both-ends");
-        let mut writer = Writer::default();
-        writer.push(&edge(
-            Anchor::point(id("bavli/rashi-on-berakhot", 1, 3)),
-            Anchor::point(id("bavli/berakhot", 1, 1)),
-            EdgeType::CommentsOn,
-        ));
-        writer.flush(&root).expect("writes");
-
-        let rashi = read_back(&root, "bavli/rashi-on-berakhot").expect("reads");
-        let berakhot = read_back(&root, "bavli/berakhot").expect("reads");
-        assert_eq!(rashi.len(), 1, "the end it was stored under");
-        assert_eq!(
-            berakhot.len(),
-            1,
-            "the end it was not stored under — which is the one a reader asks from"
-        );
-        assert_eq!(berakhot[0].1, EdgeType::CommentsOn);
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
     fn a_run_touches_every_segment_it_covers() {
         // `Rashi on Berakhot 2a` covers a daf. A facet that counted only the
         // first segment of a run would undercount most of the graph, because
         // most of Sefaria's citations are coarser than a segment.
         let ordered: Vec<SegmentId> = (1..=5).map(|n| id("bavli/berakhot", n, n)).collect();
-        let rows = vec![(
-            Anchor::span(ordered[1].clone(), ordered[3].clone()),
-            EdgeType::CommentsOn,
-            vec!["bavli/rashi-on-berakhot".to_string()],
-        )];
-        let touched = by_segment(&rows, &ordered);
-        let counts: Vec<usize> = touched.iter().map(BTreeSet::len).collect();
-        assert_eq!(counts, [0, 1, 1, 1, 0]);
+        let anchor = Anchor::span(ordered[1].clone(), ordered[3].clone());
+        let masks = masks_for([(&anchor, EdgeType::CommentsOn)], &ordered);
+        let set: Vec<bool> = masks.iter().map(|m| !m.is_empty()).collect();
+        assert_eq!(set, [false, true, true, true, false]);
     }
 
     #[test]
     fn an_anchor_this_work_does_not_have_touches_nothing() {
         let ordered: Vec<SegmentId> = (1..=3).map(|n| id("bavli/berakhot", n, n)).collect();
-        let rows = vec![(
-            Anchor::point(id("bavli/berakhot", 9, 9)),
-            EdgeType::CommentsOn,
-            Vec::new(),
-        )];
-        assert!(by_segment(&rows, &ordered).iter().all(BTreeSet::is_empty));
+        let anchor = Anchor::point(id("bavli/berakhot", 9, 9));
+        let masks = masks_for([(&anchor, EdgeType::CommentsOn)], &ordered);
+        assert!(masks.iter().all(|m| m.is_empty()));
     }
 
     #[test]
-    fn running_it_twice_does_not_double_what_is_counted() {
-        // The bug the link importer already had once: a run is many flushes, so
-        // a file is appended to within a run, and appending to the last run's
-        // file doubles every row with no error anywhere.
-        let root = dir("girsa-touching-rerun");
-        for _ in 0..2 {
-            let mut writer = Writer::default();
-            writer.push(&edge(
-                Anchor::point(id("a", 1, 1)),
-                Anchor::point(id("b", 1, 1)),
-                EdgeType::Quotes,
-            ));
-            writer.flush(&root).expect("writes");
-            writer.push(&edge(
-                Anchor::point(id("a", 2, 2)),
-                Anchor::point(id("b", 2, 2)),
-                EdgeType::Quotes,
-            ));
-            writer.flush(&root).expect("writes again");
+    fn two_kinds_on_one_segment_are_two_bits_and_one_kind_twice_is_one() {
+        // The facet counts *segments* per kind. Two hundred seforim comment on
+        // Berakhot 2a:1; that is one bit, not two hundred rows.
+        let ordered = vec![id("bavli/berakhot", 1, 1)];
+        let a = Anchor::point(ordered[0].clone());
+        let masks = masks_for(
+            [
+                (&a, EdgeType::CommentsOn),
+                (&a, EdgeType::CommentsOn),
+                (&a, EdgeType::Quotes),
+            ],
+            &ordered,
+        );
+        assert_eq!(
+            masks[0].kinds(),
+            vec![EdgeType::CommentsOn, EdgeType::Quotes]
+        );
+    }
+
+    #[test]
+    fn a_mask_file_round_trips() {
+        let root = dir("girsa-touching-round-trip");
+        let ordered: Vec<SegmentId> = (1..=4).map(|n| id("bavli/berakhot", n, n)).collect();
+        let a = Anchor::point(ordered[2].clone());
+        let masks = masks_for([(&a, EdgeType::Quotes)], &ordered);
+        write(&root, "bavli/berakhot", &ordered, &masks).expect("writes");
+
+        match read(&root, "bavli/berakhot", &ordered) {
+            Touching::Known(back) => assert_eq!(back, masks),
+            other => panic!("not read back: {other:?}"),
         }
-        assert_eq!(read_back(&root, "a").expect("reads").len(), 2);
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn the_same_end_recorded_twice_is_counted_once() {
-        // Berakhot 2a:1 is commented on by two hundred seforim. That is two
-        // hundred rows saying `comments-on` about one segment, and the facet
-        // counts **segments**, not edges.
-        let root = dir("girsa-touching-dedup");
-        let mut writer = Writer::default();
-        for n in 1..=3u32 {
-            writer.push(&edge(
-                Anchor::point(id("commentary", 1, n)),
-                Anchor::point(id("bavli/berakhot", 1, 1)),
-                EdgeType::CommentsOn,
-            ));
-            // Flushed each time, so the duplicates cross a flush boundary and
-            // have to be caught on read rather than in the buffer.
-            writer.flush(&root).expect("writes");
-        }
-        let back = read_back(&root, "bavli/berakhot").expect("reads");
-        assert_eq!(back.len(), 1, "one segment, one kind of link");
-        let _ = fs::remove_dir_all(&root);
-    }
+    fn a_mask_built_for_a_different_segmentation_is_refused_rather_than_read() {
+        // The one hazard a positional cache has that an anchor-keyed one does
+        // not. Sefaria adds a se'if, the work is re-imported, and every mask
+        // after the insertion point is now about the line above it — arithmetic
+        // that runs happily and a facet column that looks exactly like a good
+        // one. `girsa_lane::vectors` learned this first.
+        let root = dir("girsa-touching-stale");
+        let before: Vec<SegmentId> = (1..=4).map(|n| id("bavli/berakhot", n, n)).collect();
+        let a = Anchor::point(before[2].clone());
+        let masks = masks_for([(&a, EdgeType::Quotes)], &before);
+        write(&root, "bavli/berakhot", &before, &masks).expect("writes");
 
-    #[test]
-    fn a_row_says_which_sefer_the_link_came_from() {
-        // W31, filed from OtzariaSonim on its first day against this corpus. A row
-        // was `{"a": …, "t": "comments-on"}` — segment plus edge *type* — and no
-        // consumer asks *does this segment have a `comments-on`*. They ask **does
-        // it have one from the mefarshim I have selected**, which is the per-book
-        // commentator filter, spec.md §8.5's lenses and §8.4's gutter density map.
-        //
-        // Without the source work the only way to answer was `inbound.jsonl`: on
-        // Shulchan Arukh, Orach Chayim that is 27.3 MB and 156,076 edges against
-        // this file's 1.15 MB. On a phone with a 192 MB heap that is the difference
-        // between opening the sefer and an `OutOfMemoryError`.
-        let root = dir("girsa-touching-source-work");
-        let mut writer = Writer::default();
-        writer.push(&edge(
-            Anchor::point(id("mishnah-berurah", 1, 3)),
-            Anchor::point(id("shulchan-arukh/orach-chayim", 1, 1)),
-            EdgeType::CommentsOn,
+        // Same count, one id different — the count alone would not catch it.
+        let mut after = before.clone();
+        after[1] = id("bavli/berakhot", 1, 9);
+        assert_eq!(
+            read(&root, "bavli/berakhot", &after),
+            Touching::NotThisSegmentation { held: 4, wanted: 4 },
+            "a renumbered work read its old masks"
+        );
+
+        // And a count that moved.
+        let longer: Vec<SegmentId> = (1..=5).map(|n| id("bavli/berakhot", n, n)).collect();
+        assert!(matches!(
+            read(&root, "bavli/berakhot", &longer),
+            Touching::NotThisSegmentation { .. }
         ));
-        writer.flush(&root).expect("writes");
-
-        let rows = read_back(&root, "shulchan-arukh/orach-chayim").expect("reads");
-        assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].2,
-            vec!["mishnah-berurah".to_string()],
-            "the row cannot say which mefaresh it came from"
-        );
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn the_far_end_says_where_the_link_landed_not_where_it_started() {
-        // Both ends get a row, and each row names the **other** work — otherwise
-        // the row filed under Mishnah Berurah would say `mishnah-berurah`, which
-        // tells a reader standing in it precisely nothing.
-        let root = dir("girsa-touching-source-both");
-        let mut writer = Writer::default();
-        writer.push(&edge(
-            Anchor::point(id("mishnah-berurah", 1, 3)),
-            Anchor::point(id("shulchan-arukh/orach-chayim", 1, 1)),
-            EdgeType::CommentsOn,
-        ));
-        writer.flush(&root).expect("writes");
-
-        let mine = read_back(&root, "mishnah-berurah").expect("reads");
-        assert_eq!(mine.len(), 1);
-        assert_eq!(
-            mine[0].2,
-            vec!["shulchan-arukh/orach-chayim".to_string()],
-            "a row must name the sefer at the other end"
-        );
-        let _ = fs::remove_dir_all(&root);
+    fn no_file_is_not_an_empty_answer() {
+        let root = dir("girsa-touching-absent");
+        let ordered = vec![id("bavli/berakhot", 1, 1)];
+        assert_eq!(read(&root, "bavli/berakhot", &ordered), Touching::Unbuilt);
     }
 
     #[test]
-    fn two_mefarshim_on_one_line_are_two_rows_and_one_mefaresh_twice_is_one() {
-        // The dedup key gained a field, and this is what that has to mean: the
-        // facet still counts *segments* per kind, and the filter now needs *which
-        // work* — so `(anchor, type, work)` is the key. Deduplicating on
-        // `(anchor, type)` would keep one of the two mefarshim and lose the other,
-        // which is the filter answering wrongly rather than slowly.
-        let root = dir("girsa-touching-source-dedup");
-        let mut writer = Writer::default();
-        for (work, seif) in [
-            ("mishnah-berurah", 1),
-            ("magen-avraham", 1),
-            ("mishnah-berurah", 2),
-        ] {
-            writer.push(&edge(
-                Anchor::point(id(work, seif, seif)),
-                Anchor::point(id("shulchan-arukh/orach-chayim", 1, 1)),
-                EdgeType::CommentsOn,
-            ));
-            // Flushed each time, so the duplicate crosses a flush boundary.
-            writer.flush(&root).expect("writes");
+    fn the_bits_are_where_the_wire_format_says_they_are() {
+        // The bit order is `EdgeType::ALL` and is a format, not an
+        // implementation detail: rearranging it silently repaints every facet
+        // built before the change.
+        assert_eq!(EdgeType::CommentsOn.bit(), 1);
+        assert_eq!(EdgeType::References.bit(), 1 << 8);
+        for (at, kind) in EdgeType::ALL.into_iter().enumerate() {
+            assert_eq!(kind.bit(), 1 << at, "{kind:?} moved");
         }
-        let rows = read_back(&root, "shulchan-arukh/orach-chayim").expect("reads");
-        // One row for the se'if, carrying both mefarshim — the grouping that keeps
-        // this file a summary. Split across three flushes and merged on read.
-        assert_eq!(rows.len(), 1, "one (segment, type) row: {rows:?}");
-        assert_eq!(
-            rows[0].2,
-            vec!["magen-avraham".to_string(), "mishnah-berurah".to_string()],
-            "both mefarshim, and Mishnah Berurah once"
-        );
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn a_row_written_before_w31_still_reads() {
-        // 261 MB of these files exist on disk without the field. A reader that
-        // refused them would mean a re-import to open a sefer, and the honest
-        // answer for a row that does not say is **`None`** — *this row does not
-        // record which sefer* — rather than a guess.
-        let root = dir("girsa-touching-old-row");
-        let path = types_path(&root, "bavli/berakhot");
-        fs::create_dir_all(path.parent().expect("a parent")).expect("dir");
-        fs::write(
-            &path,
-            "{\"a\":\"girsa:bavli/berakhot/2a:1#1\",\"t\":\"comments-on\"}
-",
-        )
-        .expect("writes");
-
-        let rows = read_back(&root, "bavli/berakhot").expect("reads");
-        assert_eq!(rows.len(), 1, "an older row was refused");
-        assert_eq!(rows[0].1, EdgeType::CommentsOn);
-        assert!(
-            rows[0].2.is_empty(),
-            "it does not say, and must not pretend to"
-        );
-        let _ = fs::remove_dir_all(&root);
+        let all: Mask = EdgeType::ALL.into_iter().collect();
+        assert_eq!(all.kinds(), EdgeType::ALL.to_vec());
+        assert_eq!(all.bits(), 0b1_1111_1111);
     }
 
     #[test]
