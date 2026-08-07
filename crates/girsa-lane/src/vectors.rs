@@ -294,16 +294,26 @@ impl Vectors {
         if most == 0 || query.len() != self.dims || self.order.is_empty() {
             return Ok(Vec::new());
         }
-        let mut best: Vec<(SegmentId, f32)> = Vec::new();
+        // Kept sorted at `most` rather than sorted at the end. A lane over a
+        // whole sefer is 18,120 vectors and this asks for ten of them, so the
+        // full sort was ordering 18,110 rows nobody reads — once per sefer per
+        // query.
+        //
+        // **Still stable**, which the truncated sort was and which matters: the
+        // insertion point is the first row this one *beats*, so an equal score
+        // stays behind the one already there — and the file's order is the
+        // order they were embedded in, which is reading order.
+        let mut best: Vec<(SegmentId, f32)> = Vec::with_capacity(most);
         for vector in self.all()? {
             let vector = vector?;
             let near: f32 = query.iter().zip(&vector.vector).map(|(a, b)| a * b).sum();
-            best.push((vector.id, near));
+            if best.len() == most && !best.last().is_some_and(|(_, worst)| near > *worst) {
+                continue;
+            }
+            let at = best.partition_point(|(_, held)| *held >= near);
+            best.insert(at, (vector.id, near));
+            best.truncate(most);
         }
-        // Stable, so equal scores stay in the order the file has them, which is
-        // the order they were embedded in, which is reading order.
-        best.sort_by(|a, b| b.1.total_cmp(&a.1));
-        best.truncate(most);
         Ok(best)
     }
 
@@ -410,8 +420,15 @@ impl Vectors {
                 self.torn = length.saturating_sub(at);
                 break;
             }
+            // `seek_relative`, not `seek`. This pass exists to read the ids
+            // and **skip the vectors**, and `BufReader::seek` throws the whole
+            // buffer away on every call — so skipping a 768-float payload
+            // discarded the 8 KB that had just been read, and the pass that was
+            // meant to avoid reading the file read all of it, one syscall per
+            // record. `seek_relative` keeps the buffer when the target is
+            // inside it, which for a payload this size it usually is.
             reader
-                .seek(SeekFrom::Start(after))
+                .seek_relative(i64::try_from(payload).unwrap_or(i64::MAX))
                 .map_err(VectorError::io(path))?;
 
             let Ok(id) = String::from_utf8_lossy(&id).parse::<SegmentId>() else {
@@ -668,5 +685,45 @@ mod tests {
     fn a_vector_of_the_wrong_width_is_refused_rather_than_padded() {
         let mut store = Vectors::nowhere("abc", 2);
         assert!(store.record(&id(1), &[1.0, 0.0, 0.0]).is_err());
+    }
+
+    #[test]
+    fn the_top_ten_is_the_top_ten_a_full_sort_would_have_given() {
+        // `nearest` keeps a bounded list rather than sorting 18,120 rows to
+        // read ten. The property that has to survive is the *stability* the
+        // truncated sort had: equal scores stay in the order the file holds
+        // them, which is the order they were embedded in, which is reading
+        // order.
+        let dir = std::env::temp_dir().join("girsa-vectors-topn");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut store = Vectors::open(&dir, "x", "m", 2).0;
+
+        // Deliberately with ties, and written in reading order.
+        let scores: [f32; 8] = [0.1, 0.9, 0.5, 0.9, 0.3, 0.5, 0.9, 0.2];
+        for (n, score) in scores.iter().enumerate() {
+            let id = SegmentId::new(
+                "x",
+                vec![(n + 1).to_string()],
+                girsa_corpus::segment::Ordinal::root(u32::try_from(n + 1).expect("a small number")),
+            );
+            store.record(&id, &[*score, 0.0]).expect("it is written");
+        }
+        let store = Vectors::open(&dir, "x", "m", 2).0;
+
+        // What a full sort would have said.
+        let mut all: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
+        all.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+        for most in 1..=scores.len() {
+            let got = store.nearest(&[1.0, 0.0], most).expect("it ranks");
+            let want: Vec<String> = all
+                .iter()
+                .take(most)
+                .map(|(n, _)| format!("girsa:x/{}#{}", n + 1, n + 1))
+                .collect();
+            let got: Vec<String> = got.into_iter().map(|(id, _)| id.to_string()).collect();
+            assert_eq!(got, want, "top {most} disagrees with a full sort");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

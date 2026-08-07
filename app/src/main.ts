@@ -35,7 +35,7 @@ import { SettingsView, applyLook } from "./settingsview.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
-import { KSAV, sefer, speak, withPrefix } from "./names.ts";
+import { KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { presenceSaid } from "./presence.ts";
 import { whatKey, type Pressed } from "./keys.ts";
@@ -65,12 +65,21 @@ const scans = new Map<PaneId, ScanView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
 const reported = new Map<PaneId, string>();
-/** Slug → the Hebrew title, so a tab is labelled `ברכות` and not
- * `bavli/berakhot`. Filled in as seforim are opened. */
-const titles = new Map<string, string>();
+/**
+ * Slug → **both** of a sefer's titles, so a tab is labelled `ברכות` and not
+ * `bavli/berakhot`. Filled in as seforim are opened.
+ *
+ * Both, and not the rendered name, because which of the two to print is a pure
+ * function of data the window already holds — `titleIn`. Holding only the
+ * rendered one is why switching the interface language used to **re-fetch every
+ * open sefer over IPC**, an 18,000-segment Mishnah Berurah included, to change
+ * which of two strings a tab prints.
+ */
+const named = new Map<string, Named>();
 
 function titleOf(slug: string): string {
-  return titles.get(slug) ?? slug;
+  const held = named.get(slug);
+  return held ? sefer(held) : slug;
 }
 
 async function main(): Promise<void> {
@@ -258,7 +267,7 @@ async function draw(): Promise<void> {
     // because a PDF opened into the reading pane is a sefer of blank lines,
     // which is what this window did until W25.
     const text = await api.openSefer(pane.slug);
-    titles.set(pane.slug, sefer(text.work));
+    named.set(pane.slug, text.work);
     // The tab was drawn before the title was known.
     redrawTabs();
 
@@ -653,9 +662,11 @@ function toolBar(): HTMLElement {
     async () => {
       if (!state) return;
       await api.setLanguage(state.language === "english" ? "hebrew" : "english");
-      // Every pane's header carries a sefer's name, so they are all redrawn.
-      views.clear();
-      scans.clear();
+      // The panes are **kept**. Every header carries a sefer's name, and which
+      // name that is is `titleIn` over the two titles this window already
+      // holds — so redrawing is enough, and clearing the views made the window
+      // re-fetch every open sefer over IPC to change one string. Mishnah
+      // Berurah is 18,120 segments.
       await reload();
     },
   );

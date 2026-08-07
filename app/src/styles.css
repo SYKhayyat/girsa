@@ -2235,7 +2235,7 @@ body {
 }
 
 .lane-hit:hover {
-  background: var(--paper);
+  background: var(--page-raised);
 }
 
 .lane-where {
@@ -2257,7 +2257,9 @@ body {
 
 .lane-text {
   margin: 2px 0 0;
-  font-family: var(--reading);
+  /* `--hebrew`, not `--reading`. The lane's own results were the one place in
+     the window drawing Hebrew in the fallback serif. */
+  font-family: var(--hebrew);
   font-size: 0.95em;
   line-height: 1.6;
 }
@@ -2284,7 +2286,11 @@ body {
   width: min(560px, 92vw);
   max-height: 78vh;
   overflow-y: auto;
-  background: var(--paper);
+  /* `--page-raised`, not `--paper`. `--paper` was never defined anywhere, so
+     this panel had **no background at all** — the reading behind it showed
+     through a 560px sheet of results. Two more uses of it and one of
+     `--reading`, all three undefined; see the check in `app/test/`. */
+  background: var(--page-raised);
   border: 1px solid var(--rule);
   border-radius: 6px;
   box-shadow: 0 18px 48px rgb(0 0 0 / 28%);
