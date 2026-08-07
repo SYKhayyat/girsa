@@ -657,3 +657,49 @@ fn every_binary_reads_its_command_line_the_same_way() {
         wrong.join("\n  ")
     );
 }
+
+#[test]
+fn no_crate_reads_another_crates_file_by_string_surgery() {
+    // `girsa-note` may not depend on `girsa-fix` — siblings, and neither may
+    // name the other — so `since.rs` counted unindexed corrections like this:
+    //
+    //     if !body.contains("\"when\"") { … }
+    //     line.split("\"when\"").nth(1).trim_start_matches([':', ' ', '"'])
+    //
+    // One crate parsing another's file by hand, with `serde_json` sitting
+    // unused in its own manifest, purely because a type name was out of reach.
+    // It was correct — a `"when"` inside a string value is escaped, so the
+    // split could not land in one — and it was correct by luck, and would have
+    // stayed silently correct until somebody added a field called `whenever`.
+    //
+    // The answer was not to name `Patch`. Counting records in a log is a fact
+    // about the log format, so it is `girsa_personal::since`, which both crates
+    // already depend on.
+    let root = repo();
+    let mut wrong = Vec::new();
+    for (named, body) in sources(&root) {
+        if named.ends_with(SELF) {
+            continue;
+        }
+        for (n, line) in body.lines().enumerate() {
+            let code = line.trim_start();
+            // Comments quote the surgery they replaced, and tests assert on
+            // what a store wrote — `line.contains("\"dir\":\"undeclared\"")` is
+            // a store checking its own output, which is the opposite of this.
+            if code.starts_with("//") || code.starts_with("assert") {
+                continue;
+            }
+            if code.contains(".split(\"\\\"") || code.contains(".splitn(\"\\\"") {
+                wrong.push(format!("{named}:{}", n + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a JSON field pulled out of a line by splitting on its name:\n  {}\n\n\
+         If the type is reachable, deserialise it. If it is not — a sibling \
+         crate's record — the question is a fact about the **log format**, \
+         which is `girsa-personal`'s: see `girsa_personal::since`.",
+        wrong.join("\n  ")
+    );
+}

@@ -622,6 +622,34 @@ own compaction, so every file any earlier version wrote replays to exactly what
 it always meant — which is the property to insist on here and nowhere else,
 `personal/` being the one directory a reader cannot re-download.
 
+**And the leaf crate turns out to own more than the writing.** `girsa-note`'s
+`since.rs` has to count how many corrections are newer than the search index.
+Corrections are `girsa-fix`'s, and the two are siblings, so neither may name the
+other's `Patch`. What it did instead:
+
+```rust
+if !body.contains("\"when\"") { … }
+line.split("\"when\"").nth(1).trim_start_matches([':', ' ', '"'])
+```
+
+One crate parsing another's file by string surgery, with `serde_json` sitting
+unused in its own manifest, purely because a type name was out of reach. It was
+**correct** — a `"when"` inside a string value is escaped on disk, so the split
+cannot land in one — and correct by luck rather than by construction, and it
+would have gone on being silently correct right up until somebody added a field
+called `whenever`.
+
+The answer was never to reach for `Patch`. **Counting records in a log is a fact
+about the log format**, and the format is this crate's — the same argument that
+already put `is_tombstone` here. `girsa_personal::since` reads one field, `when`,
+off any record any store in the layer writes, and reports how many are live and
+how many are newer than a moment. A record it cannot date counts as newer, which
+is the safe direction: over-reporting sends a reader to rebuild an index they
+might not have needed to, under-reporting is the silent gap W26 exists to close,
+and of the two only one is a lie.
+
+`no_crate_reads_another_crates_file_by_string_surgery` holds it.
+
 **Amended again: derived once is not derived.** A note lives twice — the `.md`
 you can open in vim, and the `segments.jsonl` the shelf and the search index
 read. The second was derived from the first exactly once, when the note was

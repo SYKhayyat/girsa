@@ -57,6 +57,80 @@ pub fn is_tombstone(line: &str) -> bool {
     serde_json::from_str::<Gone>(line).is_ok()
 }
 
+/// The one field a caller counting *what has changed since* needs.
+///
+/// Every record type in this layer carries a `when` — seconds since the epoch,
+/// written when the record was made. This reads that and nothing else, so it
+/// deserialises a `Patch`, a `Mark`, a saved question and a folder alike
+/// without any of them being nameable from here.
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct Stamp {
+    /// `None` on a record written before the field existed.
+    #[serde(default)]
+    when: Option<u64>,
+}
+
+/// How many records a log holds, and how many were written after a moment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Since {
+    /// Live records — blank lines and tombstones excluded. A deletion is not a
+    /// thing for an index to go and find.
+    pub records: usize,
+    /// Of those, the ones written after the moment.
+    ///
+    /// **A record that cannot be dated is counted as after it.** A timestamp
+    /// this cannot read is not a reason to say nothing about the record it
+    /// belongs to: over-reporting sends a reader to rebuild an index they might
+    /// not have needed to, under-reporting is a silent gap, and of the two only
+    /// one is a lie.
+    pub after: usize,
+}
+
+/// Count a personal-layer log against a moment, in seconds since the epoch.
+///
+/// # Why this is here and not where the record type is
+///
+/// `girsa_note::since` needs to know how many corrections are newer than the
+/// search index. Corrections are `girsa_fix`'s, and `girsa-note` may not depend
+/// on `girsa-fix` — they are siblings, and neither may name the other. So it
+/// did this:
+///
+/// ```ignore
+/// if !body.contains("\"when\"") { … }
+/// line.split("\"when\"").nth(1)?.trim_start_matches([':', ' ', '"'])
+/// ```
+///
+/// One crate parsing another crate's file by string surgery, with `serde_json`
+/// sitting unused in its own manifest, purely because it is forbidden to name
+/// the `Patch` type. It happened to be correct — a `"when"` inside a string
+/// value is escaped, so the split cannot land in one — and it was correct by
+/// luck rather than by construction, and it would go on being silently correct
+/// right up until somebody added a field called `whenever`.
+///
+/// The answer is not to name `Patch`. It is that **counting records in a log is
+/// a fact about the log format**, and the log format is this crate's — the same
+/// argument that already puts [`is_tombstone`] here.
+#[must_use]
+pub fn since(body: &str, seconds: u64) -> Since {
+    let mut counted = Since::default();
+    for line in body.lines() {
+        if line.trim().is_empty() || is_tombstone(line) {
+            continue;
+        }
+        counted.records += 1;
+        let after = match serde_json::from_str::<Stamp>(line) {
+            Ok(Stamp { when: Some(when) }) => when > seconds,
+            // No `when`, or a line that will not parse at all. Both are records
+            // this cannot date, and an undated record counts as new.
+            _ => true,
+        };
+        if after {
+            counted.after += 1;
+        }
+    }
+    counted
+}
+
 /// Anything that stopped a record reaching the disk.
 ///
 /// One variant, because there is one thing a caller can do about any of them
@@ -497,5 +571,99 @@ mod tests {
         assert_eq!(live.lines, 1_000);
         assert_eq!(live.records.len(), 1_000);
         assert!(!Log::bloated(live.lines, live.records.len()));
+    }
+
+    #[test]
+    fn a_record_with_no_stamp_counts_as_new() {
+        // The safe direction. Over-reporting sends a reader to rebuild an index
+        // they might not have needed to; under-reporting is a silent gap.
+        let body = "{\"id\":\"a\"}\n{\"id\":\"b\",\"when\":100}\n";
+        assert_eq!(
+            since(body, 500),
+            Since {
+                records: 2,
+                after: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_tombstone_is_not_a_record() {
+        // Taking a correction back writes a line too, and a line saying a
+        // correction is gone is not something for an index to go and find.
+        let body = "{\"id\":\"a\",\"when\":900}\n{\"gone\":\"a\"}\n";
+        assert_eq!(
+            since(body, 100),
+            Since {
+                records: 1,
+                after: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_stamp_on_the_moment_itself_is_not_after_it() {
+        let body = "{\"when\":100}\n";
+        assert_eq!(since(body, 100).after, 0);
+        assert_eq!(since(body, 99).after, 1);
+    }
+
+    #[test]
+    fn a_line_that_will_not_parse_costs_nothing_and_counts_as_new() {
+        // One bad line silently un-counting a reader's corrections is the
+        // failure this whole module's shape exists to avoid.
+        let body = "{\"when\":100}\nnot json at all\n";
+        assert_eq!(
+            since(body, 500),
+            Since {
+                records: 2,
+                after: 1
+            }
+        );
+    }
+
+    #[test]
+    fn the_word_when_inside_somebody_s_note_is_not_a_timestamp() {
+        // What the string surgery in `girsa_note::since` could not see it was
+        // relying on. `line.split("\"when\"")` was safe only because JSON
+        // escapes a quote inside a value — so this line's `"when"` is
+        // `\"when\"` on disk and the split misses it. Correct by luck. Here it
+        // is a field, read as a field.
+        let body = "{\"note\":\"he wrote \\\"when\\\" here\",\"when\":100}\n";
+        assert_eq!(
+            since(body, 500),
+            Since {
+                records: 1,
+                after: 0
+            }
+        );
+        assert_eq!(
+            since(body, 50),
+            Since {
+                records: 1,
+                after: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_field_whose_name_merely_ends_in_when_is_not_the_stamp() {
+        // `whenever` — the rename that would have made the old parser wrong,
+        // written down so it stays wrong-proof.
+        let body = "{\"whenever\":100,\"when\":900}\n";
+        assert_eq!(since(body, 500).after, 1);
+        let only = "{\"whenever\":900}\n";
+        assert_eq!(since(only, 500).after, 1, "undated counts as new");
+    }
+
+    #[test]
+    fn an_empty_line_is_not_a_record() {
+        assert_eq!(
+            since("\n\n{\"when\":9}\n\n", 0),
+            Since {
+                records: 1,
+                after: 1
+            }
+        );
     }
 }

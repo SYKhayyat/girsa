@@ -40,4 +40,4 @@
 
 pub mod log;
 
-pub use log::{is_tombstone, replay, Live, Log, LogError};
+pub use log::{is_tombstone, replay, since, Live, Log, LogError, Since};

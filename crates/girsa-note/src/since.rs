@@ -296,14 +296,33 @@ fn notes_since(personal: &Path, built: Option<SystemTime>) -> Written {
 /// Corrections added since the index was built.
 ///
 /// One file, one line each, so the file's own modification time says only
-/// *whether* any are new and not *how many*. Where a patch carries its own `when`
-/// the count is exact; where none do, every line is counted. Over-reporting sends
-/// a reader to rebuild an index they might not have needed to; under-reporting is
-/// the silence this module exists to close, and of the two only one is a lie.
+/// *whether* any are new and not *how many*. Where a patch carries its own
+/// `when` the count is exact; where it does not, it counts as new.
+/// Over-reporting sends a reader to rebuild an index they might not have needed
+/// to; under-reporting is the silence this module exists to close, and of the
+/// two only one is a lie.
 ///
 /// A tombstone is not a correction. The file is an append-only log, so taking a
-/// correction back writes a line too — and a line that says a correction is gone
-/// is not something for the index to go and find.
+/// correction back writes a line too — and a line that says a correction is
+/// gone is not something for the index to go and find.
+///
+/// # The counting is [`girsa_personal::since`] and used to be string surgery
+///
+/// This crate may not depend on `girsa-fix` — siblings, neither may name the
+/// other — so it could not read a `Patch`. What it did instead was
+/// `body.contains("\"when\"")` and
+/// `line.split("\"when\"").nth(1).trim_start_matches([':', ' ', '"'])`: one
+/// crate parsing another's file by hand, with `serde_json` sitting unused in
+/// its own manifest, purely because a type name was out of reach.
+///
+/// It was correct. A `"when"` inside a string value is escaped, so the split
+/// could not land in one — correct by luck rather than by construction, and
+/// silently so until somebody added a field called `whenever`.
+///
+/// The answer was never to name `Patch`. **Counting records in a log is a fact
+/// about the log format**, and the format is `girsa-personal`'s, which both
+/// crates already depend on — the same argument that already put
+/// `is_tombstone` there.
 fn fixes_since(personal: &Path, built: Option<SystemTime>) -> Written {
     let Some(built) = built else {
         return Written::NoIndex;
@@ -315,40 +334,15 @@ fn fixes_since(personal: &Path, built: Option<SystemTime>) -> Written {
     let Ok(body) = std::fs::read_to_string(&path) else {
         return Written::Since(0);
     };
-    let corrections = || {
-        body.lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter(|l| !girsa_personal::is_tombstone(l))
-    };
-    if !body.contains("\"when\"") {
-        return Written::Since(corrections().count());
-    }
-    Written::Since(corrections().filter(|l| when_after(l, built)).count())
-}
-
-/// Whether a correction's own `when` is after the build.
-///
-/// Anything that will not parse counts as new. A timestamp this cannot read is not
-/// a reason to say nothing about the correction it belongs to.
-fn when_after(line: &str, built: SystemTime) -> bool {
-    let Some(after) = line.split("\"when\"").nth(1) else {
-        return true;
-    };
-    let Some(seconds) = after
-        .trim_start_matches([':', ' ', '"'])
-        .split(['"', ',', '}'])
-        .next()
-        .and_then(|s| s.parse::<u64>().ok())
-    else {
-        return true;
-    };
-    let Ok(built_secs) = built
+    let Ok(built) = built
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
     else {
-        return true;
+        // A build stamp older than the epoch is a clock nobody can reason
+        // about. Everything counts as new, which is the safe direction.
+        return Written::Since(girsa_personal::since(&body, 0).records);
     };
-    seconds > built_secs
+    Written::Since(girsa_personal::since(&body, built).after)
 }
 
 /// Scans whose word corrections are newer than the index.
