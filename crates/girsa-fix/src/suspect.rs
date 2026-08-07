@@ -33,7 +33,7 @@
 //! machine that is *almost certain* about four thousand words is a machine
 //! about to rewrite forty of them wrongly.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
@@ -174,6 +174,24 @@ girsa_corpus::spelled!(Edit {
     Dropped => "dropped",
     Swapped => "swapped",
 });
+
+impl Edit {
+    /// The same edit, said from the other word's point of view.
+    ///
+    /// [`Edit`] describes what happened to the **rare** word, and `hunt` walks
+    /// the common ones — so an edit that removed a letter from the common word
+    /// to reach the rare one means the rare word is *missing* one.
+    /// Substitution and transposition read the same from either side.
+    #[must_use]
+    pub const fn mirrored(self) -> Self {
+        match self {
+            Self::Letter => Self::Letter,
+            Self::Added => Self::Dropped,
+            Self::Dropped => Self::Added,
+            Self::Swapped => Self::Swapped,
+        }
+    }
+}
 
 impl Edit {
     /// How much a finding of this shape is worth, in tenths.
@@ -338,37 +356,65 @@ fn confusion_between(a: &str, b: &str) -> Option<String> {
 
 /// Every rare word that is one letter from a common one, ranked.
 ///
-/// Linear in the vocabulary and constant in the length of a word: each
-/// candidate is generated and looked up, rather than every pair of words being
-/// compared. On the real shelf that is a few million lookups.
+/// # It walks the common words, and it used to walk the rare ones
+///
+/// Both sides find the same pairs. The difference is how many words each side
+/// has: the **rare** side is the hapax legomena, 40–60% of any natural-language
+/// term dictionary, and each of them generates roughly `45L + 22` candidates —
+/// every one a fresh `Vec<char>` and a `String`. On a multi-million-term Hebrew
+/// index that is 10⁸–10⁹ allocations, under a doc comment that said *"a few
+/// million lookups."*
+///
+/// Only a word seen [`Settings::common_at`] times or more — ten thousand, by
+/// default — can ever be the common side, and that is a few thousand terms.
+/// So the generator runs over those instead, and the lookups ask *is this
+/// neighbour a rare word* rather than *is this neighbour a common one*.
+///
+/// **The pairs are identical, and that is a property of the filters rather than
+/// a hope.** Substitution and transposition are symmetric outright; the two
+/// grammar filters are each other's mirror — the rare side refuses dropping a
+/// prefix letter from position 0, the common side refuses inserting one there,
+/// and it is the same letter at the same position. `Edit` is stated from the
+/// rare word's point of view either way, which is what [`Edit::mirrored`] is
+/// for. Asserted against the old walk in
+/// `both_sides_of_the_join_find_the_same_suspects`.
 #[must_use]
 pub fn hunt(vocabulary: &Vocabulary, settings: Settings) -> Vec<Suspect> {
-    let mut found: Vec<Suspect> = Vec::new();
-    for (rare, rare_count) in vocabulary.words() {
-        if rare_count > settings.rare_at {
+    // The best *candidate* per rare word, not the most frequent one: a ד/ר in a
+    // long word beats a letter dropped beside `הוא`, however often `הוא` is
+    // printed. Keyed by the rare word because the walk now arrives at one rare
+    // word from several common ones.
+    let mut best: BTreeMap<String, Suspect> = BTreeMap::new();
+    for (common, common_count) in vocabulary.words() {
+        if common_count < settings.common_at {
             continue;
         }
-        let letters: Vec<char> = rare.chars().collect();
-        if letters.len() < settings.shortest || !letters.iter().all(|c| LETTERS.contains(c)) {
+        let letters: Vec<char> = common.chars().collect();
+        // Every candidate the rare side ever generated was built out of
+        // `LETTERS`, so the common word of any pair it could find is made of
+        // them too. Skipping the others changes no answer and saves the walk.
+        if !letters.iter().all(|c| LETTERS.contains(c)) {
             continue;
         }
-        // The best *candidate*, not the most frequent one: a ד/ר in a long word
-        // beats a letter dropped beside `הוא`, however often `הוא` is printed.
-        let mut best: Option<Suspect> = None;
         for (candidate, how) in neighbours(&letters) {
-            let count = vocabulary.count(&candidate);
-            if count < settings.common_at {
+            let rare_count = vocabulary.count(&candidate);
+            if rare_count == 0 || rare_count > settings.rare_at {
                 continue;
             }
-            let suspect = Suspect::new(rare, &candidate, rare_count, count, how);
-            if best.as_ref().is_none_or(|seen| suspect.score > seen.score) {
-                best = Some(suspect);
+            if candidate.chars().count() < settings.shortest {
+                continue;
+            }
+            let suspect =
+                Suspect::new(&candidate, common, rare_count, common_count, how.mirrored());
+            match best.get(&candidate) {
+                Some(seen) if seen.score >= suspect.score => {}
+                _ => {
+                    best.insert(candidate, suspect);
+                }
             }
         }
-        if let Some(suspect) = best {
-            found.push(suspect);
-        }
     }
+    let mut found: Vec<Suspect> = best.into_values().collect();
     // Highest score first, and by the word after that, so two runs of the batch
     // job over the same corpus hand back the same queue in the same order.
     found.sort_by(|a, b| {
@@ -657,5 +703,143 @@ mod tests {
         vocab.add("abce", 40_000);
         vocab.add("1234", 1);
         assert!(hunt(&vocab, Settings::default()).is_empty());
+    }
+
+    /// The walk this replaced: over the **rare** words, generating candidates
+    /// and asking whether each is common.
+    ///
+    /// Kept here and nowhere else. It is the oracle for the flip, and a
+    /// property this size — *the same pairs, from the other side of the join* —
+    /// is worth an oracle rather than a hand-written expectation.
+    fn hunt_from_the_rare_side(vocabulary: &Vocabulary, settings: Settings) -> Vec<Suspect> {
+        let mut found: Vec<Suspect> = Vec::new();
+        for (rare, rare_count) in vocabulary.words() {
+            if rare_count > settings.rare_at {
+                continue;
+            }
+            let letters: Vec<char> = rare.chars().collect();
+            if letters.len() < settings.shortest || !letters.iter().all(|c| LETTERS.contains(c)) {
+                continue;
+            }
+            let mut best: Option<Suspect> = None;
+            for (candidate, how) in neighbours(&letters) {
+                let count = vocabulary.count(&candidate);
+                if count < settings.common_at {
+                    continue;
+                }
+                let suspect = Suspect::new(rare, &candidate, rare_count, count, how);
+                if best.as_ref().is_none_or(|seen| suspect.score > seen.score) {
+                    best = Some(suspect);
+                }
+            }
+            if let Some(suspect) = best {
+                found.push(suspect);
+            }
+        }
+        found.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.rare.cmp(&b.rare))
+                .then_with(|| a.common.cmp(&b.common))
+        });
+        found
+    }
+
+    #[test]
+    fn both_sides_of_the_join_find_the_same_suspects() {
+        // `hunt` walks the **common** words now. The rare side is 40–60% of any
+        // term dictionary and each rare word generates ~45L+22 candidates, each
+        // a fresh `Vec<char>` and a `String` — 10⁸–10⁹ allocations on a
+        // multi-million-term index, under a doc comment saying *"a few million
+        // lookups."* Only a word seen 10,000 times can be the common side, and
+        // that is a few thousand terms.
+        //
+        // The pairs are the same, and this is why: substitution and
+        // transposition are symmetric outright, and the two grammar filters are
+        // each other's mirror — the rare side refuses *dropping* a prefix
+        // letter from position 0, the common side refuses *inserting* one
+        // there, and it is the same letter at the same position.
+        let mut vocabulary = Vocabulary::default();
+
+        // Common words, and the rare misreadings around them: a ד/ר
+        // substitution, a letter added, a letter dropped, and a transposition —
+        // including the shapes the grammar filter must refuse.
+        let common = [
+            "ברכות",
+            "הלכה",
+            "שבת",
+            "אמר",
+            "תפילה",
+            "מצוה",
+            "ישראל",
+            "כתב",
+        ];
+        for word in common {
+            vocabulary.add(word, 12_000);
+        }
+        let rare = [
+            "ברכזת",
+            "הלנה",
+            "שבתת",
+            "אמרר",
+            "תפלה",
+            "מצוח",
+            "ישרלא",
+            "כחב",
+            // Grammar, from both directions: a prefix on a common word and a
+            // suffix on one. Neither is a misreading.
+            "ובברכות",
+            "הלכהו",
+            "ושבת",
+            "אמרו",
+            "בכתב",
+            "מצוהו",
+            // And words no edit reaches at all.
+            "פלפול",
+            "סוגיא",
+        ];
+        for word in rare {
+            vocabulary.add(word, 1);
+        }
+
+        let settings = Settings::default();
+        let flipped = hunt(&vocabulary, settings);
+        let original = hunt_from_the_rare_side(&vocabulary, settings);
+
+        assert!(
+            !flipped.is_empty(),
+            "the fixture found nothing, so this proves nothing"
+        );
+        // The two asymmetric edits are the whole risk — a substitution reads the
+        // same from either side and proves nothing about the mirror. If the
+        // fixture stops producing an `added` and a `dropped`, this test has
+        // stopped checking what it is for.
+        for wanted in [Edit::Letter, Edit::Added, Edit::Dropped] {
+            assert!(
+                flipped.iter().any(|s| s.how == wanted),
+                "the fixture produced no {} — it is not exercising the mirror: {:?}",
+                wanted.as_str(),
+                flipped.iter().map(|s| s.how.as_str()).collect::<Vec<_>>()
+            );
+        }
+        let said = |found: &[Suspect]| {
+            found
+                .iter()
+                .map(|s| {
+                    format!(
+                        "{} → {} ({}, {})",
+                        s.rare,
+                        s.common,
+                        s.how.as_str(),
+                        s.score
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            said(&flipped),
+            said(&original),
+            "the two sides of the join disagree"
+        );
     }
 }
