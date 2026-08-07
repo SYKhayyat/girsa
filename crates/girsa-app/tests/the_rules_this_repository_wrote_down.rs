@@ -176,3 +176,27 @@ fn a_prepared_query_is_never_rebuilt_to_be_asked_again() {
         );
     }
 }
+
+#[test]
+fn nothing_re_anchors_by_exact_id_where_a_standing_is_the_question() {
+    // `girsa_app::shelf::Open::standing`:
+    //
+    //   The one derivation of `Standing` … Every consumer that used to ask
+    //   `SegmentId::covers` asks this instead.
+    //
+    // Every consumer but one. `girsa_fix::Layer::apply` looked its patches up
+    // with `by_segment.get(&id)`, so a correction made before the corpus folded
+    // that se'if into another stopped applying — silently, because `apply`
+    // reports a patch whose *letters* it cannot find and this one was never
+    // looked up at all.
+    //
+    // The seam is `Layer::apply_at`, which takes a `Standing`. `Layer::apply`
+    // stays for the write path, where the exact id is the right question.
+    let root = repo();
+    let shelf = std::fs::read_to_string(root.join("crates/girsa-app/src/shelf.rs"))
+        .unwrap_or_else(|e| panic!("shelf.rs reads: {e}"));
+    assert!(
+        shelf.contains("apply_at(&standing"),
+        "the reading pane stopped asking `Layer::apply_at`. A correction is stored          under the name the place had when it was made, and an exact lookup will          miss it the day upstream re-segments the work — see          `an_anchor_survives_a_split_at_import.rs`."
+    );
+}

@@ -291,3 +291,67 @@ fn a_redirect_that_was_redirected_again_is_followed_the_whole_way() {
         .expect("two hops is still an answer");
     assert_eq!(open.segments[at].text, "ראשון שני שלישי");
 }
+
+#[test]
+fn a_correction_made_before_the_seif_moved_still_corrects_the_words_it_was_made_on() {
+    // The half of this promise nobody was keeping.
+    //
+    // The module note above lists what has to find the words after a cut or a
+    // merge: *"from a Ksav document, a link, a mark, a correction."* Three of
+    // those ask `Standing` and find them. The fourth asked
+    // `Layer::by_segment.get(&id)` — **exact equality on the permanent id** —
+    // which survives a re-*address* (the ordinal is the name) and does not
+    // survive the corpus folding one se'if into another. That is exactly the
+    // event the test above this one covers for a citation.
+    //
+    // And it failed *silently*. `Layer::apply` reports a patch whose letters it
+    // can no longer find, as `stale`; this one was never looked up, so there
+    // was nothing to report. The words came back uncorrected and the
+    // corrections screen still listed it as applied.
+    let root = scratch("correction-across-a-merge");
+    let personal = root.join("personal");
+    shelve(&root, &[("1", "ראשון"), ("2", "טעות בכאן"), ("3", "אחרון")]);
+
+    // A correction on the second se'if, made while it is still its own segment.
+    let at: SegmentId = "girsa:bavli/berakhot/2a:2#2".parse().expect("an id");
+    let mut layer = girsa_fix::Layer::open(&personal).0;
+    layer
+        .add(girsa_fix::Patch::new(
+            at.clone(),
+            0..4,
+            "טעות",
+            "נכון",
+            girsa_fix::Kind::Ocr,
+            "me",
+        ))
+        .expect("the correction is written");
+
+    let read = Shelf::open(&root, &personal)
+        .expect("the shelf opens")
+        .read("bavli/berakhot")
+        .expect("it opens");
+    assert!(
+        read.segments[1].text.starts_with("נכון"),
+        "the correction did not apply before anything moved: {}",
+        read.segments[1].text
+    );
+
+    // Now the corpus folds that se'if into the one before it.
+    let imported = shelve(&root, &[("1", "ראשון טעות בכאן"), ("2", "אחרון")]);
+    assert!(
+        imported
+            .redirects
+            .iter()
+            .any(|r| r.from == at && !r.to.is_empty()),
+        "the premise: the se'if the correction was made on is redirected"
+    );
+
+    let read = Shelf::open(&root, &personal)
+        .expect("the shelf opens again")
+        .read("bavli/berakhot")
+        .expect("it opens");
+    assert_eq!(
+        read.segments[0].text, "ראשון נכון בכאן",
+        "the correction stopped applying when the words moved, and said nothing"
+    );
+}

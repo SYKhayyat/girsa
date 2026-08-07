@@ -221,8 +221,13 @@ impl Shelf {
         if work.version.is_none() {
             work.version = read.work.version.clone();
         }
-        let open = Open::corrected(work, read.segments, &self.fixes, self.showing)
-            .redirected_by(&read.redirects);
+        // Redirects **before** corrections, and that order is the fix rather
+        // than a tidy-up: a correction is stored under the name the place had
+        // when it was made, and `Open::standing` cannot answer *what was this
+        // called before* until it has been told the redirect table.
+        let open = Open::new(work, read.segments)
+            .redirected_by(&read.redirects)
+            .corrected_by(&self.fixes, self.showing);
         // A scan the reader has paged is addressed by what is printed on its
         // pages (W25). One place decides that, and this is it.
         Ok(match self.scans.of(slug) {
@@ -765,32 +770,70 @@ pub struct Open {
 impl Open {
     #[must_use]
     pub fn new(work: Work, segments: Vec<Segment>) -> Self {
-        Self::corrected(work, segments, &girsa_fix::Layer::nowhere(), Showing::Fixed)
+        Self::built(work, segments)
     }
 
     /// The same, with your corrections applied.
+    ///
+    /// **Prefer [`Open::corrected_by`]**, which runs after
+    /// [`Open::redirected_by`] and so can find a correction written under a
+    /// name upstream has since moved. This constructor is what a caller with no
+    /// redirect table has, and it is the shape every test and `girsa-read` want.
     #[must_use]
     pub fn corrected(
         work: Work,
-        mut segments: Vec<Segment>,
+        segments: Vec<Segment>,
         fixes: &girsa_fix::Layer,
         showing: Showing,
     ) -> Self {
-        let mut printed = HashMap::new();
-        let mut corrections = HashMap::new();
-        if fixes.touches(&work.slug) {
-            for segment in &mut segments {
-                let corrected = fixes.apply(&segment.id, &segment.text, showing);
-                if corrected.is_untouched() {
-                    continue;
-                }
-                printed.insert(
-                    segment.id.clone(),
-                    std::mem::replace(&mut segment.text, corrected.text.clone()),
-                );
-                corrections.insert(segment.id.clone(), corrected);
-            }
+        Self::new(work, segments).corrected_by(fixes, showing)
+    }
+
+    /// Apply your corrections to a sefer that already knows its own redirects.
+    ///
+    /// # Why this is a step and not a constructor argument
+    ///
+    /// It used to be one, and that was the bug. `Open::corrected` ran **before**
+    /// `redirected_by`, so the layer was applied against a work that did not yet
+    /// know which of its names were dead — and `girsa_fix::Layer::apply` looked
+    /// its patches up by **exact id** anyway, which is the only one of this
+    /// codebase's four re-anchoring predicates that is not `Standing`.
+    ///
+    /// Both halves had to move: a correction written against `#32` before B12
+    /// cut it into `#32.1` and `#32.2` is stored under a name that is no longer
+    /// a segment, and `by_segment.get(&id)` was never going to find it. Worse
+    /// than a wrong answer — a *silent* one, because `apply` reports a patch
+    /// whose letters it cannot find, and this one was never looked up.
+    #[must_use]
+    pub fn corrected_by(mut self, fixes: &girsa_fix::Layer, showing: Showing) -> Self {
+        if !fixes.touches(&self.work.slug) {
+            return self;
         }
+        // The ids first: `standing` reads `self.position`, so the walk has to
+        // see the whole work before it can tell a cut from an insertion.
+        let ids: Vec<SegmentId> = self.segments.iter().map(|s| s.id.clone()).collect();
+        for (at, id) in ids.iter().enumerate() {
+            let standing = self.standing(id);
+            let Some(segment) = self.segments.get_mut(at) else {
+                continue;
+            };
+            let corrected = fixes.apply_at(&standing, &segment.text, showing);
+            if corrected.is_untouched() {
+                continue;
+            }
+            self.printed.insert(
+                id.clone(),
+                std::mem::replace(&mut segment.text, corrected.text.clone()),
+            );
+            self.corrections.insert(id.clone(), corrected);
+        }
+        self
+    }
+
+    #[must_use]
+    fn built(work: Work, segments: Vec<Segment>) -> Self {
+        let printed = HashMap::new();
+        let corrections = HashMap::new();
         let mut index = SegmentIndex::default();
         index.insert(
             work.slug.clone(),

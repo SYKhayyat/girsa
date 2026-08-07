@@ -45,6 +45,7 @@ use std::path::{Path, PathBuf};
 use girsa_personal::Log;
 
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use serde::{Deserialize, Serialize};
 
 /// What a patch claims.
@@ -434,10 +435,42 @@ impl Layer {
         self.by_segment.values().map(Vec::len).sum()
     }
 
-    /// The corrections on one segment, in reading order.
+    /// The corrections stored under **exactly** this id, in reading order.
+    ///
+    /// For writing, and for a caller that already knows the name it wants.
+    /// **A reader wants [`Layer::at`]** — a correction written before the corpus
+    /// cut its segment in two is stored under a name that is no longer a
+    /// segment, and this will not find it.
     #[must_use]
     pub fn on(&self, segment: &SegmentId) -> &[Patch] {
         self.by_segment.get(segment).map_or(&[], Vec::as_slice)
+    }
+
+    /// The corrections on a place, **under every name it has carried**.
+    ///
+    /// # The one this had and the other three did not
+    ///
+    /// Four things in this repository ask *does something anchored back then
+    /// belong to this line now*. `girsa_note::Marks::on` and
+    /// `Collection::holds` ask `Standing::named_by`; `girsa_app::links` builds a
+    /// `Landing` out of a `Standing`. This layer asked `by_segment.get(id)` —
+    /// **exact equality** — so a correction made before the corpus split its
+    /// se'if simply stopped applying. Not reported as stale, either: `apply`
+    /// reports a patch whose letters it cannot find, and this one was never
+    /// looked up, so there was nothing to report.
+    ///
+    /// `Standing` is the answer the rest of the codebase already settled on,
+    /// and it covers both halves — a name carved into children, and a name
+    /// upstream moved (`redirects.jsonl`).
+    #[must_use]
+    pub fn at(&self, at: &Standing) -> Vec<&Patch> {
+        let mut found: Vec<&Patch> = at
+            .names()
+            .filter_map(|name| self.by_segment.get(name))
+            .flatten()
+            .collect();
+        found.sort_by_key(|p| p.from_char);
+        found
     }
 
     /// Every correction, oldest segment first.
@@ -599,7 +632,20 @@ impl Layer {
     /// correction onto different letters. See [`Corrected`].
     #[must_use]
     pub fn apply(&self, segment: &SegmentId, base: &str, showing: Showing) -> Corrected {
-        let patches = self.on(segment);
+        self.applying(self.on(segment).iter().collect(), base, showing)
+    }
+
+    /// The same, for a place under every name it has carried — see [`Layer::at`].
+    ///
+    /// This is what the reading pane wants. `apply` above finds corrections
+    /// stored under exactly the id it is handed, which is right for the write
+    /// path and silently wrong the day upstream re-segments a work.
+    #[must_use]
+    pub fn apply_at(&self, at: &Standing, base: &str, showing: Showing) -> Corrected {
+        self.applying(self.at(at), base, showing)
+    }
+
+    fn applying(&self, patches: Vec<&Patch>, base: &str, showing: Showing) -> Corrected {
         if patches.is_empty() {
             return Corrected::unchanged(base);
         }
