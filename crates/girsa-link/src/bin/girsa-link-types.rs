@@ -91,18 +91,34 @@ fn main() -> std::process::ExitCode {
             continue;
         };
         for line in body.lines().filter(|l| !l.trim().is_empty()) {
-            let Ok(row) = serde_json::from_str::<Row>(line) else {
+            let Ok(mut row) = serde_json::from_str::<Row>(line) else {
                 unparsed += 1;
                 continue;
             };
+            row.forget_implied_type();
             let (Some(from), Some(to)) = (work_of(&row.from), work_of(&row.to)) else {
                 unparsed += 1;
                 continue;
             };
-            // The line as it stands, not a re-serialisation of it: the inbound
-            // cache is the same rows in the same shape, read back by the same
-            // reader (see `girsa_link::inbound`).
-            inbound.push_row(from, to, line);
+            // Re-serialised rather than passed through, and only because the
+            // shape changed underneath: every shard on disk carries a `type`
+            // that says exactly what its `label` says, and `Row` now writes one
+            // only when it is a judgement. Pushing the line as it stands would
+            // fill a cache **this tool owns** with 4.1M copies of it. Round-
+            // tripping through `Row` costs one `to_string` per edge and buys
+            // 12.3% of the file back: `inbound.jsonl` 656.4 MB → 575.6 MB, with
+            // 0 of its 4,131,100 rows still carrying a type. The extra
+            // serialisation did not show above this pass's own run-to-run
+            // noise, which is 89–167s on one machine over one input.
+            //
+            // The shards keep theirs until the next import, where they simply
+            // stop being written. Both read identically, which is the property
+            // that made this a format change with no migration.
+            let Ok(line) = serde_json::to_string(&row) else {
+                unparsed += 1;
+                continue;
+            };
+            inbound.push_row(from, to, &line);
             edges += 1;
         }
         done += 1;

@@ -407,6 +407,21 @@ Types, directed, inverse derived and never stored twice: `comments-on` ·
 are expensive, filling in values is not. Sefaria's four labels map onto ours; the
 74% blank stay `references` until something better assigns them.
 
+> **As built, and a correction made 6 August 2026.** *"Populate only what we
+> have"* was read as *populate every row*, so `type` was written into all
+> 4,182,337 edges as a function of the `label` beside it — and the reader,
+> knowing that, computed the type from `label` and ignored the column. A field
+> written twice and read never: **162.6 MB, 12.3% of the 1.3 GB edge/inbound
+> pair.**
+>
+> It is now `Option`al, and **absent means nobody has judged this edge** — the
+> type is what `label` implies. Present means somebody judged it to be something
+> the label does *not* imply, and the reader honours it. Checked over all
+> 4,182,337 rows before the change: the number whose `type` disagreed with its
+> label is **0**, so no meaning was lost and none of the 49% that are
+> `references` was ever anything but a label with nothing in it. This is the
+> shape §8.3's repairs need, and it is what this paragraph was asking for.
+
 `attributed` records whom the citing text *claims* to cite, separately from where
 the resolver thinks the source actually is. Those diverge constantly —
 misattributions, lost intermediaries, "in the name of." Storing both makes the

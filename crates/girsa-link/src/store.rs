@@ -5,7 +5,7 @@
 //! ends by permanent id —
 //!
 //! ```jsonl
-//! {"from":"girsa:mishnah/berakhot/1:1#1","to":"girsa:rambam-on-mishnah/berakhot/1:1#5","type":"comments-on","method":"sefaria-seed","label":"commentary"}
+//! {"from":"girsa:mishnah/berakhot/1:1#1","to":"girsa:rambam-on-mishnah/berakhot/1:1#5","method":"sefaria-seed","label":"commentary"}
 //! ```
 //!
 //! — which is greppable, diffable, and survives both a correction to the text
@@ -42,27 +42,87 @@ pub fn edges_path(root: &Path, slug: &str) -> PathBuf {
 /// Both ends are the **text** of a segment id, because that is how an anchor
 /// travels everywhere else in the system — into Ksav documents, into patch
 /// files. One shape, not two.
+///
+/// # The `type` column says *somebody judged this*, and used to say nothing
+///
+/// Every row carried `"type":"references",` — 20 bytes — and [`edge_of`] below
+/// **parsed it and then ignored it**, computing the type from `label` with
+/// [`EdgeType::from_sefaria`] instead. On this corpus that is **8,313,437 rows
+/// and 162.6 MB, 12.3% of the 1.3 GB `edges.jsonl`/`inbound.jsonl` pair** —
+/// written twice, read never, and presented by `grep` as though it were where
+/// the type lives.
+///
+/// The tempting fix is to delete it. That is wrong, and the reason is one
+/// section further down the same report: **typing the 49% of edges that are
+/// `references` has nowhere to be persisted.** spec.md §8.2 says *"store the
+/// type field from day one; populate only what we have"* — and what went wrong
+/// was not the storing, it was that *what we have* was written into every row
+/// whether we had it or not, and the reader learned to distrust it.
+///
+/// So the column is now an `Option`, and the two states are different
+/// statements:
+///
+/// - **absent** — nobody has judged this edge; the type is whatever `label`
+///   implies, which is what the reader computes.
+/// - **present** — somebody judged it, and judged it to be something the label
+///   does **not** imply. The reader honours it.
+///
+/// Which means a row is written with a type exactly when the type is
+/// information. Today that is **zero rows**: checked over all 4,182,337 rows of
+/// the real graph, the number whose `type` was not exactly
+/// `from_sefaria(label)` is 0 — so the 162.6 MB was, precisely, the cost of
+/// writing down a function of the next field along.
+///
+/// A file that still has the old column reads identically, because the old
+/// column always agreed with the label. That is what makes this a format change
+/// with no migration.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Row {
     pub from: String,
     pub to: String,
-    #[serde(rename = "type")]
-    pub edge_type: String,
+    /// A judgement about this edge, when one has been made. See the note above:
+    /// absent is *nobody has said*, and is not `references`.
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub edge_type: Option<String>,
     pub method: String,
     /// What the corpus called it, verbatim — including the empty string, which
-    /// is what three quarters of them say (T5).
+    /// is what three quarters of them say (T5). The type when nothing above
+    /// overrides it.
     pub label: String,
 }
 
 impl Row {
     #[must_use]
     pub fn of(edge: &Edge) -> Self {
+        // Written only when it is not what the label already says. An edge
+        // typed `references` because its label was blank is not a judgement,
+        // and a row that recorded it as one would be this field's old problem
+        // with a new name.
+        let implied = EdgeType::from_sefaria(&edge.source_label);
         Self {
             from: edge.from.to_string(),
             to: edge.to.to_string(),
-            edge_type: edge.edge_type.as_str().to_string(),
+            edge_type: (edge.edge_type != implied).then(|| edge.edge_type.as_str().to_string()),
             method: edge.method.as_str().to_string(),
             label: edge.source_label.clone(),
+        }
+    }
+
+    /// Forget a `type` that only repeats what `label` already implies.
+    ///
+    /// [`Row::of`] never writes one, but a row **read from a file written
+    /// before the column meant anything** carries one, and serialising that row
+    /// back out would carry it along. Every rewriting pass has to say which it
+    /// wants, and every one of them wants this: 4,182,337 rows on disk, 0 of
+    /// them a judgement.
+    ///
+    /// Not done inside `Deserialize`, deliberately. A reader that silently
+    /// erased a field would make *"this file has a judgement in it"*
+    /// unanswerable by reading the file.
+    pub fn forget_implied_type(&mut self) {
+        let implied = EdgeType::from_sefaria(&self.label);
+        if self.edge_type.as_deref() == Some(implied.as_str()) {
+            self.edge_type = None;
         }
     }
 }
@@ -181,7 +241,15 @@ pub(crate) fn edge_of(line: &str) -> Option<Edge> {
     Some(Edge {
         from,
         to,
-        edge_type: EdgeType::from_sefaria(&row.label),
+        // A judgement if there is one, and the label's implication if there is
+        // not. A name this project did not write is dropped rather than folded
+        // into the catch-all — see `touching::type_named`, which is the one
+        // reader of these words.
+        edge_type: row
+            .edge_type
+            .as_deref()
+            .and_then(crate::touching::type_named)
+            .unwrap_or_else(|| EdgeType::from_sefaria(&row.label)),
         method: if row.method == Method::OtzariaSeed.as_str() {
             Method::OtzariaSeed
         } else {
@@ -365,6 +433,82 @@ mod tests {
             method: Method::SefariaSeed,
             source_label: "commentary".into(),
         }
+    }
+
+    #[test]
+    fn a_type_the_label_already_implies_is_not_written_down() {
+        // 8,313,437 rows and 162.6 MB of this corpus were a function of the
+        // next field along, written out, parsed, and thrown away. `commentary`
+        // implies `comments-on`, so saying so is saying nothing.
+        let line = serde_json::to_string(&Row::of(&edge())).expect("serialises");
+        assert!(
+            !line.contains("\"type\""),
+            "a type nobody judged was written down anyway: {line}"
+        );
+        assert_eq!(
+            edge_of(&line).expect("reads back").edge_type,
+            EdgeType::CommentsOn
+        );
+    }
+
+    #[test]
+    fn a_judgement_the_label_does_not_imply_is_written_down_and_honoured() {
+        // The other half, and the reason the column is not simply deleted:
+        // 49% of this graph is `references` because its label is blank, and
+        // typing any of it needs somewhere to go that a reader will believe.
+        let mut judged = edge();
+        judged.source_label = String::new(); // implies `references`
+        judged.edge_type = EdgeType::Disputes;
+
+        let line = serde_json::to_string(&Row::of(&judged)).expect("serialises");
+        assert!(line.contains("\"type\":\"disputes\""), "{line}");
+        assert_eq!(
+            edge_of(&line).expect("reads back").edge_type,
+            EdgeType::Disputes,
+            "the judgement was written down and then ignored, which is where this started"
+        );
+    }
+
+    #[test]
+    fn rewriting_an_older_row_drops_the_type_it_only_repeated() {
+        // The half that reclaims the 162.6 MB. A row read off disk keeps its
+        // column, so a pass that re-serialises has to say it does not want one
+        // — and `girsa-link-types` rebuilds `inbound.jsonl` from exactly these
+        // rows. 656.4 MB → 575.6 MB on the real corpus.
+        let old = r#"{"from":"girsa:a/1:1#1","to":"girsa:b/1:1#1","type":"comments-on","method":"sefaria-seed","label":"commentary"}"#;
+        let mut row: Row = serde_json::from_str(old).expect("parses");
+        row.forget_implied_type();
+        let line = serde_json::to_string(&row).expect("serialises");
+        assert!(!line.contains("\"type\""), "{line}");
+
+        // And a judgement survives the same pass, which is the whole point of
+        // keeping the column at all.
+        let judged = r#"{"from":"girsa:a/1:1#1","to":"girsa:b/1:1#1","type":"disputes","method":"sefaria-seed","label":""}"#;
+        let mut row: Row = serde_json::from_str(judged).expect("parses");
+        row.forget_implied_type();
+        assert_eq!(row.edge_type.as_deref(), Some("disputes"));
+    }
+
+    #[test]
+    fn a_row_written_before_the_column_meant_anything_reads_the_same() {
+        // Every one of the 4,182,337 rows on disk carries a `type` that agrees
+        // with its label — checked, not assumed — so honouring the column
+        // changes nothing about what any of them mean.
+        let old = r#"{"from":"girsa:a/1:1#1","to":"girsa:b/1:1#1","type":"quotes","method":"sefaria-seed","label":"quotation"}"#;
+        assert_eq!(
+            edge_of(old).expect("an older row reads").edge_type,
+            EdgeType::Quotes
+        );
+
+        // And a word this project never wrote is not a type. `commentary` is
+        // Sefaria's label, not one of ours: it falls back to the label rather
+        // than being invented into `references`.
+        let strange = r#"{"from":"girsa:a/1:1#1","to":"girsa:b/1:1#1","type":"commentary","method":"sefaria-seed","label":"quotation"}"#;
+        assert_eq!(
+            edge_of(strange).expect("reads").edge_type,
+            EdgeType::Quotes,
+            "a name nobody in this project writes was believed"
+        );
     }
 
     #[test]
