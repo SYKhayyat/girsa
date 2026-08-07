@@ -98,7 +98,13 @@ impl Smart {
         scope: &Scope,
         paging: Paging,
     ) -> Result<Answered, IndexError> {
-        let exact = index.search_in(&self.base, scope, paging)?;
+        // Prepared once per query actually run, and carried out with the
+        // results. `Answered::widened` says the facets must be counted *"over
+        // the search that ran rather than over one built afterwards to look
+        // like it"*, and `Bar::smartly` was building one afterwards to look
+        // like it, off that very field.
+        let mut prepared = index.prepare(&self.base, scope)?;
+        let exact = index.found_with(&prepared, self.base.plan(), None, paging)?;
         let exact_total = exact.total;
 
         let mut climbed: Vec<Rung> = Vec::new();
@@ -114,10 +120,17 @@ impl Smart {
                 literal: self.base.clone(),
                 climbed: Self::baseline(),
                 widened,
+                prepared,
             });
         }
         climbed.extend(widened.rungs().iter().copied());
-        let mut found = index.search_widened_in(&widened, scope, paging)?;
+        prepared = index.prepare_widened(&widened, scope)?;
+        let mut found = index.found_with(
+            &prepared,
+            widened.literal().plan(),
+            Some(widened.widening()),
+            paging,
+        )?;
 
         if found.total == 0 {
             let with_proximity = Widened::new(
@@ -131,7 +144,13 @@ impl Smart {
             if with_proximity.widening().together != widened.widening().together {
                 climbed.push(Rung::Proximity);
                 widened = with_proximity;
-                found = index.search_widened_in(&widened, scope, paging)?;
+                prepared = index.prepare_widened(&widened, scope)?;
+                found = index.found_with(
+                    &prepared,
+                    widened.literal().plan(),
+                    Some(widened.widening()),
+                    paging,
+                )?;
             }
         }
 
@@ -142,6 +161,7 @@ impl Smart {
             literal: self.base.clone(),
             climbed,
             widened,
+            prepared,
         })
     }
 }
@@ -160,9 +180,18 @@ pub struct Answered {
     /// Every rung reached for, in order, including ones that changed nothing.
     /// What the mode *tried*, as against what it managed.
     pub climbed: Vec<Rung>,
-    /// The widened query itself, so that the facets are counted over the search
-    /// that ran rather than over one built afterwards to look like it.
+    /// The widened query itself — for the announcement and the undo button.
     pub widened: Widened,
+    /// **The query that ran**, so the facets are counted over it rather than
+    /// over one built afterwards to look like it.
+    ///
+    /// That sentence was on `widened` above, and `Bar::smartly` was reading
+    /// `widened` and calling `prepare_widened` on it — building one afterwards
+    /// to look like it, off the field whose comment forbade doing so. Two
+    /// builds of the same query is two chances for a facet column not to add up
+    /// to the header above it, which is what [`crate::index::Prepared`]'s own
+    /// note says this type exists to prevent.
+    pub prepared: crate::index::Prepared,
 }
 
 impl Answered {

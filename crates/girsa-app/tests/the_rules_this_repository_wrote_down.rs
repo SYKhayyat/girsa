@@ -137,3 +137,42 @@ fn find_index_has_one_implementation() {
         "a second `find_index`. Two of these had two accept predicates and          disagreed about whether a directory was an index."
     );
 }
+
+#[test]
+fn a_prepared_query_is_never_rebuilt_to_be_asked_again() {
+    // `girsa_search::index::Prepared`:
+    //
+    //   Hits, a total and the facet counts are three questions about **one**
+    //   query, and a facet computed from a differently-built copy of it would
+    //   be a column of numbers that did not add up to the header.
+    //
+    // `Bar::literally` built one for the facets and let `search_in` build a
+    // second, private one for the hits. `Bar::smartly` was worse: it called
+    // `prepare_widened(&answered.widened)` — rebuilding off the field whose own
+    // doc comment says the facets must come from *"the search that ran rather
+    // than one built afterwards to look like it."*
+    //
+    // The seam is `SearchIndex::found_with`, which takes a `Prepared`. So: no
+    // caller of `prepare` may also call a `search_*` that prepares privately,
+    // and the way to hold that is that `bar.rs` does not name those functions
+    // at all any more.
+    let root = repo();
+    // Comments stripped, because the note above the fixed call site names the
+    // call it replaced — and a check that a *comment* cannot mention what it
+    // forbids is a check that makes the code harder to explain.
+    let bar: String = std::fs::read_to_string(root.join("crates/girsa-search/src/bar.rs"))
+        .unwrap_or_else(|e| panic!("bar.rs reads: {e}"))
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    for rebuilds in ["search_in(", "search_widened_in(", "prepare_widened("] {
+        assert!(
+            !bar.contains(rebuilds),
+            "`bar.rs` calls `{rebuilds}`, which prepares a query privately — and it              already holds a `Prepared` for the facets. Two builds of one query is              two chances for a facet column not to add up to the header above it.              Use `SearchIndex::found_with`."
+        );
+    }
+}

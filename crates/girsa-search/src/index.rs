@@ -989,15 +989,38 @@ impl SearchIndex {
             return Ok(Self::nothing(asked));
         }
         let prepared = self.prepare(query, scope)?;
-        let (hits, total) = self.page(&prepared, paging)?;
+        // A literal search reports no widening because there was none. A zero
+        // here stays a zero: the ladder is offered by [`SearchIndex::offers`]
+        // and climbed only when the reader clicks.
+        self.found_with(&prepared, asked, None, paging)
+    }
+
+    /// The hits, the total and the plan, for a query **already prepared**.
+    ///
+    /// The seam [`Prepared`]'s own note asks for and did not have. Its doc says
+    /// it is *"built once and asked three times, because a facet computed from
+    /// a differently-built copy of it would be a column of numbers that did not
+    /// add up to the header"* — and every caller that wanted hits **and** facets
+    /// had to build one for the facets and let [`SearchIndex::search_in`] build
+    /// a second, private one for the hits. Two builds, two chances to differ,
+    /// and the second one invisible from the call site.
+    ///
+    /// # Errors
+    ///
+    /// If the search fails.
+    pub fn found_with(
+        &self,
+        prepared: &Prepared,
+        asked: Plan,
+        widening: Option<Widening>,
+        paging: Paging,
+    ) -> Result<Found, IndexError> {
+        let (hits, total) = self.page(prepared, paging)?;
         Ok(Found {
             hits,
             total,
             asked,
-            // A literal search reports no widening because there was none. A
-            // zero here stays a zero: the ladder is offered by
-            // [`SearchIndex::offers`] and climbed only when the reader clicks.
-            widening: None,
+            widening,
         })
     }
 
@@ -1182,13 +1205,7 @@ impl SearchIndex {
         }
         let widening = widened.widening();
         let prepared = self.prepare_widened(widened, scope)?;
-        let (hits, total) = self.page(&prepared, paging)?;
-        Ok(Found {
-            hits,
-            total,
-            asked,
-            widening: Some(widening),
-        })
+        self.found_with(&prepared, asked, Some(widening), paging)
     }
 
     /// How many results a widened query would return, without fetching any.

@@ -201,10 +201,16 @@ impl Bar {
         let query = torat_emet::Query::new(text)
             .matching(chips.matching)
             .together(chips.together);
+        // Built once, and asked twice — the hits and the facet counts. This
+        // used to build one here for the facets and let `search_in` build a
+        // second, private one for the hits, against a doc comment on `Prepared`
+        // saying it is *"built once and asked three times, because a facet
+        // computed from a differently-built copy of it would be a column of
+        // numbers that did not add up to the header."*
         let prepared = self.index.prepare(&query, &chips.scope).map_err(say)?;
         let found = self
             .index
-            .search_in(&query, &chips.scope, paging)
+            .found_with(&prepared, query.plan(), None, paging)
             .map_err(say)?;
         // The ladder is offered on a zero and **never applied** — the counts
         // are worked out from the query the click would run, before the click.
@@ -229,16 +235,16 @@ impl Bar {
         let answered = Smart::new(query)
             .run_in(&self.index, &chips.scope, paging)
             .map_err(say)?;
-        let prepared = self
-            .index
-            .prepare_widened(&answered.widened, &chips.scope)
-            .map_err(say)?;
+        // The query that ran, not one built afterwards to look like it — see
+        // `Answered::prepared`. This was `prepare_widened(&answered.widened)`,
+        // reading the very field whose doc comment forbade rebuilding.
+        let prepared = &answered.prepared;
         let header = answered
             .found
             .widening
             .as_ref()
             .map_or_else(|| answered.found.asked.describe(), Widening::describe);
-        let results = self.results(header, &answered.found, Some(&prepared))?;
+        let results = self.results(header, &answered.found, Some(prepared))?;
         Ok(Answer::Segments {
             results: Box::new(results),
             offers: Offers::default(),
