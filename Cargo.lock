@@ -1755,6 +1755,7 @@ dependencies = [
  "girsa-lane",
  "girsa-link",
  "girsa-note",
+ "girsa-personal",
  "girsa-ref",
  "girsa-scan",
  "girsa-source",

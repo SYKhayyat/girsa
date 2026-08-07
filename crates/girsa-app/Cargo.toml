@@ -23,6 +23,7 @@ girsa-fix.workspace = true
 # the corpus by a `girsa_link::Edge` and put on the shelf as a `Work` — the
 # workspace is the thing that *shows* your layer, not the thing that defines it.
 girsa-note.workspace = true
+girsa-personal.workspace = true
 # Scans you brought (spec.md §6.3, W25). Which page is which daf is arithmetic
 # on a declaration, and it is kept out of here so it can be tested without a
 # shelf — and so W26's OCR has somewhere to go that is not the workspace.

@@ -34,6 +34,7 @@
 
 use std::path::PathBuf;
 
+use girsa_app::documents::Documents;
 use girsa_app::naming::Names;
 use girsa_app::shelf::Shelf;
 use girsa_app::Link;
@@ -47,7 +48,10 @@ use girsa_note::{Mark, Member, SavedQuery};
 /// Naming them is what fixes `split_flags`, which made **every** `--x` swallow
 /// the token after it: a switch ate a positional, and `--title=x` was stored
 /// under the key `title=x` while still eating the next word.
-const VALUES: &[&str] = &["--title", "--tag", "--label"];
+const VALUES: &[&str] = &["--title", "--tag", "--label", "--name"];
+
+/// The options that stand alone.
+const SWITCHES: &[&str] = &["--forget"];
 
 const USAGE: &str = "\
 usage: girsa-notes [corpus] [personal] [command]
@@ -70,6 +74,9 @@ usage: girsa-notes [corpus] [personal] [command]
   folders
   tags
   export <directory>
+  documents                             the .ksav files Girsa knows about
+  document <path> [--name n]            tell it about one. --forget to undo
+  cites <ref>                           which of your documents cite a place
 
 corpus and personal default to directories of those names beside you.
 An option takes its value either way round: --title x and --title=x.";
@@ -79,7 +86,7 @@ fn main() -> std::process::ExitCode {
     if Argv::wants_help(&typed) {
         return argv::asked(USAGE);
     }
-    let args = match Argv::of(typed, &[], VALUES) {
+    let args = match Argv::of(typed, SWITCHES, VALUES) {
         Ok(args) => args,
         Err(e) => {
             eprintln!("{e}");
@@ -121,6 +128,9 @@ fn main() -> std::process::ExitCode {
         "folders" => folders(&shelf),
         "tags" => tags(&shelf),
         "export" => export(&shelf, rest),
+        "documents" => documents(&shelf),
+        "document" => document(&shelf, &args, rest),
+        "cites" => cites(&shelf, rest),
         // A typo, not a failure. The list of verbs is `USAGE`, which is
         // also what `--help` prints — this binary had no usage string at all,
         // and this arm was it.
@@ -553,6 +563,90 @@ fn place(shelf: &Shelf, rest: &[String]) -> Result<SegmentId, String> {
         }
         None => Err(format!("{slug} has nothing at {address}")),
     }
+}
+
+/// The `.ksav` files Girsa has been told about (spec.md §10.4).
+///
+/// Refreshed on the way — a `stat` per document — so the refs shown are the
+/// refs in the files as they are now.
+fn documents(shelf: &Shelf) -> Result<(), String> {
+    let (mut documents, trouble) = Documents::open(shelf.personal());
+    for line in trouble {
+        eprintln!("{line}");
+    }
+    let read = documents.refreshed().map_err(|e| e.to_string())?;
+    for document in documents.all() {
+        let here = if document.is_here() {
+            ""
+        } else {
+            "  [not here]"
+        };
+        println!("{:<40} {} refs{here}", document.name, document.refs.len());
+        println!("{:<40} {}", "", document.path);
+    }
+    println!("\n{} documents · {read} re-read", documents.all().count());
+    Ok(())
+}
+
+/// Tell Girsa about a document, or take one off the list.
+///
+/// The desk's `/document` is how this normally happens — Ksav says so when it
+/// saves. This is the same errand from a terminal, because a feature that can
+/// only be seen by installing a second application is a feature nobody can
+/// check (BUILDER.md §0.3).
+fn document(shelf: &Shelf, args: &Argv, rest: &[String]) -> Result<(), String> {
+    let path = PathBuf::from(rest.first().ok_or("document <path>")?);
+    let (mut documents, trouble) = Documents::open(shelf.personal());
+    for line in trouble {
+        eprintln!("{line}");
+    }
+    if args.switch("--forget") {
+        let had = documents.forget(&path).map_err(|e| e.to_string())?;
+        println!(
+            "{}",
+            if had {
+                "forgotten — the file is untouched"
+            } else {
+                "it was not on the list"
+            }
+        );
+        return Ok(());
+    }
+    documents
+        .remember(&path, args.value("--name"))
+        .map_err(|e| e.to_string())?;
+    let read = documents.refreshed().map_err(|e| e.to_string())?;
+    let held = documents.get(&path).map_or(0, |d| d.refs.len());
+    println!("{} · {held} refs · {read} re-read", path.display());
+    Ok(())
+}
+
+/// Which of your own documents cite a place.
+///
+/// The toy editor's buffers **and** the registry. This used to be the buffers
+/// alone, so a `.ksav` written in the real Ksav was never found.
+fn cites(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
+    let text = rest.first().ok_or("cites <ref>")?;
+    let place: girsa_ref::Ref = text.parse().map_err(|e| format!("{text}: {e}"))?;
+    let (mut documents, trouble) = Documents::open(shelf.personal());
+    for line in trouble {
+        eprintln!("{line}");
+    }
+    documents.refreshed().map_err(|e| e.to_string())?;
+    let found = girsa_app::who_cites(shelf.personal(), &documents, &place);
+    if found.is_empty() {
+        println!("nothing of yours cites that place");
+        return Ok(());
+    }
+    for citing in &found {
+        let where_it_is = citing.path.as_deref().unwrap_or("(the buffer)");
+        let away = if citing.away { "  [not here]" } else { "" };
+        println!("{:<30} {where_it_is}{away}", citing.name);
+        for reference in &citing.refs {
+            println!("{:<30}   {reference}", "");
+        }
+    }
+    Ok(())
 }
 
 /// Who is writing. Free text — this is a personal layer, not a registry.

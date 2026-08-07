@@ -72,12 +72,12 @@ checkout during development.
 is supposed to be **nothing that decides anything**. Where a pane lands, what may
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
-is **23**<!--=window-modules--> TypeScript modules and one stylesheet of
+is **24**<!--=window-modules--> TypeScript modules and one stylesheet of
 **2,510**<!--=styles-lines--> lines — no framework, three runtime dependencies,
 and no fossils.
 
 That is the design and it is not yet the measurement. Of the shell's
-**3,886**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
+**3,920**<!--=shell-lines--> lines, about 150 — 23 commands — are genuine
 pass-through; the rest decides cache policy,
 sort orders, truncation lengths and patch provenance. The sentence above says
 "supposed to be" until that is fixed rather than until it is reworded. (It also

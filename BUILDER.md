@@ -499,6 +499,37 @@ stays plain text. Rule 6.
 
 **Not in scope:** quote drift check. Considered and dropped (`spec.md` §10.7).
 
+**Amended after the fact: *your own documents* meant the toy editor's.**
+`who_cites` delivered §10.4 by iterating `Buffer::list(personal)` —
+`personal/ksav/*.ksav`, the directory of the four-hundred-line text box W17
+built so the loop could be demonstrated without Ksav installed. So a `.ksav`
+written in **the real Ksav, the application this entire pairing exists for**,
+was never found: the reader's actual work, in the actual editor, answered
+*nothing cites this*. And `buffer_to_ksav` saves into the personal layer *and*
+posts, so there are two copies of one document with no owner between them, and
+the answer came from the stale one.
+
+There is nowhere to walk instead. A reader's documents live wherever they keep
+documents — a shiur folder, a synced drive, a stick — and Girsa has no business
+enumerating a disk. So Ksav says so: **`/document` on the desk**, and the path
+lands in `personal/documents.jsonl`, a `girsa_personal::Log` like everything
+else in the layer. This region argued for exactly that shape at length, for the
+link graph (`links.rs`'s module note), and then wrote a directory walk.
+
+Each row caches the refs it held and when it was read, and is re-read only when
+the file has moved on — a modification time answers the question actually being
+asked, which is `girsa_note::since`'s rule. A file that has gone is **not
+forgotten**: it is reported as missing and still answered from, because a stick
+that is not plugged in is not a document that was never written.
+
+The desk earning itself as a **query** transport, which is the argument §10 is
+really about: a push with a reply, which a clipboard cannot be.
+
+**Still open, and said rather than left:** the window has no caller for
+`who_cites` at all — it is a Tauri command nothing presses. `girsa-notes
+documents`, `document <path>` and `cites <ref>` make the whole loop runnable
+from a terminal, per §0.3, so what is missing is a button and not a mechanism.
+
 ---
 
 ## Tier 6 — Corrections

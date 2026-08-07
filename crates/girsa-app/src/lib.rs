@@ -28,6 +28,9 @@ pub mod beside;
 pub mod buffer;
 pub mod citing;
 pub mod display;
+// `who_cites` answered over the toy editor's directory, so a `.ksav` written in
+// the real Ksav was never found.
+pub mod documents;
 pub mod export;
 pub mod fixing;
 pub mod keys;

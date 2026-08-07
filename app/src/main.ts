@@ -37,6 +37,7 @@ import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
+import { route, type Held } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
 import { whatKey, type Pressed } from "./keys.ts";
 import { announces, button, glyph, region } from "./controls.ts";
@@ -969,88 +970,76 @@ function asPressed(event: KeyboardEvent): Pressed {
   };
 }
 
+/**
+ * Every panel, and what each does with a keypress (B13).
+ *
+ * In order: the first open one that wants a key gets it. This was
+ * **forty-eight hand-written lines** of `if (x.isOpen && …)` — nine panels,
+ * ten branches because `yoursview` needed two, and three different ways of
+ * asking whether a panel was open. Add a panel and the way you found out you
+ * had forgotten a line was that Escape did nothing.
+ *
+ * `Ctrl+F` used to be written out here, in place, above the second `find`
+ * branch — so the one shortcut B13 exists to make rebindable was the one that
+ * was not. It is `toggle: "search"` now and goes through the same table as
+ * everything else.
+ */
+function panels(): Held[] {
+  return [
+    // Its own Escape, and it must not be raced.
+    { panel: picker, keyboard: "all", escape: false },
+    // A text box. `Ctrl+C` in one is copy, and it closes itself.
+    { panel: fixbox, keyboard: "inside", escape: false },
+    // The buffer. Escape and Ctrl+E close it, and only from inside — a reader
+    // pressing Escape over the daf is not closing what they are writing.
+    {
+      panel: writing,
+      keyboard: "inside",
+      escape: "inside",
+      answers: (event) =>
+        (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "e"
+          ? (writing.close(), true)
+          : false,
+    },
+    // Drawers over the reading: Escape closes them from anywhere, and the
+    // reading shortcuts stay live behind them.
+    { panel: linksview, keyboard: "reading", escape: "anywhere" },
+    { panel: yoursview, keyboard: "inside", escape: "anywhere" },
+    { panel: suspects, keyboard: "reading", escape: "anywhere" },
+    // Places, not overlays: a typed letter goes into them.
+    { panel: find, keyboard: "all", escape: "anywhere", toggle: "search" },
+    { panel: shelf, keyboard: "all", escape: "anywhere", toggle: "shelf" },
+  ];
+}
+
 function shortcut(event: KeyboardEvent): void {
-  if (picker.isOpen) return;
-  const control = event.ctrlKey || event.metaKey;
-  // While the correction box is open the keyboard is its own — it is a text
-  // box, and Ctrl+C in it is copy.
-  if (fixbox.isOpen && fixbox.element.contains(event.target as Node)) return;
-  // While the caret is in the buffer, the keyboard belongs to the buffer.
-  // Ctrl+C there is *copy*, not copy-a-source, and Alt+N is a letter somebody
-  // is typing — the reading shortcuts are not live inside a text box.
-  if (writing.isOpen && writing.element.contains(event.target as Node)) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      writing.close();
-    } else if (control && event.key.toLowerCase() === "e") {
-      event.preventDefault();
-      writing.close();
-    }
-    return;
-  }
-  if (linksview.isOpen && event.key === "Escape") {
-    event.preventDefault();
-    linksview.close();
-    return;
-  }
-  if (yoursview.isOpen && yoursview.element.contains(event.target as Node)) {
-    // A note is edited in a text box in this drawer; the reading shortcuts are
-    // not live inside one.
-    if (event.key === "Escape") {
-      event.preventDefault();
-      yoursview.close();
-    }
-    return;
-  }
-  if (yoursview.isOpen && event.key === "Escape") {
-    event.preventDefault();
-    yoursview.close();
-    return;
-  }
-  if (suspects.isOpen && event.key === "Escape") {
-    event.preventDefault();
-    suspects.close();
-    return;
-  }
-  if (find.isOpen && event.key === "Escape") {
-    event.preventDefault();
-    find.close();
-    return;
-  }
-  if (control && event.key.toLowerCase() === "f") {
-    event.preventDefault();
-    search();
-    return;
-  }
-  if (find.isOpen) {
-    // The search is a place, like the shelf: the reading shortcuts are not
-    // live while it is open, and a typed letter goes into the query box.
-    return;
-  }
-  if (shelf.isOpen && event.key === "Escape") {
-    event.preventDefault();
-    shelf.close();
-    return;
-  }
-  // B13. What the reader asked for, from the table in `girsa_app::keys` with their
-  // own rebindings over it. It used to be eighteen comparisons against letters
-  // written in place, which is why there was nothing to rebind and why two
-  // tooltips could both claim Ctrl+L with only one of them wired.
+  // B13. What the reader asked for, from the table in `girsa_app::keys` with
+  // their own rebindings over it. It used to be eighteen comparisons against
+  // letters written in place, which is why there was nothing to rebind and why
+  // two tooltips could both claim Ctrl+L with only one of them wired.
   // `Ctrl++` and `Ctrl+=` are the same key to a reader and different keys to a
   // keyboard, so one is spelled as the other before the table is asked.
   const pressed = event.key === "+" ? { ...asPressed(event), key: "=" } : asPressed(event);
   const did = whatKey(state?.keys ?? {}, pressed);
-  if (did === "shelf") {
+
+  // Whoever has the keyboard gets it first. One table, in `panel.ts`, rather
+  // than forty-eight lines of `if (x.isOpen && …)` here.
+  const routed = route(panels(), event, (p) => p.element.contains(event.target as Node), did);
+  if (routed === "closed" || routed === "answered") {
     event.preventDefault();
-    browseShelf();
     return;
   }
-  if (shelf.isOpen) {
-    // The shelf is a place, not an overlay on top of the reading: the reading
-    // shortcuts are not live while it is open.
-    return;
-  }
+  if (routed === "swallowed") return;
+
   switch (did) {
+    case "search":
+      event.preventDefault();
+      search();
+      return;
+    case "shelf":
+      event.preventDefault();
+      browseShelf();
+      return;
     case "open":
       event.preventDefault();
       openSomething();

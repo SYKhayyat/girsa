@@ -39,14 +39,25 @@ use std::path::Path;
 use girsa_ref::{resolve, Lexicon, Ref, Resolution};
 
 use crate::buffer::Buffer;
+use crate::documents::Documents;
 
 /// One of your documents, and the places in it that cite something.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Citing {
-    /// The buffer's name, as you called it.
+    /// What you called it — a buffer's name, or the document's.
     pub name: String,
     /// The refs in it that answer the question asked.
     pub refs: Vec<String>,
+    /// Where it is on disk, for a document the registry holds. `None` for a
+    /// buffer in the toy editor, which lives in the personal layer under its
+    /// name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The registry knows about it and the file is not there — a stick that is
+    /// not plugged in, a folder that has not synced. **The cached refs are
+    /// still answered from**, and this says they are cached.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub away: bool,
 }
 
 /// Which of your own documents cite this place.
@@ -56,23 +67,54 @@ pub struct Citing {
 /// `1:1-1:3` answers a question about `1:2` as well. Anything less would miss
 /// the commonest case, which is quoting a passage and asking about a line of
 /// it.
+///
+/// # Two places to look, and one of them used to be the only one
+///
+/// The toy editor's buffers — `personal/ksav/*.ksav`, W17 — **and** the
+/// documents the registry holds ([`crate::documents`]). This read the buffers
+/// alone, so a `.ksav` written in the real Ksav, which is the application this
+/// whole pairing exists for, was never found: the reader's actual work in the
+/// actual editor answered *nothing cites this*.
+///
+/// The registry is not re-read here. [`crate::documents::Documents::refreshed`]
+/// is the caller's to run, because it is a `stat` per document and this is
+/// asked on a click.
 #[must_use]
-pub fn who_cites(personal: &Path, place: &Ref) -> Vec<Citing> {
-    let mut out = Vec::new();
-    for name in Buffer::list(personal) {
-        let Ok(buffer) = Buffer::open(personal, &name) else {
-            continue;
-        };
-        let refs: Vec<String> = girsa_ksav::refs_in(&buffer.text)
-            .into_iter()
+pub fn who_cites(personal: &Path, documents: &Documents, place: &Ref) -> Vec<Citing> {
+    let answers = |refs: Vec<String>| -> Vec<String> {
+        refs.into_iter()
             .filter(|text| {
                 text.parse::<Ref>()
                     .map(|stored| covers(&stored, place))
                     .unwrap_or(false)
             })
-            .collect();
+            .collect()
+    };
+
+    let mut out = Vec::new();
+    for name in Buffer::list(personal) {
+        let Ok(buffer) = Buffer::open(personal, &name) else {
+            continue;
+        };
+        let refs = answers(girsa_ksav::refs_in(&buffer.text));
         if !refs.is_empty() {
-            out.push(Citing { name, refs });
+            out.push(Citing {
+                name,
+                refs,
+                path: None,
+                away: false,
+            });
+        }
+    }
+    for document in documents.all() {
+        let refs = answers(document.refs.clone());
+        if !refs.is_empty() {
+            out.push(Citing {
+                name: document.name.clone(),
+                refs,
+                path: Some(document.path.clone()),
+                away: !document.is_here(),
+            });
         }
     }
     out
@@ -379,13 +421,77 @@ mod tests {
         );
         two.save(&personal).expect("saves");
 
-        let asked = who_cites(&personal, &r("girsa:bavli/berakhot/2a:3"));
+        let (documents, _) = Documents::open(&personal);
+        let asked = who_cites(&personal, &documents, &r("girsa:bavli/berakhot/2a:3"));
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].name, "חבורה");
         assert_eq!(asked[0].refs, ["girsa:bavli/berakhot/2a:1-2a:4"]);
 
         // A place nobody wrote about is nobody's — not the nearest document.
-        assert!(who_cites(&personal, &r("girsa:bavli/shabbat/2a:1")).is_empty());
+        assert!(who_cites(&personal, &documents, &r("girsa:bavli/shabbat/2a:1")).is_empty());
         let _ = std::fs::remove_dir_all(&personal);
+    }
+
+    #[test]
+    fn a_document_written_in_the_real_ksav_is_found() {
+        // The finding. This answered by walking `personal/ksav/` — the toy
+        // editor's directory — so a `.ksav` written in the application this
+        // whole pairing exists for was never found, and the reader's actual
+        // work answered *nothing cites this*.
+        let dir = std::env::temp_dir().join("girsa-who-cites-real");
+        let _ = std::fs::remove_dir_all(&dir);
+        let personal = dir.join("personal");
+        std::fs::create_dir_all(&personal).expect("a layer");
+        let shiurim = dir.join("shiurim");
+        std::fs::create_dir_all(&shiurim).expect("somewhere else entirely");
+
+        let doc = shiurim.join("חבורה.ksav");
+        std::fs::write(
+            &doc,
+            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1-2a:4")),
+        )
+        .expect("Ksav wrote it");
+
+        let (mut documents, _) = Documents::open(&personal);
+        documents.remember(&doc, None).expect("the desk told us");
+        documents.refreshed().expect("and it was read");
+
+        let asked = who_cites(&personal, &documents, &r("girsa:bavli/berakhot/2a:3"));
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(asked[0].name, "חבורה");
+        assert_eq!(
+            asked[0].path.as_deref(),
+            Some(doc.display().to_string().as_str())
+        );
+        assert!(!asked[0].away);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_document_that_is_not_here_still_answers_and_says_so() {
+        // A stick that is not plugged in is not a document that was never
+        // written. Dropping the row would be a silent gap; answering from the
+        // cache without saying so would be a quiet lie.
+        let dir = std::env::temp_dir().join("girsa-who-cites-away");
+        let _ = std::fs::remove_dir_all(&dir);
+        let personal = dir.join("personal");
+        std::fs::create_dir_all(&personal).expect("a layer");
+        let doc = dir.join("על-הכונן.ksav");
+        std::fs::write(
+            &doc,
+            girsa_ksav::mekor("ברכות ב.", Some("girsa:bavli/berakhot/2a:1")),
+        )
+        .expect("written");
+
+        let (mut documents, _) = Documents::open(&personal);
+        documents.remember(&doc, None).expect("remembered");
+        documents.refreshed().expect("read");
+        std::fs::remove_file(&doc).expect("the stick came out");
+
+        let asked = who_cites(&personal, &documents, &r("girsa:bavli/berakhot/2a:1"));
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert!(asked[0].away, "it did not say the file is not here");
+        assert_eq!(asked[0].refs, ["girsa:bavli/berakhot/2a:1"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

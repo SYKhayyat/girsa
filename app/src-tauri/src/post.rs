@@ -78,6 +78,7 @@ fn answer(handle: &tauri::AppHandle, path: &str, body: &str) -> Reply {
         "/where-from" => return where_from(handle, body),
         "/search" => return search(handle, body),
         "/linkify" => return linkify(handle, body),
+        "/document" => return document(handle, body),
         _ => {}
     }
 
@@ -312,6 +313,65 @@ fn linkify(handle: &tauri::AppHandle, body: &str) -> Reply {
     };
     let found = girsa_app::linkify(lexicon, &prose.text);
     Reply::ok(serde_json::json!({ "found": found }).to_string())
+}
+
+/// *I have saved a document here.*
+///
+/// The errand that makes *where did I use this* true. `girsa_app::who_cites`
+/// answered by walking `personal/ksav/` — the toy editor's directory, W17 — so
+/// a `.ksav` written in **the real Ksav, the application this whole pairing
+/// exists for**, was never found: the reader's actual work answered *nothing
+/// cites this*.
+///
+/// There is nowhere to walk instead. A reader's documents live wherever they
+/// keep documents, and Girsa has no business enumerating a disk. So Ksav says
+/// so, and the path lands in `personal/documents.jsonl`.
+///
+/// This is the desk earning itself as a **query** transport: a push with a
+/// reply, which a clipboard cannot be.
+fn document(handle: &tauri::AppHandle, body: &str) -> Reply {
+    #[derive(Deserialize)]
+    struct Saved {
+        path: String,
+        /// What Ksav calls it. The file stem where it says nothing.
+        #[serde(default)]
+        name: Option<String>,
+        /// Whether the document is being taken off the list rather than added
+        /// — Ksav saying *I deleted this*. The file is never touched either
+        /// way; this is the registry's row.
+        #[serde(default)]
+        forget: bool,
+    }
+    let Ok(saved) = serde_json::from_str::<Saved>(body) else {
+        return Reply::refused(400, "that is not a document");
+    };
+    let path = std::path::PathBuf::from(&saved.path);
+    let shared = handle.state::<Shared>();
+    let Ok(mut state) = shared.lock() else {
+        return Reply::refused(500, "the library is busy");
+    };
+    let Some(personal) = state.shelf.as_ref().map(|s| s.personal().to_path_buf()) else {
+        return Reply::refused(503, "there is no shelf here");
+    };
+    let (mut documents, trouble) = girsa_app::documents::Documents::open(&personal);
+    for line in trouble {
+        eprintln!("{line}");
+    }
+    if saved.forget {
+        return match documents.forget(&path) {
+            Ok(had) => Reply::ok(serde_json::json!({ "forgotten": had }).to_string()),
+            Err(e) => Reply::refused(500, e.to_string()),
+        };
+    }
+    if let Err(e) = documents.remember(&path, saved.name.as_deref()) {
+        return Reply::refused(500, e.to_string());
+    }
+    // Read now rather than on the next question. A save is where the words
+    // changed, and `who_cites` is asked on a click.
+    let read = documents.refreshed().unwrap_or(0);
+    let known = documents.count();
+    state.documents = None;
+    Reply::ok(serde_json::json!({ "documents": known, "read": read }).to_string())
 }
 
 /// A `girsa://` URL the operating system handed us.

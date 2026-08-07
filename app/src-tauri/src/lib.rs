@@ -56,6 +56,12 @@ const KEEP_OPEN: usize = 12;
 
 pub(crate) struct State {
     pub(crate) shelf: Option<Shelf>,
+    /// The `.ksav` files the reader has told Girsa about (spec.md §10.4).
+    ///
+    /// Read once and held, like the catalogue: `who_cites` is asked on a click
+    /// and re-reading the registry per click would be a file read per click.
+    /// The desk's `/document` clears it, because that is where a row is added.
+    pub(crate) documents: Option<girsa_app::documents::Documents>,
     /// When each work was written, read once beside the catalogue.
     ///
     /// The window had no timeline at all, so every row it drew — a search hit,
@@ -224,6 +230,27 @@ impl State {
     /// holding the state, so the lock is poisoned. Ninety-six commands say it.
     fn poisoned() -> String {
         refuse(Code::Poisoned, "state is poisoned")
+    }
+
+    /// The documents the reader has told Girsa about, read once.
+    ///
+    /// Refreshed on open — a `stat` per document, once, rather than a file read
+    /// per click. A document saved while the window is up arrives through the
+    /// desk's `/document`, which clears this.
+    fn documents(&mut self, personal: &std::path::Path) -> &girsa_app::documents::Documents {
+        if self.documents.is_none() {
+            let (mut documents, trouble) = girsa_app::documents::Documents::open(personal);
+            for line in trouble {
+                eprintln!("{line}");
+            }
+            if let Err(e) = documents.refreshed() {
+                eprintln!("the document registry will not write: {e}");
+            }
+            self.documents = Some(documents);
+        }
+        self.documents
+            .as_ref()
+            .unwrap_or_else(|| unreachable!("just filled"))
     }
 
     /// What it takes to name a place: the shelf, the dates, and the language
@@ -2247,9 +2274,15 @@ fn who_cites(
     reference: String,
 ) -> Result<Vec<girsa_app::Citing>, String> {
     let place: girsa_ref::Ref = reference.parse().map_err(|e| format!("{e}"))?;
-    let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    Ok(girsa_app::who_cites(shelf.personal(), &place))
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let personal = state
+        .shelf
+        .as_ref()
+        .ok_or_else(|| state.trouble())?
+        .personal()
+        .to_path_buf();
+    let documents = state.documents(&personal);
+    Ok(girsa_app::who_cites(&personal, documents, &place))
 }
 
 /// The citations in a piece of prose — **the certain ones** (spec.md §10.5).
@@ -3151,6 +3184,7 @@ pub fn run() {
                 app,
                 Mutex::new(State {
                     shelf,
+                    documents: None,
                     timeline,
                     bar,
                     no_search,
