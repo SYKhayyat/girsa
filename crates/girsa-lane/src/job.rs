@@ -34,6 +34,18 @@ pub struct Job {
     /// Where in `work.segments` each wanted segment is.
     wanted: Vec<usize>,
     done: Vec<bool>,
+    /// The first index of `done` that might still be false.
+    ///
+    /// `next` walked `done` from zero every batch, so embedding a sefer of *n*
+    /// segments in batches of 32 rewalked the whole finished prefix each time —
+    /// the same quadratic `did` fixed fifteen lines below, in the same struct,
+    /// with its measurement in the comment: **164 million comparisons** for
+    /// Mishnah Berurah's 18,120 segments.
+    ///
+    /// A floor and not a count: `did` may be called out of order (a batch comes
+    /// back in whatever order the model finished), so this only ever advances
+    /// past entries that are actually done.
+    from: usize,
 }
 
 impl Job {
@@ -70,6 +82,7 @@ impl Job {
             slug: work.work.slug.clone(),
             wanted,
             done,
+            from: 0,
         }
     }
 
@@ -95,10 +108,16 @@ impl Job {
     /// text — a sefer's words are already in memory once and this refuses to be
     /// the second time.
     #[must_use]
-    pub fn next(&self, most: usize) -> Vec<usize> {
+    pub fn next(&mut self, most: usize) -> Vec<usize> {
+        // Skip what is finished, once. Everything before `from` is done and
+        // stays done, so this advances rather than rescanning.
+        while self.from < self.done.len() && self.done[self.from] {
+            self.from += 1;
+        }
         self.done
             .iter()
             .enumerate()
+            .skip(self.from)
             .filter(|(_, done)| !**done)
             .take(most)
             .filter_map(|(at, _)| self.wanted.get(at).copied())
@@ -206,7 +225,7 @@ mod tests {
                 (SegmentKind::Note, "והוא הדין"),
             ],
         );
-        let job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
+        let mut job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
         assert_eq!(
             job.wanted(),
             2,
@@ -239,7 +258,7 @@ mod tests {
         // Nothing else was written down.
         let (again, trouble) = Vectors::open(&dir, "x", "m", 2);
         assert!(trouble.is_empty(), "{trouble:?}");
-        let resumed = Job::of(&Chosen::everything(), &work, &again);
+        let mut resumed = Job::of(&Chosen::everything(), &work, &again);
         assert_eq!(resumed.done(), 12);
         assert_eq!(resumed.remaining(), 28);
         assert_eq!(resumed.next(1), vec![12], "the thirteenth segment");
@@ -265,7 +284,7 @@ mod tests {
             ],
         );
         let chosen = Chosen::nothing().with_section("s-a/o-c", &["נח".to_string()]);
-        let job = Job::of(&chosen, &work, &Vectors::nowhere("m", 2));
+        let mut job = Job::of(&chosen, &work, &Vectors::nowhere("m", 2));
         assert_eq!(job.wanted(), 1);
         assert_eq!(job.next(9), vec![0]);
     }
@@ -273,7 +292,7 @@ mod tests {
     #[test]
     fn a_sefer_nobody_chose_has_nothing_to_do() {
         let work = work("x", &[(SegmentKind::Text, "שורה")]);
-        let job = Job::of(&Chosen::nothing(), &work, &Vectors::nowhere("m", 2));
+        let mut job = Job::of(&Chosen::nothing(), &work, &Vectors::nowhere("m", 2));
         assert_eq!(job.wanted(), 0);
         assert!(job.is_finished(), "finished, rather than stuck");
         assert!(job.next(10).is_empty());
@@ -301,7 +320,7 @@ mod tests {
                 (SegmentKind::Text, "שלישי"),
             ],
         );
-        let job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
+        let mut job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
         assert!(job.wanted() > 2, "the fixture has to have something in it");
 
         let mut ascending = job.wanted.clone();

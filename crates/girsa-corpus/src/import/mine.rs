@@ -251,14 +251,25 @@ fn unminted(personal: &Path, title: &str) -> String {
     } else {
         base
     };
-    let taken = std::fs::read_to_string(personal.join("works/index.jsonl")).unwrap_or_default();
-    let is_taken = |slug: &str| {
-        taken
-            .lines()
-            .filter_map(|l| serde_json::from_str::<Work>(l).ok())
-            .any(|w| w.slug == slug)
-            || import::work_dir(personal, slug).join("work.json").is_file()
-    };
+    // The catalogue is parsed **once**, into the set of slugs it holds.
+    //
+    // It used to be parsed inside `is_taken`, which is called from a
+    // `for n in 2..u32::MAX` loop — so dropping the tenth file called `חבורה` on
+    // a shelf of a thousand seforim deserialised a thousand `Work` records nine
+    // times over, to answer nine questions of the form "is this string in this
+    // set". The right shape for that question is a set.
+    let catalogue = std::fs::read_to_string(personal.join("works/index.jsonl")).unwrap_or_default();
+    let taken: std::collections::HashSet<String> = catalogue
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Work>(l).ok())
+        .map(|w| w.slug)
+        .collect();
+    // The `is_file` check stays per-candidate: it is the answer to a *different*
+    // question — a work directory on disk that the catalogue does not know about,
+    // which is exactly the case where reusing the slug would overwrite somebody's
+    // sefer. One `stat` per candidate, and there is almost never more than one.
+    let is_taken =
+        |slug: &str| taken.contains(slug) || import::work_dir(personal, slug).join("work.json").is_file();
 
     let first = format!("user/{base}");
     if !is_taken(&first) {

@@ -414,16 +414,31 @@ impl Stream {
 #[must_use]
 pub fn notarikon_in(text: &str, letters: &str, at: Where) -> Vec<(usize, usize)> {
     let wanted: Vec<char> = letters.chars().collect();
-    let tokens: Vec<girsa_hebrew::Token> = girsa_hebrew::tokenize(text)
-        .into_iter()
-        .filter(|token| {
-            token
-                .text
-                .chars()
-                .next()
-                .is_some_and(girsa_hebrew::is_hebrew_letter)
-        })
-        .collect();
+    // A word is held as the two letters this instrument can ask about and the
+    // span it sits on — never as a string. It reads `chars().next()` and
+    // `chars().next_back()` and nothing else, so keeping the word itself meant
+    // an allocation per word of the segment to carry two `char`s, and a
+    // notarikon search runs across whole oversized segments.
+    struct Word {
+        first: char,
+        last: char,
+        start: usize,
+        end: usize,
+    }
+    let mut tokens: Vec<Word> = Vec::new();
+    girsa_hebrew::for_each_token(text, |word, start, end| {
+        let (Some(first), Some(last)) = (word.chars().next(), word.chars().next_back()) else {
+            return;
+        };
+        if girsa_hebrew::is_hebrew_letter(first) {
+            tokens.push(Word {
+                first,
+                last,
+                start,
+                end,
+            });
+        }
+    });
     if wanted.is_empty() || tokens.len() < wanted.len() {
         return Vec::new();
     }
@@ -432,10 +447,10 @@ pub fn notarikon_in(text: &str, letters: &str, at: Where) -> Vec<(usize, usize)>
         let run = &tokens[start..start + wanted.len()];
         let spells = run.iter().zip(&wanted).all(|(token, want)| {
             let letter = match at {
-                Where::Start => token.text.chars().next(),
-                Where::End => token.text.chars().next_back(),
+                Where::Start => token.first,
+                Where::End => token.last,
             };
-            letter == Some(*want)
+            letter == *want
         });
         if spells {
             out.extend(run.iter().map(|token| (token.start, token.end)));

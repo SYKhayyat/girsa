@@ -163,7 +163,14 @@ pub struct Citations {
     /// lexicon rather than asked of it: the resolver's job is exact lookup, and
     /// *what looks like this* is a different question that must never be
     /// allowed to answer the first one.
-    spellings: Vec<(String, String)>,
+    ///
+    /// **Three fields, not two: the normalized form is stored.** The near-miss
+    /// scan called `girsa_hebrew::normalize` on every spelling in a 3.7 MB
+    /// lexicon, per unresolved lookup — one allocation and one full pass over
+    /// each of tens of thousands of titles, to compare against a head word that
+    /// does not change. It is a property of the spelling, so it is computed
+    /// where the spelling is read: once, at `open`.
+    spellings: Vec<(String, String, String)>,
     /// Works already read back, by slug. A citation is a jump, not a keystroke,
     /// but a reader typing one asks for the same sefer several times.
     known: Mutex<BTreeMap<String, Option<WorkSegments>>>,
@@ -311,21 +318,18 @@ impl Citations {
         if head.chars().count() < 2 {
             return (Vec::new(), 0);
         }
-        let mut hits: Vec<&(String, String)> = self
+        let mut hits: Vec<&(String, String, String)> = self
             .spellings
             .iter()
-            .filter(|(spelling, _)| {
-                let normal = girsa_hebrew::normalize(spelling);
-                normal.starts_with(head) || head.starts_with(&normal)
-            })
+            .filter(|(_, _, normal)| normal.starts_with(head) || head.starts_with(normal))
             .collect();
-        hits.sort_by_key(|(spelling, _)| (spelling.chars().count(), spelling.clone()));
+        hits.sort_by_key(|(spelling, _, _)| (spelling.chars().count(), spelling.clone()));
         hits.dedup_by(|a, b| a.1 == b.1);
         let cut = hits.len().saturating_sub(MOST_SUGGESTIONS);
         (
             hits.into_iter()
                 .take(MOST_SUGGESTIONS)
-                .map(|(spelling, slug)| NearMiss::OtherTitle {
+                .map(|(spelling, slug, _)| NearMiss::OtherTitle {
                     spelling: spelling.clone(),
                     slug: slug.clone(),
                 })
@@ -353,15 +357,26 @@ impl ResolveIn for WorkSegments {
 }
 
 /// `variant \t slug \t he \t en` — the shape `Lexicon::from_tsv` reads.
-fn read_spellings(tsv: &str) -> Vec<(String, String)> {
+/// `(spelling, slug, normalized spelling)`.
+///
+/// The third is computed here — once, at open — because it is a property of the
+/// spelling and nothing else. The near-miss scan used to call
+/// `girsa_hebrew::normalize` on every one of them **per unresolved lookup**,
+/// over a 3.7 MB lexicon, to compare against a head word that does not change.
+fn read_spellings(tsv: &str) -> Vec<(String, String, String)> {
     tsv.lines()
         .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
         .filter_map(|line| {
             let mut fields = line.split('\t');
             let variant = fields.next()?.trim();
             let slug = fields.next()?.trim();
-            (!variant.is_empty() && !slug.is_empty())
-                .then(|| (variant.to_string(), slug.to_string()))
+            (!variant.is_empty() && !slug.is_empty()).then(|| {
+                (
+                    variant.to_string(),
+                    slug.to_string(),
+                    girsa_hebrew::normalize(variant),
+                )
+            })
         })
         .collect()
 }

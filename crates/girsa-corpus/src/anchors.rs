@@ -84,12 +84,25 @@ pub struct Anchor {
 
 /// A segment's text with its anchors taken out, and the anchors.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Mined {
-    pub text: String,
+pub struct Mined<'a> {
+    /// The text with the anchors taken out — **borrowed** when there were none.
+    ///
+    /// Which is the overwhelming majority: `mishnah-berakhot` and
+    /// `bavli/berakhot` carry no anchors at all, and even in Shulchan Arukh
+    /// Orach Chayim, where 92% of segments have one, the other 8% do not. This
+    /// was a `String`, so the fast path — *this segment has no anchors, here it
+    /// is unchanged* — **cloned every segment's text to say so**. A full corpus
+    /// import is millions of allocate-and-drop for a value the caller already
+    /// had.
+    ///
+    /// `Cow` and not a separate `Option`, because every caller wants the same
+    /// thing: the text as it should be stored. Where it was already right,
+    /// nothing is copied.
+    pub text: std::borrow::Cow<'a, str>,
     pub anchors: Vec<Anchor>,
 }
 
-impl Mined {
+impl Mined<'_> {
     /// Whether anything was found. `false` means `text` is the input, untouched.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -102,12 +115,12 @@ impl Mined {
 /// Cheap and allocation-free when there is nothing to do, which is the common case:
 /// two thirds of the corpus carries no anchors at all.
 #[must_use]
-pub fn mine(text: &str) -> Mined {
+pub fn mine(text: &str) -> Mined<'_> {
     // The fast path. `data-commentator` is the only marker worth scanning for, and a
     // segment without one needs no work at all.
     if !text.contains("data-commentator") {
         return Mined {
-            text: text.to_string(),
+            text: std::borrow::Cow::Borrowed(text),
             anchors: Vec::new(),
         };
     }
@@ -136,7 +149,10 @@ pub fn mine(text: &str) -> Mined {
         at += ch.len_utf8();
     }
 
-    Mined { text: out, anchors }
+    Mined {
+        text: std::borrow::Cow::Owned(out),
+        anchors,
+    }
 }
 
 /// An `<i …data-commentator…></i>` pair at `at`, and the byte after it.

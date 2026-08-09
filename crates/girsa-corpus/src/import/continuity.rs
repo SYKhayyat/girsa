@@ -549,7 +549,7 @@ pub fn places_of(segments: &[super::Segment], redirects: &[super::Redirect]) -> 
                     ordinal: row.from.ordinal().clone(),
                     path: segment.id.path().to_vec(),
                     kind: segment.kind,
-                    text: crate::anchors::mine(&text).text,
+                    text: crate::anchors::mine(&text).text.into_owned(),
                     ids,
                 });
             }
@@ -559,7 +559,7 @@ pub fn places_of(segments: &[super::Segment], redirects: &[super::Redirect]) -> 
                     ordinal: segment.id.ordinal().clone(),
                     path: segment.id.path().to_vec(),
                     kind: segment.kind,
-                    text: crate::anchors::mine(&segment.text).text,
+                    text: crate::anchors::mine(&segment.text).text.into_owned(),
                     ids: vec![segment.id.clone()],
                 });
             }

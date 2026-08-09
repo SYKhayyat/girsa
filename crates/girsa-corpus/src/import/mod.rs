@@ -359,17 +359,27 @@ impl ImportedWork {
         // Where each place's live ids ended up, so a redirect away from an old
         // place can point at records that exist rather than at a name.
         let mut live_of: Vec<Vec<SegmentId>> = Vec::with_capacity(fresh.len());
-        for ((raw, mined), ordinal) in raw.into_iter().zip(mined).zip(ordinals) {
-            let id = SegmentId::new(work.slug.clone(), raw.path, ordinal);
-            oversized.saw(&id.to_string(), mined.text.chars().count(), &work.slug);
-            let pieces = oversized::pieces(&mined.text, oversized::TARGET);
+        // `raw` is borrowed rather than consumed, because `mined` borrows it:
+        // `Mined::text` is a `Cow` that stays **borrowed** when the segment had
+        // no anchors to take out, which is most of them and is the whole point —
+        // `continuity` above reads it and copies nothing where it used to be
+        // handed a clone of every segment's text in the corpus.
+        //
+        // What that costs here is `raw.path.clone()`, two or three short strings
+        // per segment, against the megabytes of text it saves upstream.
+        for ((raw, mined), ordinal) in raw.iter().zip(mined).zip(ordinals) {
+            let id = SegmentId::new(work.slug.clone(), raw.path.clone(), ordinal);
+            let text = mined.text;
+            let mined_anchors = mined.anchors;
+            oversized.saw(&id.to_string(), text.chars().count(), &work.slug);
+            let pieces = oversized::pieces(&text, oversized::TARGET);
             if pieces.len() == 1 {
                 live_of.push(vec![id.clone()]);
                 segments.push(Segment {
                     id,
                     kind: raw.kind,
-                    text: mined.text,
-                    anchors: mined.anchors,
+                    text: text.into_owned(),
+                    anchors: mined_anchors,
                 });
                 continue;
             }
@@ -390,8 +400,7 @@ impl ImportedWork {
             let mut from = 0usize;
             for (child, piece) in children.into_iter().zip(pieces) {
                 let upto = from + piece.chars().count();
-                let anchors = mined
-                    .anchors
+                let anchors = mined_anchors
                     .iter()
                     .filter(|a| a.at >= from && a.at < upto)
                     .map(|a| crate::anchors::Anchor {

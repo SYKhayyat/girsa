@@ -72,16 +72,12 @@ impl Marker {
     pub fn marks(&self, hit: &Hit) -> Vec<(usize, usize)> {
         match self {
             Self::Literal(plan) => hit.marks(plan),
-            Self::Widened(widening) => girsa_hebrew::tokenize(&hit.text)
-                .into_iter()
-                .filter(|token| widening.matches_word(&token.text))
-                .map(|token| (token.start, token.end))
-                .collect(),
-            Self::Words(words) => girsa_hebrew::tokenize(&hit.text)
-                .into_iter()
-                .filter(|token| words.contains(&token.text))
-                .map(|token| (token.start, token.end))
-                .collect(),
+            Self::Widened(widening) => {
+                crate::index::spans_where(&hit.text, |word| widening.matches_word(word))
+            }
+            Self::Words(words) => {
+                crate::index::spans_where(&hit.text, |word| words.iter().any(|w| w == word))
+            }
             Self::Notarikon { letters, at } => {
                 crate::instruments::notarikon_in(&hit.text, letters, *at)
             }

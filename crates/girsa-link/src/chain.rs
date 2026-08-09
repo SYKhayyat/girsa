@@ -264,6 +264,20 @@ pub struct Graph<'a> {
     root: PathBuf,
     timeline: &'a Timeline,
     repairs: &'a Repairs,
+    /// Every link you drew by hand, assembled once.
+    ///
+    /// `beside` — the BFS inner loop — ended with `for repaired in
+    /// self.repairs.drawn()`, and `drawn()` walks the **whole** personal repair
+    /// log and rebuilds a `Repaired` for each drawn record it finds. So a trace
+    /// paid for a full scan of everything you have ever confirmed, denied or
+    /// retyped, per anchor visited, to collect the handful of edges you drew.
+    ///
+    /// The same class as `repair.rs:269`'s guard, hoisted the same way as
+    /// `beside(a)` in `forks` below: `repairs` is borrowed immutably for this
+    /// graph's whole life, so the answer cannot change between the first anchor
+    /// and the last. For a reader who has drawn nothing it is an empty `Vec`,
+    /// which is the common case and now costs a length check.
+    drawn: Vec<Repaired>,
     by_work: HashMap<String, Held>,
     incoming_unknown: BTreeSet<String>,
 }
@@ -346,6 +360,7 @@ impl<'a> Graph<'a> {
             root: root.to_path_buf(),
             timeline,
             repairs,
+            drawn: repairs.drawn().collect(),
             by_work: HashMap::new(),
             incoming_unknown: BTreeSet::new(),
         }
@@ -391,8 +406,8 @@ impl<'a> Graph<'a> {
         // overlap — a stricter test than a pre-filter on the near end, and the
         // right one here: a chain hops anchor to anchor and nobody is standing
         // on a segment for a [`girsa_corpus::standing::Standing`] to be about.
-        for repaired in self.repairs.drawn() {
-            if let Some(hop) = far_end(at, &repaired) {
+        for repaired in &self.drawn {
+            if let Some(hop) = far_end(at, repaired) {
                 out.push(hop);
             }
         }
@@ -726,6 +741,19 @@ pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork
         readers.push((step.at.clone(), step.when, of_this));
     }
 
+    // `beside(a)` once per `a`, not once per pair.
+    //
+    // It was called inside the O(n²) pair loop below, so a place with eight
+    // readings asked for the same neighbours **28 times** where 8 suffice —
+    // and `beside` is a shard read. The value depends only on `a`, which the
+    // outer loop already fixes, so it is hoisted rather than memoised: a cache
+    // for a value with one obvious computation point is a cache nobody can
+    // reason about.
+    let joined_of: Vec<Vec<(Anchor, Repaired)>> = readers
+        .iter()
+        .map(|(a, _, _)| graph.beside(a))
+        .collect();
+
     let mut out = Vec::new();
     for (i, (a, a_when, a_readers)) in readers.iter().enumerate() {
         for (b, b_when, b_readers) in readers.iter().skip(i + 1) {
@@ -741,9 +769,8 @@ pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork
             if witnesses.is_empty() {
                 continue;
             }
-            let joined = graph
-                .beside(a)
-                .into_iter()
+            let joined = joined_of[i]
+                .iter()
                 .any(|(other, repaired)| !repaired.rejected && other.overlaps(b));
             out.push(Fork {
                 a: a.clone(),

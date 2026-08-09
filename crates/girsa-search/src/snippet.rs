@@ -81,22 +81,53 @@ pub fn snippet(text: &str, marks: &[(usize, usize)], width: usize) -> Snippet {
     // little of what came before it, because a phrase with no run-up to it is
     // harder to place than one with three words in front.
     let lead = width / 4;
-    let first_mark_char = usable
-        .first()
-        .map(|(start, _)| text[..*start].chars().count())
-        .unwrap_or(0);
-    let from_char = first_mark_char.saturating_sub(lead);
+
+    // **One walk, not two.** This counted characters to the first mark with
+    // `text[..start].chars().count()` and *then* walked the string again from
+    // zero to turn character positions back into byte offsets — so everything
+    // before the first hit was traversed twice, per hit, per page of results.
+    //
+    // The header of this file celebrates removing *"two walks of the whole
+    // segment, per hit, per page of results"*. These are the two that survived
+    // it, fifty lines below the sentence.
+    //
+    // A ring of the last `lead` byte offsets is what removes the second one:
+    // when the walk reaches the first mark it already knows where the window
+    // should have started, because `lead` is small and constant (a quarter of
+    // the snippet width) and those offsets went past a moment ago.
+    let mut ring: std::collections::VecDeque<usize> = std::collections::VecDeque::with_capacity(lead + 1);
+    let first_mark_byte = usable.first().map_or(0, |(start, _)| *start);
+    let mut first_mark_char = 0usize;
+    let mut from_char = 0usize;
 
     // Byte offsets for the window, taken off character positions so a Hebrew
     // letter is never cut in half.
     let mut from_byte = text.len();
     let mut to_byte = text.len();
     let mut chars_taken = 0usize;
+    let mut started = usable.is_empty(); // no marks: the window starts at zero
     for (at, (byte, _)) in text.char_indices().enumerate() {
-        if at == from_char {
-            from_byte = byte;
+        if !started {
+            if byte < first_mark_byte {
+                // Keep only what the window could still need.
+                if ring.len() == lead {
+                    ring.pop_front();
+                }
+                ring.push_back(byte);
+                continue;
+            }
+            started = true;
+            first_mark_char = at;
+            from_char = first_mark_char - ring.len();
+            from_byte = ring.front().copied().unwrap_or(byte);
+            chars_taken = ring.len();
+            ring.clear();
         }
-        if at >= from_char {
+        // `from_byte` and `chars_taken` are already set by the block above, and
+        // `at` is past `from_char` from here on — the `if at == from_char` test
+        // that used to set them was the second walk's whole reason for
+        // restarting from zero.
+        {
             if chars_taken == width {
                 to_byte = byte;
                 break;

@@ -114,17 +114,34 @@ pub struct Vocabulary {
 }
 
 impl Vocabulary {
+    /// The word is copied only the first time it is seen.
+    ///
+    /// `entry(word.to_string())` allocates on **every** call, including the
+    /// millionth sighting of `את` — and a vocabulary read off the corpus is
+    /// almost entirely repeat sightings. A `get_mut` first turns that into an
+    /// allocation per *distinct* word, which is the number of rows in the table
+    /// rather than the number of words in Shas.
     pub fn add(&mut self, word: &str, count: u64) {
-        *self.counts.entry(word.to_string()).or_default() += count;
+        if let Some(seen) = self.counts.get_mut(word) {
+            *seen += count;
+        } else {
+            self.counts.insert(word.to_string(), count);
+        }
     }
 
     /// Count the words of one segment, for a caller with no index. Splitting is
-    /// [`girsa_hebrew::tokenize`]'s, because what a word is belongs to one
-    /// crate (W2).
+    /// [`girsa_hebrew::for_each_token`]'s, because what a word is belongs to one
+    /// crate (W2) — and walking rather than collecting, because this is called
+    /// once per segment of a whole corpus and keeps none of the words it is
+    /// shown.
     pub fn read(&mut self, text: &str) {
-        for token in girsa_hebrew::tokenize(text) {
-            self.add(&token.text, 1);
-        }
+        girsa_hebrew::for_each_token(text, |word, _, _| {
+            if let Some(seen) = self.counts.get_mut(word) {
+                *seen += 1;
+            } else {
+                self.counts.insert(word.to_string(), 1);
+            }
+        });
     }
 
     #[must_use]
@@ -575,6 +592,16 @@ impl Queue {
             .iter()
             .filter_map(|s| s.decided.map(|d| (s.id.clone(), d)))
             .collect();
+        // Every id already in the queue, for the *fresh* count below.
+        //
+        // That test was `self.get(&suspect.id).is_none()` — a linear scan of
+        // `entries` — inside a loop over everything the batch found. Measured on
+        // a real run: **28,124 entries**, so counting how many of them are new
+        // was a quarter of a billion comparisons. The `HashMap` two lines up was
+        // already being built over the same list, for the same reason, in the
+        // same function.
+        let known: std::collections::HashSet<&str> =
+            self.entries.iter().map(|s| s.id.as_str()).collect();
 
         let mut report = Refreshed {
             found: found.len(),
@@ -586,7 +613,7 @@ impl Queue {
             if let Some(decision) = decided.get(&suspect.id) {
                 suspect.decided = Some(*decision);
                 report.decided_before += 1;
-            } else if self.get(&suspect.id).is_none() {
+            } else if !known.contains(suspect.id.as_str()) {
                 report.fresh += 1;
             }
             seen.insert(suspect.id.clone());

@@ -123,12 +123,12 @@ girsa-fixture = { version = "=0.1.0", path = "crates/girsa-fixture" }
 # bought, and it is kept: `sefer-crates/tools/check-dependents.sh` installs a
 # `paths` override for the duration of its run, and `.cargo/config.toml.example`
 # holds the same override for a person doing it by hand.
-girsa-source = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
-girsa-ref = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
-girsa-hebrew = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
-girsa-cite = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
-girsa-ksav = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
-girsa-post = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
+girsa-source = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
+girsa-ref = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
+girsa-hebrew = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
+girsa-cite = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
+girsa-ksav = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
+girsa-post = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

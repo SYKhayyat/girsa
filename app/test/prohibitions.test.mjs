@@ -191,6 +191,26 @@ const RULES = [
     match: /format!\("#[֐-׿]|"#מקור:\(|"#ציטוט\[\{/u,
     allow: [],
   },
+  {
+    // §6 — the class: **a caller that wants where the words are does not want
+    // the words.** `girsa_hebrew::tokenize` allocates a `String` per word and
+    // hands back a `Vec` of them; four callers in this crate filtered that
+    // `Vec` down to `(start, end)` pairs and dropped every string. A hit can be
+    // an oversized segment — the largest in the corpus is 1,275,307 characters
+    // — and marking runs once per row of a result page, per keystroke.
+    //
+    // `girsa_hebrew::for_each_token` walks the same words out of one reused
+    // buffer. The rule is scoped to `girsa-search`, where the volume is, and the
+    // exemption is the one caller that genuinely needs the strings.
+    what: "girsa-search marks spans by walking, not by collecting words",
+    where: /^crates\/girsa-search\/src\/.*\.rs$/u,
+    contains: ["girsa_hebrew::tokenize("],
+    allow: [
+      // Tantivy's `Token` owns a `String`. This is the one place the words
+      // themselves are the product — they go into the index.
+      "crates/girsa-search/src/tokenizer.rs",
+    ],
+  },
 ];
 
 /** Does this file break the rule? */

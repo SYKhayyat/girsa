@@ -728,6 +728,27 @@ impl Hit {
     }
 }
 
+/// The spans of every word in `text` that `keep` says yes to.
+///
+/// Every marker in the search bar is this function with a different `keep`, and
+/// each of them used to be its own `tokenize().filter().map().collect()` — four
+/// copies of a walk whose only difference was one predicate.
+///
+/// It walks rather than collects, because it keeps the spans and throws every
+/// string away. A hit can be a whole oversized segment — the largest in the
+/// corpus is 1,275,307 characters — and this runs once per row of a result page,
+/// so `tokenize`'s `String`-per-word was hundreds of thousands of allocations to
+/// answer a question about integers.
+pub(crate) fn spans_where(text: &str, keep: impl Fn(&str) -> bool) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    girsa_hebrew::for_each_token(text, |word, start, end| {
+        if keep(word) {
+            out.push((start, end));
+        }
+    });
+    out
+}
+
 impl Hit {
     /// Where in [`Hit::text`] the words this plan asked for sit, as byte spans.
     ///
@@ -742,15 +763,9 @@ impl Hit {
     /// point at a word the reader did not search for.
     #[must_use]
     pub fn marks(&self, plan: &Plan) -> Vec<(usize, usize)> {
-        girsa_hebrew::tokenize(&self.text)
-            .into_iter()
-            .filter(|token| {
-                plan.words
-                    .iter()
-                    .any(|word| plan.matches(word, &token.text))
-            })
-            .map(|token| (token.start, token.end))
-            .collect()
+        spans_where(&self.text, |found| {
+            plan.words.iter().any(|word| plan.matches(word, found))
+        })
     }
 }
 

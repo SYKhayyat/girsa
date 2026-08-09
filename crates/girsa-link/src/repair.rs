@@ -444,6 +444,18 @@ impl Repairs {
     /// asks it two million times.
     #[must_use]
     pub fn type_of(&self, shipped: &Edge) -> EdgeType {
+        // The same guard `about` carries two hundred lines up, and for the same
+        // measured reason: the key is a `format!` of both anchors, and for a
+        // reader who has never retyped a link there is nowhere for it to land.
+        // `girsa-link-types` asks this **two million times** — one `String` of
+        // two segment ids each, allocated and dropped, to look up an empty map.
+        //
+        // The comment above `about` states the class and the number (297 ms and
+        // 16.3 MB over 159,273 edges); this function is the same class, asked
+        // twenty-five times as often, in the same file.
+        if self.by_edge.is_empty() {
+            return shipped.edge_type;
+        }
         let Some(records) = self.by_edge.get(&name_of(shipped)) else {
             return shipped.edge_type;
         };
