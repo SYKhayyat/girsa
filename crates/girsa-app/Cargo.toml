@@ -50,6 +50,12 @@ pretend = []
 # The library does not compile a document format; the acceptance test still
 # checks that what it hands over survives one.
 girsa-ksav.workspace = true
+# And here for exactly one more: that every refusal `girsa-post` can make has a
+# Hebrew sentence waiting for it in `app/src/trouble.ts`. The window compiles no
+# loopback — the Tauri shell does — but the sentences a reader is shown are this
+# workspace's business, and `PostError::CODES` is the only thing that knows what
+# the list is. Nothing a reader runs compiles this.
+girsa-post.workspace = true
 # A shelf with a link graph on it, so the fifteen acceptance tests in `tests/`
 # and the seven in `mefarshim.rs` assert something on a fresh clone instead of
 # printing `ok` in 0.00s. `links` because every one of them is about what lands

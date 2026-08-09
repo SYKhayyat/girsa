@@ -39,6 +39,7 @@ import { KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Held } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
+import { trouble } from "./trouble.ts";
 import { whatKey, type Pressed } from "./keys.ts";
 import { announces, button, glyph, region } from "./controls.ts";
 
@@ -1209,9 +1210,18 @@ async function sendToKsav(): Promise<void> {
       : await api.sendToKsav(here!, here!, 0, null);
     say(`נשלח ${withPrefix("ל", KSAV)} — ${sent.display}`, false);
   } catch (e) {
-    // A refusal from the other side is shown as it came: "Ksav is not running"
-    // and "Ksav refused it" are different things to a reader.
-    say(String(e), true);
+    // "Ksav is not running" and "Ksav refused it" *are* different things to a
+    // reader — and that was the argument for showing `String(e)` as it came,
+    // which put `PostError`'s English on the first screen of a Hebrew
+    // application. The distinction is real; printing the English was never how
+    // to keep it. `PostError::code()` names the three, `CODED` in `trouble.ts`
+    // has a sentence for each, and the transport string goes where every other
+    // one goes — behind the details affordance.
+    //
+    // This line is the bug `presence.ts` and `trouble.ts` both cite as their
+    // reason for existing, in the file neither of them reached.
+    const t = trouble(e, "send_to_ksav");
+    say(t.said, true, t.detail);
   }
 }
 
@@ -1312,8 +1322,14 @@ async function keepQuery(typed: string): Promise<void> {
   }
 }
 
-/** A line the window says and then stops saying. */
-function say(words: string, trouble: boolean): void {
+/**
+ * A line the window says and then stops saying.
+ *
+ * `detail` is the machine's own string, put on `title` and never in the words —
+ * the same arrangement `sayTrouble` makes for an element, for the one surface
+ * that is not an element anybody hands over.
+ */
+function say(words: string, trouble: boolean, detail?: string): void {
   if (!root) return;
   let toast = root.querySelector<HTMLElement>(".said");
   if (!toast) {
@@ -1326,6 +1342,8 @@ function say(words: string, trouble: boolean): void {
     root.append(toast);
   }
   toast.textContent = words;
+  if (detail) toast.title = detail;
+  else toast.removeAttribute("title");
   toast.classList.toggle("is-trouble", trouble);
   toast.classList.add("is-on");
   window.clearTimeout(Number(toast.dataset.timer ?? 0));

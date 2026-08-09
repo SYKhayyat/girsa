@@ -13,9 +13,9 @@ const LATIN = /[A-Za-z]/;
 
 /** Real strings, as `girsa-post` and the shell produce them. */
 const REAL = [
-  ["ksav is not running", "reach_ksav"],
-  ["could not reach ksav: connection timed out", "reach_ksav"],
-  ["ksav refused it: 413 body too large", "send_to_ksav"],
+  ["post-not-running: ksav is not running", "reach_ksav"],
+  ["post-unreachable: could not reach ksav: connection timed out", "reach_ksav"],
+  ["post-refused: ksav refused it: 413 body too large", "send_to_ksav"],
   ["The system cannot find the file specified. (os error 2)", "open_pdf"],
   ["Access is denied. (os error 5)", "open_pdf"],
   ["No connection could be made because the target machine actively refused it", "send_to_ksav"],
@@ -42,13 +42,22 @@ export async function run() {
   ok("a timeout reading a page names the page", b.said.includes("העמוד"));
   check("so the same error gives two sentences", a.said === b.said, false);
 
-  // The four families that carry a reader-actionable distinction.
-  ok("not running says so plainly", trouble("ksav is not running", "reach_ksav").said.includes("אינו פועל"));
+  // The four families that carry a reader-actionable distinction. The first
+  // three are `girsa_post::PostError::code()` now, not its English words.
+  ok(
+    "not running says so plainly",
+    trouble("post-not-running: ksav is not running", "reach_ksav").said.includes("אינו פועל"),
+  );
   ok(
     "unreachable says it may have closed badly",
-    trouble("could not reach ksav: connection timed out", "reach_ksav").said.includes("נסגר שלא כשורה"),
+    trouble("post-unreachable: could not reach ksav: connection timed out", "reach_ksav").said.includes(
+      "נסגר שלא כשורה",
+    ),
   );
-  ok("refused says it was refused", trouble("ksav refused it: 413", "send_to_ksav").said.includes("נדחתה"));
+  ok(
+    "refused says it was refused",
+    trouble("post-refused: ksav refused it: 413", "send_to_ksav").said.includes("נדחתה"),
+  );
   ok(
     "a missing file says the file is missing",
     trouble("The system cannot find the file specified. (os error 2)", "open_pdf").said.includes("אינו נמצא"),
@@ -105,6 +114,36 @@ export async function run() {
   ok(
     "a shelf dragged inside itself says so",
     trouble("cycle: a shelf cannot be put inside itself", "general").said.includes("לתוך עצמו"),
+  );
+
+  // ── and the same, for the type that crosses to the other repository ───────
+  //
+  // `girsa_post::PostError` sat under FAMILIES with the note "the refusals this
+  // codebase does not own", matched by four regexes that Ksav's
+  // `diagnostics.ts` carried character for character. It is not somebody
+  // else's: it is the shared crate's, which both applications compile. Two
+  // repositories keying on the English words of a `Display` impl in a third,
+  // in the crate that exists precisely so they need not agree in prose.
+  //
+  // `girsa-app`'s `the_rules_this_repository_wrote_down.rs` fails if
+  // `PostError::CODES` gains a name `CODED` has no line for.
+  ok(
+    "the post's refusals are read by their code too",
+    trouble("post-refused: ksav refused it: 413 body too large", "send_to_ksav").said.includes("נדחתה"),
+  );
+  ok(
+    "and rewording *that* prose changes nothing either",
+    trouble("post-refused: the pen said no", "send_to_ksav").said.includes("נדחתה"),
+  );
+  // `PostError::Io` and `::Json` are deliberately uncoded: what a reader needs
+  // — permission against not-found — is in the operating system's own words and
+  // nowhere else, so they still go through FAMILIES, where matching somebody
+  // else's prose is honest.
+  ok(
+    "an io error forwarded by the post still says which io error",
+    trouble("The system cannot find the file specified. (os error 2)", "send_to_ksav").said.includes(
+      "אינו נמצא",
+    ),
   );
 
   // A colon in somebody else's message is not a code.

@@ -872,6 +872,37 @@ fn every_refusal_this_codebase_names_has_a_sentence_in_the_window() {
         girsa_app::trouble::Code::SPELLINGS.len() >= 8,
         "the code list is suspiciously short"
     );
+
+    // The same, for the one error type that crosses to the other repository.
+    //
+    // `girsa_post::PostError` is not this codebase's prose and it is not
+    // somebody else's either — it is the shared crate's, which both
+    // applications compile. `trouble.ts` had it under `FAMILIES` with the note
+    // *"the refusals this codebase does not own… whatever a `PostError` says"*,
+    // matched by four regexes that Ksav's `diagnostics.ts` also carried,
+    // character for character. Two repositories keying on the English words of a
+    // `Display` impl in a third, in the crate that exists so the two sides need
+    // not agree in prose.
+    //
+    // `PostError::Io` and `::Json` are deliberately uncoded and are not checked
+    // here: they forward the operating system's failure and serde's, and the
+    // distinction a reader needs lives in those words alone.
+    let mut missing = Vec::new();
+    for code in girsa_post::PostError::CODES {
+        if !table.contains(&format!("\"{code}\":")) {
+            missing.push(*code);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "girsa-post can send {missing:?} and `CODED` has no line for it — the \
+         reader would be shown the English, which is the bug `trouble.ts` and \
+         `presence.ts` both cite as their reason for existing.",
+    );
+    assert!(
+        !girsa_post::PostError::CODES.is_empty(),
+        "PostError::CODES is empty, so the sweep above checked nothing"
+    );
 }
 
 #[test]

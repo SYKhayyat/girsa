@@ -102,6 +102,25 @@ const CODED: Record<string, (doing: string) => string> = {
   "no-lane": () => "הלשון הסמוכה כבויה — אפשר להדליק אותה בהגדרות",
   "no-desk": () => `${KSAV} אינו מחובר`,
   "no-page": () => "אין עמוד כזה בסריקה",
+
+  // `girsa_post::PostError::code()`. The three below used to be matched by
+  // their English words, here *and* in Ksav's `diagnostics.ts`, with four
+  // character-identical regexes across two repositories — which made every word
+  // of a `Display` impl in a third repository load-bearing API between them.
+  //
+  // The fix is the one this table already is, applied to the one error type
+  // that actually crosses. It had never been: this file's own header explains
+  // why regexing your own prose is wrong and then does it to somebody else's,
+  // which is the same mistake with the blame moved.
+  //
+  // `PostError::Io` and `::Json` are deliberately **not** coded. They are the
+  // operating system's failure and serde's, forwarded, and the distinction a
+  // reader needs — permission against not-found — lives only in their own
+  // words. Those fall through to `FAMILIES` below, where matching somebody
+  // else's prose is honest because there is nothing else to match.
+  "post-not-running": () => `${KSAV} אינו פועל`,
+  "post-unreachable": (doing) => `${doing} לא נענתה בזמן — ייתכן שהיישום נסגר שלא כשורה`,
+  "post-refused": (doing) => `${doing} נדחתה על ידי היישום שמעבר`,
 };
 
 /** What Rust put in front of the colon, if it put anything. */
@@ -113,31 +132,19 @@ function codeOf(detail: string): string | undefined {
 }
 
 /**
- * The refusals this codebase does **not** own.
+ * The refusals **nobody in this product owns**.
  *
- * An `os error 2`, a `connection refused`, a `serde_json` message, whatever a
- * `PostError` says. Matching somebody else's `Display` by its words is the only
- * thing available for these, and that is honest — unlike doing it to our own,
- * which is what `CODED` above ended.
+ * An `os error 2`, a `connection refused`, a `serde_json` message. Matching
+ * somebody else's `Display` by its words is the only thing available for these,
+ * and that is honest — unlike doing it to a type we ship, which is what `CODED`
+ * above ended.
+ *
+ * It said *"whatever a `PostError` says"* here, and that was the whole of the
+ * mistake: `PostError` is not somebody else's, it is `girsa-post`'s, in the
+ * shared repository both applications compile. Its three refusals are in `CODED`
+ * now and their regexes are gone from this list.
  */
 const FAMILIES: { match: RegExp; said: (doing: string) => string }[] = [
-  {
-    // `PostError::NotRunning` — "ksav is not running".
-    match: /\bis not running\b/i,
-    said: () => `${KSAV} אינו פועל`,
-  },
-  {
-    // `PostError::Unreachable` — the endpoint file is there and nothing answers.
-    // This is `Presence::Stale` working, which is why the sentence says what to
-    // do rather than apologising.
-    match: /could not reach|timed out|timeout/i,
-    said: (doing) => `${doing} לא נענתה בזמן — ייתכן שהיישום נסגר שלא כשורה`,
-  },
-  {
-    // `PostError::Refused` — it answered, and said no.
-    match: /refused it\b/i,
-    said: (doing) => `${doing} נדחתה על ידי היישום שמעבר`,
-  },
   {
     match: /connection refused|actively refused/i,
     said: (doing) => `${doing} נדחתה — אין מי שמאזין בצד השני`,
