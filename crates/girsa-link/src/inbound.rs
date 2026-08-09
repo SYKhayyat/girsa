@@ -41,9 +41,8 @@
 //! here* and *I have not been told what does* are different statements, which
 //! is why [`built`] exists and why every caller of it says which one it saw.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::slug_dir;
@@ -186,11 +185,13 @@ impl Landings {
 /// The same discipline as [`crate::store::Writer`] and for the same reason: a
 /// run is many flushes, so a file is appended to within a run — and appending
 /// to what the **last** run left would silently double every incoming link.
+///
+/// That paragraph used to sit above a second copy of it. It is
+/// [`crate::shards`] now, and this struct is what is genuinely different: which
+/// end of an edge decides the file, and the marker written at the end.
 #[derive(Debug, Default)]
 pub struct Writer {
-    by_work: BTreeMap<String, String>,
-    written: usize,
-    opened: BTreeSet<String>,
+    shards: crate::shards::Shards,
     /// Edges whose two ends are in one work, which its own shard already holds.
     internal: usize,
 }
@@ -207,10 +208,7 @@ impl Writer {
             self.internal += 1;
             return;
         }
-        let body = self.by_work.entry(to_work.to_string()).or_default();
-        body.push_str(line.trim_end());
-        body.push('\n');
-        self.written += 1;
+        self.shards.add(to_work, line);
     }
 
     /// Record a parsed edge. For callers that have one — tests, and anything
@@ -225,12 +223,12 @@ impl Writer {
 
     #[must_use]
     pub const fn len(&self) -> usize {
-        self.written
+        self.shards.len()
     }
 
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.written == 0
+        self.shards.len() == 0
     }
 
     /// Edges skipped because both ends are in one work, which is not a loss —
@@ -244,7 +242,7 @@ impl Writer {
     /// becomes the reason the run did not finish.
     #[must_use]
     pub fn buffered_bytes(&self) -> usize {
-        self.by_work.values().map(String::len).sum()
+        self.shards.buffered_bytes()
     }
 
     /// Write everything held and forget it, and mark the tree as built.
@@ -257,20 +255,7 @@ impl Writer {
         if !links.is_dir() {
             fs::create_dir_all(&links)?;
         }
-        for (slug, body) in std::mem::take(&mut self.by_work) {
-            let path = inbound_path(root, &slug);
-            if let Some(dir) = path.parent() {
-                fs::create_dir_all(dir)?;
-            }
-            let first_touch = self.opened.insert(slug);
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(!first_touch)
-                .write(first_touch)
-                .truncate(first_touch)
-                .open(&path)?;
-            file.write_all(body.as_bytes())?;
-        }
+        self.shards.flush(root, inbound_path)?;
         // Last, so a run killed part-way leaves the tree marked unbuilt rather
         // than marked built and half full.
         fs::write(

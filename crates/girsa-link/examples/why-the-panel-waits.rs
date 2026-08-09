@@ -19,7 +19,7 @@ use std::time::Instant;
 
 use girsa_link::repair::Repairs;
 use girsa_link::store::Row;
-use girsa_link::{Anchor, EdgeType, Method};
+use girsa_link::{EdgeType, Method};
 
 const SEFARIM: [&str; 3] = [
     "shulchan-arukh/orach-chayim",
@@ -27,18 +27,11 @@ const SEFARIM: [&str; 3] = [
     "bavli/berakhot",
 ];
 
-/// Mirrors `store::parse_anchor`, which is crate-private. A run is two ids
-/// joined by a hyphen, and a slug can carry a hyphen too — hence the split on
-/// `-girsa:` rather than on the first `-`.
-fn parse_anchor(text: &str) -> Option<Anchor> {
-    match text.split_once("-girsa:") {
-        Some((from, to)) => Some(Anchor::span(
-            from.parse().ok()?,
-            format!("girsa:{to}").parse().ok()?,
-        )),
-        None => Some(Anchor::point(text.parse().ok()?)),
-    }
-}
+// This file carried its own `parse_anchor` under a doc comment that said
+// *"mirrors `store::parse_anchor`, which is crate-private"* — an accurate
+// description of a copy, which is not the same as a reason for one. The
+// original is `pub` now.
+use girsa_link::store::parse_anchor;
 
 fn main() {
     let root = std::path::Path::new("corpus");

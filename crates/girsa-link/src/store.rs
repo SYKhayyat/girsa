@@ -18,9 +18,7 @@
 //! this se'if" is the reverse direction and is answered from an index built
 //! over the shards, not from a second copy that could disagree with the first.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::slug_dir;
@@ -153,10 +151,10 @@ impl Row {
 /// once, which is what "a command someone else can run" has to mean.
 #[derive(Debug, Default)]
 pub struct Writer {
-    by_work: BTreeMap<String, String>,
-    written: usize,
-    /// Shards this writer has already opened, and so must not truncate again.
-    opened: BTreeSet<String>,
+    /// The buffer, the count and the truncate-once flag — which
+    /// [`crate::inbound::Writer`] needs in exactly the same shape, and used to
+    /// have in exactly the same shape. See [`crate::shards`].
+    shards: crate::shards::Shards,
 }
 
 impl Writer {
@@ -165,27 +163,24 @@ impl Writer {
         let Ok(line) = serde_json::to_string(&Row::of(edge)) else {
             return;
         };
-        let body = self.by_work.entry(slug).or_default();
-        body.push_str(&line);
-        body.push('\n');
-        self.written += 1;
+        self.shards.add(&slug, &line);
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
-        self.written
+    pub const fn len(&self) -> usize {
+        self.shards.len()
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.written == 0
+    pub const fn is_empty(&self) -> bool {
+        self.shards.len() == 0
     }
 
     /// How many bytes are being held, so a caller can flush before memory
     /// becomes the reason the import did not finish.
     #[must_use]
     pub fn buffered_bytes(&self) -> usize {
-        self.by_work.values().map(String::len).sum()
+        self.shards.buffered_bytes()
     }
 
     /// Write everything held to disk and forget it.
@@ -197,21 +192,7 @@ impl Writer {
     ///
     /// If a shard cannot be created or written to.
     pub fn flush(&mut self, root: &Path) -> Result<(), std::io::Error> {
-        for (slug, body) in std::mem::take(&mut self.by_work) {
-            let path = edges_path(root, &slug);
-            if let Some(dir) = path.parent() {
-                fs::create_dir_all(dir)?;
-            }
-            let first_touch = self.opened.insert(slug);
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(!first_touch)
-                .write(first_touch)
-                .truncate(first_touch)
-                .open(&path)?;
-            file.write_all(body.as_bytes())?;
-        }
-        Ok(())
+        self.shards.flush(root, edges_path)
     }
 }
 
@@ -411,7 +392,12 @@ pub fn read_edges_landing(path: &Path, wanted: &Landing) -> Result<Vec<Edge>, st
 }
 
 /// `girsa:x/1:1#1-girsa:x/1:3#3` → a run; a single id → a point.
-pub(crate) fn parse_anchor(text: &str) -> Option<Anchor> {
+///
+/// Public because it was copied out of here the moment it was not. A slug can
+/// carry a hyphen, so the split is on `-girsa:` rather than on the first `-`,
+/// and that is exactly the detail a second copy gets right on the day it is
+/// written and wrong on the day the format moves.
+pub fn parse_anchor(text: &str) -> Option<Anchor> {
     match text.split_once("-girsa:") {
         Some((from, to)) => Some(Anchor::span(
             from.parse().ok()?,

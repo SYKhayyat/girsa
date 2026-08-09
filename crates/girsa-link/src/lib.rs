@@ -27,6 +27,7 @@ pub mod orient;
 pub mod otzaria;
 pub mod repair;
 pub mod sefaria;
+pub(crate) mod shards;
 pub mod store;
 pub mod touching;
 

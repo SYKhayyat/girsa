@@ -734,6 +734,28 @@ impl Repaired {
     }
 }
 
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+impl girsa_personal::Store for Repairs {
+    type Record = Record;
+    const WHAT: &'static str = "a repair";
+
+    fn key_of(record: &Record) -> String {
+        key_of(record)
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, record: Record) {
+        self.hold_record(record);
+    }
+    fn count(&self) -> usize {
+        Repairs::count(self)
+    }
+    fn records(&self) -> Vec<&Record> {
+        self.by_edge.values().flatten().collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // A panic in a test is a failure report. The workspace denies these in
@@ -809,27 +831,5 @@ mod tests {
             seen[0].shipped.is_none(),
             "nothing was changed, so nothing is shown as changed"
         );
-    }
-}
-
-/// The replay, the index and the compaction — `girsa_personal::Store`.
-impl girsa_personal::Store for Repairs {
-    type Record = Record;
-    const WHAT: &'static str = "a repair";
-
-    fn key_of(record: &Record) -> String {
-        key_of(record)
-    }
-    fn log(&self) -> &Log {
-        &self.log
-    }
-    fn hold(&mut self, record: Record) {
-        self.hold_record(record);
-    }
-    fn count(&self) -> usize {
-        Repairs::count(self)
-    }
-    fn records(&self) -> Vec<&Record> {
-        self.by_edge.values().flatten().collect()
     }
 }
