@@ -1755,6 +1755,7 @@ dependencies = [
  "girsa-link",
  "girsa-note",
  "girsa-personal",
+ "girsa-post",
  "girsa-ref",
  "girsa-scan",
  "girsa-source",
@@ -1766,7 +1767,8 @@ dependencies = [
 
 [[package]]
 name = "girsa-cite"
-version = "0.5.1"
+version = "0.5.3"
+source = "git+https://github.com/SYKhayyat/sefer-crates?rev=df7319e07ea6294a5500586caf612f7aab3a8b22#df7319e07ea6294a5500586caf612f7aab3a8b22"
 dependencies = [
  "girsa-hebrew",
  "girsa-ref",
@@ -1843,14 +1845,16 @@ dependencies = [
 
 [[package]]
 name = "girsa-hebrew"
-version = "0.5.1"
+version = "0.5.3"
+source = "git+https://github.com/SYKhayyat/sefer-crates?rev=df7319e07ea6294a5500586caf612f7aab3a8b22#df7319e07ea6294a5500586caf612f7aab3a8b22"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "girsa-ksav"
-version = "0.5.1"
+version = "0.5.3"
+source = "git+https://github.com/SYKhayyat/sefer-crates?rev=df7319e07ea6294a5500586caf612f7aab3a8b22#df7319e07ea6294a5500586caf612f7aab3a8b22"
 dependencies = [
  "girsa-source",
 ]
@@ -1940,7 +1944,8 @@ dependencies = [
 
 [[package]]
 name = "girsa-post"
-version = "0.5.1"
+version = "0.5.3"
+source = "git+https://github.com/SYKhayyat/sefer-crates?rev=df7319e07ea6294a5500586caf612f7aab3a8b22#df7319e07ea6294a5500586caf612f7aab3a8b22"
 dependencies = [
  "getrandom 0.3.4",
  "serde",
@@ -1951,7 +1956,8 @@ dependencies = [
 
 [[package]]
 name = "girsa-ref"
-version = "0.5.1"
+version = "0.5.3"
+source = "git+https://github.com/SYKhayyat/sefer-crates?rev=df7319e07ea6294a5500586caf612f7aab3a8b22#df7319e07ea6294a5500586caf612f7aab3a8b22"
 dependencies = [
  "girsa-hebrew",
  "serde",
@@ -2018,7 +2024,8 @@ dependencies = [
 
 [[package]]
 name = "girsa-source"
-version = "0.5.1"
+version = "0.5.3"
+source = "git+https://github.com/SYKhayyat/sefer-crates?rev=df7319e07ea6294a5500586caf612f7aab3a8b22#df7319e07ea6294a5500586caf612f7aab3a8b22"
 dependencies = [
  "girsa-ref",
  "serde",

@@ -39,7 +39,9 @@
 //! reason it was jsonl in the first place.
 
 pub mod log;
+pub mod store;
 pub mod who;
 
 pub use log::{is_tombstone, replay, since, Live, Log, LogError, Since};
+pub use store::{open, Store};
 pub use who::who;

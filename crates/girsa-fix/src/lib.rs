@@ -312,12 +312,30 @@ pub struct Layer {
     by_segment: BTreeMap<SegmentId, Vec<Patch>>,
 }
 
-impl From<girsa_personal::LogError> for FixError {
-    fn from(e: girsa_personal::LogError) -> Self {
-        Self::Io {
-            path: e.path,
-            source: e.source,
-        }
+girsa_personal::io_from_log_error!(FixError);
+
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+///
+/// Six stores in this repository grew this same arrangement. See the module
+/// note on `girsa-personal/src/store.rs`.
+impl girsa_personal::Store for Layer {
+    type Record = Patch;
+    const WHAT: &'static str = "a correction";
+
+    fn key_of(patch: &Patch) -> String {
+        key_of(patch)
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, patch: Patch) {
+        self.hold_patch(patch);
+    }
+    fn count(&self) -> usize {
+        Layer::count(self)
+    }
+    fn records(&self) -> Vec<&Patch> {
+        self.all().collect()
     }
 }
 
@@ -354,25 +372,10 @@ impl Layer {
     /// un-correcting a library.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let log = Log::at(path_in(personal));
-        let live = log.live("a correction", key_of);
-        let mut layer = Self {
-            log,
+        girsa_personal::open(Self {
+            log: Log::at(path_in(personal)),
             by_segment: BTreeMap::new(),
-        };
-        let mut trouble = live.trouble;
-        for patch in live.records {
-            layer.hold(patch);
-        }
-        // The one moment the whole file is written, and only when it has grown
-        // past twice what it holds. Failing to tidy up is not a reason to
-        // refuse a reader their corrections, so it is reported and not returned.
-        if Log::bloated(live.lines, layer.count()) {
-            if let Err(e) = layer.compact() {
-                trouble.push(e.to_string());
-            }
-        }
-        (layer, trouble)
+        })
     }
 
     /// A layer that is never written, for a caller that only wants to apply
@@ -385,11 +388,7 @@ impl Layer {
         }
     }
 
-    fn compact(&self) -> Result<(), FixError> {
-        Ok(self.log.rewrite(self.all())?)
-    }
-
-    fn hold(&mut self, patch: Patch) {
+    fn hold_patch(&mut self, patch: Patch) {
         let held = self.by_segment.entry(patch.segment.clone()).or_default();
         if held.iter().any(|p| p.id == patch.id) {
             return;
@@ -514,7 +513,7 @@ impl Layer {
         if !already {
             self.log.append(&patch)?;
         }
-        self.hold(patch);
+        self.hold_patch(patch);
         self.on(&segment)
             .iter()
             .find(|p| p.id == id)
@@ -603,7 +602,7 @@ impl Layer {
         // One append for the whole file, and held only once it is down.
         self.log.append_all(taking.iter())?;
         for patch in taking {
-            self.hold(patch);
+            self.hold_patch(patch);
             merged.taken += 1;
         }
         Ok(merged)

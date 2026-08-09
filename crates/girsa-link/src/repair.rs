@@ -183,14 +183,7 @@ pub struct Repairs {
     by_edge: BTreeMap<String, Vec<Record>>,
 }
 
-impl From<girsa_personal::LogError> for RepairError {
-    fn from(e: girsa_personal::LogError) -> Self {
-        Self::Io {
-            path: e.path,
-            source: e.source,
-        }
-    }
-}
+girsa_personal::io_from_log_error!(RepairError);
 
 /// Where they live under a personal layer.
 #[must_use]
@@ -202,22 +195,10 @@ impl Repairs {
     /// Read them. A line that will not parse costs that repair and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let log = Log::at(path_in(personal));
-        let live = log.live("a repair", key_of);
-        let mut repairs = Self {
-            log,
+        girsa_personal::open(Self {
+            log: Log::at(path_in(personal)),
             by_edge: BTreeMap::new(),
-        };
-        let mut trouble = live.trouble;
-        for record in live.records {
-            repairs.hold(record);
-        }
-        if Log::bloated(live.lines, repairs.count()) {
-            if let Err(e) = repairs.compact() {
-                trouble.push(e.to_string());
-            }
-        }
-        (repairs, trouble)
+        })
     }
 
     /// A layer that is never written, for a caller that only wants to apply
@@ -230,11 +211,7 @@ impl Repairs {
         }
     }
 
-    fn compact(&self) -> Result<(), RepairError> {
-        Ok(self.log.rewrite(self.by_edge.values().flatten())?)
-    }
-
-    fn hold(&mut self, record: Record) {
+    fn hold_record(&mut self, record: Record) {
         let held = self.by_edge.entry(record.edge.clone()).or_default();
         // One statement of each kind per edge: retyping twice is one retype and
         // the last word stands, and confirming after rejecting replaces the
@@ -455,7 +432,7 @@ impl Repairs {
         // Written down before it is held, so what the panel shows and what the
         // file says are the same judgments.
         self.log.append(&record)?;
-        self.hold(record);
+        self.hold_record(record);
         Ok(())
     }
 
@@ -826,5 +803,27 @@ mod tests {
             seen[0].shipped.is_none(),
             "nothing was changed, so nothing is shown as changed"
         );
+    }
+}
+
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+impl girsa_personal::Store for Repairs {
+    type Record = Record;
+    const WHAT: &'static str = "a repair";
+
+    fn key_of(record: &Record) -> String {
+        key_of(record)
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, record: Record) {
+        self.hold_record(record);
+    }
+    fn count(&self) -> usize {
+        Repairs::count(self)
+    }
+    fn records(&self) -> Vec<&Record> {
+        self.by_edge.values().flatten().collect()
     }
 }

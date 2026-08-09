@@ -212,12 +212,27 @@ pub struct Collections {
     by_name: BTreeMap<String, Collection>,
 }
 
-impl From<girsa_personal::LogError> for CollectionError {
-    fn from(e: girsa_personal::LogError) -> Self {
-        Self::Io {
-            path: e.path,
-            source: e.source,
-        }
+girsa_personal::io_from_log_error!(CollectionError);
+
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+impl girsa_personal::Store for Collections {
+    type Record = Collection;
+    const WHAT: &'static str = "a folder";
+
+    fn key_of(c: &Collection) -> String {
+        c.name.clone()
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, c: Collection) {
+        self.by_name.insert(c.name.clone(), c);
+    }
+    fn count(&self) -> usize {
+        self.by_name.len()
+    }
+    fn records(&self) -> Vec<&Collection> {
+        self.by_name.values().collect()
     }
 }
 
@@ -225,23 +240,10 @@ impl Collections {
     /// Read them. A line that will not parse costs that folder and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let log = Log::at(path_in(personal));
-        let live = log.live("a folder", |c: &Collection| c.name.clone());
-        let mut trouble = live.trouble;
-        let collections = Self {
-            log,
-            by_name: live
-                .records
-                .into_iter()
-                .map(|c| (c.name.clone(), c))
-                .collect(),
-        };
-        if Log::bloated(live.lines, collections.by_name.len()) {
-            if let Err(e) = collections.compact() {
-                trouble.push(e.to_string());
-            }
-        }
-        (collections, trouble)
+        girsa_personal::open(Self {
+            log: Log::at(path_in(personal)),
+            by_name: BTreeMap::new(),
+        })
     }
 
     /// A layer that is never written.
@@ -251,10 +253,6 @@ impl Collections {
             log: Log::nowhere(),
             by_name: BTreeMap::new(),
         }
-    }
-
-    fn compact(&self) -> Result<(), CollectionError> {
-        Ok(self.log.rewrite(self.all())?)
     }
 
     #[must_use]

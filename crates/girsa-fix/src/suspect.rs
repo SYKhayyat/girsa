@@ -37,7 +37,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
-use girsa_personal::Log;
+use girsa_personal::{Log, Store as _};
 use serde::{Deserialize, Serialize};
 
 use crate::{fingerprint, FixError};
@@ -525,23 +525,10 @@ impl Queue {
     /// reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let log = Log::at(queue_in(personal));
-        let live = log.live("a candidate", |s: &Suspect| s.id.clone());
-        let mut trouble = live.trouble;
-        let queue = Self {
-            log,
-            entries: live.records,
-        };
-        if Log::bloated(live.lines, queue.entries.len()) {
-            if let Err(e) = queue.compact() {
-                trouble.push(e.to_string());
-            }
-        }
-        (queue, trouble)
-    }
-
-    fn compact(&self) -> Result<(), FixError> {
-        Ok(self.log.rewrite(self.entries.iter())?)
+        girsa_personal::open(Self {
+            log: Log::at(queue_in(personal)),
+            entries: Vec::new(),
+        })
     }
 
     #[must_use]
@@ -841,5 +828,30 @@ mod tests {
             said(&original),
             "the two sides of the join disagree"
         );
+    }
+}
+
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+///
+/// The "index" here is a plain `Vec` in log order, which is what a *queue* is:
+/// the order candidates arrived is the order they are looked at.
+impl girsa_personal::Store for Queue {
+    type Record = Suspect;
+    const WHAT: &'static str = "a candidate";
+
+    fn key_of(s: &Suspect) -> String {
+        s.id.clone()
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, s: Suspect) {
+        self.entries.push(s);
+    }
+    fn count(&self) -> usize {
+        self.entries.len()
+    }
+    fn records(&self) -> Vec<&Suspect> {
+        self.entries.iter().collect()
     }
 }

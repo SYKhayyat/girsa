@@ -291,12 +291,31 @@ pub struct Marks {
     by_segment: BTreeMap<SegmentId, Vec<Mark>>,
 }
 
-impl From<girsa_personal::LogError> for MarkError {
-    fn from(e: girsa_personal::LogError) -> Self {
-        Self::Io {
-            path: e.path,
-            source: e.source,
-        }
+girsa_personal::io_from_log_error!(MarkError);
+
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+///
+/// Six stores in this repository grew this same arrangement, and five of them
+/// wrote it out identically. See the module note on `girsa-personal/src/store.rs`
+/// for what the sixth forgot.
+impl girsa_personal::Store for Marks {
+    type Record = Mark;
+    const WHAT: &'static str = "a mark";
+
+    fn key_of(mark: &Mark) -> String {
+        key_of(mark)
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, mark: Mark) {
+        Marks::hold(self, mark);
+    }
+    fn count(&self) -> usize {
+        Marks::count(self)
+    }
+    fn records(&self) -> Vec<&Mark> {
+        self.all().collect()
     }
 }
 
@@ -304,22 +323,10 @@ impl Marks {
     /// Read them. A line that will not parse costs that mark and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let log = Log::at(path_in(personal));
-        let live = log.live("a mark", key_of);
-        let mut marks = Self {
-            log,
+        girsa_personal::open(Self {
+            log: Log::at(path_in(personal)),
             by_segment: BTreeMap::new(),
-        };
-        let mut trouble = live.trouble;
-        for mark in live.records {
-            marks.hold(mark);
-        }
-        if Log::bloated(live.lines, marks.count()) {
-            if let Err(e) = marks.compact() {
-                trouble.push(e.to_string());
-            }
-        }
-        (marks, trouble)
+        })
     }
 
     /// A layer that is never written.
@@ -329,10 +336,6 @@ impl Marks {
             log: Log::nowhere(),
             by_segment: BTreeMap::new(),
         }
-    }
-
-    fn compact(&self) -> Result<(), MarkError> {
-        Ok(self.log.rewrite(self.all())?)
     }
 
     fn hold(&mut self, mark: Mark) {

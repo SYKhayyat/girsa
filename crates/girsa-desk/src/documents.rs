@@ -121,16 +121,23 @@ pub struct Documents {
 impl Documents {
     /// Read the registry. A row that will not parse costs that row and is
     /// reported — never the rest of them.
+    ///
+    /// **And it compacts now**, which is the finding rather than a tidy-up.
+    /// Five sibling stores across three crates ask `Log::bloated` here and
+    /// rewrite the file when it has grown past twice what it holds; this one,
+    /// written last in the crate added most recently, did not. So
+    /// `personal/documents.jsonl` grew **without bound on every save** — in the
+    /// store whose entire job is to be re-saved, since `remember` is called
+    /// each time a document is written and each call appends a line that
+    /// supersedes the last one for that path.
+    ///
+    /// It is one call now, and the call is shared: `girsa_personal::open`.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let log = Log::at(path_in(personal));
-        let live = log.live::<Document>("a document", |d| d.path.clone());
-        let by_path = live
-            .records
-            .into_iter()
-            .map(|d| (d.path.clone(), d))
-            .collect();
-        (Self { log, by_path }, live.trouble)
+        girsa_personal::open(Self {
+            log: Log::at(path_in(personal)),
+            by_path: BTreeMap::new(),
+        })
     }
 
     /// A registry that is never written, for a caller that only reads.
@@ -281,6 +288,48 @@ mod tests {
         path
     }
 
+    /// The registry does not grow without bound, which is the whole finding.
+    ///
+    /// Five sibling stores compact on open and this one did not: `remember` is
+    /// called every time Ksav saves, each call appends a line superseding the
+    /// last for that path, and nothing ever rewrote the file. A reader who saves
+    /// a shiur two hundred times has a two-hundred-line registry holding one
+    /// document.
+    ///
+    /// Written as *save, reopen, save, reopen* rather than as a line count on
+    /// one handle, because compaction happens **on open** — which is also the
+    /// only moment it can, since that is when the whole set is in memory.
+    #[test]
+    fn the_registry_compacts_instead_of_growing_forever() {
+        let dir = scratch("compacts");
+        let doc = dir.join("shiur.ksav");
+        std::fs::write(&doc, "").unwrap();
+
+        for _ in 0..200 {
+            let (mut docs, trouble) = Documents::open(&dir);
+            assert!(trouble.is_empty(), "{trouble:?}");
+            docs.remember(&doc, None).unwrap();
+        }
+
+        let (docs, _) = Documents::open(&dir);
+        assert_eq!(docs.count(), 1, "one path is one document");
+
+        let lines = std::fs::read_to_string(path_in(&dir))
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count();
+        // `Log::bloated` allows twice what is live plus a floor of 64 — a layer
+        // with four rows in it does not need rewriting because one was saved
+        // twice — so the exact number is the log's business. What matters is
+        // that it is **bounded**: two hundred saves did not make two hundred
+        // lines, and would have.
+        assert!(
+            lines < 70,
+            "{lines} lines for one document — the registry is not compacting"
+        );
+    }
+
     #[test]
     fn a_document_anywhere_on_the_disk_is_remembered_and_read() {
         // The whole finding. `who_cites` walked `personal/ksav/` — the toy
@@ -400,5 +449,31 @@ mod tests {
 
         let (reopened, _) = Documents::open(&personal);
         assert_eq!(reopened.count(), 0, "the tombstone did not survive");
+    }
+}
+
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+///
+/// This crate's error type for these operations is `LogError` itself rather
+/// than a wrapper, so there is no `io_from_log_error!` here: the store is thin
+/// enough that the log's own failure is the only one it can have.
+impl girsa_personal::Store for Documents {
+    type Record = Document;
+    const WHAT: &'static str = "a document";
+
+    fn key_of(d: &Document) -> String {
+        d.path.clone()
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, d: Document) {
+        self.by_path.insert(d.path.clone(), d);
+    }
+    fn count(&self) -> usize {
+        self.by_path.len()
+    }
+    fn records(&self) -> Vec<&Document> {
+        self.by_path.values().collect()
     }
 }

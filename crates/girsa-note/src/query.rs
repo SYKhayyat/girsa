@@ -159,12 +159,27 @@ pub struct Queries {
     by_name: BTreeMap<String, SavedQuery>,
 }
 
-impl From<girsa_personal::LogError> for QueryError {
-    fn from(e: girsa_personal::LogError) -> Self {
-        Self::Io {
-            path: e.path,
-            source: e.source,
-        }
+girsa_personal::io_from_log_error!(QueryError);
+
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+impl girsa_personal::Store for Queries {
+    type Record = SavedQuery;
+    const WHAT: &'static str = "a saved query";
+
+    fn key_of(q: &SavedQuery) -> String {
+        q.name.clone()
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, q: SavedQuery) {
+        self.by_name.insert(q.name.clone(), q);
+    }
+    fn count(&self) -> usize {
+        self.by_name.len()
+    }
+    fn records(&self) -> Vec<&SavedQuery> {
+        self.by_name.values().collect()
     }
 }
 
@@ -172,23 +187,10 @@ impl Queries {
     /// Read them. A line that will not parse costs that query and is reported.
     #[must_use]
     pub fn open(personal: &Path) -> (Self, Vec<String>) {
-        let log = Log::at(path_in(personal));
-        let live = log.live("a saved query", |q: &SavedQuery| q.name.clone());
-        let mut trouble = live.trouble;
-        let queries = Self {
-            log,
-            by_name: live
-                .records
-                .into_iter()
-                .map(|q| (q.name.clone(), q))
-                .collect(),
-        };
-        if Log::bloated(live.lines, queries.by_name.len()) {
-            if let Err(e) = queries.compact() {
-                trouble.push(e.to_string());
-            }
-        }
-        (queries, trouble)
+        girsa_personal::open(Self {
+            log: Log::at(path_in(personal)),
+            by_name: BTreeMap::new(),
+        })
     }
 
     /// A layer that is never written.
@@ -198,10 +200,6 @@ impl Queries {
             log: Log::nowhere(),
             by_name: BTreeMap::new(),
         }
-    }
-
-    fn compact(&self) -> Result<(), QueryError> {
-        Ok(self.log.rewrite(self.all())?)
     }
 
     #[must_use]
