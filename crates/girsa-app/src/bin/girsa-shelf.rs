@@ -22,7 +22,7 @@ use std::path::Path;
 
 use girsa_app::taxonomy::Branch;
 use girsa_app::Shelf;
-use girsa_corpus::argv::{self, Argv, Roots};
+use girsa_plain::argv::{self, Argv, Roots};
 
 /// What this reads. There was none of this: the nearest thing was the error for
 /// an unknown verb, which never named the `<corpus> <personal>` prefix at all —

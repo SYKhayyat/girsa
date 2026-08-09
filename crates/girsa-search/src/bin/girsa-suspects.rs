@@ -23,7 +23,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use girsa_corpus::argv::{self, Argv};
+use girsa_plain::argv::{self, Argv};
 use girsa_fix::suspect::{hunt, Queue, Settings, Suspect, Vocabulary};
 use girsa_search::index::SearchIndex;
 
@@ -84,7 +84,7 @@ fn main() -> std::process::ExitCode {
 /// default of 10,000 and the run went on to report a queue built under
 /// settings nobody had asked for. It also meant `--common=5000` matched
 /// nothing at all, because the token compared was the whole `--common=5000`.
-fn settings_of(args: &Argv) -> Result<Settings, girsa_corpus::argv::ArgvError> {
+fn settings_of(args: &Argv) -> Result<Settings, girsa_plain::argv::ArgvError> {
     let mut settings = Settings::default();
     if let Some(at) = args.number("--common")? {
         settings.common_at = at;

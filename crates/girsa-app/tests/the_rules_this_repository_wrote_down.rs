@@ -428,7 +428,7 @@ fn one_sentence_says_what_an_answer_could_not_see() {
     // because both levels happened to pick the same separator.
     //
     // The rule that ends it: a module that words a clause of this sentence hands
-    // it to `girsa_corpus::said::Clauses` and does no joining of its own. The
+    // it to `girsa_plain::said::Clauses` and does no joining of its own. The
     // separator is spelled once, in the crate below all of them.
     const WORDS_A_CLAUSE: [&str; 4] = [
         "girsa-lane/src/coverage.rs",
@@ -478,7 +478,7 @@ fn one_sentence_says_what_an_answer_could_not_see() {
         wrong.is_empty(),
         "a module that words a clause is doing its own joining:\n  {}\n\n\
          The clause belongs to whoever knows the fact — that part of all three \
-         doc comments was right. The joining is `girsa_corpus::said::Clauses`, \
+         doc comments was right. The joining is `girsa_plain::said::Clauses`, \
          and `girsa_nearby::Unseen` decides which clauses are one answer, which is \
          the decision none of the three earlier composers was in a position to \
          make.",
@@ -639,7 +639,7 @@ fn every_binary_reads_its_command_line_the_same_way() {
     //   of that name, found nothing, and reported that it had finished.
     //
     // Each is the same shape: a parser that cannot tell a switch from a value
-    // option because nothing told it which is which. `girsa_corpus::argv` is
+    // option because nothing told it which is which. `girsa_plain::argv` is
     // told.
     let root = repo();
     let mut wrong = Vec::new();
@@ -654,9 +654,9 @@ fn every_binary_reads_its_command_line_the_same_way() {
         if !body.contains("std::env::args()") {
             continue;
         }
-        if !body.contains("girsa_corpus::argv") {
+        if !body.contains("girsa_plain::argv") {
             wrong.push(format!(
-                "{named}: reads argv and not through `girsa_corpus::argv`"
+                "{named}: reads argv and not through `girsa_plain::argv`"
             ));
         }
         // A `fn flag` or a `fn split_flags` of its own. There were three
@@ -688,7 +688,7 @@ fn every_binary_reads_its_command_line_the_same_way() {
     assert!(
         wrong.is_empty(),
         "a binary reading its own command line:\n  {}\n\n\
-         `girsa_corpus::argv::Argv::of` takes the switches and the value \
+         `girsa_plain::argv::Argv::of` takes the switches and the value \
          options by name, which is what makes `--near 5` and `--near=5` both \
          work, stops a switch eating the next word, and makes a typo an error \
          rather than a path.",

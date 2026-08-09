@@ -26,7 +26,7 @@ use std::path::Path;
 use girsa_app::naming::Names;
 use girsa_app::session::Language;
 use girsa_app::Shelf;
-use girsa_corpus::argv::{self, Argv, Roots};
+use girsa_plain::argv::{self, Argv, Roots};
 use girsa_lane::{bring, Chosen, Settings, BEREL};
 use girsa_nearby::Adjacency;
 

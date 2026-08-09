@@ -39,7 +39,7 @@
 //! not met. So: `None` means *not part of this answer*, which is a different
 //! thing from `Coverage::default()`, which means *on, and covering nothing*.
 
-use girsa_corpus::said::Clauses;
+use girsa_plain::said::Clauses;
 use girsa_lane::Coverage;
 use girsa_note::since::Unindexed;
 
@@ -201,7 +201,7 @@ mod tests {
         let said = unseen.said().expect("something to say");
         assert!(!said.contains(';'), "a semicolon survived: {said}");
         assert_eq!(
-            said.matches(girsa_corpus::said::BETWEEN).count(),
+            said.matches(girsa_plain::said::BETWEEN).count(),
             unseen.clauses().parts().len() - 1,
             "{said}"
         );

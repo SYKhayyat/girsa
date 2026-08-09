@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use girsa_corpus::argv::{self, Argv};
+use girsa_plain::argv::{self, Argv};
 use girsa_corpus::index::SegmentIndex;
 use girsa_corpus::work::{Source, Work};
 use girsa_link::otzaria::{LineMap, OtzariaTally, TitleIndex};

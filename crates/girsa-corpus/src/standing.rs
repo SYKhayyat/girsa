@@ -59,7 +59,12 @@ use crate::segment::SegmentId;
 /// The same cap as [`crate::store::SegmentStore`] and `Open::redirected`, for
 /// the same reason: a hand-edited overlay that built a loop should cost the
 /// reader a short answer, not a frozen window.
-const MAX_DEPTH: usize = 32;
+///
+/// It used to say all of that and then **write the number out again**, which is
+/// the 9 August report's whole thesis in six lines: the class named correctly,
+/// two of the three siblings identified by name, and the sweep not run. One
+/// number, in `girsa-ref`, which owns redirects.
+use girsa_ref::MAX_REDIRECT_DEPTH as MAX_DEPTH;
 
 /// A place, and every name whose anchors name its words.
 ///

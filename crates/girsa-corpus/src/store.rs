@@ -124,8 +124,12 @@ pub struct SegmentStore {
 }
 
 /// A redirect chain longer than this is a cycle somebody built by hand.
-/// Following it forever would hang the reader rather than show them a page.
-const MAX_REDIRECT_DEPTH: usize = 32;
+///
+/// Re-exported rather than restated. This was one of four copies of `32` across
+/// the two applications, each walking a different structure for the same reason,
+/// and the claim — *thirty-two hops is a hand-built loop* — is one claim. It
+/// lives in `girsa-ref`, which owns redirects.
+use girsa_ref::MAX_REDIRECT_DEPTH;
 
 impl SegmentStore {
     /// Import: assign every segment an ordinal, once, in reading order.

@@ -131,7 +131,26 @@ fn field(line: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Every shared-crate dependency line, as (manifest, crate, the rest).
+/// Every shared-crate dependency line that carries its own source, as
+/// (manifest, crate, the rest).
+///
+/// # What is skipped, and why it took a rewrite to notice
+///
+/// A member crate writes `girsa-ref.workspace = true`, which **inherits** the
+/// root's pin and is the shape that makes one product compile one sefer-crates
+/// in the first place. It carries no `git` and no `rev` of its own and must not.
+///
+/// The first version of this scan split on `=` and asked whether the left side
+/// was a shared crate's name. `girsa-ref.workspace` is not `girsa-ref`, so every
+/// dotted line fell through silently — and `app/src-tauri/Cargo.toml` writes the
+/// same inheritance as `girsa-ref = { workspace = true }`, whose left side *is*.
+/// So this fence went in **red**, asserting that a correctly inherited pin was
+/// not a git dependency, and nobody ran it: the exact shape of the report it was
+/// written to answer.
+///
+/// It now reads both spellings, skips inheritance in either, and asserts
+/// separately that the root's table — the one place the pin can live — has an
+/// entry for every shared crate.
 fn shared_lines(root: &Path) -> Vec<(PathBuf, String, String)> {
     let mut out = Vec::new();
     for manifest in files(root, "Cargo.toml") {
@@ -140,10 +159,43 @@ fn shared_lines(root: &Path) -> Vec<(PathBuf, String, String)> {
             let Some((name, rest)) = line.split_once('=') else {
                 continue;
             };
-            let name = name.trim();
-            if SHARED.contains(&name) {
-                out.push((manifest.clone(), name.to_string(), rest.trim().to_string()));
+            // `girsa-ref` and `girsa-ref.workspace` are the same dependency.
+            let name = name.trim().split('.').next().unwrap_or_default().trim();
+            if !SHARED.contains(&name) {
+                continue;
             }
+            let rest = rest.trim();
+            // Inheritance, in either spelling. The pin it inherits is checked
+            // where it lives.
+            if rest == "true" || rest.contains("workspace = true") {
+                continue;
+            }
+            out.push((manifest.clone(), name.to_string(), rest.to_string()));
+        }
+    }
+    out
+}
+
+/// The root's `[workspace.dependencies]` entry for each shared crate.
+fn workspace_table(root: &Path) -> Vec<(String, String)> {
+    let body = uncommented(&root.join("Cargo.toml"));
+    let mut out = Vec::new();
+    let mut section = String::new();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            section = line.to_string();
+            continue;
+        }
+        if section != "[workspace.dependencies]" {
+            continue;
+        }
+        let Some((name, rest)) = line.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if SHARED.contains(&name) {
+            out.push((name.to_string(), rest.trim().to_string()));
         }
     }
     out
@@ -182,14 +234,26 @@ fn no_path_dependency_escapes_the_repository() {
 fn one_product_compiles_one_sefer_crates() {
     let root = repo();
     let found = shared_lines(&root);
-    let names: BTreeSet<&str> = found.iter().map(|(_, n, _)| n.as_str()).collect();
+    // Every shared crate has an entry in the root table, which is the one place
+    // a pin can live now that every member inherits.
+    let table = workspace_table(&root);
+    let named: BTreeSet<&str> = table.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(
-        names.len(),
+        named.len(),
         SHARED.len(),
-        "expected all six shared crates in the manifests, found {names:?}.\n\
-         If one was added, removed, or rewritten as a `[dependencies.girsa-…]`\n\
+        "expected all six shared crates in [workspace.dependencies], found {named:?}.\n\
+         If one was added, removed, or rewritten as a `[workspace.dependencies.girsa-…]`\n\
          table (which the scan in this file cannot see), update `SHARED`\n\
          deliberately — silence here is what let the last one through.",
+    );
+    // And every source-carrying line anywhere in the tree is checked below,
+    // including the root's own.
+    assert!(
+        found.len() >= SHARED.len(),
+        "the root table is the only place these are pinned, and {} of {} lines \
+         carry a source",
+        found.len(),
+        SHARED.len(),
     );
 
     let mut revs = BTreeSet::new();
@@ -299,4 +363,47 @@ fn ci_does_not_fake_a_desk_layout_any_more() {
         "ci.yml still checks out sefer-crates. Cargo fetches the pinned commit \
          itself now — the checkout existed only to fake a sibling directory."
     );
+}
+
+/// The leaf has nothing under it, which is what stops it becoming the basement.
+///
+/// The 9 August report's §5 finding: *"`girsa-corpus` has become the workspace
+/// basement: 886 lines of `argv`/`said`/`roots`/`csv` live in the ingest crate
+/// because the ingest crate is the one everything can `use`."*
+///
+/// `girsa-plain` is the answer, and the answer only works while it stays a leaf.
+/// The moment it may `use` a girsa crate, it is a place things can be pushed
+/// *down* into rather than a place with a subject — and the whole failure is
+/// that a crate everything depends on collects whatever has nowhere else to go.
+///
+/// So the rule is mechanical: no dependency of `girsa-plain` may be named
+/// `girsa-*`. A `thiserror` or a `serde` is somebody else's crate and says
+/// nothing about this repository's shape.
+#[test]
+fn the_leaf_crate_stays_a_leaf() {
+    let manifest = repo().join("crates/girsa-plain/Cargo.toml");
+    let body = uncommented(&manifest);
+    let mut section = String::new();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            section = line.to_string();
+            continue;
+        }
+        if !section.contains("dependencies") {
+            continue;
+        }
+        let Some((name, _)) = line.split_once('=') else {
+            continue;
+        };
+        assert!(
+            !name.trim().starts_with("girsa"),
+            "girsa-plain depends on `{}`.\n\
+             It is the crate with nothing under it, and that is the only thing keeping it\n\
+             from becoming the next `girsa-corpus` — the one everything can `use`, so the\n\
+             one everything with nowhere else to go ends up in. If something here needs a\n\
+             girsa crate, it is not plain and belongs where its subject is.",
+            name.trim(),
+        );
+    }
 }

@@ -69,7 +69,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use girsa_corpus::argv::{self, Argv};
+use girsa_plain::argv::{self, Argv};
 use girsa_link::store::Row;
 use girsa_link::EdgeType;
 

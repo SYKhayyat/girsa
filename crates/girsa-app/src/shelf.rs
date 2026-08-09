@@ -1200,9 +1200,10 @@ impl Open {
     /// caps its own: a hand-edited overlay that built a cycle should cost the
     /// reader an empty answer, not a frozen window.
     fn redirected(&self, id: &SegmentId, depth: usize) -> Vec<usize> {
-        /// A chain longer than this is a cycle somebody built by hand.
-        const MAX_DEPTH: usize = 32;
-        if depth > MAX_DEPTH {
+        // The fourth copy of `32`, and the one whose doc comment above already
+        // pointed at `girsa_corpus::store::SegmentStore` for the reason. One
+        // number now, in `girsa-ref`, which owns redirects.
+        if depth > girsa_ref::MAX_REDIRECT_DEPTH {
             return Vec::new();
         }
         let Some(row) = self.redirects.get(id) else {

@@ -28,7 +28,7 @@
 // A tool that prints a report. The library it calls does not print.
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
-use girsa_corpus::argv::{self, Argv};
+use girsa_plain::argv::{self, Argv};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

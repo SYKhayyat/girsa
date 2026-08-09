@@ -9,6 +9,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+# A command line and a sentence, and nothing about a corpus. The leaf.
+girsa-plain.workspace = true
 girsa-corpus.workspace = true
 # A note is a node (spec.md §11), which means the thing joining it to a sugya
 # is a `girsa_link::Edge` — the same type, with the same nine kinds of claim on

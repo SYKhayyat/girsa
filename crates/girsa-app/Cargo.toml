@@ -9,6 +9,8 @@ authors.workspace = true
 description = "The reading workspace — shelf, panes, and what keeps two columns together"
 
 [dependencies]
+# A command line and a sentence, and nothing about a corpus. The leaf.
+girsa-plain.workspace = true
 girsa-corpus.workspace = true
 girsa-ref.workspace = true
 girsa-hebrew.workspace = true

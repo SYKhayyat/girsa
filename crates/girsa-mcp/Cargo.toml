@@ -9,6 +9,8 @@ authors.workspace = true
 description = "The library, answering a program instead of a person — MCP over stdio"
 
 [dependencies]
+# A command line and a sentence, and nothing about a corpus. The leaf.
+girsa-plain.workspace = true
 # The shelf, and the text a segment id names.
 girsa-app.workspace = true
 # `Adjacency` and `Unseen`: the lane's answers, and the one composer of what an

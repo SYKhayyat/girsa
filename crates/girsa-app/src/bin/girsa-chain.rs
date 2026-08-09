@@ -33,7 +33,7 @@ use std::time::Instant;
 use girsa_app::naming::Names;
 use girsa_app::session::Language;
 use girsa_app::Shelf;
-use girsa_corpus::argv::{self, Argv, Roots};
+use girsa_plain::argv::{self, Argv, Roots};
 use girsa_corpus::era::Timeline;
 use girsa_corpus::segment::SegmentId;
 use girsa_link::chain::{self, Direction, Found, Graph, Limits, Refused, Trace};
@@ -175,7 +175,7 @@ fn main() -> std::process::ExitCode {
 /// If one of them is not a number. This used to be `.parse().ok()`, so
 /// `--depth banana` silently kept the default and traced six steps when you
 /// had asked it not to.
-fn limits_of(args: &Argv) -> Result<Limits, girsa_corpus::argv::ArgvError> {
+fn limits_of(args: &Argv) -> Result<Limits, girsa_plain::argv::ArgvError> {
     let fallback = Limits::default();
     Ok(Limits {
         depth: args.number("--depth")?.unwrap_or(fallback.depth),

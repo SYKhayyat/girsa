@@ -25,7 +25,7 @@
 
 use std::path::Path;
 
-use girsa_corpus::said::{counted, plural, Clauses};
+use girsa_plain::said::{counted, plural, Clauses};
 use girsa_note::since::Unindexed;
 use girsa_scan::reading::Read;
 use girsa_scan::words::{Job, Words};

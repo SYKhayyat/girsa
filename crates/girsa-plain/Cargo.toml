@@ -1,0 +1,18 @@
+[package]
+name = "girsa-plain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The two things every binary needs and no corpus explains: a command line and a sentence"
+
+# One dependency, and it is a derive macro for `Display`. Nothing here knows
+# about a corpus, a shelf, a ref or a personal layer — see the crate header for
+# why that is the feature rather than an accident.
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

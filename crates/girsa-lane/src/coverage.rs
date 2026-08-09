@@ -35,7 +35,7 @@
 //! be complete.**
 //!
 //! So the clause stays here, where the fact is, and [`Coverage::clauses`] hands
-//! it over. `girsa_corpus::said::Clauses` does the joining and
+//! it over. `girsa_plain::said::Clauses` does the joining and
 //! `girsa_nearby::Unseen` decides which clauses are one answer — the decision none
 //! of the three was in a position to make.
 //!
@@ -48,7 +48,7 @@
 
 use std::collections::BTreeMap;
 
-use girsa_corpus::said::{plural, thousands, Clauses};
+use girsa_plain::said::{plural, thousands, Clauses};
 
 /// What a lane with nothing in it says.
 ///
@@ -148,7 +148,7 @@ impl Coverage {
 
     /// The clauses, worded here and joined nowhere.
     ///
-    /// See [`girsa_corpus::said`]. This composer joined with `; ` while the
+    /// See [`girsa_plain::said`]. This composer joined with `; ` while the
     /// other two joined with `" · "`, and it was the only one of the three that
     /// knew a five-figure number wants a comma in it — both facts now live one
     /// module down, where the sentence that carries clauses from all three is

@@ -34,7 +34,7 @@
 
 use std::path::{Path, PathBuf};
 
-use girsa_corpus::argv::{self, Argv};
+use girsa_plain::argv::{self, Argv};
 use girsa_corpus::work::Work;
 use girsa_link::{orient, store};
 

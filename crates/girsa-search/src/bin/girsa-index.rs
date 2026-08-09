@@ -28,7 +28,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use girsa_corpus::argv::Argv;
+use girsa_plain::argv::Argv;
 use girsa_corpus::import;
 use girsa_corpus::work::Work;
 use girsa_ref::resolve::Context;

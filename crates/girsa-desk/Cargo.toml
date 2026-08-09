@@ -9,6 +9,8 @@ authors.workspace = true
 description = "The desk: what you are writing in Ksav, and what you have already written"
 
 [dependencies]
+# A command line and a sentence, and nothing about a corpus. The leaf.
+girsa-plain.workspace = true
 # The sefer a quote comes from, and the packet it travels as.
 girsa-app.workspace = true
 girsa-corpus.workspace = true

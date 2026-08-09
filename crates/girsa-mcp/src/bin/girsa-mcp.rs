@@ -24,7 +24,7 @@
 // The greeting goes to stderr. stdout is the protocol.
 #![allow(clippy::print_stderr)]
 
-use girsa_corpus::argv::{self, Argv};
+use girsa_plain::argv::{self, Argv};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 

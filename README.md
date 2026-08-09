@@ -45,7 +45,7 @@ nothing of yours is ever kept in it. The window looks for the corpus at
 `GIRSA_CORPUS` and for your layer at `GIRSA_PERSONAL`, else beside the session
 file in the app's data directory.
 
-**14**<!--=crates--> crates, and **16**<!--=bins--> command-line binaries
+**15**<!--=crates--> crates, and **16**<!--=bins--> command-line binaries
 across them. Every number in this file that is a fact about this repository is
 marked like those two and re-counted by
 `crates/girsa-app/tests/the_numbers_in_the_readme_are_measurements.rs` on every
@@ -85,11 +85,11 @@ runs one way, and the reading workspace compiles without any of them.
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
 is **24**<!--=window-modules--> TypeScript modules and one stylesheet of
-**2,510**<!--=styles-lines--> lines — no framework, three runtime dependencies,
+**2,511**<!--=styles-lines--> lines — no framework, three runtime dependencies,
 and no fossils.
 
 That sentence used to say *supposed to be*, and it was measured: of the
-shell's **3,769**<!--=shell-lines--> lines, about 150 — 23 commands — were
+shell's **3,771**<!--=shell-lines--> lines, about 150 — 23 commands — were
 genuine pass-through, and the rest decided cache policy, sort orders,
 truncation lengths, patch provenance, which fonts a Hebrew reader is offered,
 what makes a directory a corpus, and what to do with a chip key it did not

@@ -29,7 +29,7 @@ use std::path::Path;
 use girsa_app::scanning::{self, mareh_makom, scan_of};
 use girsa_app::Shelf;
 use girsa_cite::CiteStyle;
-use girsa_corpus::argv::{self, Argv, Roots};
+use girsa_plain::argv::{self, Argv, Roots};
 use girsa_ref::Address;
 use girsa_scan::{Anchor, Paging, Placed, Scan, Scheme};
 

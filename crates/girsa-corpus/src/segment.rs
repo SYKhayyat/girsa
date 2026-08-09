@@ -356,9 +356,37 @@ impl SegmentId {
     /// keeping narrower than the grammar strictly requires. What changed is that
     /// this is now defence in depth rather than the only thing standing between
     /// the corpus and a misread address.
+    ///
+    /// # The floor is the round trip, and it was borrowed
+    ///
+    /// The 9 August three-repository report found this function and
+    /// `girsa_ref::Ref::is_well_formed` on two sides of the corpus/ref boundary,
+    /// with the paragraph above naming the other one as its counterpart — and
+    /// the other one is defined better:
+    ///
+    /// > *defined as the property itself rather than as a list of characters so
+    /// > it cannot drift away from what the parser actually does*
+    ///
+    /// A blacklist is a claim about which characters break the grammar, made
+    /// once, by hand, and never rechecked against the parser. The hyphen bug the
+    /// paragraphs above document **is** that failure: a character nobody had
+    /// listed, read as a separator, producing a place-shaped thing that is not a
+    /// place, with no error.
+    ///
+    /// So the round trip is the floor here too, and the ban sits **on top** of
+    /// it rather than instead of it. Neither replaces the other. The round trip
+    /// cannot drift from the parser; the ban is deliberately narrower than the
+    /// grammar, for the reason above — an id is permanent from the moment it is
+    /// written, and every one already minted was minted under the narrow rule.
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
-        !self.work.is_empty()
+        // The property itself: this id survives being written down and read
+        // back as the same id. Whatever the grammar does, this asks it rather
+        // than describing it.
+        self.to_string().parse::<Self>().as_ref() == Ok(self)
+            // And then the narrower character set, which is a choice rather
+            // than a consequence.
+            && !self.work.is_empty()
             && !self.work.starts_with('/')
             && !self.work.ends_with('/')
             && !self.work.contains(':')
@@ -609,6 +637,43 @@ mod tests {
                 "{bad_path:?} should not have passed as a section path"
             );
         }
+    }
+
+    #[test]
+    fn the_round_trip_catches_what_no_character_list_can() {
+        // Why the floor moved to `girsa-ref`'s definition. Every character in
+        // this id is allowed, the work and the path pass every clause of the
+        // ban — and it has **no ordinal**, so it prints as `…#` and does not
+        // read back as anything at all.
+        //
+        // Not hypothetical: `Ordinal` is `Deserialize`, so a `segments.jsonl`
+        // with `"ordinal": []` in it produces exactly this, and the blacklist
+        // would have called it well-formed and let it into the corpus
+        // permanently.
+        let nameless = SegmentId::new("chovot-halevavot", vec!["5".into()], Ordinal(Vec::new()));
+        assert!(
+            nameless.to_string().parse::<SegmentId>().is_err(),
+            "it does not read back"
+        );
+        assert!(
+            !nameless.is_well_formed(),
+            "and the check has to say so — the ban alone did not"
+        );
+
+        // And the two halves are genuinely both load-bearing: this one reads
+        // back perfectly and is still refused, because the character set is
+        // narrower than the grammar on purpose.
+        let hyphenated = SegmentId::new(
+            "chovot-halevavot",
+            vec!["shaar-chamishi".into()],
+            Ordinal::root(1),
+        );
+        assert_eq!(
+            hyphenated.to_string().parse::<SegmentId>().as_ref(),
+            Ok(&hyphenated),
+            "the grammar round-trips a hyphen since girsa-ref 0.2"
+        );
+        assert!(!hyphenated.is_well_formed(), "the ban still refuses it");
     }
 
     #[test]

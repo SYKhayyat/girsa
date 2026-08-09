@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/girsa-plain",
     "crates/girsa-personal",
     "crates/girsa-corpus",
     "crates/girsa-search",
@@ -42,6 +43,7 @@ members = [
 # `app/src-tauri` still selects the shell, because cargo picks the package from
 # the working directory. One workspace, one lockfile, one set of lints.
 default-members = [
+    "crates/girsa-plain",
     "crates/girsa-personal",
     "crates/girsa-corpus",
     "crates/girsa-search",
@@ -67,6 +69,10 @@ repository = "https://github.com/SYKhayyat/girsa"
 authors = ["Shaul Khayyat"]
 
 [workspace.dependencies]
+# A command line and a sentence. The lowest crate in the tree and the only one
+# with no dependencies at all — see its header for why an empty dependency list
+# is the feature.
+girsa-plain = { version = "=0.1.0", path = "crates/girsa-plain" }
 # Your own layer's one file format. A leaf: it knows about jsonl and about
 # nothing else in the tree, which is what lets `girsa-fix`, `girsa-note` and
 # `girsa-link` share it without any of them depending on another.
@@ -123,12 +129,12 @@ girsa-fixture = { version = "=0.1.0", path = "crates/girsa-fixture" }
 # bought, and it is kept: `sefer-crates/tools/check-dependents.sh` installs a
 # `paths` override for the duration of its run, and `.cargo/config.toml.example`
 # holds the same override for a person doing it by hand.
-girsa-source = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
-girsa-ref = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
-girsa-hebrew = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
-girsa-cite = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
-girsa-ksav = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
-girsa-post = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "19b50bce8d21ecfd12646a270727a09366f602c1" }
+girsa-source = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "61b41661ab0cb0beab1926eecebd5376f4e6c74c" }
+girsa-ref = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "61b41661ab0cb0beab1926eecebd5376f4e6c74c" }
+girsa-hebrew = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "61b41661ab0cb0beab1926eecebd5376f4e6c74c" }
+girsa-cite = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "61b41661ab0cb0beab1926eecebd5376f4e6c74c" }
+girsa-ksav = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "61b41661ab0cb0beab1926eecebd5376f4e6c74c" }
+girsa-post = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "61b41661ab0cb0beab1926eecebd5376f4e6c74c" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

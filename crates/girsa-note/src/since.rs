@@ -47,7 +47,7 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use girsa_corpus::said::{counted, plural, Clauses};
+use girsa_plain::said::{counted, plural, Clauses};
 
 /// The stamp `girsa-search` writes beside an index.
 ///
@@ -136,7 +136,7 @@ impl Unindexed {
     /// This module knows how to say *what your own layer holds that the index
     /// has not seen* and nothing else. How that sits beside *4 PDFs aren't
     /// searchable yet* and *this lane covers Hilchos Tefillah* is
-    /// [`girsa_corpus::said::Clauses`]'s question, because it was three
+    /// [`girsa_plain::said::Clauses`]'s question, because it was three
     /// questions when it was three composers' — and the answers differed in
     /// their separator, their thousands separator, and whether one of them
     /// nested a joined string inside another join.

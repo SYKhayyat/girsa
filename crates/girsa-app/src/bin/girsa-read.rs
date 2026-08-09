@@ -30,7 +30,7 @@ use girsa_app::find_index;
 use girsa_app::reading::gap;
 use girsa_app::scanning::{is_scan, pages_of};
 use girsa_app::Shelf;
-use girsa_corpus::argv::{self, Argv, Roots};
+use girsa_plain::argv::{self, Argv, Roots};
 use girsa_scan::engine::{Engine, Image, Tesseract};
 use girsa_scan::reading::{group, unmapped, Area, Glyph, Read, Reader};
 use girsa_scan::words::{Job, Words};

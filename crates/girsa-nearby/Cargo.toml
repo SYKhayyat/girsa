@@ -9,6 +9,8 @@ authors.workspace = true
 description = "What else is near this, and what the answer could not see"
 
 [dependencies]
+# A command line and a sentence, and nothing about a corpus. The leaf.
+girsa-plain.workspace = true
 # The shelf to ask about and the one way to describe a segment for a surface.
 girsa-app.workspace = true
 girsa-corpus.workspace = true
