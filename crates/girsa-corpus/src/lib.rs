@@ -1,8 +1,13 @@
 //! Storage, ingest, schemas, and permanent segment IDs.
 //!
-//! Text files on disk are the truth; SQLite and the tantivy index are a
-//! rebuildable cache (spec.md §4.1). Corrupt the cache and you rebuild it; you
-//! never lose text.
+//! Text files on disk are the truth; the caches beside them are rebuildable
+//! (spec.md §4.1). Corrupt a cache and you rebuild it; you never lose text.
+//!
+//! **The caches are the tantivy index and `girsa-corpus`'s own segment and
+//! line-index stores.** This used to say *"SQLite and the tantivy index"*, and
+//! there is no SQLite here — there never was. It was named in an early plan, the
+//! plan changed, and the sentence outlived it in the header of the crate whose
+//! subject it is.
 //!
 //! Filled in by W5–W8.
 

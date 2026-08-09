@@ -472,7 +472,7 @@ The sidebar is never one flat list. It is ranked by an active lens — **Halacha
 **Girsa** (variants, hagahos), **Mine** (your notes and seforim first). Lenses are
 saved filters over type/era/strength, not hardcoded lists.
 
-### 8.6 Later: the transmission chain
+### 8.6 The transmission chain
 
 With directed typed edges this falls out: trace forward from a Gemara to how it
 became halacha; trace backward from a ruling to where the posek got it; find the
@@ -480,7 +480,14 @@ path between two texts, or report honestly that none exists; and **break
 analysis** — where two rishonim read one Gemara into incompatible halachos. That
 fork is usually the chiddush.
 
-Post-v1, and it depends on §8.2 being right now.
+*Amended 2026-08-09.* This section said **"Later"** and *"post-v1"* about a
+module that has been built: `girsa-link/src/chain.rs` — `trace`, `between`,
+`forks`, with `girsa_corpus::era` answering which end of a hop is earlier, and
+`how_it_became_halacha.rs` exercising it. It depends on §8.2 being right, which
+was the reason for deferring it, and §8.2 is right now.
+
+What it still lacks is a way in from the window, which is §2 of the 9 August
+report's shape and is tracked as such rather than as a plan.
 
 ---
 
@@ -801,9 +808,17 @@ telemetry.
 **Rust core + tantivy + Tauri shell, TypeScript frontend.**
 
 1. **Crate sharing with Ksav is the entire differentiator.** §10 works because the
-   apps share code rather than agree on a protocol. One citation formatter compiled
-   into both means the app that *produces* citations and the app that *prints* them
-   cannot disagree — precisely the class of bug that would destroy trust.
+   apps share code rather than agree on a protocol: `girsa-source` is the wire
+   contract both compile, `girsa-ksav` is the markup writer both call, and
+   `girsa-hebrew` is what a Hebrew word boundary is on both sides.
+
+   *Amended 2026-08-09.* This used to say *"one citation formatter compiled into
+   both"*, and Ksav has never compiled `girsa-cite`. The guarantee is real and
+   the mechanism is **stronger** than the one claimed: Ksav has no citation
+   formatter at all — it prints the string Girsa formatted and asks the loopback
+   for a re-print in another style. A formatter Ksav cannot reach cannot
+   disagree with this one. What the shared repository prevents is a second
+   implementation coming into existence, which is the thing worth preventing.
 2. **The webview is the best Hebrew renderer that exists.** Nikud, te'amim, bidi,
    mixed RTL/LTR, Hebrew-with-nikud inside an English sentence. Two decades of
    adversarial testing. Compose and Flutter are both weaker here.

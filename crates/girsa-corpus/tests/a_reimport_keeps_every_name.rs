@@ -107,8 +107,21 @@ fn anchors(root: &Path) -> Vec<(girsa_corpus::segment::SegmentId, String)> {
         .collect()
 }
 
-/// The shelf as the reader resolves it: live first, then ancestry, then the
-/// redirect table. What a link, a correction or a Ksav citation goes through.
+/// The shelf as it is **read back from disk**, resolving through the redirect
+/// rows that were written there.
+///
+/// This said *"live first, then ancestry, then the redirect table — what a link,
+/// a correction or a Ksav citation goes through"*, and it does not. It resolves
+/// through explicit redirect rows only: `read_back` reads what the importer
+/// wrote, and the ancestry walk the window uses (`shelf.rs`'s `covered_by`) is
+/// not in this path at all.
+///
+/// The claim mattered because this is the **flagship §3 test** — *a reimport
+/// keeps every name* — so a helper describing the window's resolution order was
+/// a certifying test appearing to exercise a path it never touched. What it
+/// does certify is real and worth having: that the rows the importer writes are
+/// enough to find every previous name. The ancestry half is covered where it
+/// lives, in `girsa-app`.
 fn as_resolved(root: &Path) -> SegmentStore {
     SegmentStore::from_disk(&import::read_back(root, &work().slug).expect("reads back"))
 }

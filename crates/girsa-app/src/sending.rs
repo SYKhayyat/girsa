@@ -127,8 +127,16 @@ impl Sent {
 /// What a citation needs to know about a sefer, from what the shelf knows.
 ///
 /// The one place the two vocabularies meet. Everything past here is
-/// [`girsa_cite`], compiled into Ksav as well, so the app that produces a
-/// citation and the app that prints it cannot disagree about what one is.
+/// [`girsa_cite`], and the app that produces a citation and the app that prints
+/// it cannot disagree about what one is.
+///
+/// **Not because Ksav compiles this crate — it does not, and never has.** Its
+/// manifests name `girsa-source`, `girsa-ksav`, `girsa-post` and `girsa-hebrew`,
+/// and no `girsa-cite` at any depth. The real mechanism is stronger than the one
+/// this comment used to claim: Ksav has no citation formatter at all. It prints
+/// `packet.display` — a string formatted here — and asks the loopback for a
+/// re-print in another style. A formatter Ksav cannot reach cannot disagree with
+/// this one.
 #[must_use]
 pub fn about(work: &Work) -> Sefer {
     Sefer::new(work.he_title.trim(), work.en_title.trim()).with_sections(work.he_sections.clone())
