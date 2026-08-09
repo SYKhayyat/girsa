@@ -32,6 +32,7 @@ import {
   type LaneState,
 } from "./api.ts";
 import { field } from "./controls.ts";
+import { trouble } from "./trouble.ts";
 
 /** Open a sefer at a segment — the same handler the search list is given. */
 type Opened = (slug: string, id: string | null, marked?: string[]) => void;
@@ -290,7 +291,7 @@ export class LanePanel {
     onoff.textContent = state.state === "off" ? "הדלק" : "כבה";
     onoff.addEventListener("click", async () => {
       const next = await api.laneSet(state.state === "off").catch((e) => {
-        this.trouble(String(e));
+        this.trouble(e);
         return null;
       });
       if (next) {
@@ -319,7 +320,7 @@ export class LanePanel {
       const dir = await pickFolder("תיקיית המודל");
       if (!dir) return;
       const next = await api.laneSet(true, dir).catch((e) => {
-        this.trouble(String(e));
+        this.trouble(e);
         return null;
       });
       if (next) {
@@ -349,7 +350,7 @@ export class LanePanel {
     box.checked = state.may_fetch;
     box.addEventListener("change", async () => {
       const next = await api.laneAllowFetch(box.checked).catch((e) => {
-        this.trouble(String(e));
+        this.trouble(e);
         return null;
       });
       if (next) {
@@ -386,7 +387,7 @@ export class LanePanel {
         bring.disabled = true;
         this.progress.hidden = false;
         this.progress.textContent = "מתחיל…";
-        await api.laneBring().catch((e) => this.trouble(String(e)));
+        await api.laneBring().catch((e) => this.trouble(e));
       });
       this.body.append(terms, about, why, bring);
     }
@@ -399,7 +400,7 @@ export class LanePanel {
     all.textContent = state.everything ? "הוצא את כל הספרייה" : "הכנס את כל הספרייה";
     all.addEventListener("click", async () => {
       const next = await api.laneChoose(null, !state.everything, true).catch((e) => {
-        this.trouble(String(e));
+        this.trouble(e);
         return null;
       });
       if (next) {
@@ -416,7 +417,7 @@ export class LanePanel {
       one.textContent = inside ? `הוצא ${here.title}` : `הכנס ${here.title}`;
       one.addEventListener("click", async () => {
         const next = await api.laneChoose(here.slug, !inside).catch((e) => {
-          this.trouble(String(e));
+          this.trouble(e);
           return null;
         });
         if (next) {
@@ -467,7 +468,7 @@ export class LanePanel {
         this.working = true;
         this.progress.hidden = false;
         this.progress.textContent = "מתחיל…";
-        await api.laneEmbed().catch((e) => this.trouble(String(e)));
+        await api.laneEmbed().catch((e) => this.trouble(e));
       });
       const stop = document.createElement("button");
       stop.className = "tool";
@@ -480,8 +481,24 @@ export class LanePanel {
     }
   }
 
-  private trouble(why: string): void {
+  /**
+   * Say what went wrong, in the reader's words.
+   *
+   * Seven call sites reached this with `String(e)` — `trouble.ts`'s header
+   * claims *"**Every** `textContent = String(e)` in this application goes
+   * through here"*, and these were the seven that did not: the raw string was
+   * handed to a private method, so the guard in `sources.test.mjs` — which
+   * requires the `String(e)` and the assignment in **one expression** — could
+   * not see them. They were in different functions.
+   *
+   * It takes the caught value now rather than a string, which is the fix that
+   * makes the class unrepeatable here: there is no way to pass this a raw
+   * message without going through `trouble()` first.
+   */
+  private trouble(e: unknown): void {
+    const said = trouble(e, "read_lane");
     this.progress.hidden = false;
-    this.progress.textContent = why;
+    this.progress.textContent = said.said;
+    this.progress.title = said.detail;
   }
 }

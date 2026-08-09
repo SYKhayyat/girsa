@@ -259,11 +259,23 @@ mod tests {
         dir
     }
 
+    /// A `.ksav` document citing each of `refs`, written by the writer both
+    /// applications compile.
+    ///
+    /// It used to build the markup here, as `#מקור:("{r}")[]` — which is **not
+    /// a Ksav command**. `מקור:` is a named *argument* of `#מראה_מקום`, and
+    /// what this wrote is something Ksav cannot emit and Typst cannot compile.
+    /// All six tests below were green over it, because `cited_in` scans for the
+    /// literal substring `מקור:` and found one.
+    ///
+    /// In the one crate whose thesis is *no second markup writer*. So the
+    /// fixture goes through `girsa_ksav::mekor`, which is that writer, and a
+    /// test over markup no reader could ever have is no longer possible here.
     fn ksav(dir: &Path, name: &str, refs: &[&str]) -> PathBuf {
         let path = dir.join(format!("{name}.ksav"));
         let body: String = refs
             .iter()
-            .map(|r| format!("#מקור:(\"{r}\")[]\n"))
+            .map(|r| girsa_ksav::mekor("", Some(r), None) + "\n")
             .collect();
         std::fs::write(&path, body).expect("a document");
         path
@@ -323,7 +335,7 @@ mod tests {
         assert_eq!(documents.refreshed().unwrap(), 0, "and not a second");
 
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        std::fs::write(&doc, "#מקור:(\"girsa:tur:2\")[]\n").unwrap();
+        std::fs::write(&doc, girsa_ksav::mekor("", Some("girsa:tur:2"), None) + "\n").unwrap();
         assert_eq!(documents.refreshed().unwrap(), 1, "the file moved on");
         assert_eq!(documents.get(&doc).unwrap().refs, ["girsa:tur:2"]);
     }

@@ -8,10 +8,25 @@
 
 import { build } from "esbuild";
 import { readdir, rm } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+// `fileURLToPath`, not `new URL(…).pathname`.
+//
+// A `file://` URL's `pathname` is still **percent-encoded**, so a checkout under
+// `C:\Users\Some One\Girsa` resolves to `Some%20One` and every path built from
+// it finds nothing — the suite dying at import time with a path nobody can read.
+// The hand-rolled `.replace(…)` beside it fixed the leading drive letter, which
+// is the *other* half of the same problem and the half that shows up on a
+// developer's own machine.
+//
+// Ksav forbids this by name — `runner.test.mjs`: *"nothing hand-rolls a path
+// from import.meta.url"* — and this file's own header says it has *"the same
+// shape as `Ksav/ksav/app/test/run.mjs`, for the same reason it has that
+// shape"*, while carrying the exact expression that file exists to ban. Neither
+// repository's guard could read the other's tree. `prohibitions.test.mjs` is in
+// both now.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, "..");
 const OUT = path.join(APP, ".tmp-test");
 

@@ -44,6 +44,19 @@ export type Doing =
   | "repair_link"
   | "read_lane"
   | "write_note"
+  // The six below arrived with the sweep for `textContent = String(e)`. This
+  // file's own header claimed **every** such assignment went through here;
+  // sixteen did not, and eight of those were `say(String(e), true)` in
+  // `main.ts` — each under a comment arguing that the raw string carried a
+  // distinction worth keeping. The distinctions were real; the raw English was
+  // never how to keep them, and each one needed a name for what was being
+  // attempted before it could be said in Hebrew.
+  | "fix"
+  | "export"
+  | "mark"
+  | "keep_query"
+  | "copy_scan"
+  | "read_suspects"
   | "general";
 
 export interface Trouble {
@@ -63,6 +76,12 @@ const DOING: Record<Doing, string> = {
   repair_link: "תיקון הקישור",
   read_lane: "קריאת נתיב המשמעות",
   write_note: "כתיבת הרשומה",
+  fix: "התיקון",
+  export: "הכתיבה לקובץ",
+  mark: "הסימון",
+  keep_query: "שמירת החיפוש",
+  copy_scan: "העתקת המקור",
+  read_suspects: "קריאת החשודים",
   general: "הפעולה",
 };
 

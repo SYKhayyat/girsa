@@ -834,7 +834,8 @@ async function openSuspect(row: SuspectRow): Promise<void> {
       },
     );
   } catch (e) {
-    say(String(e), true);
+    const t = trouble(e, "read_suspects");
+    say(t.said, true, t.detail);
   }
 }
 
@@ -852,9 +853,14 @@ async function applyFix(
     say(`${kind === "ocr" ? "תוקן" : "נרשמה גרסה"} — ${fixed.said}`, false);
     if (state) state.fixes += 1;
   } catch (e) {
-    // A refusal is shown as it came: "there is already a correction here" and
-    // "nothing is selected" are different things to a reader.
-    say(String(e), true);
+    // "There is already a correction here" and "nothing is selected" are
+    // different things to a reader, and that was the argument for showing
+    // `String(e)` as it came. The distinction is real; the raw English was
+    // never how to keep it. Both are `girsa_app::trouble::Code` refusals, so
+    // `trouble()` reads them by *name* and keeps the distinction exactly —
+    // `CODED` is where the two sentences live.
+    const t = trouble(e, "fix");
+    say(t.said, true, t.detail);
   }
 }
 
@@ -865,7 +871,8 @@ async function revertFix(view: PaneView, at: string, patch: string): Promise<voi
     say(fixed.said, false);
     if (state) state.fixes = Math.max(0, state.fixes - 1);
   } catch (e) {
-    say(String(e), true);
+    const t = trouble(e, "fix");
+    say(t.said, true, t.detail);
   }
 }
 
@@ -912,7 +919,8 @@ async function exportSefer(slug: string): Promise<void> {
     const trouble = written.stale > 0 ? ` · ${written.stale} תיקונים לא חלו` : "";
     say(`נכתב — ${written.said}${trouble} · ${written.path}`, written.stale > 0);
   } catch (e) {
-    say(String(e), true);
+    const t = trouble(e, "export");
+    say(t.said, true, t.detail);
   }
 }
 
@@ -1161,7 +1169,8 @@ async function copySource(): Promise<void> {
       if (cited.put.trouble) say(cited.put.trouble, true);
       else say(`הועתק — ${cited.display}`, false);
     } catch (e) {
-      say(String(e), true);
+      const t = trouble(e, "copy_scan");
+      say(t.said, true, t.detail);
     }
     return;
   }
@@ -1279,7 +1288,8 @@ async function noteHere(): Promise<void> {
     if (linksview.isOpen) await linksview.show(at);
     await yoursview.refresh();
   } catch (e) {
-    say(String(e), true);
+    const t = trouble(e, "write_note");
+    say(t.said, true, t.detail);
   }
 }
 
@@ -1301,7 +1311,8 @@ async function markHere(bookmark: boolean): Promise<void> {
     await repaintMarks();
     await yoursview.refresh();
   } catch (e) {
-    say(String(e), true);
+    const t = trouble(e, "mark");
+    say(t.said, true, t.detail);
   }
 }
 
@@ -1318,7 +1329,8 @@ async function keepQuery(typed: string): Promise<void> {
     say(`נשמר: ${kept.name}`, false);
     await yoursview.refresh();
   } catch (e) {
-    say(String(e), true);
+    const t = trouble(e, "keep_query");
+    say(t.said, true, t.detail);
   }
 }
 

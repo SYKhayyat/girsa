@@ -32,8 +32,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { check, ok } from "./harness.mjs";
+import { dirOf } from "../tools/paths.mjs";
 
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const HERE = dirOf(import.meta.url);
 const VIEW = path.join(HERE, "..", "..", "crates", "girsa-app", "src", "view.rs");
 const API = path.join(HERE, "..", "src", "api.ts");
 
