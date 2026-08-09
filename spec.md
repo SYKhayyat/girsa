@@ -758,6 +758,20 @@ guess — a wrong link is worse than no link. Ambiguity is surfaced, not resolve
 - **Presence.** Each app shows whether its sibling is live, so the affordance is
   never offered when it would fail.
 
+  *Amended 2026-08-09.* True in one direction only, and the other direction is
+  the healthy one. Girsa polled `ksavPresence` every five seconds for the life
+  of the window; **Ksav has no poller at all** — with Girsa installed but shut,
+  the call goes out, fails, and lands in its error vocabulary as *"גִּרְסָא אינה
+  פועלת — פתחו אותה ונסו שוב"*. It works, and nobody noticed the asymmetry,
+  which means the experiment of not polling had been running in production the
+  whole time.
+
+  So presence is asked **at boot and at the moment of a send**, not on a timer.
+  What the check is genuinely for is `Presence::Stale` — an endpoint file that
+  outlived its listener — which no error string can reconstruct; what it is not
+  for is an IPC round-trip every five seconds so a toolbar can be right about
+  something the send finds out in the same instant.
+
 ### 10.7 Explicitly dropped
 
 **Quote drift check** — verifying every quote in a document still matches the

@@ -142,22 +142,50 @@ async function whenAskedFor(landing: Asked): Promise<void> {
  * reader starts and stops it whenever they like. */
 let ksav: Presence = { state: "not_running" };
 
+/**
+ * Ask whether Ksav is there — at boot, and **at the moment of a send**.
+ *
+ * # The interval is gone, and the deletion test had already been run
+ *
+ * `spec.md:759` says *"each app shows whether its sibling is live, so the
+ * affordance is never offered when it would fail."* This half implemented it
+ * with a `setInterval` every 5,000 ms for the life of the window. **The other
+ * half implements nothing** — Ksav has no poller and no `girsaPresence`; with
+ * Girsa installed but shut, the call goes out, fails, and lands in its error
+ * vocabulary as *"גִּרְסָא אינה פועלת — פתחו אותה ונסו שוב"*.
+ *
+ * It works. Nobody noticed the asymmetry, which means the experiment of *not*
+ * polling has been running in production, in the other application, the whole
+ * time.
+ *
+ * What does **not** survive that is polling to decide whether to draw a button.
+ * An IPC round-trip every five seconds, forever, so that a toolbar can be right
+ * about something the send itself finds out in the same instant.
+ *
+ * What does survive is `Presence::Stale` — the endpoint file outlived its
+ * listener — which is a real fact `girsa-post` computes and no error string can
+ * reconstruct. `presence.ts` is right that collapsing it away *"throws away the
+ * only one of the three that is actionable"*. So the **function** stays and the
+ * interval goes: once at boot for the chip, and again before each send, which
+ * is the only moment the answer changes anything.
+ */
 async function watchForKsav(): Promise<void> {
   if (!isShell()) return;
-  const look = async (): Promise<void> => {
-    const now = await api.ksavPresence();
-    // Redrawn only when it changed: a toolbar that rebuilds every five seconds
-    // takes the reader's text selection with it.
-    if (now.state !== ksav.state) {
-      ksav = now;
-      document.querySelector(".tools")?.replaceWith(toolBar());
-    } else {
-      ksav = now;
-    }
-    writing.setKsav(now);
-  };
-  await look();
-  window.setInterval(() => void look(), 5000);
+  await lookForKsav();
+}
+
+async function lookForKsav(): Promise<void> {
+  if (!isShell()) return;
+  const now = await api.ksavPresence();
+  // Redrawn only when it changed: a toolbar that rebuilds itself takes the
+  // reader's text selection with it.
+  if (now.state !== ksav.state) {
+    ksav = now;
+    document.querySelector(".tools")?.replaceWith(toolBar());
+  } else {
+    ksav = now;
+  }
+  writing.setKsav(now);
 }
 
 /** Files dropped on the window become seforim (spec.md §5). */
@@ -1213,6 +1241,10 @@ async function sendToKsav(): Promise<void> {
   const here = chosen ? null : view.here();
   if (!chosen && !here) return;
 
+  // The one moment the answer matters. Asked here rather than every five
+  // seconds, and asked *before* the send so a stale endpoint file is reported
+  // as itself rather than as a timeout.
+  await lookForKsav();
   try {
     const sent = chosen
       ? await api.sendToKsav(chosen.from, chosen.to, chosen.fromChar, chosen.toChar)
