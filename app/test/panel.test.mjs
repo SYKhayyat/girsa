@@ -156,4 +156,73 @@ export function run() {
     null,
   );
   check("and an empty table takes nothing", route([], press("Escape"), caret(), null), null);
+
+  sweep();
+}
+
+// ── the registry is every panel there is ────────────────────────────────────
+//
+// The table above fixed *"add a panel and the way you find out you forgot a
+// line is that Escape does nothing"* — for the nine panels that were in it.
+// Then two more were added and Escape did nothing, which the 9 August report
+// found: *"a **function** in `main.ts:987` — silently omits `lanepanel` and
+// `settingsview`, so Escape closes neither."*
+//
+// A table that has to be kept in step by hand needs the thing that keeps it in
+// step. This reads `main.ts` for every module-level `const x = new Y()` whose
+// class satisfies `Panel` — an `element`, an `isOpen` and a `close()` — and
+// asserts each one is named in `PANELS`. A tenth panel that forgets the line is
+// a red test, not a key that does nothing.
+
+import { readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
+import path from "node:path";
+import { SRC } from "../tools/paths.mjs";
+
+/** Class names in `src/` that satisfy `Panel` structurally. */
+function panelClasses() {
+  const out = new Set();
+  for (const file of readdirSync(SRC)) {
+    if (!file.endsWith(".ts")) continue;
+    const body = readFileSync(path.join(SRC, file), "utf8");
+    for (const [, name] of body.matchAll(/^export class (\w+)/gmu)) {
+      // The whole class body, up to the next top-level `export class`.
+      const from = body.indexOf(`export class ${name}`);
+      const next = body.indexOf("\nexport class ", from + 1);
+      const inside = body.slice(from, next === -1 ? body.length : next);
+      const hasElement = /^\s+(readonly )?element(!?): HTMLElement/mu.test(inside);
+      const hasOpen = /^\s+get isOpen\(\)|^\s+(readonly )?isOpen(!?):/mu.test(inside);
+      const hasClose = /^\s+(async )?close\(/mu.test(inside);
+      if (hasElement && hasOpen && hasClose) out.add(name);
+    }
+  }
+  return out;
+}
+
+export function sweep() {
+  const classes = panelClasses();
+  ok("the sweep found the panel classes", classes.size >= 5, [...classes].join(", "));
+
+  const main = readFileSync(path.join(SRC, "main.ts"), "utf8");
+  // The registry, as text: everything between `const PANELS` and the `]);` that
+  // closes it.
+  const at = main.indexOf("const PANELS");
+  ok("main.ts has a PANELS table", at > 0);
+  const table = main.slice(at, main.indexOf("\n]);", at));
+
+  const missing = [];
+  for (const [, name, klass] of main.matchAll(/^const (\w+) = new (\w+)\(/gmu)) {
+    if (!classes.has(klass)) continue;
+    // A plain string, not a template literal. `\s` inside backticks is the
+    // letter `s` — which is how the first version of this line matched nothing
+    // and reported all ten panels missing, including the eight that were there.
+    if (!new RegExp("panel:\\s*" + name + "\\b", "u").test(table)) {
+      missing.push(`${name} (${klass})`);
+    }
+  }
+  ok(
+    "and every panel the window constructs is in it",
+    missing.length === 0,
+    missing.length ? `not routed: ${missing.join(", ")}` : "all routed",
+  );
 }

@@ -95,7 +95,10 @@ export type Routed = "closed" | "answered" | "swallowed" | null;
  * to, from `girsa_app::keys`, so a panel's own toggle can reach it.
  */
 export function route(
-  panels: Held[],
+  // `readonly`, because the caller's table is frozen. Routing reads it and has
+  // no business holding a handle that could reorder the panels — the order *is*
+  // the rule (the first open one that wants a key gets it).
+  panels: readonly Held[],
   event: KeyboardEvent,
   inside: (panel: Panel) => boolean,
   did: string | null,

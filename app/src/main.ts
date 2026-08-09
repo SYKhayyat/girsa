@@ -1020,9 +1020,26 @@ function asPressed(event: KeyboardEvent): Pressed {
  * branch — so the one shortcut B13 exists to make rebindable was the one that
  * was not. It is `toggle: "search"` now and goes through the same table as
  * everything else.
+ *
+ * # A frozen array, not a function, and two panels that were missing from it
+ *
+ * The 9 August report, comparing the two applications' shells:
+ *
+ * > Panel registry — Girsa: a **function** in `main.ts:987` — silently omits
+ * > `lanepanel` and `settingsview`, so Escape closes neither. Ksav:
+ * > module-level frozen array that **throws** on an undeclared ×.
+ *
+ * Both halves were true. The table fixed *"add a panel and Escape does
+ * nothing"* for the nine panels that were in it, and then two panels were added
+ * and Escape did nothing — which is the failure the table exists to prevent,
+ * arriving through the table.
+ *
+ * A function reads as *the panels, computed* and invites a condition; the
+ * frozen array reads as *the panels*, and `panel.test.mjs` sweeps `main.ts` for
+ * anything constructed here that satisfies `Panel` and is not in it. The
+ * omission is now a red test rather than a key that does nothing.
  */
-function panels(): Held[] {
-  return [
+const PANELS: readonly Held[] = Object.freeze([
     // Its own Escape, and it must not be raced.
     { panel: picker, keyboard: "all", escape: false },
     // A text box. `Ctrl+C` in one is copy, and it closes itself.
@@ -1046,8 +1063,12 @@ function panels(): Held[] {
     // Places, not overlays: a typed letter goes into them.
     { panel: find, keyboard: "all", escape: "anywhere", toggle: "search" },
     { panel: shelf, keyboard: "all", escape: "anywhere", toggle: "shelf" },
-  ];
-}
+    // The two the report found missing. Both are drawers over the reading with
+    // their own × already, so `anywhere` is what their close buttons already
+    // promise — Escape was the only way to close them that did not work.
+    { panel: lanepanel, keyboard: "reading", escape: "anywhere" },
+    { panel: settingsview, keyboard: "inside", escape: "anywhere" },
+  ]);
 
 function shortcut(event: KeyboardEvent): void {
   // B13. What the reader asked for, from the table in `girsa_app::keys` with
@@ -1061,7 +1082,7 @@ function shortcut(event: KeyboardEvent): void {
 
   // Whoever has the keyboard gets it first. One table, in `panel.ts`, rather
   // than forty-eight lines of `if (x.isOpen && …)` here.
-  const routed = route(panels(), event, (p) => p.element.contains(event.target as Node), did);
+  const routed = route(PANELS, event, (p) => p.element.contains(event.target as Node), did);
   if (routed === "closed" || routed === "answered") {
     event.preventDefault();
     return;
