@@ -233,6 +233,7 @@ pub fn span_on(
     link: &Link,
     at: &SegmentId,
     base: &str,
+    anchors: &[girsa_corpus::anchors::Anchor],
     far: Option<&crate::shelf::Open>,
     nikud: bool,
 ) -> Option<std::ops::Range<usize>> {
@@ -240,6 +241,24 @@ pub fn span_on(
         if pinned_at == at {
             return Some(span.clone());
         }
+    }
+    // The anchors mined at ingest, **before** anything that needs the far sefer
+    // open. `girsa_corpus::anchors` records where each commentary attaches —
+    // 43,883 of them in Shulchan Arukh Orach Chayim alone — and nothing read
+    // them, while `spans.rs` opened by saying *"nothing in the shipped data says
+    // which words"*. Two files, one spec section, one saying the datum exists
+    // and one saying it does not.
+    //
+    // First because it is the better answer and not merely a cheaper one: it is
+    // what the volume itself said, rather than a phrase found by searching, and
+    // it works for a commentary the reader has **not opened** — which is exactly
+    // when a span is worth most, since the words are what would tell them
+    // whether to open it.
+    //
+    // The commentator is matched by the shelf's English title, which is how the
+    // corpus spells the name inside the anchor.
+    if let Some(span) = crate::spans::anchor_span(anchors, base, &link.en_title) {
+        return Some(span);
     }
     let far = far?;
     let commentary = far

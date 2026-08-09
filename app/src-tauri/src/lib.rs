@@ -1664,17 +1664,18 @@ fn links(
     // …and, from the same read, every name these words have carried, so an edge
     // stored under the name this place had before a corpus update still finds
     // it (see `girsa_corpus::standing`).
-    let (base, standing) = {
+    let (base, anchors, standing) = {
         let sefer = state.sefer(at.work())?;
         let nth = sefer
             .position_of(&at)
             .ok_or_else(|| format!("{at} is not in this sefer"))?;
-        let text = sefer
-            .segments
-            .get(nth)
-            .map(|segment| segment.text.clone())
-            .unwrap_or_default();
-        (text, sefer.standing(&at))
+        // The anchors travel with the text. They are the segment's own statement
+        // of where its commentaries attach, and reading them costs nothing that
+        // reading the text did not already cost.
+        let segment = sefer.segments.get(nth);
+        let text = segment.map(|s| s.text.clone()).unwrap_or_default();
+        let anchors = segment.map(|s| s.anchors.clone()).unwrap_or_default();
+        (text, anchors, sefer.standing(&at))
     };
 
     let language = state.session.language;
@@ -1686,7 +1687,7 @@ fn links(
     // text is only consulted for seforim that are **already open**.
     for link in &mut links {
         let far = state.open.peek(&link.work);
-        link.span = girsa_app::links::span_on(link, &at, &base, far, nikud);
+        link.span = girsa_app::links::span_on(link, &at, &base, &anchors, far, nikud);
     }
     if let (Some(from), Some(to)) = (from_char, to_char) {
         if from < to {
