@@ -69,9 +69,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use girsa_plain::argv::{self, Argv};
 use girsa_link::store::Row;
 use girsa_link::EdgeType;
+use girsa_plain::argv::{self, Argv};
 
 /// Flush the inbound cache when this many bytes are held. Bytes rather than
 /// rows, because a row here is a whole edge and not a two-field summary — the

@@ -749,10 +749,8 @@ pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork
     // outer loop already fixes, so it is hoisted rather than memoised: a cache
     // for a value with one obvious computation point is a cache nobody can
     // reason about.
-    let joined_of: Vec<Vec<(Anchor, Repaired)>> = readers
-        .iter()
-        .map(|(a, _, _)| graph.beside(a))
-        .collect();
+    let joined_of: Vec<Vec<(Anchor, Repaired)>> =
+        readers.iter().map(|(a, _, _)| graph.beside(a)).collect();
 
     let mut out = Vec::new();
     for (i, (a, a_when, a_readers)) in readers.iter().enumerate() {

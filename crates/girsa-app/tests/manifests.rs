@@ -37,6 +37,10 @@
 //! which is why the shared crates are also **counted**, so one written in a
 //! shape this file cannot read fails the count rather than passing silently.
 
+// A panic in a test is a failure report. The workspace denies these in
+// library code, where a panic would take the reader's window with it.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 

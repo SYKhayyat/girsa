@@ -424,7 +424,11 @@ impl Vectors {
         // an XOR and four `count_ones`.
         let want = (most * OVERSAMPLE).max(SHORTLIST_LEAST).min(self.sig.len());
         let asked = crate::signature::projection(self.dims).sign(query);
-        let mut near: Vec<(u32, u64)> = self.sig.iter().map(|(at, s)| (s.apart(asked), *at)).collect();
+        let mut near: Vec<(u32, u64)> = self
+            .sig
+            .iter()
+            .map(|(at, s)| (s.apart(asked), *at))
+            .collect();
         // `select_nth_unstable` and not a sort: the shortlist's own order does
         // not survive stage two, which scores every one of them exactly.
         let cut = want.saturating_sub(1).min(near.len().saturating_sub(1));
@@ -488,7 +492,11 @@ impl Vectors {
     fn sidecar_header(&self) -> Vec<u8> {
         let mut header = SIGNATURES.to_vec();
         header.extend_from_slice(&u32::try_from(self.dims).unwrap_or(0).to_le_bytes());
-        header.extend_from_slice(&u16::try_from(crate::signature::BITS).unwrap_or(0).to_le_bytes());
+        header.extend_from_slice(
+            &u16::try_from(crate::signature::BITS)
+                .unwrap_or(0)
+                .to_le_bytes(),
+        );
         let name = self.fingerprint.as_bytes();
         let len = u16::try_from(name.len()).unwrap_or(0);
         header.extend_from_slice(&len.to_le_bytes());
@@ -669,7 +677,8 @@ impl Vectors {
             return Ok(None);
         };
         let mut file = std::fs::File::open(path).map_err(VectorError::io(path))?;
-        file.seek(SeekFrom::Start(at)).map_err(VectorError::io(path))?;
+        file.seek(SeekFrom::Start(at))
+            .map_err(VectorError::io(path))?;
         let mut reader = BufReader::new(file);
         let mut tag = [0u8; 1];
         if reader.read_exact(&mut tag).is_err() || tag[0] != RECORD {
@@ -1215,8 +1224,8 @@ mod tests {
         let dir = scratch("sidecar-other-model");
         filled(&dir, 40, 8);
         let _ = Vectors::open(&dir, "x", "m", 8);
-        let mine = std::fs::read(Vectors::sidecar(&Vectors::path_in(&dir, "x")))
-            .expect("a sidecar");
+        let mine =
+            std::fs::read(Vectors::sidecar(&Vectors::path_in(&dir, "x"))).expect("a sidecar");
 
         let elsewhere = scratch("sidecar-other-model-planted");
         let (mut other, _) = Vectors::open(&elsewhere, "y", "n", 8);

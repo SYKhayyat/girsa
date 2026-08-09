@@ -246,6 +246,32 @@ fn modified(path: &Path) -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+///
+/// This crate's error type for these operations is `LogError` itself rather
+/// than a wrapper, so there is no `io_from_log_error!` here: the store is thin
+/// enough that the log's own failure is the only one it can have.
+impl girsa_personal::Store for Documents {
+    type Record = Document;
+    const WHAT: &'static str = "a document";
+
+    fn key_of(d: &Document) -> String {
+        d.path.clone()
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, d: Document) {
+        self.by_path.insert(d.path.clone(), d);
+    }
+    fn count(&self) -> usize {
+        self.by_path.len()
+    }
+    fn records(&self) -> Vec<&Document> {
+        self.by_path.values().collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -376,7 +402,11 @@ mod tests {
         assert_eq!(documents.refreshed().unwrap(), 0, "and not a second");
 
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        std::fs::write(&doc, girsa_ksav::mekor("", Some("girsa:tur:2"), None) + "\n").unwrap();
+        std::fs::write(
+            &doc,
+            girsa_ksav::mekor("", Some("girsa:tur:2"), None) + "\n",
+        )
+        .unwrap();
         assert_eq!(documents.refreshed().unwrap(), 1, "the file moved on");
         assert_eq!(documents.get(&doc).unwrap().refs, ["girsa:tur:2"]);
     }
@@ -441,31 +471,5 @@ mod tests {
 
         let (reopened, _) = Documents::open(&personal);
         assert_eq!(reopened.count(), 0, "the tombstone did not survive");
-    }
-}
-
-/// The replay, the index and the compaction — `girsa_personal::Store`.
-///
-/// This crate's error type for these operations is `LogError` itself rather
-/// than a wrapper, so there is no `io_from_log_error!` here: the store is thin
-/// enough that the log's own failure is the only one it can have.
-impl girsa_personal::Store for Documents {
-    type Record = Document;
-    const WHAT: &'static str = "a document";
-
-    fn key_of(d: &Document) -> String {
-        d.path.clone()
-    }
-    fn log(&self) -> &Log {
-        &self.log
-    }
-    fn hold(&mut self, d: Document) {
-        self.by_path.insert(d.path.clone(), d);
-    }
-    fn count(&self) -> usize {
-        self.by_path.len()
-    }
-    fn records(&self) -> Vec<&Document> {
-        self.by_path.values().collect()
     }
 }

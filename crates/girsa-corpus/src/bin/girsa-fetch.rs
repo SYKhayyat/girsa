@@ -12,8 +12,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use girsa_plain::argv::{self, Argv};
 use girsa_corpus::fetch;
+use girsa_plain::argv::{self, Argv};
 
 /// How many at once, where nobody says.
 const THREADS: usize = 12;

@@ -91,7 +91,12 @@ fn main() -> std::process::ExitCode {
         let before: std::collections::BTreeMap<String, String> = on_disk
             .segments
             .iter()
-            .map(|s| (s.id.to_string(), girsa_corpus::anchors::mine(&s.text).text.into_owned()))
+            .map(|s| {
+                (
+                    s.id.to_string(),
+                    girsa_corpus::anchors::mine(&s.text).text.into_owned(),
+                )
+            })
             .collect();
         for segment in &again.segments {
             if before

@@ -314,157 +314,6 @@ pub fn touching_work(root: &Path, slug: &str) -> Result<(Vec<Edge>, bool), std::
     Ok((edges, true))
 }
 
-#[cfg(test)]
-mod tests {
-    // A panic in a test is a failure report. The workspace denies these in
-    // library code, where a panic would take the reader's window with it.
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use super::*;
-    use crate::{store, Anchor, EdgeType, Method};
-    use girsa_corpus::segment::{Ordinal, SegmentId};
-
-    fn id(work: &str, n: u32) -> SegmentId {
-        SegmentId::new(work, vec!["1".into(), n.to_string()], Ordinal::root(n))
-    }
-
-    fn edge(from: &str, to: &str) -> Edge {
-        Edge {
-            from: Anchor::point(id(from, 1)),
-            to: Anchor::point(id(to, 5)),
-            edge_type: EdgeType::CommentsOn,
-            method: Method::SefariaSeed,
-            direction: crate::Direction::NotRecorded,
-            source_label: "commentary".into(),
-        }
-    }
-
-    fn dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(name);
-        let _ = fs::remove_dir_all(&dir);
-        dir
-    }
-
-    #[test]
-    fn an_edge_is_readable_from_the_end_it_was_not_stored_under() {
-        // The whole reason this file exists. The Mishnah Berurah's shard holds
-        // 18,806 edges onto the Shulchan Arukh; the Shulchan Arukh's own shard
-        // holds none of them, and *what does this se'if answer to* is asked
-        // from the Shulchan Arukh's side every time.
-        let root = dir("girsa-inbound-far-end");
-        let mut writer = Writer::default();
-        writer.push(&edge("mishnah-berurah", "shulchan-arukh/orach-chayim"));
-        writer.flush(&root).expect("writes");
-
-        let onto = read_back(&root, "shulchan-arukh/orach-chayim").expect("reads");
-        assert_eq!(onto.len(), 1);
-        assert_eq!(onto[0].from.from.work(), "mishnah-berurah");
-        assert!(
-            read_back(&root, "mishnah-berurah")
-                .expect("reads")
-                .is_empty(),
-            "the end it was stored under keeps it in edges.jsonl, not here"
-        );
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn an_edge_inside_one_work_is_not_counted_twice() {
-        // The Tur makes 1,061 links to itself. Its own shard holds them, so a
-        // caller that reads both files would show every one of them twice with
-        // nothing on the row to say so.
-        let root = dir("girsa-inbound-internal");
-        let mut store_writer = store::Writer::default();
-        let mut writer = Writer::default();
-        let internal = edge("tur", "tur");
-        store_writer.push(&internal);
-        writer.push(&internal);
-        store_writer.flush(&root).expect("writes");
-        writer.flush(&root).expect("writes");
-
-        assert_eq!(writer.internal(), 1);
-        let (all, known) = touching_work(&root, "tur").expect("reads");
-        assert!(known);
-        assert_eq!(all.len(), 1, "once, from its own shard");
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn a_tree_with_no_cache_says_so_rather_than_saying_none() {
-        // *Nothing links here* and *I have not been told what does* are
-        // different statements. A trace that read the second as the first would
-        // report a sefer as a dead end because a batch job had not been run.
-        let root = dir("girsa-inbound-unbuilt");
-        let mut store_writer = store::Writer::default();
-        store_writer.push(&edge("mishnah-berurah", "shulchan-arukh/orach-chayim"));
-        store_writer.flush(&root).expect("writes");
-
-        assert!(!built(&root));
-        let (edges, known) = touching_work(&root, "shulchan-arukh/orach-chayim").expect("reads");
-        assert!(!known, "the incoming half is unknown, not empty");
-        assert!(edges.is_empty());
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn running_it_twice_does_not_double_the_incoming_half() {
-        // The bug the link importer had once and the type walker had once: a
-        // run is many flushes, so a file is appended to within a run, and
-        // appending to the last run's file doubles every row with no error.
-        let root = dir("girsa-inbound-rerun");
-        for _ in 0..2 {
-            let mut writer = Writer::default();
-            writer.push(&edge("a", "b"));
-            writer.flush(&root).expect("writes");
-            writer.push(&edge("c", "b"));
-            writer.flush(&root).expect("writes again");
-        }
-        assert_eq!(read_back(&root, "b").expect("reads").len(), 2);
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn the_row_is_the_same_row_the_outgoing_shard_holds() {
-        // Both halves are read by `store::read_edges`, so a blank label still
-        // reads back blank here (T5) and a run endpoint still reads back a run.
-        let root = dir("girsa-inbound-same-row");
-        let mut written = edge("a", "b");
-        written.source_label = String::new();
-        written.edge_type = EdgeType::References;
-        written.to = Anchor::span(id("b", 5), id("b", 9));
-
-        let mut writer = Writer::default();
-        writer.push(&written);
-        writer.flush(&root).expect("writes");
-        let back = read_back(&root, "b").expect("reads");
-        assert_eq!(back, vec![written]);
-        let _ = fs::remove_dir_all(&root);
-    }
-}
-
-/// Where one row lands, for sorting it.
-enum Where {
-    /// A run, which covers what sorts between its ends and so lands on places
-    /// it does not name. There is no one ordinal to file it under.
-    Run,
-    At(Ordinal),
-    /// A line that will not parse. It keeps its place at the end of the file:
-    /// this is a sort, and a sort that drops rows is not one.
-    Unreadable,
-}
-
-fn where_it_lands(line: &str) -> Where {
-    let Ok(row) = serde_json::from_str::<Row>(line) else {
-        return Where::Unreadable;
-    };
-    if row.to.contains("-girsa:") {
-        return Where::Run;
-    }
-    match row.to.parse::<girsa_corpus::segment::SegmentId>() {
-        Ok(id) => Where::At(id.ordinal().clone()),
-        Err(_) => Where::Unreadable,
-    }
-}
-
 /// Sort one work's rows by where they land, and write the index beside them.
 ///
 /// Idempotent: sorting a sorted file gives the same file, so this can be run
@@ -788,5 +637,156 @@ mod landing_tests {
             read_landing(&dir, SEFER, &crate::store::Landing::naming(&at)).expect("the gate reads");
         assert_eq!(kept(&gated, &at), kept(&all, &at));
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // A panic in a test is a failure report. The workspace denies these in
+    // library code, where a panic would take the reader's window with it.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use crate::{store, Anchor, EdgeType, Method};
+    use girsa_corpus::segment::{Ordinal, SegmentId};
+
+    fn id(work: &str, n: u32) -> SegmentId {
+        SegmentId::new(work, vec!["1".into(), n.to_string()], Ordinal::root(n))
+    }
+
+    fn edge(from: &str, to: &str) -> Edge {
+        Edge {
+            from: Anchor::point(id(from, 1)),
+            to: Anchor::point(id(to, 5)),
+            edge_type: EdgeType::CommentsOn,
+            method: Method::SefariaSeed,
+            direction: crate::Direction::NotRecorded,
+            source_label: "commentary".into(),
+        }
+    }
+
+    fn dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn an_edge_is_readable_from_the_end_it_was_not_stored_under() {
+        // The whole reason this file exists. The Mishnah Berurah's shard holds
+        // 18,806 edges onto the Shulchan Arukh; the Shulchan Arukh's own shard
+        // holds none of them, and *what does this se'if answer to* is asked
+        // from the Shulchan Arukh's side every time.
+        let root = dir("girsa-inbound-far-end");
+        let mut writer = Writer::default();
+        writer.push(&edge("mishnah-berurah", "shulchan-arukh/orach-chayim"));
+        writer.flush(&root).expect("writes");
+
+        let onto = read_back(&root, "shulchan-arukh/orach-chayim").expect("reads");
+        assert_eq!(onto.len(), 1);
+        assert_eq!(onto[0].from.from.work(), "mishnah-berurah");
+        assert!(
+            read_back(&root, "mishnah-berurah")
+                .expect("reads")
+                .is_empty(),
+            "the end it was stored under keeps it in edges.jsonl, not here"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_edge_inside_one_work_is_not_counted_twice() {
+        // The Tur makes 1,061 links to itself. Its own shard holds them, so a
+        // caller that reads both files would show every one of them twice with
+        // nothing on the row to say so.
+        let root = dir("girsa-inbound-internal");
+        let mut store_writer = store::Writer::default();
+        let mut writer = Writer::default();
+        let internal = edge("tur", "tur");
+        store_writer.push(&internal);
+        writer.push(&internal);
+        store_writer.flush(&root).expect("writes");
+        writer.flush(&root).expect("writes");
+
+        assert_eq!(writer.internal(), 1);
+        let (all, known) = touching_work(&root, "tur").expect("reads");
+        assert!(known);
+        assert_eq!(all.len(), 1, "once, from its own shard");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_tree_with_no_cache_says_so_rather_than_saying_none() {
+        // *Nothing links here* and *I have not been told what does* are
+        // different statements. A trace that read the second as the first would
+        // report a sefer as a dead end because a batch job had not been run.
+        let root = dir("girsa-inbound-unbuilt");
+        let mut store_writer = store::Writer::default();
+        store_writer.push(&edge("mishnah-berurah", "shulchan-arukh/orach-chayim"));
+        store_writer.flush(&root).expect("writes");
+
+        assert!(!built(&root));
+        let (edges, known) = touching_work(&root, "shulchan-arukh/orach-chayim").expect("reads");
+        assert!(!known, "the incoming half is unknown, not empty");
+        assert!(edges.is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn running_it_twice_does_not_double_the_incoming_half() {
+        // The bug the link importer had once and the type walker had once: a
+        // run is many flushes, so a file is appended to within a run, and
+        // appending to the last run's file doubles every row with no error.
+        let root = dir("girsa-inbound-rerun");
+        for _ in 0..2 {
+            let mut writer = Writer::default();
+            writer.push(&edge("a", "b"));
+            writer.flush(&root).expect("writes");
+            writer.push(&edge("c", "b"));
+            writer.flush(&root).expect("writes again");
+        }
+        assert_eq!(read_back(&root, "b").expect("reads").len(), 2);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_row_is_the_same_row_the_outgoing_shard_holds() {
+        // Both halves are read by `store::read_edges`, so a blank label still
+        // reads back blank here (T5) and a run endpoint still reads back a run.
+        let root = dir("girsa-inbound-same-row");
+        let mut written = edge("a", "b");
+        written.source_label = String::new();
+        written.edge_type = EdgeType::References;
+        written.to = Anchor::span(id("b", 5), id("b", 9));
+
+        let mut writer = Writer::default();
+        writer.push(&written);
+        writer.flush(&root).expect("writes");
+        let back = read_back(&root, "b").expect("reads");
+        assert_eq!(back, vec![written]);
+        let _ = fs::remove_dir_all(&root);
+    }
+}
+
+/// Where one row lands, for sorting it.
+enum Where {
+    /// A run, which covers what sorts between its ends and so lands on places
+    /// it does not name. There is no one ordinal to file it under.
+    Run,
+    At(Ordinal),
+    /// A line that will not parse. It keeps its place at the end of the file:
+    /// this is a sort, and a sort that drops rows is not one.
+    Unreadable,
+}
+
+fn where_it_lands(line: &str) -> Where {
+    let Ok(row) = serde_json::from_str::<Row>(line) else {
+        return Where::Unreadable;
+    };
+    if row.to.contains("-girsa:") {
+        return Where::Run;
+    }
+    match row.to.parse::<girsa_corpus::segment::SegmentId>() {
+        Ok(id) => Where::At(id.ordinal().clone()),
+        Err(_) => Where::Unreadable,
     }
 }

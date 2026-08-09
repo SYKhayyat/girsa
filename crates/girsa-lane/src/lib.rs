@@ -44,7 +44,8 @@ pub use chosen::Chosen;
 pub use coverage::{Coverage, Covered};
 pub use job::Job;
 pub use lane::{
-    Adjacent, Asked, Lane, LaneError, Run, Settings, Standing, State, ADJACENT, MEASURED, MOST, SHORTLISTED,
+    Adjacent, Asked, Lane, LaneError, Run, Settings, Standing, State, ADJACENT, MEASURED, MOST,
+    SHORTLISTED,
 };
 pub use model::{how_long, Embedded, Embedder, Model, ModelError, SEGMENTS_A_SECOND};
 pub use signature::Signature;

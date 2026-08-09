@@ -37,11 +37,11 @@ use std::path::PathBuf;
 use girsa_app::naming::Names;
 use girsa_app::shelf::Shelf;
 use girsa_app::Link;
-use girsa_plain::argv::{self, Argv, Roots};
 use girsa_corpus::segment::SegmentId;
 use girsa_desk::documents::Documents;
 use girsa_note::mark::Placed;
 use girsa_note::{Mark, Member, SavedQuery};
+use girsa_plain::argv::{self, Argv, Roots};
 
 /// The options this reads, and which of them take a value.
 ///

@@ -259,7 +259,6 @@ impl Queries {
         self.log.took(&[name])?;
         Ok(self.by_name.remove(name).is_some())
     }
-
 }
 
 #[cfg(test)]

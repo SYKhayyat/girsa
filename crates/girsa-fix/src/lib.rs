@@ -135,7 +135,6 @@ impl From<String> for PatchId {
     }
 }
 
-
 /// One correction.
 ///
 /// # Both the span and the words
@@ -245,7 +244,6 @@ impl Patch {
         self.from_char..self.to_char
     }
 }
-
 
 /// Why a correction was not taken.
 #[derive(Debug, thiserror::Error)]

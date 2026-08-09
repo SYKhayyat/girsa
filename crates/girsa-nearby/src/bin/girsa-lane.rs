@@ -26,9 +26,9 @@ use std::path::Path;
 use girsa_app::naming::Names;
 use girsa_app::session::Language;
 use girsa_app::Shelf;
-use girsa_plain::argv::{self, Argv, Roots};
 use girsa_lane::{bring, Chosen, Settings, BEREL};
 use girsa_nearby::Adjacency;
+use girsa_plain::argv::{self, Argv, Roots};
 
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();

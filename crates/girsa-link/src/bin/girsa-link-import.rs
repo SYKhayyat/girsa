@@ -23,12 +23,12 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use girsa_plain::argv::{self, Argv};
 use girsa_corpus::index::SegmentIndex;
 use girsa_corpus::work::{Source, Work};
 use girsa_link::otzaria::{LineMap, OtzariaTally, TitleIndex};
 use girsa_link::sefaria::{Resolver, Tally};
 use girsa_link::store;
+use girsa_plain::argv::{self, Argv};
 use girsa_ref::Lexicon;
 
 /// Flush the edge buffer at roughly this size, so a run of the whole corpus is

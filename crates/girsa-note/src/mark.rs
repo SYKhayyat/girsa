@@ -72,7 +72,6 @@ impl From<String> for MarkId {
     }
 }
 
-
 /// One highlight, or one bookmark.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mark {
@@ -461,7 +460,6 @@ impl Marks {
         let gone = self.forget(&at, id);
         Ok(gone)
     }
-
 }
 
 #[cfg(test)]

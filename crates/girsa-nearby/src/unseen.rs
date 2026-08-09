@@ -39,9 +39,9 @@
 //! not met. So: `None` means *not part of this answer*, which is a different
 //! thing from `Coverage::default()`, which means *on, and covering nothing*.
 
-use girsa_plain::said::Clauses;
 use girsa_lane::Coverage;
 use girsa_note::since::Unindexed;
+use girsa_plain::said::Clauses;
 
 use girsa_app::reading::Gap;
 

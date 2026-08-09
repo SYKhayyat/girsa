@@ -271,8 +271,17 @@ pub struct Lane {
     /// layer — and a clone whose model was changed under it must not be handed
     /// back a store built in another model's space, which is the one mistake
     /// this file format exists to prevent.
-    stores: Arc<std::sync::Mutex<std::collections::HashMap<String, (u64, Arc<crate::Vectors>)>>>,
+    stores: Arc<std::sync::Mutex<Opened>>,
 }
+
+/// Vector stores this lane has already opened, by fingerprint-and-slug, with the
+/// file length they were read at — see the note on [`Lane::stores`].
+///
+/// A named type because the shape has four layers and clippy is right that a
+/// signature carrying all four says nothing: `Arc<Mutex<HashMap<String, (u64,
+/// Arc<Vectors>)>>>` is punctuation, and *what a lane has already opened* is
+/// the fact.
+type Opened = std::collections::HashMap<String, (u64, Arc<crate::Vectors>)>;
 
 impl std::fmt::Debug for Lane {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

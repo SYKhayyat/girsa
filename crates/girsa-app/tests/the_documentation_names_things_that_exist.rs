@@ -415,7 +415,7 @@ fn tools_the_window_names(root: &Path) -> BTreeSet<String> {
     let entries = std::fs::read_dir(&src).unwrap_or_else(|e| panic!("app/src: {e}"));
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
-        if !path.extension().is_some_and(|ext| ext == "ts") {
+        if path.extension().is_none_or(|ext| ext != "ts") {
             continue;
         }
         for line in read(&path).lines() {

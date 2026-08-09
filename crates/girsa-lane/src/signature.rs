@@ -243,7 +243,11 @@ mod tests {
     #[test]
     fn a_vector_is_no_distance_from_itself() {
         let p = Projection::for_dims(32);
-        let v = unit(&(0..32).map(|n| ((n * 7) % 13) as f32 - 6.0).collect::<Vec<_>>());
+        let v = unit(
+            &(0..32)
+                .map(|n| ((n * 7) % 13) as f32 - 6.0)
+                .collect::<Vec<_>>(),
+        );
         assert_eq!(p.sign(&v).apart(p.sign(&v)), 0);
     }
 
@@ -276,7 +280,11 @@ mod tests {
     #[test]
     fn a_signature_survives_the_disk() {
         let p = Projection::for_dims(48);
-        let v = unit(&(0..48).map(|n| ((n * 5) % 11) as f32 - 5.0).collect::<Vec<_>>());
+        let v = unit(
+            &(0..48)
+                .map(|n| ((n * 5) % 11) as f32 - 5.0)
+                .collect::<Vec<_>>(),
+        );
         let sig = p.sign(&v);
         assert_eq!(Signature::from_bytes(&sig.to_bytes()), sig);
     }

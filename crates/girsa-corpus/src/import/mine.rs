@@ -268,8 +268,9 @@ fn unminted(personal: &Path, title: &str) -> String {
     // question — a work directory on disk that the catalogue does not know about,
     // which is exactly the case where reusing the slug would overwrite somebody's
     // sefer. One `stat` per candidate, and there is almost never more than one.
-    let is_taken =
-        |slug: &str| taken.contains(slug) || import::work_dir(personal, slug).join("work.json").is_file();
+    let is_taken = |slug: &str| {
+        taken.contains(slug) || import::work_dir(personal, slug).join("work.json").is_file()
+    };
 
     let first = format!("user/{base}");
     if !is_taken(&first) {

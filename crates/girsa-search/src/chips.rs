@@ -344,6 +344,68 @@ fn wrapped(text: &str, mark: char) -> Option<String> {
     (!rest.is_empty()).then(|| rest.trim().to_string())
 }
 
+impl Chips {
+    /// Set one chip to one of its choices, by the keys [`Chips::row`] sent.
+    ///
+    /// # Why this is not four `match` arms in the window
+    ///
+    /// It was, and each of them ended `_ => Mode::ToratEmet` — a silent
+    /// fallback to the default for anything unrecognised. Four families, four
+    /// default-on-unknown, and forty lines away in the same file `link_repair`
+    /// refused an unknown candidate by name. Two policies about the same
+    /// question, in one file, and the quiet one was the one the search bar
+    /// used: a typo in a chip key came back as a search that ran, answered,
+    /// and answered a different question than the one asked.
+    ///
+    /// The keys are the ones `row` writes, from the same tables. A choice that
+    /// round-trips is now a compile-time fact rather than two lists that
+    /// happened to agree.
+    ///
+    /// # Errors
+    ///
+    /// If no chip is called that, or the chip does not offer that choice.
+    pub fn choose(&mut self, chip: &str, key: &str) -> Result<(), ChipError> {
+        let missing = || ChipError::NoSuchChoice {
+            chip: chip.to_string(),
+            key: key.to_string(),
+        };
+        match chip {
+            "mode" => self.mode = Mode::named(key).ok_or_else(missing)?,
+            "the word" => self.matching = Match::named(key).ok_or_else(missing)?,
+            "together" => self.together = Together::named(key).ok_or_else(missing)?,
+            "instrument" => self.sounding = Sounding::named(key).ok_or_else(missing)?,
+            // A chip whose one choice is a doorway rather than a setting: it
+            // shows what the scope is and clicking it opens the facet panel.
+            // Refused by name, because *this chip is not set this way* and
+            // *there is no such chip* are different things to whoever is
+            // looking at the window.
+            DOORWAY => return Err(ChipError::NotASetting(chip.to_string())),
+            other => return Err(ChipError::NoSuchChip(other.to_string())),
+        }
+        Ok(())
+    }
+
+    /// Every chip currently offered **that is set by choosing**, and every
+    /// choice under it.
+    ///
+    /// What [`Chips::choose`] is tested against: everything offered can be
+    /// chosen. [`DOORWAY`] is left out because it is not offered as a choice
+    /// in the first place — it is offered as a way in.
+    #[must_use]
+    pub fn settable(&self) -> Vec<(String, Vec<String>)> {
+        self.row()
+            .into_iter()
+            .filter(|chip| chip.name != DOORWAY)
+            .map(|chip| {
+                (
+                    chip.name.to_string(),
+                    chip.choices.into_iter().map(|c| c.key).collect(),
+                )
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -560,65 +622,3 @@ pub enum ChipError {
 /// It reports the scope and opens the panel that changes it; the scope itself
 /// is a `Scope`, not a key, and comes back through its own errand.
 pub const DOORWAY: &str = "where";
-
-impl Chips {
-    /// Set one chip to one of its choices, by the keys [`Chips::row`] sent.
-    ///
-    /// # Why this is not four `match` arms in the window
-    ///
-    /// It was, and each of them ended `_ => Mode::ToratEmet` — a silent
-    /// fallback to the default for anything unrecognised. Four families, four
-    /// default-on-unknown, and forty lines away in the same file `link_repair`
-    /// refused an unknown candidate by name. Two policies about the same
-    /// question, in one file, and the quiet one was the one the search bar
-    /// used: a typo in a chip key came back as a search that ran, answered,
-    /// and answered a different question than the one asked.
-    ///
-    /// The keys are the ones `row` writes, from the same tables. A choice that
-    /// round-trips is now a compile-time fact rather than two lists that
-    /// happened to agree.
-    ///
-    /// # Errors
-    ///
-    /// If no chip is called that, or the chip does not offer that choice.
-    pub fn choose(&mut self, chip: &str, key: &str) -> Result<(), ChipError> {
-        let missing = || ChipError::NoSuchChoice {
-            chip: chip.to_string(),
-            key: key.to_string(),
-        };
-        match chip {
-            "mode" => self.mode = Mode::named(key).ok_or_else(missing)?,
-            "the word" => self.matching = Match::named(key).ok_or_else(missing)?,
-            "together" => self.together = Together::named(key).ok_or_else(missing)?,
-            "instrument" => self.sounding = Sounding::named(key).ok_or_else(missing)?,
-            // A chip whose one choice is a doorway rather than a setting: it
-            // shows what the scope is and clicking it opens the facet panel.
-            // Refused by name, because *this chip is not set this way* and
-            // *there is no such chip* are different things to whoever is
-            // looking at the window.
-            DOORWAY => return Err(ChipError::NotASetting(chip.to_string())),
-            other => return Err(ChipError::NoSuchChip(other.to_string())),
-        }
-        Ok(())
-    }
-
-    /// Every chip currently offered **that is set by choosing**, and every
-    /// choice under it.
-    ///
-    /// What [`Chips::choose`] is tested against: everything offered can be
-    /// chosen. [`DOORWAY`] is left out because it is not offered as a choice
-    /// in the first place — it is offered as a way in.
-    #[must_use]
-    pub fn settable(&self) -> Vec<(String, Vec<String>)> {
-        self.row()
-            .into_iter()
-            .filter(|chip| chip.name != DOORWAY)
-            .map(|chip| {
-                (
-                    chip.name.to_string(),
-                    chip.choices.into_iter().map(|c| c.key).collect(),
-                )
-            })
-            .collect()
-    }
-}

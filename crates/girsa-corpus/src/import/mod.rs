@@ -413,9 +413,7 @@ impl ImportedWork {
             // inserted after `#7` in an earlier run is already living under.
             let children: Vec<SegmentId> = child_names[at]
                 .iter()
-                .map(|ordinal| {
-                    SegmentId::new(work.slug.clone(), raw.path.clone(), ordinal.clone())
-                })
+                .map(|ordinal| SegmentId::new(work.slug.clone(), raw.path.clone(), ordinal.clone()))
                 .collect();
             live_of.push(children.clone());
             redirects.push(Redirect {
@@ -612,13 +610,7 @@ fn name_them(fresh: &[continuity::Fresh], previous: &Previous, pieces: &[usize])
             .enumerate()
             .zip(pieces)
             .map(|((at, name), count)| {
-                continuity::claim_children(
-                    name,
-                    *count,
-                    ordinals.get(at + 1),
-                    &nothing,
-                    &mut taken,
-                )
+                continuity::claim_children(name, *count, ordinals.get(at + 1), &nothing, &mut taken)
             })
             .collect();
         return Named {
@@ -640,8 +632,7 @@ fn name_them(fresh: &[continuity::Fresh], previous: &Previous, pieces: &[usize])
         .places
         .iter()
         .flat_map(|p| {
-            std::iter::once(p.ordinal.clone())
-                .chain(p.ids.iter().map(|id| id.ordinal().clone()))
+            std::iter::once(p.ordinal.clone()).chain(p.ids.iter().map(|id| id.ordinal().clone()))
         })
         .chain(previous.redirects.iter().map(|r| r.from.ordinal().clone()))
         .collect();

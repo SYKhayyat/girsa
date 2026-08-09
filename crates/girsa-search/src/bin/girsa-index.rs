@@ -28,9 +28,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use girsa_plain::argv::Argv;
 use girsa_corpus::import;
 use girsa_corpus::work::Work;
+use girsa_plain::argv::Argv;
 use girsa_ref::resolve::Context;
 use girsa_search::bar::{Answer, Bar, Results};
 use girsa_search::chips::{Chips, Skips, Sounding};

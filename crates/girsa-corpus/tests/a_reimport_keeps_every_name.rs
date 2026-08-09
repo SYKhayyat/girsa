@@ -503,7 +503,11 @@ fn a_stale_redirect_file_is_taken_away_rather_than_left_to_lie() {
     );
     for row in &imported.redirects {
         assert_eq!(row.why, Why::Resegmented);
-        assert_eq!(row.to.len(), 1, "the whole place, which is one record again");
+        assert_eq!(
+            row.to.len(),
+            1,
+            "the whole place, which is one record again"
+        );
         assert!(row.to[0].to_string().ends_with("#1"), "{forwarded:?}");
     }
     assert!(path.exists(), "dead names are rows: {forwarded:?}");
@@ -534,7 +538,10 @@ fn a_shelf_that_will_not_parse_does_not_leave_its_redirects_behind() {
 
     let imported = import_over(&root, vec![raw(&["1", "1"], "קצר")]);
     assert!(imported.redirects.is_empty());
-    assert!(!path.exists(), "nothing is redirected, so nothing claims to be");
+    assert!(
+        !path.exists(),
+        "nothing is redirected, so nothing claims to be"
+    );
 }
 
 #[test]
@@ -696,7 +703,12 @@ fn a_child_a_shorter_cut_no_longer_produces_says_where_the_words_went() {
         .iter()
         .filter(|r| r.from.to_string().ends_with("#2.3"))
         .collect();
-    assert_eq!(shed.len(), 1, "the shed child has a row: {:?}", after.redirects);
+    assert_eq!(
+        shed.len(),
+        1,
+        "the shed child has a row: {:?}",
+        after.redirects
+    );
     assert_eq!(shed[0].why, Why::Resegmented);
     let to: Vec<String> = shed[0].to.iter().map(ToString::to_string).collect();
     assert_eq!(to.len(), 2, "pointed at the two records it is now: {to:?}");

@@ -656,6 +656,31 @@ impl Queue {
     }
 }
 
+/// The replay, the index and the compaction — `girsa_personal::Store`.
+///
+/// The "index" here is a plain `Vec` in log order, which is what a *queue* is:
+/// the order candidates arrived is the order they are looked at.
+impl girsa_personal::Store for Queue {
+    type Record = Suspect;
+    const WHAT: &'static str = "a candidate";
+
+    fn key_of(s: &Suspect) -> String {
+        s.id.clone()
+    }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn hold(&mut self, s: Suspect) {
+        self.entries.push(s);
+    }
+    fn count(&self) -> usize {
+        self.entries.len()
+    }
+    fn records(&self) -> Vec<&Suspect> {
+        self.entries.iter().collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // A panic in a test is a failure report. The workspace denies these in
@@ -855,30 +880,5 @@ mod tests {
             said(&original),
             "the two sides of the join disagree"
         );
-    }
-}
-
-/// The replay, the index and the compaction — `girsa_personal::Store`.
-///
-/// The "index" here is a plain `Vec` in log order, which is what a *queue* is:
-/// the order candidates arrived is the order they are looked at.
-impl girsa_personal::Store for Queue {
-    type Record = Suspect;
-    const WHAT: &'static str = "a candidate";
-
-    fn key_of(s: &Suspect) -> String {
-        s.id.clone()
-    }
-    fn log(&self) -> &Log {
-        &self.log
-    }
-    fn hold(&mut self, s: Suspect) {
-        self.entries.push(s);
-    }
-    fn count(&self) -> usize {
-        self.entries.len()
-    }
-    fn records(&self) -> Vec<&Suspect> {
-        self.entries.iter().collect()
     }
 }

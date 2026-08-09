@@ -667,7 +667,6 @@ fn anchor(text: &str) -> Option<Anchor> {
     }
 }
 
-
 /// One edge as it stands after your layer, and what it was before.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Repaired {

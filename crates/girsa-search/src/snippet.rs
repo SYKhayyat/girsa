@@ -95,7 +95,8 @@ pub fn snippet(text: &str, marks: &[(usize, usize)], width: usize) -> Snippet {
     // when the walk reaches the first mark it already knows where the window
     // should have started, because `lead` is small and constant (a quarter of
     // the snippet width) and those offsets went past a moment ago.
-    let mut ring: std::collections::VecDeque<usize> = std::collections::VecDeque::with_capacity(lead + 1);
+    let mut ring: std::collections::VecDeque<usize> =
+        std::collections::VecDeque::with_capacity(lead + 1);
     let first_mark_byte = usable.first().map_or(0, |(start, _)| *start);
     let mut from_char = 0usize;
 

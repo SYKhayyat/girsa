@@ -29,9 +29,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use girsa_plain::argv::{self, Argv};
 use girsa_corpus::import::{self, Counts, SegmentKind};
 use girsa_corpus::work::{Catalogue, Source, Work};
+use girsa_plain::argv::{self, Argv};
 
 const USAGE: &str = "\
 usage: girsa-import [--metadata-only] <corpus> <otzaria>

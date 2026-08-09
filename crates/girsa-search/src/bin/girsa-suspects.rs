@@ -23,8 +23,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use girsa_plain::argv::{self, Argv};
 use girsa_fix::suspect::{hunt, Queue, Settings, Suspect, Vocabulary};
+use girsa_plain::argv::{self, Argv};
 use girsa_search::index::SearchIndex;
 
 /// How many places to record per candidate.

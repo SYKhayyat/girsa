@@ -48,7 +48,9 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
 use girsa_lane::coverage::Covered;
-use girsa_lane::{Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MEASURED, MOST, SHORTLISTED};
+use girsa_lane::{
+    Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MEASURED, MOST, SHORTLISTED,
+};
 
 use girsa_app::naming::{Names, Naming};
 use girsa_app::shelf::Shelf;
