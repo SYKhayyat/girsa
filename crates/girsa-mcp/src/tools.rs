@@ -739,6 +739,9 @@ fn adjacent(server: &Server, args: &Value) -> Result<Value, String> {
         )
         .said(),
         "refused": answer.refused,
+        // Null when every store was read whole. An agent that ranks these and
+        // reports the top one is owed the same disclaimer the window draws.
+        "ranked_from_a_shortlist": answer.shortlisted,
         "showing": found.len(),
         "adjacent": found,
         "not_the_places_these_words_appear": "for that, call `search` — it is literal",

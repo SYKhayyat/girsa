@@ -2203,6 +2203,7 @@ body {
    weight as the coverage line below it: two admissions, neither of them a
    footnote. */
 .lane-measured,
+.lane-shortlisted,
 .lane-coverage {
   margin: 0 0 8px;
   font-family: var(--plain);

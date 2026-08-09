@@ -72,6 +72,18 @@ pub const MEASURED: &str = "measured on a half-remembered statement, and it work
                             on a question — over 240 se'ifim, not over the whole shelf. \
                             It does not pasken.";
 
+/// What a ranking drawn from a signature shortlist has to say for itself.
+///
+/// One wording, for the same reason [`ADJACENT`] and [`MEASURED`] are one
+/// wording: a window, a command line and an MCP client that worded this three
+/// ways would be making three different claims about the same answer.
+///
+/// It is drawn only when it is true — see [`crate::vectors::Ranked::whole`].
+/// Under [`crate::vectors`]'s threshold, and for any store with no index, every
+/// vector is read and there is nothing to disclaim.
+pub const SHORTLISTED: &str = "ranked from a shortlist rather than by reading every vector \
+                               — fast, and a near result the shortlist misjudged is not here";
+
 /// How many adjacent results a lane returns when nobody says.
 pub const MOST: usize = 10;
 
@@ -86,6 +98,23 @@ pub struct Adjacent {
     pub id: SegmentId,
     /// A cosine, between −1 and 1. Both sides are unit length.
     pub nearness: f32,
+}
+
+/// A lane's answer, and what it took to get it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Asked {
+    /// Best first, across every sefer asked.
+    pub adjacent: Vec<Adjacent>,
+    /// Every sefer asked was read whole. False means at least one answered from
+    /// a signature shortlist — see [`crate::signature`] — and a vector the
+    /// estimate misjudged is not in this list.
+    pub whole: bool,
+    /// Records read off disk, across every sefer. The number the 9 August report
+    /// says is stated nowhere.
+    pub read: usize,
+    /// How many seforim were asked. A store made by another model is skipped and
+    /// not counted.
+    pub seforim: usize,
 }
 
 /// The lane's setting.
@@ -222,6 +251,27 @@ pub struct Lane {
     chosen: Chosen,
     model: Option<Arc<dyn Embedder>>,
     adrift: Option<String>,
+    /// The stores this lane has already opened, by slug.
+    ///
+    /// [`Lane::ask`] opened every sefer in the selection **per query**, and
+    /// opening one walks every record in its file to build the offset map. The
+    /// 9 August report counts that as one of the two full linear passes a query
+    /// costs: *"`Vectors::open` reads every record's id to build an offset map
+    /// and `nearest` reads the whole file again"*. The other pass is the
+    /// signature index; this is the one that is simply a cache.
+    ///
+    /// Keyed on the vectors file's **length**, which is what makes it safe: the
+    /// file is append-only, so a store that grew is a store whose length
+    /// changed, and one `metadata` call per sefer per query is the whole
+    /// validation. A job that embeds four hundred more segments invalidates the
+    /// sefer it embedded them into and nothing else.
+    ///
+    /// The model's fingerprint is **in** the key. The map is shared with this
+    /// lane's clones — `Lane` is `Clone` and a clone points at the same personal
+    /// layer — and a clone whose model was changed under it must not be handed
+    /// back a store built in another model's space, which is the one mistake
+    /// this file format exists to prevent.
+    stores: Arc<std::sync::Mutex<std::collections::HashMap<String, (u64, Arc<crate::Vectors>)>>>,
 }
 
 impl std::fmt::Debug for Lane {
@@ -257,6 +307,7 @@ impl Lane {
             chosen,
             model: None,
             adrift: None,
+            stores: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
         if lane.settings.on {
             match lane.settings.model.clone() {
@@ -285,6 +336,7 @@ impl Lane {
             chosen,
             model: Some(embedder),
             adrift: None,
+            stores: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -344,6 +396,12 @@ impl Lane {
         self.settings = settings;
         self.model = None;
         self.adrift = None;
+        // The stores held here were opened for the old model, and a store's
+        // whole reason for naming its model is that vectors from two of them
+        // rank against each other perfectly happily and mean nothing.
+        if let Ok(mut stores) = self.stores.lock() {
+            stores.clear();
+        }
         if self.settings.on {
             match self.settings.model.clone() {
                 None => self.adrift = Some(ModelError::NotConfigured.to_string()),
@@ -384,29 +442,98 @@ impl Lane {
         over: &[String],
         most: usize,
     ) -> Result<Vec<Adjacent>, LaneError> {
+        Ok(self.ask_reporting(text, over, most)?.adjacent)
+    }
+
+    /// [`Lane::ask`], and what it took to answer.
+    ///
+    /// The header of [`crate::vectors::Ranked`] has the argument: a ranking over
+    /// a shortlist and a ranking over a whole store look identical, so the store
+    /// says which it gave. This carries that up to the caller, over the whole
+    /// selection — `whole` is true only when **every** sefer asked was read
+    /// whole.
+    ///
+    /// # Errors
+    ///
+    /// As [`Lane::ask`].
+    pub fn ask_reporting(
+        &self,
+        text: &str,
+        over: &[String],
+        most: usize,
+    ) -> Result<Asked, LaneError> {
         let model = self.embedder()?;
         if text.trim().is_empty() || most == 0 {
-            return Ok(Vec::new());
+            return Ok(Asked::default());
         }
         let query: Vec<Embedded> = model.embed(&[text])?;
         let Some(query) = query.first() else {
-            return Ok(Vec::new());
+            return Ok(Asked::default());
         };
 
-        let mut best: Vec<Adjacent> = Vec::new();
+        let mut asked = Asked {
+            whole: true,
+            ..Asked::default()
+        };
         for slug in over {
-            let (vectors, _) =
-                Vectors::open(&self.personal, slug, model.fingerprint(), model.dims());
+            let vectors = self.store(slug, model.fingerprint(), model.dims());
             if vectors.made_by_something_else().is_some() {
                 continue;
             }
-            for (id, nearness) in vectors.nearest(&query.vector, most)? {
-                best.push(Adjacent { id, nearness });
+            let ranked = vectors.nearest_reporting(&query.vector, most)?;
+            asked.whole &= ranked.whole;
+            asked.read += ranked.read;
+            asked.seforim += 1;
+            for (id, nearness) in ranked.best {
+                asked.adjacent.push(Adjacent { id, nearness });
             }
         }
-        best.sort_by(|a, b| b.nearness.total_cmp(&a.nearness));
-        best.truncate(most);
-        Ok(best)
+        asked
+            .adjacent
+            .sort_by(|a, b| b.nearness.total_cmp(&a.nearness));
+        asked.adjacent.truncate(most);
+        Ok(asked)
+    }
+
+    /// One sefer's store, opened once and kept.
+    ///
+    /// See [`Lane::stores`] for why the file's length is the whole validation.
+    /// A store that will not open is not cached — the trouble it reports is
+    /// dropped here because `ask` has no line to put it on, and `standing` is
+    /// the surface that exists to say so.
+    fn store(&self, slug: &str, fingerprint: &str, dims: usize) -> Arc<Vectors> {
+        let length = std::fs::metadata(Vectors::path_in(&self.personal, slug))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        // One allocation rather than the two a `(String, String)` key would
+        // cost. The separator is a control character, which is in neither a
+        // fingerprint nor a slug.
+        let key = format!("{fingerprint}\u{1}{slug}");
+        let mut stores = match self.stores.lock() {
+            Ok(held) => held,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some((was, held)) = stores.get(&key) {
+            if *was == length {
+                return Arc::clone(held);
+            }
+        }
+        let (opened, _) = Vectors::open(&self.personal, slug, fingerprint, dims);
+        let opened = Arc::new(opened);
+        stores.insert(key, (length, Arc::clone(&opened)));
+        opened
+    }
+
+    /// Forget the opened stores.
+    ///
+    /// Not needed for correctness — the length check catches an appended file —
+    /// and here for the caller that wants the memory back after a query over the
+    /// whole shelf, and for [`Vectors::restarted`], which makes a file *shorter*
+    /// at a length it has held before.
+    pub fn forget_stores(&self) {
+        if let Ok(mut stores) = self.stores.lock() {
+            stores.clear();
+        }
     }
 
     /// What is embedded of one sefer, counted from the corpus and the store.

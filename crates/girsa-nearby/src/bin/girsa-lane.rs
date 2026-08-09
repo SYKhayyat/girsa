@@ -290,6 +290,9 @@ fn ask(lane: &Adjacency, names: &Names, text: &str) -> bool {
     // never to be read as the places the words appear (spec.md §14).
     println!("{}", answer.label);
     println!("{}", answer.coverage);
+    if let Some(said) = answer.shortlisted {
+        println!("{said}");
+    }
     if let Some(why) = &answer.refused {
         println!("nothing: {why}");
         return true;

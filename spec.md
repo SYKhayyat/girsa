@@ -675,6 +675,21 @@ adjacent. Trivially disableable.
   is the §9 defect this whole section exists to avoid.
 - **It never looks like an answer.** §14: the lane assists retrieval and does not
   pasken. Adjacent results are labelled adjacent, wherever they are drawn.
+- **Asking costs what it costs, and the answer says how it was got.** *Added
+  after the 9 August 2026 report*, which found the one thing in this section that
+  was true and written down nowhere: retrieval had no index, so a query read
+  every vector of every sefer in the selection — about 15 GB at
+  `Chosen::everything()`, and twice, because opening a store walked it as well.
+  Both are fixed and neither by hoping. A store is opened once and kept, keyed on
+  its file's length, which is the whole validation because the file is
+  append-only. Above four thousand vectors a query ranks a **shortlist**, drawn
+  by a 32-byte signature per segment (`girsa_lane::signature`) and then scored
+  exactly by reading only those records — a hundred and sixty megabytes where the
+  vectors are fifteen gigabytes. A shortlist can miss what an exhaustive read
+  would find, so **the answer says it was a shortlist**, in the window, the CLI
+  and the MCP surface, in one wording. The same rule as the coverage line, one
+  layer down: a partial ranking that looks exhaustive is the §9 defect this whole
+  section exists to avoid.
 
 ---
 

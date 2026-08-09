@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
 use girsa_lane::coverage::Covered;
-use girsa_lane::{Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MEASURED, MOST};
+use girsa_lane::{Chosen, Coverage, Lane, LaneError, Settings, State, ADJACENT, MEASURED, MOST, SHORTLISTED};
 
 use girsa_app::naming::{Names, Naming};
 use girsa_app::shelf::Shelf;
@@ -99,6 +99,15 @@ pub struct Answer {
     /// Why there is nothing — the lane off, no model, a store from another
     /// model. **Never an empty list with no reason attached.**
     pub refused: Option<String>,
+    /// [`girsa_lane::SHORTLISTED`] when at least one sefer answered from a
+    /// signature shortlist rather than by reading every vector it holds, and
+    /// `None` when every one of them was read whole.
+    ///
+    /// The fourth thing this answer says about itself, and the newest. The
+    /// other three — the label, the measurement, the coverage — are all
+    /// answers to *what does this list not tell you*, and this is the same
+    /// question about the retrieval rather than about the corpus.
+    pub shortlisted: Option<&'static str>,
 }
 
 /// The lane, joined to the shelf.
@@ -250,6 +259,8 @@ impl Adjacency {
             near: Vec::new(),
             coverage: coverage.clone(),
             refused: Some(why),
+            // Nothing was ranked, so there is no ranking to disclaim.
+            shortlisted: None,
         };
 
         match self.lane.state() {
@@ -271,11 +282,13 @@ impl Adjacency {
             });
         }
 
-        let found = match self.lane.ask(text, &over, most) {
-            Ok(found) => found,
+        let asked = match self.lane.ask_reporting(text, &over, most) {
+            Ok(asked) => asked,
             Err(e) => return refuse(say(&e)),
         };
-        let near = found
+        let shortlisted = (!asked.whole).then_some(SHORTLISTED);
+        let near = asked
+            .adjacent
             .into_iter()
             .filter_map(|adjacent| {
                 // The text comes off the shelf, through the same reader every
@@ -298,6 +311,7 @@ impl Adjacency {
             near,
             coverage,
             refused: None,
+            shortlisted,
         }
     }
 
@@ -413,6 +427,7 @@ mod tests {
             near: Vec::new(),
             coverage: Coverage::default().said(),
             refused: Some("the semantic lane is off".to_string()),
+            shortlisted: None,
         };
         assert!(answer.near.is_empty());
         assert!(answer.refused.is_some());

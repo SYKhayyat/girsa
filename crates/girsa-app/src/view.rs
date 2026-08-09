@@ -951,7 +951,7 @@ pub struct NearRow {
     pub nearness: f32,
 }
 
-/// What the lane answered. Four fields and all four are drawn.
+/// What the lane answered. Five fields and all five are drawn.
 #[derive(Serialize)]
 pub struct LaneAnswer {
     /// The label these must be drawn under. From `girsa-lane`, worded once.
@@ -962,6 +962,9 @@ pub struct LaneAnswer {
     pub coverage: String,
     /// Why there is nothing. Never an empty list with no reason attached.
     pub refused: Option<String>,
+    /// Set when the ranking came off a signature shortlist rather than from
+    /// reading every vector — `girsa_lane::SHORTLISTED`, worded once.
+    pub shortlisted: Option<&'static str>,
 }
 
 /// How far a background job has got. One shape for both jobs.

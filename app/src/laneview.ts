@@ -113,6 +113,18 @@ export class LaneColumn {
     coverage.textContent = answer.coverage;
     box.append(coverage);
 
+    // How the ranking was got. Third of the three admissions, and the only one
+    // that is about the *retrieval* rather than about the corpus: above a size
+    // the lane ranks from a shortlist of signatures instead of reading every
+    // vector, which is fast and is not the same answer. Drawn only when true —
+    // a permanent disclaimer is one nobody reads.
+    if (answer.shortlisted) {
+      const shortlisted = document.createElement("p");
+      shortlisted.className = "lane-shortlisted";
+      shortlisted.textContent = answer.shortlisted;
+      box.append(shortlisted);
+    }
+
     if (state.state === "adrift" && state.said) {
       const adrift = document.createElement("p");
       adrift.className = "lane-adrift";

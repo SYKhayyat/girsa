@@ -2598,6 +2598,7 @@ fn lane_ask(
             .collect(),
         coverage: answer.coverage,
         refused: answer.refused,
+        shortlisted: answer.shortlisted,
     })
 }
 

@@ -225,7 +225,7 @@ mod tests {
                 (SegmentKind::Note, "והוא הדין"),
             ],
         );
-        let mut job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
+        let job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
         assert_eq!(
             job.wanted(),
             2,
@@ -320,7 +320,7 @@ mod tests {
                 (SegmentKind::Text, "שלישי"),
             ],
         );
-        let mut job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
+        let job = Job::of(&Chosen::everything(), &work, &Vectors::nowhere("m", 2));
         assert!(job.wanted() > 2, "the fixture has to have something in it");
 
         let mut ascending = job.wanted.clone();

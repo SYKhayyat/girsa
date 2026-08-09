@@ -12,6 +12,7 @@
 //! | You choose what is embedded, at any granularity | [`chosen`] |
 //! | Background, resumable, never blocks reading | [`job`], [`lane::Run`] |
 //! | The lane always states its own coverage | [`coverage`] |
+//! | An answer says whether it read the whole store or a shortlist | [`signature`], [`vectors::Ranked`] |
 //! | It is drawn as adjacent, always | [`lane::Adjacent`], [`lane::ADJACENT`] |
 //!
 //! # What it is not
@@ -35,6 +36,7 @@ pub mod coverage;
 pub mod job;
 pub mod lane;
 pub mod model;
+pub mod signature;
 pub mod vectors;
 
 pub use bring::{bring, BringError, Offer, BEREL};
@@ -42,7 +44,8 @@ pub use chosen::Chosen;
 pub use coverage::{Coverage, Covered};
 pub use job::Job;
 pub use lane::{
-    Adjacent, Lane, LaneError, Run, Settings, Standing, State, ADJACENT, MEASURED, MOST,
+    Adjacent, Asked, Lane, LaneError, Run, Settings, Standing, State, ADJACENT, MEASURED, MOST, SHORTLISTED,
 };
 pub use model::{how_long, Embedded, Embedder, Model, ModelError, SEGMENTS_A_SECOND};
-pub use vectors::{VectorError, Vectors};
+pub use signature::Signature;
+pub use vectors::{Ranked, VectorError, Vectors};

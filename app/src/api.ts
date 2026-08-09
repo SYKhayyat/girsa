@@ -726,7 +726,7 @@ export interface Near extends At {
   nearness: number;
 }
 
-/** What the lane answered. All five fields are drawn. */
+/** What the lane answered. All six fields are drawn. */
 export interface LaneAnswer {
   /** The label these must be drawn under, worded once in Rust. */
   label: string;
@@ -743,6 +743,16 @@ export interface LaneAnswer {
   coverage: string;
   /** Why there is nothing. Never an empty list with no reason attached. */
   refused: string | null;
+  /**
+   * Set when the ranking came off a signature shortlist rather than from
+   * reading every vector in every store asked — worded once in Rust, as
+   * `girsa_lane::SHORTLISTED`.
+   *
+   * Null is the ordinary case for a small lane and means the answer is the
+   * answer. It is not null for a lane over a large sefer, where reading every
+   * vector per query was the fifteen gigabytes the 9 August report is about.
+   */
+  shortlisted: string | null;
 }
 
 /** How far a background job has got — bringing a model, or embedding. */
