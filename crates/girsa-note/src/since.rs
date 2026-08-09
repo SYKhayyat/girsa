@@ -327,7 +327,8 @@ fn fixes_since(personal: &Path, built: Option<SystemTime>) -> Written {
     let Some(built) = built else {
         return Written::NoIndex;
     };
-    let path = personal.join("corrections.jsonl");
+    // The name, not a second copy of it. See `girsa_personal::CORRECTIONS`.
+    let path = personal.join(girsa_personal::CORRECTIONS);
     if !newer_than(&path, built) {
         return Written::Since(0);
     }

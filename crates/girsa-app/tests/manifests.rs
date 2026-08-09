@@ -106,6 +106,33 @@ fn files(root: &Path, name: &str) -> Vec<PathBuf> {
     out
 }
 
+/// Every `.rs` file in the tree. `files` matches a whole name; this matches an
+/// extension, which is the only difference and not worth a parameter.
+fn rust_files(root: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let base = entry.file_name();
+            let base = base.to_string_lossy();
+            if path.is_dir() {
+                if base == "target" || base == "node_modules" || base == ".git" {
+                    continue;
+                }
+                walk(&path, out);
+            } else if base.ends_with(".rs") {
+                out.push(path);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &mut out);
+    out.sort();
+    out
+}
+
 /// A manifest with `#` comments removed.
 fn uncommented(path: &Path) -> String {
     std::fs::read_to_string(path)
@@ -406,4 +433,83 @@ fn the_leaf_crate_stays_a_leaf() {
             name.trim(),
         );
     }
+}
+
+/// A `cargo run -p X` in a doc comment names the crate that has the target.
+///
+/// The 9 August report, §4, on what a mechanical crate split looks like from
+/// outside:
+///
+/// > Thirteen documented commands in `girsa-desk` cannot run —
+/// > `bin/girsa-notes.rs:6-20` and `examples/write.rs:4` all say
+/// > `cargo run -p girsa-app`, and the targets moved crates without their doc
+/// > comments.
+///
+/// Fifteen, counted. Every one of them was the first thing a reader would type,
+/// and every one of them fails with *no bin target named `girsa-notes`* — while
+/// the README, twenty lines of it, had the right crate all along. The usual
+/// failure runs the other way; this is the code's own comments lying and the
+/// documentation being right.
+///
+/// A path is not checked against a doc comment anywhere else, so this is the
+/// sweep rather than the fix: it reads every `cargo run -p <crate> --bin <name>`
+/// and `--example <name>` in every source file in the tree and asserts the
+/// target is where the command says it is.
+#[test]
+fn every_documented_command_names_the_crate_that_has_it() {
+    let root = repo();
+    let mut checked = 0usize;
+    for source in rust_files(&root) {
+        // `src/` and `examples/` only. A test file is **the record**: the
+        // suite next door exists to assert that `girsa-link-inbound` has never
+        // been a binary in this tree, and it has to quote the command in order
+        // to say so. A rule that forbade naming a defect would forbid recording
+        // it — the same partition `app/test/prohibitions.test.mjs` draws around
+        // `lamdan/` and `docs/`, for the same reason.
+        let shown = source.to_string_lossy().replace('\\', "/");
+        if shown.contains("/tests/") {
+            continue;
+        }
+        let body = std::fs::read_to_string(&source).unwrap_or_default();
+        for line in body.lines() {
+            let Some(at) = line.find("cargo run -p ") else {
+                continue;
+            };
+            let mut words = line[at + "cargo run -p ".len()..].split_whitespace();
+            let Some(krate) = words.next() else { continue };
+            // A placeholder in prose about this rule — including the paragraph
+            // above — is not a command anybody can run.
+            if krate.contains('<') || krate.contains('`') {
+                continue;
+            }
+            let (kind, name) = match (words.next(), words.next()) {
+                (Some("--bin"), Some(name)) => ("src/bin", name),
+                (Some("--example"), Some(name)) => ("examples", name),
+                // `cargo run -p x -- …` runs the crate's only binary; there is
+                // no name to check.
+                _ => continue,
+            };
+            if name.contains('<') || name.contains('`') {
+                continue;
+            }
+            let target = root
+                .join("crates")
+                .join(krate)
+                .join(kind)
+                .join(format!("{name}.rs"));
+            checked += 1;
+            assert!(
+                target.is_file(),
+                "{}:\n  {}\n names `-p {krate}`, but there is no {kind}/{name}.rs in it.\n\
+                 The target moved crates and the doc comment did not. Every reader who\n\
+                 copies this line gets `no bin target named `{name}``.",
+                source.strip_prefix(&root).unwrap_or(&source).display(),
+                line.trim().trim_start_matches("//!").trim(),
+            );
+        }
+    }
+    assert!(
+        checked > 20,
+        "the scan found only {checked} documented commands, which is fewer than the tree has"
+    );
 }

@@ -14,6 +14,18 @@
 //! format. Below this line is a sefer, an address and a correction; above it is
 //! what you write with them.
 //!
+//! **What that did not buy is a smaller build**, and this paragraph used to
+//! imply it did. Measured on 9 August 2026: `cargo tree -e normal` puts this
+//! crate at one crate over `girsa-app` — itself. `girsa-corpus` pulls
+//! `girsa-ksav` anyway, because your own seforim go on the shelf (spec.md
+//! §10.4), and `girsa-cite` is a direct `girsa-app` dependency regardless. The
+//! split moved a manifest edge and not a compile.
+//!
+//! The boundary is still the right one and the reason above is still the reason:
+//! it is a statement about **what this code is about**, not about what it costs
+//! to build. Stating it as a compile saving was a claim nobody had checked, in a
+//! repository whose whole discipline is that a claim is checked.
+//!
 //! The dependency runs one way and only one way. [`girsa_app::sending`] hands
 //! over a [`girsa_source::SourcePacket`] — the words, the place, and which
 //! characters of it — and this crate decides what that looks like on a page.

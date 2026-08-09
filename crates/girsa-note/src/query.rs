@@ -64,7 +64,7 @@ impl SavedQuery {
             only: Vec::new(),
             without: Vec::new(),
             tags: Vec::new(),
-            when: crate::now_seconds(),
+            when: girsa_personal::now_seconds(),
         }
     }
 
@@ -260,18 +260,6 @@ impl Queries {
         Ok(self.by_name.remove(name).is_some())
     }
 
-    /// The file, as it goes to disk.
-    #[must_use]
-    pub fn to_text(&self) -> String {
-        let mut body = String::new();
-        for query in self.all() {
-            if let Ok(line) = serde_json::to_string(query) {
-                body.push_str(&line);
-                body.push('\n');
-            }
-        }
-        body
-    }
 }
 
 #[cfg(test)]

@@ -44,7 +44,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use girsa_personal::{Log, LogError};
+use girsa_personal::{now_seconds, Log, LogError};
 use serde::{Deserialize, Serialize};
 
 /// Where the registry lives.
@@ -234,14 +234,6 @@ impl Documents {
         self.log.append_all(read.iter())?;
         Ok(did)
     }
-}
-
-/// Now, in seconds since the epoch. Zero if the clock is before it, which is a
-/// machine nobody can reason about and not a reason to refuse a write.
-fn now_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
 }
 
 /// A file's modification time, in seconds since the epoch.

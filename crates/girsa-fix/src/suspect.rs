@@ -37,10 +37,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::segment::SegmentId;
-use girsa_personal::{Log, Store as _};
+use girsa_personal::{fingerprint, Log, Store as _};
 use serde::{Deserialize, Serialize};
 
-use crate::{fingerprint, FixError};
+use crate::FixError;
 
 /// The 22 letters, in their non-final forms.
 ///

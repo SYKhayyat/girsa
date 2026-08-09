@@ -24,7 +24,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use girsa_personal::Log;
+use girsa_personal::{now_seconds, Log};
 use serde::{Deserialize, Serialize};
 
 use crate::{Anchor, Edge, EdgeType, Method};
@@ -667,12 +667,6 @@ fn anchor(text: &str) -> Option<Anchor> {
     }
 }
 
-fn now_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or_default()
-}
 
 /// One edge as it stands after your layer, and what it was before.
 #[derive(Debug, Clone, PartialEq)]

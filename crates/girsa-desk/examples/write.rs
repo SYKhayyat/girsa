@@ -1,7 +1,7 @@
 //! Write a buffer the way the window does, out of the real corpus (W17).
 //!
 //! ```sh
-//! cargo run -p girsa-app --example write -- \
+//! cargo run -p girsa-desk --example write -- \
 //!     corpus personal "השכמת הבוקר" "שולחן ערוך, אורח חיים סימן א' סעיף א'"
 //! ```
 //!

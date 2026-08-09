@@ -92,6 +92,31 @@ pub trait Store: Sized {
     fn compact(&self) -> Result<(), LogError> {
         self.log().rewrite(self.records())
     }
+
+    /// The file, as it goes to disk: one record a line, so it is greppable and
+    /// a diff of it is readable.
+    ///
+    /// Three of the stores had this character for character —
+    /// `girsa_note::{collection, mark, query}` — differing only in the word
+    /// each used for its loop variable. It is not a fact about a mark or a
+    /// folder or a saved question; it is *what a jsonl file is*, which is this
+    /// crate's whole subject.
+    ///
+    /// A record that will not serialize is skipped rather than fatal, which is
+    /// the same call [`Log::rewrite`] makes and for the same reason: the
+    /// alternative is a reader whose entire file will not write because of one
+    /// line in it.
+    #[must_use]
+    fn to_text(&self) -> String {
+        let mut body = String::new();
+        for record in self.records() {
+            if let Ok(line) = serde_json::to_string(record) {
+                body.push_str(&line);
+                body.push('\n');
+            }
+        }
+        body
+    }
 }
 
 /// Replay a store's log into it, compacting the file if it has grown bloated.

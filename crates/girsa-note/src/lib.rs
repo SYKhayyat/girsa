@@ -73,19 +73,14 @@ pub mod since;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+// `to_text` is a default method on the store trait now — one jsonl writer for
+// the three stores that had it character for character.
+use girsa_personal::Store;
+
 pub use collection::{Collection, Collections, Member};
 pub use mark::{Kind, Mark, MarkId, Marks};
 pub use note::{Note, NoteError, Notes, Para};
 pub use query::{Queries, SavedQuery};
-
-/// Seconds since the epoch. The one clock this crate reads.
-#[must_use]
-pub(crate) fn now_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or_default()
-}
 
 /// A tag, as it is stored and compared.
 ///

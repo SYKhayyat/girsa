@@ -97,7 +97,6 @@ pub fn snippet(text: &str, marks: &[(usize, usize)], width: usize) -> Snippet {
     // the snippet width) and those offsets went past a moment ago.
     let mut ring: std::collections::VecDeque<usize> = std::collections::VecDeque::with_capacity(lead + 1);
     let first_mark_byte = usable.first().map_or(0, |(start, _)| *start);
-    let mut first_mark_char = 0usize;
     let mut from_char = 0usize;
 
     // Byte offsets for the window, taken off character positions so a Hebrew
@@ -117,8 +116,7 @@ pub fn snippet(text: &str, marks: &[(usize, usize)], width: usize) -> Snippet {
                 continue;
             }
             started = true;
-            first_mark_char = at;
-            from_char = first_mark_char - ring.len();
+            from_char = at - ring.len();
             from_byte = ring.front().copied().unwrap_or(byte);
             chars_taken = ring.len();
             ring.clear();

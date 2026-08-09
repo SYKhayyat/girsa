@@ -101,7 +101,7 @@ impl Note {
     /// Start one. `slug` is the whole work slug, `note/…`.
     #[must_use]
     pub fn new(slug: impl Into<String>, title: impl Into<String>, who: impl Into<String>) -> Self {
-        let when = crate::now_seconds();
+        let when = girsa_personal::now_seconds();
         Self {
             slug: slug.into(),
             title: title.into(),
@@ -521,7 +521,7 @@ impl Note {
     }
 
     fn touched(&mut self) {
-        self.edited = crate::now_seconds();
+        self.edited = girsa_personal::now_seconds();
     }
 }
 

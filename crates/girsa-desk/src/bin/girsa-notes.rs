@@ -3,25 +3,25 @@
 //!
 //! ```sh
 //! # a place, some words, done — the three-second one
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal write mishnah-berakhot 1:1 \
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal write mishnah-berakhot 1:1 \
 //!     "וצריך עיון מה שכתב הרמב\"ם כאן" --title מאימתי --tag ברכות
 //!
 //! # and then the claim: one call, and what I wrote is in the same list as the Rambam
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal on mishnah-berakhot 1:1
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal on mishnah-berakhot 1:1
 //!
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal list
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal show מאימתי
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal add מאימתי "ועוד יש לדקדק"
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal after girsa:note/מאימתי/2#2 "ובאמת"
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal anchor מאימתי bavli/berakhot 2a:1
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal forget מאימתי
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal list
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal show מאימתי
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal add מאימתי "ועוד יש לדקדק"
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal after girsa:note/מאימתי/2#2 "ובאמת"
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal anchor מאימתי bavli/berakhot 2a:1
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal forget מאימתי
 //!
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal mark mishnah-berakhot 1:1 0 4
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal bookmark mishnah-berakhot 1:1 --label "להתחיל כאן"
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal keep מאימתי '"מאימתי קורין"'
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal folder thursday "חבורה יום ה" mishnah-berakhot 1:1
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal tags
-//! cargo run -p girsa-app --bin girsa-notes -- corpus personal export /tmp/my-layer
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal mark mishnah-berakhot 1:1 0 4
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal bookmark mishnah-berakhot 1:1 --label "להתחיל כאן"
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal keep מאימתי '"מאימתי קורין"'
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal folder thursday "חבורה יום ה" mishnah-berakhot 1:1
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal tags
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal export /tmp/my-layer
 //! ```
 //!
 //! A place is given as `<slug> <address>` — the way a person says it — and the

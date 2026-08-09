@@ -72,20 +72,6 @@ impl From<String> for MarkId {
     }
 }
 
-/// FNV-1a, 64-bit — small, dependency-free and the same everywhere, which is
-/// the only property an id like this needs.
-fn fingerprint(parts: &[&str]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for part in parts {
-        for byte in part.as_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
-        }
-        hash ^= 0xff;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
-    }
-    format!("{hash:016x}")
-}
 
 /// One highlight, or one bookmark.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,7 +123,7 @@ impl Mark {
             colour: None,
             tags: Vec::new(),
             who: who.into(),
-            when: crate::now_seconds(),
+            when: girsa_personal::now_seconds(),
         };
         mark.id = mark.name();
         mark
@@ -157,7 +143,7 @@ impl Mark {
             colour: None,
             tags: Vec::new(),
             who: who.into(),
-            when: crate::now_seconds(),
+            when: girsa_personal::now_seconds(),
         };
         mark.id = mark.name();
         mark
@@ -195,7 +181,7 @@ impl Mark {
     }
 
     fn name(&self) -> MarkId {
-        MarkId(fingerprint(&[
+        MarkId(girsa_personal::fingerprint(&[
             &self.at.to_string(),
             &self.from_char.unwrap_or_default().to_string(),
             &self.to_char.unwrap_or_default().to_string(),
@@ -476,19 +462,6 @@ impl Marks {
         Ok(gone)
     }
 
-    /// The file, as it goes to disk. One mark a line, so it is greppable and a
-    /// diff of it is readable.
-    #[must_use]
-    pub fn to_text(&self) -> String {
-        let mut body = String::new();
-        for mark in self.all() {
-            if let Ok(line) = serde_json::to_string(mark) {
-                body.push_str(&line);
-                body.push('\n');
-            }
-        }
-        body
-    }
 }
 
 #[cfg(test)]

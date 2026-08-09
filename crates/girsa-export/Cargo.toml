@@ -17,9 +17,19 @@ girsa-corpus.workspace = true
 girsa-fix.workspace = true
 thiserror.workspace = true
 
-# A .docx is a zip with an XML part in it. This is the only dependency in the
-# tree that is here for a file format nobody reads back, which is the whole
-# argument for the crate: `cargo test -p girsa-app` used to build it.
+# A .docx is a zip with an XML part in it.
+#
+# This line used to claim to be "the only dependency in the tree that is here
+# for a file format nobody reads back, which is the whole argument for the
+# crate". Measured on 9 August 2026 and it is not true: `girsa-corpus` carries
+# the same `zip 7.2.0` — it opens a .docx you drop on the window, which this
+# crate's own header says three lines in — and `cargo tree -e normal` puts this
+# crate at **one crate over girsa-app: itself**.
+#
+# So the isolation argument is zero and the crate stays anyway, on the argument
+# that was always the real one: writing a file format nobody reads back is a
+# different subject from reading a shelf, and `girsa-export` is where that
+# subject lives. A boundary can be worth having without saving a compile.
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

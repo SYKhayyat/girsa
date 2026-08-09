@@ -42,7 +42,7 @@ use std::fmt;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use girsa_personal::Log;
+use girsa_personal::{fingerprint, now_seconds, Log};
 
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::standing::Standing;
@@ -135,21 +135,6 @@ impl From<String> for PatchId {
     }
 }
 
-/// FNV-1a, 64-bit. Small, dependency-free, and deterministic across machines —
-/// which is the only property a patch id needs, since a collision here would
-/// have to be two different corrections to the same segment.
-fn fingerprint(parts: &[&str]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for part in parts {
-        for byte in part.as_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
-        }
-        hash ^= 0xff;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
-    }
-    format!("{hash:016x}")
-}
 
 /// One correction.
 ///
@@ -261,12 +246,6 @@ impl Patch {
     }
 }
 
-fn now_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or_default()
-}
 
 /// Why a correction was not taken.
 #[derive(Debug, thiserror::Error)]
@@ -350,9 +329,17 @@ pub struct Merged {
 }
 
 /// Where the corrections live under a personal layer.
+///
+/// The name comes from `girsa_personal::CORRECTIONS` rather than from a literal
+/// here, because it was a literal here **and** in `girsa_note::since`, which
+/// counts what is newer than the index. The wall between the two sibling crates
+/// is right; a wall does not stop them needing the same string, it only stops
+/// them sharing one. A rename would have left `since` counting a file nobody
+/// writes, reporting zero, and telling a reader their index was up to date —
+/// which is the exact reading that mechanism exists to prevent.
 #[must_use]
 pub fn path_in(personal: &Path) -> PathBuf {
-    personal.join("corrections.jsonl")
+    personal.join(girsa_personal::CORRECTIONS)
 }
 
 /// What names a correction in the file.
