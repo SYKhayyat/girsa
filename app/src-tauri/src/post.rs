@@ -261,15 +261,20 @@ fn refresh(handle: &tauri::AppHandle, body: &str) -> Reply {
         .unwrap_or(state.session.cite);
     let nikud = document.nikud.unwrap_or(state.session.nikud);
 
-    let rows = girsa_desk::refreshed(&document.markup, |reference, range| {
+    let (rows, moved) = girsa_desk::refreshed_reporting(&document.markup, |reference, range| {
         let sefer = state.sefer(&reference.work_slug())?;
         girsa_app::quote(sefer, reference, range, style, nikud).map_err(|e| e.to_string())
     });
     let trouble = rows.iter().filter(|row| row.is_trouble()).count();
+    // Where the citations that moved point now. The words for them were already
+    // right — `Open::at` walks the redirect rows — and nothing said that the
+    // document is holding a name which only resolves because those rows are on
+    // this machine. See `girsa_desk::refreshed_reporting`.
     match serde_json::to_string(&serde_json::json!({
         "quotes": rows,
         "total": rows.len(),
         "trouble": trouble,
+        "moved": moved.rows(),
     })) {
         Ok(json) => Reply::ok(json),
         Err(e) => Reply::refused(500, e.to_string()),

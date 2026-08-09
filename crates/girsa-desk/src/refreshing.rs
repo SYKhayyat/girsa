@@ -42,7 +42,7 @@
 //! are the pen's — this module has no opinion about somebody else's buffer.
 
 use girsa_app::sending::Sent;
-use girsa_ref::Ref;
+use girsa_ref::{RedirectTable, Ref};
 use girsa_source::Range;
 use serde::{Deserialize, Serialize};
 
@@ -145,15 +145,58 @@ impl Refreshed {
 /// let a reference out of it would make the lock the errand's problem.
 pub fn refreshed(
     markup: &str,
-    mut ask: impl FnMut(&Ref, Option<Range>) -> Result<Sent, String>,
+    ask: impl FnMut(&Ref, Option<Range>) -> Result<Sent, String>,
 ) -> Vec<Refreshed> {
-    wanted(markup)
+    refreshed_reporting(markup, ask).0
+}
+
+/// The same, and where the citations that have **moved** now point.
+///
+/// # The half a refresh was answering silently
+///
+/// `Open::at` resolves an address through `covered_by`, which walks the
+/// corpus's redirect rows and the ancestry — so a mareh makom whose place
+/// upstream re-segmented comes back with **the right words** and no sign that
+/// anything happened. Showing the reader the right words is correct. Leaving
+/// the document holding the old name is not: the ref in the `.typ` file now
+/// resolves only because a redirect row exists, and rows are kept against a
+/// shelf, not against a document somebody emailed you.
+///
+/// So the fact travels. The packet knows where the words are *today*
+/// (`packet.reference`), the document says where they were, and when the two
+/// disagree that is one row of a [`RedirectTable`] — the type `girsa-ref` has
+/// carried since day one for exactly this errand, under a header about refs
+/// that *"get stored inside Ksav documents"*, and with no consumer until now.
+///
+/// What to do with it is the pen's. Offering to rewrite the mareh makom is the
+/// obvious thing; keeping the table beside the document, so that a later
+/// **offline** open can still follow it with no library to ask, is the one this
+/// crate cannot do and Ksav can.
+pub fn refreshed_reporting(
+    markup: &str,
+    mut ask: impl FnMut(&Ref, Option<Range>) -> Result<Sent, String>,
+) -> (Vec<Refreshed>, RedirectTable) {
+    let mut moved = RedirectTable::new();
+    let rows = wanted(markup)
         .into_iter()
         .map(|one| match ask(&one.reference, one.range) {
-            Ok(sent) => Refreshed::found(&one, &sent),
+            Ok(sent) => {
+                // Only when it parses, and only when it differs. A packet whose
+                // ref this build cannot read is not evidence that anything
+                // moved; and a table with a row for every citation in the
+                // document would be saying *everything moved*, which carries
+                // the same information as saying nothing.
+                if let Ok(now) = sent.packet.reference.parse::<Ref>() {
+                    if now != one.reference {
+                        moved.insert(&one.reference, vec![now]);
+                    }
+                }
+                Refreshed::found(&one, &sent)
+            }
             Err(why) => Refreshed::lost(&one, why),
         })
-        .collect()
+        .collect();
+    (rows, moved)
 }
 
 #[cfg(test)]
