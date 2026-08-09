@@ -6,6 +6,7 @@ Girsa (גִּרְסָא, "the text as received") is the page. **Ksav** (כְּת
 is the pen. The pairing is the idea.
 
 **If you are here to use it, not to build it: [`docs/start-here.md`](docs/start-here.md).**
+Every command in this repository, and what each is for: [`docs/tools.md`](docs/tools.md).
 Five minutes, end to end, and it is the whole idea.
 
 - **[`docs/`](docs/)** — for a reader: getting started, *coming from Otzar

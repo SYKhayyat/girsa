@@ -18,6 +18,7 @@ This directory is for somebody **using** it. B36 is the order that asked for it:
 | [`from-otzar.md`](from-otzar.md) | you use Otzar HaChochma — what is worse here, and what you can do that you could not |
 | [`from-bar-ilan.md`](from-bar-ilan.md) | you use Bar Ilan — including where Girsa is genuinely behind |
 | [`shortcuts.md`](shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
+| [`tools.md`](tools.md) | every command this repository can be told to run, and what each is for |
 | [`images/`](images/) | screenshots, and an honest note about why there are none yet |
 
 Ksav's own pages are in the pen's repository, at `Ksav/docs/` — a

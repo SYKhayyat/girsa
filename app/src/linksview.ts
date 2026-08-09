@@ -128,10 +128,18 @@ export class LinksView {
     this.list.append(this.lensRow(found));
     if (found.incoming_unknown) {
       // Two different statements, and a short list says the wrong one.
+      //
+      // `incoming_unknown` is `!girsa_link::inbound::built(root)` — the
+      // **inbound** cache, which `girsa-link-types` writes. This line named
+      // `girsa-companions`, which writes `companions.jsonl` and is the shelf's
+      // neighbour list: a reader who did as they were told sat through a
+      // four-million-edge walk and came back to the same sentence. `search.ts`
+      // reports the same cold cache and names it correctly, which is how one of
+      // the two was provably wrong without running either.
       const warn = document.createElement("p");
       warn.className = "links-warn";
       warn.textContent =
-        "אין מטמון שכנים — הקישורים אל השורה הזאת אינם מוצגים. הרץ girsa-companions.";
+        "אין מטמון נכנס — הקישורים אל השורה הזאת אינם מוצגים. הרץ girsa-link-types.";
       this.list.append(warn);
     }
     this.list.append(...found.links.map((link) => this.row(link, found.types)));

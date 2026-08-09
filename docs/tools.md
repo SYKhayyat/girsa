@@ -1,0 +1,118 @@
+# Every command this repository can be told to run
+
+Girsa is a window, and behind it are thirty command-line programs: the ones that
+build the corpus, the ones that read the same data on a terminal so a feature
+can be checked without a window, and the ones that measure a claim somebody
+made in prose.
+
+This page exists because they were not written down. Fifteen of them had never
+been named in a runnable line in any document — including `girsa-companions`,
+which the links panel used to tell the reader, in Hebrew, to go and run.
+`crates/girsa-app/tests/the_documentation_names_things_that_exist.rs` now checks
+both directions: every command a document names exists, **and** every command
+that exists is named by a document.
+
+Every one of them takes the same shape and answers `--help`. Where a command
+takes `[corpus] [personal]`, both default and you can usually leave them off.
+
+---
+
+## Building the shelf
+
+In this order, once, before anything else. `docs/start-here.md` is the
+walkthrough; this is the list.
+
+```sh
+cargo run -p girsa-corpus --bin girsa-fetch                # the seforim
+cargo run -p girsa-corpus --bin girsa-import      corpus   # onto permanent ids
+cargo run -p girsa-link   --bin girsa-link-import corpus   # the links between them
+cargo run -p girsa-link   --bin girsa-link-types  corpus   # the caches that read them backwards
+cargo run -p girsa-search --bin girsa-index       corpus   # the search index
+```
+
+Two more that are worth running and that nothing refuses without:
+
+```sh
+cargo run --release -p girsa-app --bin girsa-companions corpus
+cargo run -p girsa-link --bin girsa-link-orient corpus
+```
+
+`girsa-companions` walks the 4.1-million-edge graph once and writes
+`corpus/links/companions.jsonl` — *which seforim are worth opening beside
+which*. Without it the shelf offers the declared commentaries only, and the
+links panel says so rather than pretending the list is complete.
+`girsa-link-orient` turns the `comments-on` edges the right way round.
+
+Optional, and only if you want an agent to be able to ask:
+
+```sh
+cargo run --release -p girsa-mcp --bin girsa-mcp -- corpus personal index
+```
+
+`girsa-mcp` is its crate's only binary, so `-p girsa-mcp` alone runs it and that
+is how the README writes it. The long form is here because it is the one that
+cannot become ambiguous later.
+
+## Reading the same data without a window
+
+Each of these exists so that a feature can be seen, and tested, without a
+running application. That is the whole reason they are here — a window is a bad
+place to find out that a mapping is wrong.
+
+```sh
+cargo run -p girsa-app    --bin girsa-shelf  corpus personal   # the shelf
+cargo run -p girsa-app    --bin girsa-daf    corpus            # the page→daf mapping
+cargo run -p girsa-app    --bin girsa-chain  corpus            # the transmission chain
+cargo run -p girsa-app    --bin girsa-read   corpus personal status   # words off a scan
+cargo run -p girsa-desk   --bin girsa-notes  corpus personal   # your own layer
+cargo run -p girsa-nearby --bin girsa-lane   corpus            # the semantic lane
+cargo run -p girsa-search --bin girsa-suspects corpus          # the OCR queue
+```
+
+`girsa-read` is the one worth knowing: `words`, `ocr`, `show`, `status` and
+`fix` over a scan you brought, all on a terminal.
+
+## Measuring a claim
+
+These print a number. Every one of them exists because a sentence somewhere
+states that number, and a sentence is not a measurement.
+
+```sh
+cargo run --release -p girsa-corpus --example measure-continuity   # would a re-import keep every id?
+cargo run --release -p girsa-corpus --example measure-oversized    # segments that name a volume, not a place
+cargo run --release -p girsa-corpus --example measure-resolver     # the resolver against real citations
+cargo run --release -p girsa-corpus --example measure-ids          # what reading a work's ids costs
+cargo run --release -p girsa-app    --example measure-standing     # what asking the shelf costs
+cargo run --release -p girsa-lane   --example measure              # the lane against a real model
+cargo run --release -p girsa-link   --example why-the-panel-waits  # where the half-second goes
+```
+
+## Looking at one thing that went wrong
+
+```sh
+cargo run -p girsa-link --example why-dropped   corpus   # why a link did not become an edge
+cargo run -p girsa-link --example sort-inbound  corpus   # sort every inbound.jsonl and index it
+```
+
+`why-dropped` prints the rows rather than the count, which is the difference
+between *4,102 links were dropped* and *here is one, and here is why*.
+
+## The Ksav loop, from this side
+
+```sh
+cargo run -p girsa-app  --example send             # a source, in its three flavours
+cargo run -p girsa-app  --example fixture-packet   # the packet Ksav's test asserts against
+cargo run -p girsa-desk --example write            # a buffer, written the way the window writes it
+```
+
+## Rebuilding something generated
+
+```sh
+cargo run -p girsa-corpus --example build-lexicon   # the resolver's lexicon, from Sefaria's schemas
+```
+
+Two more are generated and are **not** run by hand: `girsa-card` writes
+`docs/shortcuts.md` (the page says so at the top), and `dev-fixtures` writes
+`public/dev/*.json` for the browser build, which `npm run dev` runs for you.
+They are the two entries in that test's `NOT_FOR_A_READER` list, each with the
+reason written out beside it.
