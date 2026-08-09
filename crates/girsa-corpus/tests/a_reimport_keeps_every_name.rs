@@ -466,6 +466,8 @@ fn a_stale_redirect_file_is_taken_away_rather_than_left_to_lie() {
     import_over(&root, vec![raw(&["1", "1"], &long)]);
     let path = import::work_dir(&root, &work().slug).join(import::REDIRECTS);
     assert!(path.exists(), "a cut se'if writes a row");
+    let pieces: Vec<String> = shelf(&root).keys().cloned().collect();
+    assert!(pieces.len() > 2, "cut into several: {pieces:?}");
 
     // The same place, shortened upstream until it no longer needs cutting. It
     // keeps its name — same address, same opening — so the `cut` rows have
@@ -473,11 +475,66 @@ fn a_stale_redirect_file_is_taken_away_rather_than_left_to_lie() {
     let short = "מאימתי קורין את שמע בערבית:";
     let imported = import_over(&root, vec![raw(&["1", "1"], short)]);
     assert_eq!(imported.continuity.kept, 1);
-    assert!(imported.redirects.is_empty());
     assert!(
-        !path.exists(),
-        "nothing is cut now, so nothing claims to be"
+        !imported.redirects.iter().any(|r| r.why == Why::Cut),
+        "nothing is cut now, so nothing claims to be: {:?}",
+        imported.redirects
     );
+
+    // This said `redirects.is_empty()`, and that was the assertion rather than
+    // the argument. The paragraph above is about the `cut` row for `#1`, which
+    // is live again and must not be redirected over. Its children are the
+    // opposite case: names this importer minted, on disk for a whole release,
+    // and now on nothing. Saying nothing about them is how an anchor a reader
+    // wrote comes to resolve to silence.
+    let forwarded: Vec<String> = imported
+        .redirects
+        .iter()
+        .map(|r| format!("{} → {:?} ({:?})", r.from, r.to, r.why))
+        .collect();
+    let shed: Vec<String> = imported
+        .redirects
+        .iter()
+        .map(|r| r.from.to_string())
+        .collect();
+    assert_eq!(
+        shed, pieces,
+        "every child it had and nothing else: {forwarded:?}"
+    );
+    for row in &imported.redirects {
+        assert_eq!(row.why, Why::Resegmented);
+        assert_eq!(row.to.len(), 1, "the whole place, which is one record again");
+        assert!(row.to[0].to_string().ends_with("#1"), "{forwarded:?}");
+    }
+    assert!(path.exists(), "dead names are rows: {forwarded:?}");
+}
+
+#[test]
+fn a_shelf_that_will_not_parse_does_not_leave_its_redirects_behind() {
+    // Where the removal branch is still reached, and it is the case that
+    // matters most.
+    //
+    // The test above used to reach it by shortening a cut se'if, and that path
+    // is gone: the children it sheds are dead names and they get rows. What is
+    // left is `Previous::on_the_shelf`'s other answer — *"a work that will not
+    // parse reads as nothing rather than failing the import"* — where the run
+    // that follows has no previous names to keep and no rows to write. A
+    // redirect file surviving that is the worst version of a stale one: every
+    // row in it names records the run beneath it never wrote.
+    let root = scratch("damaged");
+    let long = "מאימתי קורין את שמע בערבית: ".repeat(1_200);
+    import_over(&root, vec![raw(&["1", "1"], &long)]);
+    let dir = import::work_dir(&root, &work().slug);
+    let path = dir.join(import::REDIRECTS);
+    assert!(path.exists(), "a cut se'if writes a row");
+
+    std::fs::write(dir.join("segments.jsonl"), "{ half a line").expect("damages the shelf");
+    let previous = Previous::on_the_shelf(&root, &work().slug);
+    assert!(previous.is_empty(), "a damaged shelf reads as nothing");
+
+    let imported = import_over(&root, vec![raw(&["1", "1"], "קצר")]);
+    assert!(imported.redirects.is_empty());
+    assert!(!path.exists(), "nothing is redirected, so nothing claims to be");
 }
 
 #[test]
@@ -495,4 +552,297 @@ fn the_report_says_what_the_pass_did_rather_than_leaving_it_to_be_inferred() {
         "a place that went away is said out loud: {said:?}"
     );
     assert_eq!(imported.continuity.works(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// The other half of the name supply
+//
+// Everything above is about the names `mint_between` hands out, and every one of
+// them comes out of `taken`. The oversized cutter hands out names too — `#7.1`,
+// `#7.2` — and it was taking them off `Ordinal::child` directly, asking nothing.
+// `standing.rs` opens by explaining that those two callers mean opposite things
+// by a dotted name; what neither of them said is that only one was asking
+// permission.
+
+/// Every **name** on the shelf, which is the ordinal and not the printed id.
+///
+/// The address inside an id is upstream's and moves; the ordinal is the durable
+/// name and is what two records may not share. Comparing printed ids instead
+/// hides the collision this section is about — a cut child at `1:1#1.1` and an
+/// inserted se'if at `1:2#1.1` are two different strings and one name, which is
+/// exactly the failure, and `SegmentId`'s own `Ord` ignores the path for this
+/// reason.
+fn names(root: &Path) -> Vec<String> {
+    import::read_back(root, &work().slug)
+        .expect("reads back")
+        .segments
+        .iter()
+        .map(|s| s.id.ordinal().to_string())
+        .collect()
+}
+
+/// The shelf in reading order — which is ordinal order, never file order.
+fn in_reading_order(root: &Path) -> Vec<(String, String)> {
+    let mut segments = import::read_back(root, &work().slug)
+        .expect("reads back")
+        .segments;
+    segments.sort_by(|a, b| a.id.cmp(&b.id));
+    segments
+        .into_iter()
+        .map(|s| (s.id.ordinal().to_string(), s.text))
+        .collect()
+}
+
+/// Long enough to be cut into `n` pieces, in words that say which sefer they are.
+fn oversized(chars: usize) -> String {
+    let unit = "מאימתי קורין את שמע בערבית: ";
+    unit.repeat(chars / unit.chars().count() + 1)
+}
+
+#[test]
+fn an_inserted_seif_cannot_be_handed_a_cut_childs_name() {
+    // The collision, end to end. `#1` is over-long and is on disk as `#1.1`,
+    // `#1.2`, `#1.3`. Upstream then inserts a se'if between it and `#2`, and the
+    // only name that sorts between `#1` and `#2` is — by the old arithmetic —
+    // `#1.1`, which is three-quarters of a page of somebody else's words.
+    //
+    // Two records, one id, one file, and nothing in the importer to notice.
+    let root = scratch("cut-child-vs-insert");
+    let long = oversized(16_000);
+    import_over(
+        &root,
+        vec![raw(&["1", "1"], &long), raw(&["1", "2"], "האחרון")],
+    );
+    let cut = names(&root);
+    assert_eq!(cut.len(), 4, "three pieces and a short se'if: {cut:?}");
+
+    let after = import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], &long),
+            raw(&["1", "2"], "החדש"),
+            raw(&["1", "3"], "האחרון"),
+        ],
+    );
+    let ids: Vec<String> = after
+        .segments
+        .iter()
+        .map(|s| s.id.ordinal().to_string())
+        .collect();
+    let mut unique = ids.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), ids.len(), "one name, one record: {ids:?}");
+
+    // And the new se'if is after the whole of `#1`, not inside it. `#1.4` reads
+    // oddly and is the honest name: it sorts after every piece of `#1` and
+    // before `#2`, which is exactly where the words are.
+    let new = after
+        .segments
+        .iter()
+        .find(|s| s.text == "החדש")
+        .expect("the inserted se'if is on the shelf");
+    assert!(
+        !cut.contains(&new.id.ordinal().to_string()),
+        "it took a name that was already on disk: {}",
+        new.id
+    );
+    let pieces: Vec<&str> = after
+        .segments
+        .iter()
+        .filter(|s| s.id.ordinal().to_string().starts_with("1."))
+        .map(|s| s.text.as_str())
+        .collect();
+    assert_eq!(
+        pieces.last(),
+        Some(&"החדש"),
+        "the insertion sorts after every piece of the se'if it follows"
+    );
+}
+
+#[test]
+fn a_child_a_shorter_cut_no_longer_produces_says_where_the_words_went() {
+    // The same place, re-divided. It keeps its name by address, so `went` never
+    // hears about it — and the child it stopped producing had no way of being
+    // mentioned at all. `Why::Gone`'s own comment reserves resolving to nothing
+    // for a place upstream does not have, "not the same as an id nobody ever
+    // minted". This importer minted `#2.3`.
+    let root = scratch("shorter-cut");
+    let three = oversized(16_000);
+    import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], "ראשון"),
+            raw(&["1", "2"], &three),
+            raw(&["1", "3"], "אחרון"),
+        ],
+    );
+    let before: Vec<String> = shelf(&root).keys().cloned().collect();
+    assert_eq!(before.len(), 5, "one, three pieces, and one: {before:?}");
+
+    let two = oversized(12_000);
+    let after = import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], "ראשון"),
+            raw(&["1", "2"], &two),
+            raw(&["1", "3"], "אחרון"),
+        ],
+    );
+    assert_eq!(after.continuity.kept, 3, "the place kept its name");
+
+    let shed: Vec<&girsa_corpus::import::Redirect> = after
+        .redirects
+        .iter()
+        .filter(|r| r.from.to_string().ends_with("#2.3"))
+        .collect();
+    assert_eq!(shed.len(), 1, "the shed child has a row: {:?}", after.redirects);
+    assert_eq!(shed[0].why, Why::Resegmented);
+    let to: Vec<String> = shed[0].to.iter().map(ToString::to_string).collect();
+    assert_eq!(to.len(), 2, "pointed at the two records it is now: {to:?}");
+    assert!(to.iter().all(|id| id.contains("#2.")), "{to:?}");
+
+    // And the two names that survived still name the words of the same place —
+    // it is the *place* that is durable, and its pieces are how it is stored.
+    let live = shelf(&root);
+    assert!(live.contains_key(&to[0]), "{to:?}");
+    assert!(!live.contains_key(&shed[0].from.to_string()));
+}
+
+#[test]
+fn a_name_a_cut_gave_up_is_not_minted_for_a_new_seif() {
+    // The seeding half, which the test above does not reach.
+    //
+    // `places_of` folds `#1.1 #1.2 #1.3` back into one place called `#1`, so
+    // `taken` — seeded from the places — never heard of the three names those
+    // words were actually on disk under. While the se'if is still over-long that
+    // costs nothing, because it claims them back. Shorten it, and the three
+    // names are free: the very next se'if upstream inserts after `#1` is minted
+    // at `#1.1`, which was three-quarters of a page in the release a reader
+    // wrote their anchor against.
+    //
+    // That is spec.md §3's failure exactly, and it is the silent one — the
+    // anchor resolves, to different words.
+    let root = scratch("gave-up-a-name");
+    let long = oversized(16_000);
+    import_over(
+        &root,
+        vec![raw(&["1", "1"], &long), raw(&["1", "2"], "האחרון")],
+    );
+    let was = names(&root);
+    assert_eq!(was.len(), 4, "three pieces and a short se'if: {was:?}");
+
+    // Upstream shortens it and inserts a se'if after it, in one release. The
+    // shortened se'if keeps its opening, because that is what `same_opening`
+    // wants before it will hand a name over — a se'if whose first word changed
+    // is a different se'if as far as the alignment is concerned, and it takes
+    // the `went` path instead of this one.
+    let short = "מאימתי קורין את שמע בערבית: ".repeat(3);
+    let after = import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], &short),
+            raw(&["1", "2"], "החדש"),
+            raw(&["1", "3"], "האחרון"),
+        ],
+    );
+    let new = after
+        .segments
+        .iter()
+        .find(|s| s.text == "החדש")
+        .expect("the inserted se'if is on the shelf");
+    assert!(
+        !was.contains(&new.id.ordinal().to_string()),
+        "minted a name that was on disk last release: {}",
+        new.id
+    );
+
+    // And the names it gave up say where the words went rather than nothing.
+    let shed: Vec<String> = after
+        .redirects
+        .iter()
+        .filter(|r| r.why == Why::Resegmented)
+        .map(|r| r.from.to_string())
+        .collect();
+    assert_eq!(shed.len(), 3, "every child of the se'if it was: {shed:?}");
+}
+
+#[test]
+fn a_cut_cannot_take_the_name_of_a_seif_inserted_inside_it() {
+    // The collision that needs three imports, and the one the old arithmetic
+    // could not avoid at all.
+    //
+    // A se'if inserted after `#1` is minted at `#1.1` — the only name that sorts
+    // between `#1` and `#2` — and it is live. Two releases later `#1` grows past
+    // the threshold, and `id.split(3)` returns `#1.1 #1.2 #1.3`: the first of
+    // them is a name a different se'if is currently living under.
+    //
+    // There is no arrangement of `#1.k` that both avoids it and stays in reading
+    // order, because the insertion sits *inside* the range the pieces need. So
+    // the pieces go where an insertion would — under `#1.0` — which is what
+    // `mint_between` has always done for exactly this shape of problem.
+    let root = scratch("insert-then-cut");
+    let unit = "מאימתי קורין את שמע בערבית: ";
+    import_over(
+        &root,
+        vec![raw(&["1", "1"], unit), raw(&["1", "2"], "האחרון")],
+    );
+
+    import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], unit),
+            raw(&["1", "2"], "החדש"),
+            raw(&["1", "3"], "האחרון"),
+        ],
+    );
+    let inserted = in_reading_order(&root);
+    assert_eq!(
+        inserted.iter().map(|(o, _)| o.as_str()).collect::<Vec<_>>(),
+        ["1", "1.1", "2"],
+        "the insertion is named between its neighbours"
+    );
+
+    // And now the first se'if is over-long.
+    let long = oversized(16_000);
+    let after = import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], &long),
+            raw(&["1", "2"], "החדש"),
+            raw(&["1", "3"], "האחרון"),
+        ],
+    );
+    let names: Vec<String> = after
+        .segments
+        .iter()
+        .map(|s| s.id.ordinal().to_string())
+        .collect();
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len(), "one name, one record: {names:?}");
+
+    let shelf = in_reading_order(&root);
+    let order: Vec<String> = shelf.iter().map(|(name, _)| name.clone()).collect();
+    let words: Vec<&str> = shelf.iter().map(|(_, text)| text.trim()).collect();
+    assert_eq!(
+        words.iter().filter(|t| **t == "החדש").count(),
+        1,
+        "the inserted se'if is still there, once: {order:?}"
+    );
+
+    // Reading order is the property a name collision would have destroyed
+    // quietly, and it is the reason the pieces are called what they are:
+    // `#1.0`, `#1.0.1`, `#1.0.1.1` all sort below `#1.1`, so the whole of the
+    // first se'if is read before the se'if inserted after it.
+    let at_new = words.iter().position(|t| *t == "החדש").expect("is there");
+    let at_last = words.iter().position(|t| *t == "האחרון").expect("is there");
+    assert_eq!(at_new + 1, at_last, "and the insertion is still before it");
+    assert_eq!(at_new, 3, "cut into three: {order:?}");
+    assert!(
+        words[..at_new].iter().all(|t| t.starts_with("מאימתי")),
+        "every piece of the cut se'if comes first: {order:?}"
+    );
+    assert_eq!(order[at_new], "1.1", "and the insertion kept its name");
 }

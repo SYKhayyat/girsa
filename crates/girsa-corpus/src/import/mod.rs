@@ -343,12 +343,28 @@ impl ImportedWork {
             })
             .collect();
 
+        // The cut is decided before anything is named, and the decision is kept.
+        //
+        // A place cut into three is three records on disk under three names, and
+        // those names have to come out of the same set every other name in this
+        // run comes out of — which they did not, until the count arrived here
+        // early enough for `name_them` to reserve them. `cuts` returns byte
+        // offsets, which own nothing and so can be held across the naming pass;
+        // the pieces themselves borrow `mined`, which the loop below consumes.
+        let cut_at: Vec<Vec<usize>> = mined
+            .iter()
+            .map(|m| oversized::cuts(&m.text, oversized::TARGET))
+            .collect();
+        let counts: Vec<usize> = cut_at.iter().map(|at| at.len() + 1).collect();
+
         let Named {
             ordinals,
+            children: child_names,
+            kept_from,
             carried,
             went,
             mut tally,
-        } = name_them(&fresh, previous);
+        } = name_them(&fresh, previous, &counts);
         if !previous.is_empty() {
             tally.over(&work.slug);
         }
@@ -367,12 +383,12 @@ impl ImportedWork {
         //
         // What that costs here is `raw.path.clone()`, two or three short strings
         // per segment, against the megabytes of text it saves upstream.
-        for ((raw, mined), ordinal) in raw.iter().zip(mined).zip(ordinals) {
+        for (at, ((raw, mined), ordinal)) in raw.iter().zip(mined).zip(ordinals).enumerate() {
             let id = SegmentId::new(work.slug.clone(), raw.path.clone(), ordinal);
             let text = mined.text;
             let mined_anchors = mined.anchors;
             oversized.saw(&id.to_string(), text.chars().count(), &work.slug);
-            let pieces = oversized::pieces(&text, oversized::TARGET);
+            let pieces = oversized::pieces_at(&text, &cut_at[at]);
             if pieces.len() == 1 {
                 live_of.push(vec![id.clone()]);
                 segments.push(Segment {
@@ -390,7 +406,17 @@ impl ImportedWork {
             // Each child keeps the anchors that fall inside it, with their offsets
             // rebased — an anchor is a position in a text, and after a split it is a
             // position in a different, shorter text.
-            let children = id.split(pieces.len());
+            //
+            // The names came from `name_them`, not from `id.split(n)`. They are
+            // usually the same names — `#7.1 #7.2 #7.3` — and the difference is
+            // that these were asked for: a child never takes a name a se'if
+            // inserted after `#7` in an earlier run is already living under.
+            let children: Vec<SegmentId> = child_names[at]
+                .iter()
+                .map(|ordinal| {
+                    SegmentId::new(work.slug.clone(), raw.path.clone(), ordinal.clone())
+                })
+                .collect();
             live_of.push(children.clone());
             redirects.push(Redirect {
                 from: id,
@@ -433,6 +459,42 @@ impl ImportedWork {
             };
             redirects.push(Redirect { from, to, why });
         }
+
+        // A name a place kept its identity through and stopped being on disk
+        // under.
+        //
+        // `went` covers the places that are gone. This is the other half, and it
+        // had nowhere to be said: a se'if cut into three last run and into two
+        // now sheds `#7.3`, and a se'if that has stopped being over-long sheds
+        // every child it had. The parent's `Why::Cut` row names the *new*
+        // children, so an anchor written on `#7.3` walked up to a parent that is
+        // not live, found nothing, and resolved to nothing — which `Why::Gone`'s
+        // own comment reserves for a place upstream does not have, *"not the
+        // same as an id nobody ever minted"*. This importer minted it.
+        //
+        // `Resegmented` and deliberately not `Cut`: `places_of` reads `Cut` rows
+        // to reassemble a place from its children, and a `Cut` row whose `from`
+        // is a shed child would invent a place next run at a name that never
+        // held one. The words really were re-divided, which is what the variant
+        // says.
+        //
+        // Compared by ordinal rather than by id because a place can move
+        // sections between runs — `SegmentId`'s `Ord` ignores the path for
+        // exactly this reason, and its `PartialEq` does not.
+        for (at, was) in kept_from.iter().enumerate() {
+            let Some(was) = was else { continue };
+            for old in &previous.places[*was].ids {
+                if live_of[at].iter().any(|id| id.ordinal() == old.ordinal()) {
+                    continue;
+                }
+                redirects.push(Redirect {
+                    from: old.clone(),
+                    to: live_of[at].clone(),
+                    why: Why::Resegmented,
+                });
+            }
+        }
+
         // Rows the previous run wrote, kept last so that anything this run
         // decided about the same name wins. A carried row whose name is live
         // again — upstream restored a se'if it had dropped — is not carried:
@@ -476,6 +538,21 @@ impl ImportedWork {
 struct Named {
     /// One per place in the run, in reading order.
     ordinals: Vec<crate::segment::Ordinal>,
+    /// The names the records of each over-long place will be on disk as, and
+    /// empty for every place that is one record.
+    ///
+    /// Decided here rather than by the cutter because a cut child is a name like
+    /// any other and has to come out of the same supply — see
+    /// [`continuity::claim_children`], which is where the two callers of
+    /// `Ordinal::child` finally ask one set for permission.
+    children: Vec<Vec<crate::segment::Ordinal>>,
+    /// Which previous place each place in this run is the continuation of.
+    ///
+    /// What the caller needs in order to see that a place kept its name and
+    /// still stopped being on disk as one of the ids it used to be — a child a
+    /// re-cut no longer produces is a dead name and needs a forwarding address
+    /// like any other.
+    kept_from: Vec<Option<usize>>,
     /// Rows the previous run wrote, to be kept unless this one overrules them.
     carried: Vec<Redirect>,
     /// A previous place with no continuation, and the places in *this* run its
@@ -500,17 +577,54 @@ struct Named {
 /// link, a correction or a Ksav document on somebody else's disk, and giving
 /// its name to different words is the exact failure spec.md §3 exists to
 /// prevent — worse than the anchor resolving to nothing, because it is silent.
-fn name_them(fresh: &[continuity::Fresh], previous: &Previous) -> Named {
+///
+/// # `pieces`, and the names that were being handed out behind this function
+///
+/// *"No name is ever handed out twice"* was true of the names minted here and of
+/// no others. The oversized cutter runs **after** this and used to take
+/// `#7.1 … #7.n` off `Ordinal::child` directly, asking nobody — so a se'if
+/// inserted after `#7` in one run, named `#7.1` and live, could have its name
+/// written a second time by the cut of `#7` in the next. Two records, one id, one
+/// file, no complaint from anything.
+///
+/// `pieces[at]` is how many records place `at` will be, decided before any name
+/// is handed out, so cut children come out of `taken` like everything else — see
+/// [`continuity::claim_children`]. It also fixes reading order for free: with
+/// `#7.1 … #7.n` reserved, a se'if inserted *after* `#7`'s words is minted at
+/// `#7.{n+1}` and sorts after all of them, where before it sorted into the
+/// middle of the se'if it comes after.
+fn name_them(fresh: &[continuity::Fresh], previous: &Previous, pieces: &[usize]) -> Named {
+    let nothing = std::collections::BTreeSet::new();
+
     // A first import. The names come out of reading order, once, which is what
     // §3 asks for and what this has always done.
     if previous.is_empty() {
+        let ordinals: Vec<crate::segment::Ordinal> = (1..=fresh.len())
+            .map(|n| {
+                #[allow(clippy::cast_possible_truncation)]
+                crate::segment::Ordinal::root(n as u32)
+            })
+            .collect();
+        let mut taken: std::collections::BTreeSet<crate::segment::Ordinal> =
+            ordinals.iter().cloned().collect();
+        let children = ordinals
+            .iter()
+            .enumerate()
+            .zip(pieces)
+            .map(|((at, name), count)| {
+                continuity::claim_children(
+                    name,
+                    *count,
+                    ordinals.get(at + 1),
+                    &nothing,
+                    &mut taken,
+                )
+            })
+            .collect();
         return Named {
-            ordinals: (1..=fresh.len())
-                .map(|n| {
-                    #[allow(clippy::cast_possible_truncation)]
-                    crate::segment::Ordinal::root(n as u32)
-                })
-                .collect(),
+            ordinals,
+            children,
+            kept_from: vec![None; fresh.len()],
             carried: previous.redirects.clone(),
             went: Vec::new(),
             tally: continuity::Continuity::default(),
@@ -518,10 +632,17 @@ fn name_them(fresh: &[continuity::Fresh], previous: &Previous) -> Named {
     }
 
     let aligned = continuity::align(&previous.places, fresh);
+    // Every name the previous run put into circulation. The cut children are the
+    // half that was missing: `places_of` folds `#7.1 #7.2` back into one place
+    // called `#7`, so seeding from `p.ordinal` alone left the two names those
+    // words are actually on disk under available to be minted for somebody else.
     let mut taken: std::collections::BTreeSet<crate::segment::Ordinal> = previous
         .places
         .iter()
-        .map(|p| p.ordinal.clone())
+        .flat_map(|p| {
+            std::iter::once(p.ordinal.clone())
+                .chain(p.ids.iter().map(|id| id.ordinal().clone()))
+        })
         .chain(previous.redirects.iter().map(|r| r.from.ordinal().clone()))
         .collect();
 
@@ -532,6 +653,44 @@ fn name_them(fresh: &[continuity::Fresh], previous: &Previous) -> Named {
             ordinals[at] = Some(previous.places[*was].ordinal.clone());
             tally.kept += 1;
         }
+    }
+
+    // The children of every place that already has a name, claimed before a
+    // single new name is minted. Both halves of that order matter: a name that
+    // is going to be a cut child is not available to an inserted se'if, and an
+    // inserted se'if that belongs after `#7`'s words has to be minted somewhere
+    // that sorts after all of them.
+    //
+    // `after[at]` is the next name that already exists, which is the ceiling a
+    // piece may not reach. It is usually the following se'if and is sometimes a
+    // se'if an earlier run inserted *inside* what is being cut — that is the
+    // case the ceiling is for, and it is why this is computed rather than
+    // assumed to be the next index.
+    let mut after: Vec<Option<crate::segment::Ordinal>> = vec![None; fresh.len()];
+    let mut next: Option<crate::segment::Ordinal> = None;
+    for at in (0..fresh.len()).rev() {
+        after[at] = next.clone();
+        if let Some(name) = &ordinals[at] {
+            next = Some(name.clone());
+        }
+    }
+    let mut children: Vec<Vec<crate::segment::Ordinal>> = vec![Vec::new(); fresh.len()];
+    for (at, slot) in ordinals.iter().enumerate() {
+        let Some(name) = slot else { continue };
+        // Its own previous ids are its to take again; every other taken name
+        // belongs to somebody else. Without this a place cut into three is
+        // renamed on every import, by the fix.
+        let mine: std::collections::BTreeSet<crate::segment::Ordinal> = aligned.for_fresh[at]
+            .map(|was| {
+                previous.places[was]
+                    .ids
+                    .iter()
+                    .map(|id| id.ordinal().clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        children[at] =
+            continuity::claim_children(name, pieces[at], after[at].as_ref(), &mine, &mut taken);
     }
 
     // Runs of consecutive new places, each between the two kept names that
@@ -551,8 +710,21 @@ fn name_them(fresh: &[continuity::Fresh], previous: &Previous) -> Named {
         let high = ordinals.get(at).cloned().flatten();
         let minted = continuity::mint_between(low.as_ref(), high.as_ref(), at - from, &mut taken);
         tally.minted += minted.len();
-        for (slot, name) in ordinals[from..at].iter_mut().zip(minted) {
-            *slot = Some(name);
+        for (offset, name) in minted.iter().enumerate() {
+            // A new place can be over-long too, and its children are claimed the
+            // moment it has a name — before the next run of insertions asks for
+            // one, which is what keeps the two from meeting. Its ceiling is the
+            // next name minted in the same breath, or the one that closed the
+            // run.
+            let ceiling = minted.get(offset + 1).or(high.as_ref());
+            children[from + offset] = continuity::claim_children(
+                name,
+                pieces[from + offset],
+                ceiling,
+                &nothing,
+                &mut taken,
+            );
+            ordinals[from + offset] = Some(name.clone());
         }
     }
 
@@ -589,15 +761,24 @@ fn name_them(fresh: &[continuity::Fresh], previous: &Previous) -> Named {
     // would drop a segment on the floor and hand back a shorter sefer, which is
     // the shape of failure `read_back` refuses a malformed line for.
     let mut out = Vec::with_capacity(ordinals.len());
-    for slot in ordinals {
+    for (at, slot) in ordinals.into_iter().enumerate() {
         match slot {
             Some(name) => out.push(name),
             // Unreachable — the loop above fills every run. Total anyway.
-            None => out.extend(continuity::mint_between(out.last(), None, 1, &mut taken)),
+            None => {
+                if let Some(name) = continuity::mint_between(out.last(), None, 1, &mut taken).pop()
+                {
+                    children[at] =
+                        continuity::claim_children(&name, pieces[at], None, &nothing, &mut taken);
+                    out.push(name);
+                }
+            }
         }
     }
     Named {
         ordinals: out,
+        children,
+        kept_from: aligned.for_fresh,
         carried: previous.redirects.clone(),
         went,
         tally,

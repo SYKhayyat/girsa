@@ -353,6 +353,70 @@ fn longest_increasing(pairs: &[(usize, usize)]) -> Vec<(usize, usize)> {
     out
 }
 
+/// The names the records of one over-long place will be on disk as.
+///
+/// # The half of the name supply that was never asked for
+///
+/// [`crate::standing`] opens by saying that `Ordinal::child` has two callers
+/// meaning opposite things by it — the oversized cutter carving `#7` into `#7.1`
+/// and `#7.2`, and [`mint_between`] naming a se'if upstream inserted after `#7`
+/// — and that only *"a cut deletes its parent"* tells the reader which happened.
+/// That is about reading a name. This is about handing one out, and only one of
+/// the two callers was doing it under any discipline at all: `mint_between`
+/// takes a name that is not in `taken`, and the cutter called `id.split(n)` and
+/// took `#7.1 … #7.n` whether or not those names were already somebody's.
+///
+/// They can be. A se'if inserted after `#7` in a previous run **is named** `#7.1`
+/// and is live; let `#7` then grow past the threshold and the cutter writes a
+/// second record called `#7.1`, in the same file, silently. `name_them`'s own
+/// doc comment says *"in particular no name is ever handed out twice"*, and it
+/// was true of the names that function minted and of no others.
+///
+/// # `mine` is what keeps a re-import still
+///
+/// `taken` is seeded with every name the previous run used, cut children
+/// included — which is the fix — and that on its own would rename every cut
+/// child on every import, because a place cut into three finds `#7.1 … #7.3`
+/// taken by *itself*. `mine` is the names this same place was on disk as last
+/// run: its to take again, and nobody else's to take at all.
+///
+/// A place cut into three and now cut into two therefore keeps `#7.1` and `#7.2`
+/// and sheds `#7.3`, which the caller gives a forwarding address. A place that
+/// has stopped being over-long sheds all of them.
+#[must_use]
+pub fn claim_children(
+    parent: &Ordinal,
+    count: usize,
+    high: Option<&Ordinal>,
+    mine: &BTreeSet<Ordinal>,
+    taken: &mut BTreeSet<Ordinal>,
+) -> Vec<Ordinal> {
+    // Not cut: the place is one record, under its own name.
+    if count <= 1 {
+        return Vec::new();
+    }
+    // The names a cut has always used. Almost always free — and when they are
+    // not, the place they clash with is a se'if an earlier run inserted after
+    // this one, whose name `#7.1` sorts *inside* the words being cut.
+    let natural = parent.children(count);
+    let usable = natural.iter().all(|child| {
+        (!taken.contains(child) || mine.contains(child))
+            && high.is_none_or(|ceiling| child < ceiling)
+    });
+    if usable {
+        for child in &natural {
+            taken.insert(child.clone());
+        }
+        return natural;
+    }
+    // Out of room under the obvious names, so the pieces go where an insertion
+    // would: strictly between this place and whatever comes next, which is what
+    // `mint_between` is. The names it returns are odd to read — `#7.0`,
+    // `#7.0.1` — and they are in reading order, which is the property that
+    // matters. They are `mine` from the next import on, so this costs one run.
+    mint_between(Some(parent), high, count, taken)
+}
+
 /// Names for a run of consecutive new places sitting between two kept ones.
 ///
 /// `low` is the name of the place before the run and `high` the name of the one

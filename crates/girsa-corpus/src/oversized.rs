@@ -267,15 +267,36 @@ fn nearest(window: &str, pattern: &str, about: usize) -> Option<usize> {
 /// use this unconditionally.
 #[must_use]
 pub fn pieces(text: &str, target: usize) -> Vec<&str> {
-    let at = cuts(text, target);
+    pieces_at(text, &cuts(text, target))
+}
+
+/// The same, at offsets somebody has already decided.
+///
+/// Split out because the importer has to know **how many records a place will
+/// become before it can name them** — a place cut into three needs three names,
+/// and those names have to come out of the same set every other name in the run
+/// comes out of. Deciding the cut, holding the answer across the naming pass and
+/// slicing afterwards is what that costs.
+///
+/// It has to be the offsets that are held rather than the pieces: a piece is a
+/// `&str` borrowed from the text, and the naming pass sits between the two in a
+/// loop that consumes it. An offset is a `usize` and borrows nothing.
+///
+/// And asking twice is not free. [`cuts`] reads up to `NAMES_A_PLACE + 1`
+/// characters of every segment to answer *is this long*, which is the cheap
+/// question only relative to the index it replaced — over the corpus's five
+/// million segments it is a slice of the import hour, and running it once per
+/// segment rather than twice is the point of this signature.
+#[must_use]
+pub fn pieces_at<'a>(text: &'a str, at: &[usize]) -> Vec<&'a str> {
     if at.is_empty() {
         return vec![text];
     }
     let mut out = Vec::with_capacity(at.len() + 1);
     let mut from = 0;
     for cut in at {
-        out.push(text.get(from..cut).unwrap_or(""));
-        from = cut;
+        out.push(text.get(from..*cut).unwrap_or(""));
+        from = *cut;
     }
     out.push(text.get(from..).unwrap_or(""));
     out
