@@ -69,9 +69,8 @@ hundred of them, and nothing said so.
 | `girsa-mcp` | The library as tools an agent can call, over stdio |
 | `girsa-fixture` | A synthetic shelf, built from source-shaped input through the real importer, so a test needs no corpus. Never published; a dev-dependency only |
 
-plus `girsa-source`, `girsa-ref`, `girsa-hebrew` and `girsa-cite` from
-`sefer-crates`, pinned to an exact version and resolved from the sibling
-checkout during development.
+plus `girsa-source`, `girsa-ref`, `girsa-hebrew`, `girsa-cite`, `girsa-post`
+and `girsa-ksav` from `sefer-crates`, pinned by **commit** and fetched by cargo.
 
 The last four rows are above `girsa-app` and not beside it, and the reason is
 the line under each of their names. `girsa-app` is *the shelf, tabs and splits*
@@ -196,8 +195,23 @@ The gate found three more the day it was written: `api.ts` declared neither
 one file, which TypeScript merges rather than refuses, so `Landing` was silently
 the union of a citation landing and a `girsa://` link.
 
-**The sibling checkout has to be present.** Until `sefer-crates` is published,
-cloning Girsa alone will not build.
+**Cloning Girsa alone builds.** That is new, and it was not true until
+2026-08-09: the shared crates were `path = "../sefer-crates/crates/…"` — a
+sibling of *this checkout's root* — so `git clone girsa && cargo build` failed
+at `cargo metadata`, before a compiler ran, with `os error 3` naming a directory
+the reader had never heard of. Nothing in this file said so, and every CI job
+carried a second `actions/checkout` to fake the desk layout, which is what a
+load-bearing workaround looks like.
+
+They are pinned by `git` + `rev` now (see the note above them in `Cargo.toml`),
+with the exact version kept beside the rev so a commit whose manifests say
+something else is a resolution error rather than a surprise.
+
+For the days you are working on both halves at once, `.cargo/config.toml`
+carries the `paths` override to write, and
+`sefer-crates/tools/check-dependents.sh` installs exactly that override itself —
+so a change over there is checked against *this tree* rather than against the
+last commit this repository pinned.
 
 ## Build
 

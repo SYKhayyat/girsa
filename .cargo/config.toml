@@ -1,6 +1,6 @@
-# Windows/MSVC build tuning. Nothing here changes *what* is compiled — only how
-# quickly the toolchain gets through it. Safe to delete; the build works without
-# it, just slower.
+# Build tuning that is safe to commit. Nothing here changes *what* is compiled —
+# only how quickly the toolchain gets through it. Safe to delete; the build works
+# without it, just slower.
 
 [target.x86_64-pc-windows-msvc]
 # `link.exe` is the slowest part of a debug build on this platform by a wide
@@ -10,11 +10,62 @@
 #
 # If a link ever fails in a way that smells like the linker rather than the
 # code, comment this line out first; that isolates it in one step.
+#
+# Target-scoped, which is why it can be committed: a Linux CI runner never reads
+# this table.
 linker = "rust-lld.exe"
 
-[build]
-# The i7-1280P is a 28 W part. It cannot hold turbo across all 20 threads, so
-# the default `-j 20` does not buy proportional throughput — it just multiplies
-# concurrent linkers, and *those* are what make the machine unusable to type on
-# while a build runs. 12 keeps the laptop responsive at negligible cost.
-jobs = 12
+# ---------------------------------------------------------------------------
+# What used to be here, and why it is not
+#
+#   [build]
+#   jobs = 12
+#
+# The reasoning was sound and the scope was not. The i7-1280P is a 28 W part; it
+# cannot hold turbo across twenty threads, so `-j 20` multiplies concurrent
+# linkers rather than throughput and makes the machine unusable to type on.
+#
+# But `[build]` is **not target-scoped**. Every CI runner read it too, and a
+# two-core or four-core runner handed `jobs = 12` is being told to oversubscribe
+# by three — a number tuned for one laptop, applied to every machine that ever
+# builds this repository.
+#
+# It belongs in the laptop's own `~/.cargo/config.toml`, where it describes the
+# machine it is about. Put it there:
+#
+#   [build]
+#   jobs = 12
+#
+# ---------------------------------------------------------------------------
+# Working on Girsa and sefer-crates at the same time
+#
+# The shared crates are pinned by `git` + `rev` in `Cargo.toml` (see the note
+# above them there), so `git clone girsa && cargo build` works on a machine that
+# has never heard of sefer-crates. The price is that an edit in a sibling
+# checkout is invisible until it is pushed and the rev is bumped.
+#
+# For the days you are moving the seam, add a `paths` override — **above** the
+# first `[table]` header, because `paths` is a bare key and TOML would otherwise
+# read it as a member of that table:
+#
+#   paths = [
+#       "../sefer-crates/crates/girsa-source",
+#       "../sefer-crates/crates/girsa-ref",
+#       "../sefer-crates/crates/girsa-hebrew",
+#       "../sefer-crates/crates/girsa-cite",
+#       "../sefer-crates/crates/girsa-ksav",
+#       "../sefer-crates/crates/girsa-post",
+#   ]
+#
+# `paths` and not `[patch]`: `[patch]` re-resolves and rewrites `Cargo.lock`,
+# dropping the git pin out of it — one distracted `git add -A` and the
+# fresh-clone build is broken again by the fix for it. A `paths` override
+# substitutes sources for crates already resolved and leaves the lock
+# byte-identical. It warns on every invocation about altered dependency lists;
+# that is expected while every crate in the chain is overridden together.
+#
+# This file is tracked, so the override will show up in `git status`. Take it out
+# before committing. `sefer-crates/tools/check-dependents.sh` installs and
+# removes exactly this block itself, and asserts through `cargo metadata` that it
+# took — which is how CI over there checks a change against this tree rather than
+# against the last pushed commit.

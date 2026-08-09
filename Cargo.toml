@@ -95,19 +95,40 @@ girsa-fixture = { version = "=0.1.0", path = "crates/girsa-fixture" }
 # Pinned to an EXACT version on purpose. sefer-crates is a separate repository,
 # so a breaking change there is no longer one atomic commit that compile-checks
 # both applications — which is the drift the shared-crate design exists to
-# prevent. `=0.5.0` makes taking a new version a deliberate act on this side,
-# and sefer-crates CI builds both dependents before a change can land there.
+# prevent. The exact version makes taking a new one a deliberate act on this
+# side, and sefer-crates CI builds both dependents before a change can land
+# there.
 #
-# `path` points at the sibling checkout so day-to-day work across all three
-# repositories feels like one workspace without them being one. When these are
-# published, the `path` key is what cargo ignores and `version` is what it uses;
-# until then the checkout must be present.
-girsa-source = { version = "=0.5.3", path = "../sefer-crates/crates/girsa-source" }
-girsa-ref = { version = "=0.5.3", path = "../sefer-crates/crates/girsa-ref" }
-girsa-hebrew = { version = "=0.5.3", path = "../sefer-crates/crates/girsa-hebrew" }
-girsa-cite = { version = "=0.5.3", path = "../sefer-crates/crates/girsa-cite" }
-girsa-ksav = { version = "=0.5.3", path = "../sefer-crates/crates/girsa-ksav" }
-girsa-post = { version = "=0.5.3", path = "../sefer-crates/crates/girsa-post" }
+# **A git dependency and not a path.** These were
+# `path = "../sefer-crates/crates/…"` — a sibling of *this checkout's root* — so
+# `git clone girsa && cargo build` failed at `cargo metadata`, before a compiler
+# ran, with `os error 3` naming a directory the reader had never heard of. Not
+# one `.md` in the repository said so, and `ci.yml` carried a second
+# `actions/checkout` in every job purely to fake the desk layout, which is what a
+# load-bearing workaround looks like.
+#
+# **`rev` and not `version` is the pin.** `= 0.5.x` beside a path read as a pin
+# and was not one: with a path dependency the path always wins and there is no
+# version to fall back to. The exact-version requirement is kept beside the rev
+# so that a commit whose manifests say something else is a resolution error
+# rather than a surprise.
+#
+# Bumping is deliberate: edit the rev here, and `cargo update` in each Rust tree
+# so the lock files record it. Ksav made this move first and its
+# `engine/tests/manifests.rs` is the fence that keeps its two manifests from
+# disagreeing; the same shape belongs here when there is a second manifest to
+# disagree with.
+#
+# **Editing both halves at once.** That is what the path dependency really
+# bought, and it is kept: `sefer-crates/tools/check-dependents.sh` installs a
+# `paths` override for the duration of its run, and `.cargo/config.toml.example`
+# holds the same override for a person doing it by hand.
+girsa-source = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
+girsa-ref = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
+girsa-hebrew = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
+girsa-cite = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
+girsa-ksav = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
+girsa-post = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "df7319e07ea6294a5500586caf612f7aab3a8b22" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
