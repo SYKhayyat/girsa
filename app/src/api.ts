@@ -233,7 +233,12 @@ export interface Standing {
 
 export interface Text {
   work: Card;
+  /** A stretch of the sefer, beginning at `from`. */
   lines: Line[];
+  /** Where that stretch begins, counted in segments from the start. */
+  from: number;
+  /** How many segments the sefer has altogether. */
+  total: number;
   has_nikud: boolean;
 }
 
@@ -924,7 +929,17 @@ export const api = {
   chooseMefaresh: (slug: string, work: string, on: boolean) =>
     call<Mefarshim>("choose_mefaresh", { slug, work, on }),
   mefarshimAt: (slug: string, at: string) => call<Comments>("mefarshim_at", { slug, at }),
+  /** A **window** of a sefer, with how long the sefer is. Not the whole of it:
+   * see `girsa_app::view::Text`, and `examples/measure-opening.rs` for the 7.7 MB
+   * that made this necessary. */
   openSefer: (slug: string) => call<Text>("open_sefer", { slug }),
+  /** More of it, for a pane that has scrolled to the edge of what it holds. */
+  seferLines: (slug: string, from: number, count: number) =>
+    call<Line[]>("sefer_lines", { slug, from, count }),
+  /** Where a segment sits in its sefer. `null` is *this sefer does not have it*,
+   * which a link can honestly be. */
+  seferIndexOf: (slug: string, at: string) =>
+    call<number | null>("sefer_index_of", { slug, at }),
   openTab: (slug: string) => call<PaneId>("open_tab", { slug }),
   split: (pane: PaneId, axis: "vertical" | "horizontal", slug: string, follow: boolean) =>
     call<PaneId | null>("split", { pane, axis, slug, follow }),
@@ -1464,18 +1479,30 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       })) as Promise<T>;
     case "mefarshim_at":
       return { said: [], others: false } as T;
+    // The fixtures are whole seforim on disk, so out here the window is sliced
+    // from what was already fetched rather than asked for. Same shape on the
+    // wire, and `sefer_lines` below serves the rest of it.
+    case "sefer_lines": {
+      const whole = await loadFixtureText(flatten(slug!));
+      const from = Number(args?.from ?? 0);
+      const count = Number(args?.count ?? 0);
+      return pointed(whole).lines.slice(from, from + count) as T;
+    }
+    case "sefer_index_of": {
+      const whole = await loadFixtureText(flatten(slug!));
+      const at = whole.lines.findIndex((l) => l.id === String(args?.at));
+      return (at < 0 ? null : at) as T;
+    }
     case "open_sefer": {
-      const key = flatten(slug!);
-      if (!texts.has(key)) texts.set(key, await json<Text>(`/dev/text-${key}.json`));
-      const text = texts.get(key)!;
-      if (fixtureState.pointing === "full") return text as T;
-      const pointing = fixtureState.pointing;
+      const whole = pointed(await loadFixtureText(flatten(slug!)));
+      // The same window the shell sends, so the pane is exercised the way it
+      // will be exercised — a preview that hands over the whole sefer would not
+      // be testing the thing that actually runs.
       return {
-        ...text,
-        lines: text.lines.map((l) => ({
-          ...l,
-          runs: l.runs.map((r) => ({ ...r, text: withoutMarks(r.text, pointing) })),
-        })),
+        ...whole,
+        lines: whole.lines.slice(0, A_WINDOW),
+        from: 0,
+        total: whole.lines.length,
       } as T;
     }
     case "shelf_tree":
@@ -1687,6 +1714,30 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     default:
       return undefined as T;
   }
+}
+
+/** The window `open_sefer` sends — `A_WINDOW` in the shell. */
+const A_WINDOW = 600;
+
+/** One fixture text, read once and held. */
+async function loadFixtureText(key: string): Promise<Text> {
+  if (!texts.has(key)) texts.set(key, await json<Text>(`/dev/text-${key}.json`));
+  const held = texts.get(key);
+  if (!held) throw new Error(`no fixture text for ${key}`);
+  return held;
+}
+
+/** A fixture text with as much of its pointing as the reader has on. */
+function pointed(text: Text): Text {
+  const pointing = fixtureState?.pointing ?? "full";
+  if (pointing === "full") return text;
+  return {
+    ...text,
+    lines: text.lines.map((l) => ({
+      ...l,
+      runs: l.runs.map((r) => ({ ...r, text: withoutMarks(r.text, pointing) })),
+    })),
+  };
 }
 
 function flatten(slug: string): string {

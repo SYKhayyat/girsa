@@ -91,13 +91,29 @@ fn main() {
         let json = serde_json::to_string(&lines).expect("lines serialize");
         let wire = began.elapsed();
 
+        // What `open_sefer` actually sends: a window, not the sefer. The
+        // whole-sefer numbers are kept beside it because they are what this
+        // measurement was built to argue about — see `view::Text`.
+        let window = 600.min(sefer.segments.len());
+        let began = Instant::now();
+        let only: Vec<Line> = sefer.segments[..window]
+            .iter()
+            .map(|s| Line::of(&sefer, s, Pointing::Full))
+            .collect();
+        let sent = serde_json::to_string(&only).expect("a window serializes");
+        let windowed = began.elapsed();
+
         println!(
-            "{slug}: {} segments · read {} ms · draw {} ms · serialize {} ms · {} KB on the wire",
+            "{slug}: {} segments · read {} ms
+    whole:  draw {} ms · serialize {} ms · {} KB
+    window: draw+serialize {} ms · {} KB  ← what a pane is handed",
             lines.len(),
             read.as_millis(),
             drawn.as_millis(),
             wire.as_millis(),
-            json.len() / 1024
+            json.len() / 1024,
+            windowed.as_millis(),
+            sent.len() / 1024,
         );
     }
 }

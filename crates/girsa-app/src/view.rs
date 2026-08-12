@@ -356,11 +356,35 @@ impl FixMark {
     }
 }
 
-/// A sefer opened into a pane.
+/// A sefer opened into a pane — **a window of it**, and how big the sefer is.
+///
+/// # Why this is not the whole sefer any more
+///
+/// It was, and the cost was measured (`examples/measure-opening.rs`): opening
+/// Mishnah Berurah handed the webview **7.7 MB of JSON** for 17,418 segments, of
+/// which the pane draws four hundred. Every byte of the rest was serialized in
+/// Rust, pushed across the IPC boundary, parsed by the webview and held in its
+/// heap so that a reader could look at one daf.
+///
+/// A pane already draws a window and grows it at the edges (`pane.ts`'s `WINDOW`
+/// and `STEP`); it simply had the whole sefer in hand to slice from. Now it asks
+/// — `sefer_lines` for a stretch, `sefer_index_of` for a segment it has not
+/// loaded — which is the same shape as everything else in this window: the
+/// corpus answers questions about the corpus.
+///
+/// [`Text::from`] and [`Text::total`] are what make that possible without the
+/// window counting anything: it knows how long the sefer is and where in it the
+/// lines it has begin, and the scrollbar tells the same small lie about length
+/// that a book does.
 #[derive(Serialize)]
 pub struct Text {
     pub work: Card,
+    /// A stretch of the sefer, beginning at [`Text::from`].
     pub lines: Vec<Line>,
+    /// Where that stretch begins, counted in segments from the start.
+    pub from: usize,
+    /// How many segments the sefer has altogether.
+    pub total: usize,
     /// Whether this sefer has any nikud at all, so the window can grey out a
     /// toggle that would do nothing.
     pub has_nikud: bool,

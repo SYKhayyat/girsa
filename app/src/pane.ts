@@ -4,6 +4,7 @@
 // is. It does not decide where anything goes — it is told, by `main.ts`, which
 // asks Rust.
 
+import { api } from "./api.ts";
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
 import { alsoCalled, sefer } from "./names.ts";
 import { say } from "./say.ts";
@@ -18,6 +19,21 @@ const STEP = 300;
  * of lines around where the reader is goes in, and it grows when they reach an
  * edge — the scrollbar tells a small lie about the length of the sefer, which
  * is the same lie every reader in the world is already used to from a book.
+ *
+ * # And the pane is no longer *given* the whole sefer either
+ *
+ * It used to be: `open_sefer` serialized every segment and the pane sliced a
+ * window out of what it held. Measured, that is **7.7 MB of JSON** for Mishnah
+ * Berurah — built in Rust, pushed over IPC, parsed by the webview and kept in
+ * its heap — so that four hundred lines could be drawn
+ * (`examples/measure-opening.rs`).
+ *
+ * Now `lines` is as long as the sefer and mostly **holes**. What has been loaded
+ * is filled in at its true index, so every index in this file still means the
+ * same thing it always did; what has not is fetched when the reader reaches it.
+ * A line the pane has never seen — a search hit, a link, a mefaresh's place — is
+ * found by asking Rust where it is (`sefer_index_of`) and loading that window,
+ * which is one round trip on a jump and none on a scroll.
  */
 export class PaneView {
   readonly id: PaneId;
@@ -28,9 +44,24 @@ export class PaneView {
   private readonly title: HTMLElement;
   private readonly where: HTMLElement;
   private text: Text | null = null;
+  /** The sefer, as long as the sefer is, with holes where nothing is loaded. */
+  private lines: (Line | undefined)[] = [];
+  /** The first and last **drawn** line, as indices into `lines`. */
   private from = 0;
   private to = 0;
+  /** Segment id → its index in `lines`, for the lines that have been loaded. */
   private byId = new Map<string, number>();
+  /** A fetch already in flight, so a burst of scroll events asks once. */
+  private fetching: Promise<void> | null = null;
+  /** Whether an extend is already waiting on that fetch.
+   *
+   * `fetching` makes a burst of scroll events **one request**; this makes them
+   * one *append*. Without it every waiter resumes when the lines land and each
+   * one appends the same three hundred lines, because they all read the same
+   * unmoved `this.to`. It did not fire against the fixtures, which answer in
+   * microseconds — it would fire against an IPC round trip, which is where this
+   * code actually runs. */
+  private extending = false;
   private highlighted: string[] = [];
   /** Your highlights in this sefer, as Rust placed them (W27). Kept so the
    * lines that scroll into view later get painted too. */
@@ -132,23 +163,76 @@ export class PaneView {
   show(text: Text, at: string | null): void {
     this.text = text;
     this.title_he = sefer(text.work);
-    this.byId = new Map(text.lines.map((line, i) => [line.id, i]));
+    this.lines = new Array<Line | undefined>(text.total);
+    this.byId = new Map();
+    this.take(text.from, text.lines);
     this.title.textContent = sefer(text.work);
     // The other name a hover away, rather than gone.
     this.title.title = alsoCalled(text.work);
-    const start = at ? (this.byId.get(at) ?? 0) : 0;
+    const start = at ? (this.byId.get(at) ?? text.from) : text.from;
     this.render(start);
-    if (at) this.scrollTo([at], false);
+    if (at) void this.goToId(at, false);
+  }
+
+  /** File a stretch of lines at its true index, and index it by id. */
+  private take(from: number, lines: Line[]): void {
+    lines.forEach((line, n) => {
+      this.lines[from + n] = line;
+      this.byId.set(line.id, from + n);
+    });
+  }
+
+  /** Whether every line in a range is loaded. */
+  private has(from: number, to: number): boolean {
+    for (let i = Math.max(0, from); i < Math.min(to, this.lines.length); i += 1) {
+      if (!this.lines[i]) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Load a stretch, once.
+   *
+   * Every scroll to an edge asks; `fetching` makes a burst of them one request,
+   * because a trackpad fires scroll events faster than an IPC round trip
+   * returns and twenty requests for the same three hundred lines is the shape of
+   * slow this whole change is about.
+   */
+  private async load(from: number, count: number): Promise<void> {
+    if (this.fetching) return this.fetching;
+    const at = Math.max(0, from);
+    const run = (async () => {
+      try {
+        const lines = await api.seferLines(this.slug, at, count);
+        this.take(at, lines);
+      } finally {
+        this.fetching = null;
+      }
+    })();
+    this.fetching = run;
+    return run;
   }
 
   /** Put a window of lines centred on `index` into the document. */
   private render(index: number): void {
-    if (!this.text) return;
-    const lines = this.text.lines;
     this.from = Math.max(0, index - WINDOW / 2);
-    this.to = Math.min(lines.length, this.from + WINDOW);
-    this.body.replaceChildren(...lines.slice(this.from, this.to).map(lineElement));
+    this.to = Math.min(this.lines.length, this.from + WINDOW);
+    this.body.replaceChildren(...this.drawn(this.from, this.to));
     this.paint();
+  }
+
+  /** The elements for a range — only the lines that are actually loaded.
+   *
+   * A hole draws nothing rather than a placeholder: the fetch that fills it is
+   * already in flight, and a row of grey boxes flickering into text is a worse
+   * thing to look at than a page that arrives. */
+  private drawn(from: number, to: number): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    for (let i = from; i < to; i += 1) {
+      const line = this.lines[i];
+      if (line) out.push(lineElement(line));
+    }
+    return out;
   }
 
   /**
@@ -262,16 +346,35 @@ export class PaneView {
 
   private extend(where: "up" | "down"): void {
     if (!this.text) return;
-    const lines = this.text.lines;
-    if (where === "down" && this.to < lines.length) {
-      const next = Math.min(lines.length, this.to + STEP);
-      this.body.append(...lines.slice(this.to, next).map(lineElement));
+    if (where === "down" && this.to < this.lines.length) {
+      const next = Math.min(this.lines.length, this.to + STEP);
+      if (!this.has(this.to, next)) {
+        // Not here yet. Fetch it and come back — one waiter, however many
+        // scroll events arrived while it was in flight.
+        if (this.extending) return;
+        this.extending = true;
+        void this.load(this.to, next - this.to).then(() => {
+          this.extending = false;
+          this.extend("down");
+        });
+        return;
+      }
+      this.body.append(...this.drawn(this.to, next));
       this.to = next;
       this.paint();
     } else if (where === "up" && this.from > 0) {
       const next = Math.max(0, this.from - STEP);
+      if (!this.has(next, this.from)) {
+        if (this.extending) return;
+        this.extending = true;
+        void this.load(next, this.from - next).then(() => {
+          this.extending = false;
+          this.extend("up");
+        });
+        return;
+      }
       const before = this.body.scrollHeight;
-      this.body.prepend(...lines.slice(next, this.from).map(lineElement));
+      this.body.prepend(...this.drawn(next, this.from));
       this.from = next;
       this.paint();
       // Adding lines above moves everything down; put the reader back on the
@@ -339,7 +442,32 @@ export class PaneView {
     }
     this.note.textContent =
       typeof relation === "object" ? "" : relation === "linked" ? say("linked") : "";
-    this.scrollTo(place.ids, true);
+    const first = place.ids[0];
+    if (first) void this.goToId(first, true);
+  }
+
+  /**
+   * Go to a segment, loading it first if this pane has never seen it.
+   *
+   * The two-round-trip path, and it is the only one: *where is this segment*
+   * (`sefer_index_of`) and then *give me the lines around it*. A hit in a sefer
+   * the reader has open at a different place used to be a lookup in a map that
+   * held the whole sefer; it is a question for the corpus now, which is where
+   * every other question about the corpus goes.
+   */
+  private async goToId(id: string, mark: boolean): Promise<void> {
+    if (this.byId.has(id)) {
+      this.scrollTo([id], mark);
+      return;
+    }
+    const at = await api.seferIndexOf(this.slug, id);
+    // Not in this sefer at all. Nothing to scroll to, and nothing to say here:
+    // the panel that offered the link is where a bad link is reported.
+    if (at === null) return;
+    await this.load(Math.max(0, at - WINDOW / 2), WINDOW);
+    if (!this.byId.has(id)) return;
+    this.render(at);
+    this.scrollTo([id], mark);
   }
 
   private scrollTo(ids: string[], mark: boolean): void {
@@ -433,7 +561,7 @@ export class PaneView {
     if (!this.text) return;
     const at = this.byId.get(line.id);
     if (at === undefined) return;
-    this.text.lines[at] = line;
+    this.lines[at] = line;
     const drawn = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(line.id)}"]`);
     drawn?.replaceWith(lineElement(line));
     // The line was redrawn from scratch, so anything painted on it went with
@@ -462,7 +590,8 @@ export class PaneView {
     if (!chosen || chosen.from !== chosen.to || !this.text) return null;
     const at = this.byId.get(chosen.from);
     if (at === undefined) return null;
-    const line = this.text.lines[at];
+    const line = this.lines[at];
+    if (!line) return null;
     const letters = Array.from(line.runs.map((run) => run.text).join(""));
     const words = letters.slice(chosen.fromChar, chosen.toChar).join("");
     if (!words.trim()) return null;
@@ -482,7 +611,8 @@ export class PaneView {
     if (!here || !this.text) return null;
     const at = this.byId.get(here);
     if (at === undefined) return null;
-    const line = this.text.lines[at];
+    const line = this.lines[at];
+    if (!line) return null;
     return { at: here, fixed: line.fixed ?? [], printed: line.printed ?? null };
   }
 

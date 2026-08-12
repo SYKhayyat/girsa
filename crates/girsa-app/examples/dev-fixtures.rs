@@ -163,9 +163,17 @@ fn main() -> std::process::ExitCode {
         // Two hand-written copies of one shape inside one 202-line file,
         // disagreeing with each other about the value under a key they both
         // spelled the same way.
+        // **The whole sefer**, deliberately, and the only place that still is.
+        // The shell sends a window (`view::Text`); the browser build slices this
+        // file to make one, because a static fixture has nowhere to ask for the
+        // rest from. So the file is the sefer and `api.ts` does the windowing —
+        // which means the pane out here is exercised exactly the way it is in
+        // the shell, holes and fetches and all.
         let text = Text {
             work: Card::of(&sefer.work),
             has_nikud: sefer.segments.iter().any(|s| display::has_marks(&s.text)),
+            from: 0,
+            total: sefer.segments.len(),
             lines: sefer
                 .segments
                 .iter()

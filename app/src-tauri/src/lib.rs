@@ -1150,21 +1150,86 @@ fn mefarshim_at(
 /// W2) and a second one written in TypeScript would drift from it — and the
 /// place it would show is a reader turning nikud off and finding one word in
 /// forty still pointed.
+/// How many segments a pane is handed at a time.
+///
+/// `pane.ts` draws a window of 400 and grows it by 300 at an edge; this is that
+/// window, plus a little either side so the first scroll does not immediately
+/// ask for more. It is here rather than in the window because it is what the
+/// **wire** carries — see [`Text`], and `examples/measure-opening.rs` for what
+/// carrying the whole sefer instead was costing.
+const A_WINDOW: usize = 600;
+
 #[tauri::command]
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    // Where the reader was, so the window opens around it rather than at the
+    // top and then jumping. `where_i_was` is the same memory `Session` keeps for
+    // every sefer ever opened (W9).
+    let left = state.session.where_i_was(&slug).cloned();
     let sefer = state.sefer(&slug)?;
+    // Whether anything in the sefer is pointed. Over the whole of it, because
+    // the answer is about the sefer and not about the window a reader happens
+    // to be looking at — a Chumash whose first four hundred segments are bare
+    // still has nikud.
     let has_nikud = sefer.segments.iter().any(|s| display::has_marks(&s.text));
+    let total = sefer.segments.len();
+    let at = left.and_then(|id| sefer.position_of(&id)).unwrap_or(0);
+    let from = at
+        .saturating_sub(A_WINDOW / 2)
+        .min(total.saturating_sub(1).max(0));
+    let to = (from + A_WINDOW).min(total);
     Ok(Text {
         work: Card::of(&sefer.work),
-        lines: sefer
-            .segments
+        lines: sefer.segments[from..to]
             .iter()
             .map(|s| Line::of(sefer, s, pointing))
             .collect(),
+        from,
+        total,
         has_nikud,
     })
+}
+
+/// More of a sefer, for a pane that has scrolled to the edge of what it holds.
+///
+/// Clamped rather than refused: a pane asking past the end is a reader at the
+/// end of the sefer, and the honest answer is the last lines rather than an
+/// error.
+#[tauri::command]
+fn sefer_lines(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    from: usize,
+    count: usize,
+) -> Result<Vec<Line>, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let pointing = state.session.pointing;
+    let sefer = state.sefer(&slug)?;
+    let from = from.min(sefer.segments.len());
+    let to = from.saturating_add(count).min(sefer.segments.len());
+    Ok(sefer.segments[from..to]
+        .iter()
+        .map(|s| Line::of(sefer, s, pointing))
+        .collect())
+}
+
+/// Where a segment sits in its sefer, counted from the start.
+///
+/// What a pane asks when it is told to go to a line it has not loaded — a search
+/// hit, a link, a mefaresh's place. `None` is *this sefer does not have that
+/// segment*, which is a real answer and not an error: a link can point at a
+/// place a re-import moved, and W23's panel is where that gets repaired.
+#[tauri::command]
+fn sefer_index_of(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    at: String,
+) -> Result<Option<usize>, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let sefer = state.sefer(&slug)?;
+    Ok(sefer.position_of(&at))
 }
 
 // ── Scans (spec.md §6.3, BUILDER.md W25) ────────────────────────────────────
@@ -3282,6 +3347,8 @@ pub fn run() {
             choose_mefaresh,
             mefarshim_at,
             open_sefer,
+            sefer_lines,
+            sefer_index_of,
             open_tab,
             scan,
             scan_at,
