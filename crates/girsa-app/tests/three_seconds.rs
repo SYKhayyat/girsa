@@ -48,6 +48,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use girsa_app::session::Pointing;
 use girsa_app::shelf::Shelf;
 use girsa_corpus::import::{self, ImportedWork, RawSegment, SegmentKind};
 use girsa_corpus::segment::SegmentId;
@@ -156,6 +157,7 @@ fn shelf_with_a_typo(root: &Path) -> [SegmentId; ATTEMPTS] {
         he_title: "משנה ברורה".into(),
         en_title: "Mishnah Berurah".into(),
         categories: vec!["Halakhah".into()],
+        order: Vec::new(),
         source: Source::Sefaria,
         origin: PathBuf::new(),
         schema: None,
@@ -212,7 +214,7 @@ fn correct_it(corpus: &Path, personal: &Path, at: &SegmentId) -> (Duration, Stri
     let one = Instant::now();
     let sefer = shelf.read(SLUG).expect("the sefer opens");
     eprintln!("  read: {} ms", one.elapsed().as_millis());
-    let patch = girsa_app::correction(&sefer, at, 16..20, "הדבר", Kind::Ocr, "me", false)
+    let patch = girsa_app::correction(&sefer, at, 16..20, "הדבר", Kind::Ocr, "me", Pointing::Plain)
         .expect("a correction");
     assert_eq!(patch.was, "הרבר", "the highlight covered the typo");
     let two = Instant::now();
@@ -223,7 +225,7 @@ fn correct_it(corpus: &Path, personal: &Path, at: &SegmentId) -> (Duration, Stri
     eprintln!("  read again: {} ms", three.elapsed().as_millis());
     let corrected = girsa_app::display::Shown::of(
         &again.segments[again.position_of(at).expect("it is here")].text,
-        false,
+        Pointing::Plain,
     )
     .text()
     .to_string();

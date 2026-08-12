@@ -7,26 +7,37 @@
 //! second pasuk of the Torah stops being findable by either word in it.
 //!
 //! On the page none of that applies. A maqaf is printed, and turning it into a
-//! space would rewrite the sefer in front of the reader. So the nikud toggle
-//! takes off **marks only** — the nikud and the te'amim — and leaves every
-//! letter and every mark of punctuation exactly where the corpus has it.
+//! space would rewrite the sefer in front of the reader. So the pointing setting
+//! takes off **marks only** — as much of the nikud and the te'amim as the reader
+//! asked for — and leaves every letter and every mark of punctuation exactly
+//! where the corpus has it.
 
-/// The same text with its nikud and te'amim taken off, for a reader who has
-/// them switched off.
+use crate::session::Pointing;
+
+/// The same text with as much of its pointing as the reader asked for.
+///
+/// Three answers, not two: everything, the nikud without the te'amim, or the
+/// letters alone. The middle one is the reader's — *"there is no way to have
+/// nikud and no trup"* — and the predicate that decides each character is
+/// [`Pointing::draws`], asked here and by [`Shown::of`] and by nothing else, so
+/// a highlight counted against one of them cannot land on the wrong letters
+/// under the other.
 ///
 /// Idempotent, and safe on text that never had any: most of the corpus is bare
 /// already and Berakhot is fully menukad (spec.md §2.1), so both arrive at the
 /// same window.
 #[must_use]
-pub fn without_marks(text: &str) -> String {
-    text.chars()
-        .filter(|c| !girsa_hebrew::is_mark(*c))
-        .collect()
+pub fn pointed(text: &str, pointing: Pointing) -> String {
+    if pointing == Pointing::Full {
+        return text.to_string();
+    }
+    text.chars().filter(|c| pointing.draws(*c)).collect()
 }
 
 /// How a run of words is set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Style {
+    #[default]
     Plain,
     /// The dibur hamatchil — the words being commented on, which Sefaria marks
     /// `<b>`, `<strong>` or `<big>`. Losing it turns Rashi into one grey block
@@ -36,6 +47,14 @@ pub enum Style {
     Quiet,
     /// A line break inside a segment. Carries no text.
     Break,
+}
+
+impl Style {
+    /// For the serializer: a plain run does not say so on the wire.
+    #[must_use]
+    pub const fn is_plain(&self) -> bool {
+        matches!(self, Self::Plain)
+    }
 }
 
 girsa_corpus::spelled!(Style {
@@ -49,6 +68,15 @@ girsa_corpus::spelled!(Style {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Run {
     pub text: String,
+    /// **Absent when it is plain**, which nearly every run is.
+    ///
+    /// The reader asked for the window to be fast, so the payload was measured:
+    /// opening Mishnah Berurah hands the webview 8.2 MB of JSON, and
+    /// `"style":"plain"` on every run of every one of its 17,418 segments is a
+    /// meaningful slice of it — bytes that say nothing, parsed by the webview
+    /// before a word is on screen. `Style::default()` is `Plain`, so what is left
+    /// off reads back as what it was.
+    #[serde(default, skip_serializing_if = "Style::is_plain")]
     pub style: Style,
     /// These are the words that answered a search (W39).
     ///
@@ -90,14 +118,14 @@ pub struct Shown {
 impl Shown {
     /// Draw a segment the way the pane draws it.
     #[must_use]
-    pub fn of(text: &str, nikud: bool) -> Self {
+    pub fn of(text: &str, pointing: Pointing) -> Self {
         let mut shown = String::new();
         let mut from = Vec::new();
         for bit in bits(text) {
             let Bit::Letter { ch, at, len, .. } = bit else {
                 continue;
             };
-            if !nikud && girsa_hebrew::is_mark(ch) {
+            if !pointing.draws(ch) {
                 continue;
             }
             shown.push(ch);
@@ -363,16 +391,19 @@ fn hit_chars(text: &str, marks: &[(usize, usize)]) -> std::collections::BTreeSet
     out
 }
 
-/// The same runs with the nikud taken off, keeping what each run is.
+/// The same runs with as much of the pointing taken off as the reader asked for.
 ///
-/// Stripped **after** the marks are placed, not before: `without_marks` shortens
-/// the text, so a byte range worked out against the pointed text would land two
-/// or three letters left of the word it meant.
+/// Stripped **after** the marks are placed, not before: taking marks out
+/// shortens the text, so a byte range worked out against the pointed text would
+/// land two or three letters left of the word it meant.
 #[must_use]
-pub fn unpointed(runs: Vec<Run>) -> Vec<Run> {
+pub fn unpointed(runs: Vec<Run>, pointing: Pointing) -> Vec<Run> {
+    if pointing == Pointing::Full {
+        return runs;
+    }
     runs.into_iter()
         .map(|run| Run {
-            text: without_marks(&run.text),
+            text: pointed(&run.text, pointing),
             ..run
         })
         .filter(|run| run.style == Style::Break || !run.text.is_empty())
@@ -436,23 +467,46 @@ mod tests {
     }
 
     #[test]
-    fn the_toggle_takes_off_nikud_and_leaves_the_letters() {
-        assert_eq!(without_marks("וּבַשַּׁבָּת"), "ובשבת");
-        assert_eq!(without_marks("בראשית"), "בראשית");
+    fn the_setting_takes_off_nikud_and_leaves_the_letters() {
+        assert_eq!(pointed("וּבַשַּׁבָּת", Pointing::Plain), "ובשבת");
+        assert_eq!(pointed("בראשית", Pointing::Plain), "בראשית");
+    }
+
+    #[test]
+    fn nikud_without_teamim_keeps_the_points_and_drops_the_accents() {
+        // The setting the reader asked for, and the one a bool could not hold.
+        // A menukad Chumash carries the trup over the points; this is that
+        // pasuk with the accents off and the nikud on.
+        let pasuk = "בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים";
+        assert_eq!(pointed(pasuk, Pointing::Nikud), "בְּרֵאשִׁית בָּרָא אֱלֹהִים");
+        assert_eq!(pointed(pasuk, Pointing::Plain), "בראשית ברא אלהים");
+        assert_eq!(
+            pointed(pasuk, Pointing::Full),
+            pasuk,
+            "and full is untouched"
+        );
+    }
+
+    #[test]
+    fn a_dagesh_and_a_shin_dot_are_nikud_and_not_trup() {
+        // The marks that sit near the accents and are not accents: dagesh, and
+        // the dot that says which letter a shin is. Dropping either with the
+        // trup would change the word rather than uncrowd it.
+        assert_eq!(pointed("שַׁבָּת", Pointing::Nikud), "שַׁבָּת");
     }
 
     #[test]
     fn a_maqaf_survives_being_shown_even_though_the_index_replaces_it() {
         // The index turns it into a space so that both words are findable; the
         // page prints it, because it is what is printed. Two rules, on purpose.
-        assert_eq!(without_marks("אֶת־הַשָּׁמַיִם"), "את־השמים");
-        assert!(without_marks("אֶת־הַשָּׁמַיִם").contains('\u{05BE}'));
+        assert_eq!(pointed("אֶת־הַשָּׁמַיִם", Pointing::Plain), "את־השמים");
+        assert!(pointed("אֶת־הַשָּׁמַיִם", Pointing::Plain).contains('\u{05BE}'));
     }
 
     #[test]
     fn stripping_twice_is_stripping_once() {
-        let once = without_marks("בְּרֵאשִׁית");
-        assert_eq!(without_marks(&once), once);
+        let once = pointed("בְּרֵאשִׁית", Pointing::Plain);
+        assert_eq!(pointed(&once, Pointing::Plain), once);
     }
 
     fn shown(text: &str) -> Vec<(&'static str, String)> {
@@ -564,13 +618,13 @@ mod tests {
             "בְּרֵאשִׁית בָּרָא",
             "",
         ] {
-            for nikud in [true, false] {
-                let drawn = plain(line);
-                let drawn = if nikud { drawn } else { without_marks(&drawn) };
+            for pointing in Pointing::ALL {
+                let drawn = pointed(&plain(line), pointing);
                 assert_eq!(
-                    Shown::of(line, nikud).text(),
+                    Shown::of(line, pointing).text(),
                     drawn,
-                    "{line} · nikud {nikud}"
+                    "{line} · pointing {}",
+                    pointing.as_str()
                 );
             }
         }
@@ -583,7 +637,7 @@ mod tests {
         // three of markup in front. Counting is not going to work; the scan
         // has to say.
         let base = "<b>וּבַשַּׁבָּת</b> הזה";
-        let shown = Shown::of(base, false);
+        let shown = Shown::of(base, Pointing::Plain);
         assert_eq!(shown.text(), "ובשבת הזה");
         let span = shown.base_span(0, 5).expect("a span");
         let letters: Vec<char> = base.chars().collect();
@@ -604,7 +658,7 @@ mod tests {
         // differently, and the tags are in between them. A correction made
         // here replaces the lot, which is visible in what it says it will do.
         let base = "א<b>ב</b>ג";
-        let shown = Shown::of(base, true);
+        let shown = Shown::of(base, Pointing::Full);
         assert_eq!(shown.text(), "אבג");
         assert_eq!(shown.base_span(0, 3), Some(0..base.chars().count()));
         assert_eq!(
@@ -616,7 +670,7 @@ mod tests {
 
     #[test]
     fn a_highlight_of_nothing_is_not_a_span() {
-        let shown = Shown::of("אבג", true);
+        let shown = Shown::of("אבג", Pointing::Full);
         assert_eq!(shown.base_span(1, 1), None);
         assert_eq!(shown.base_span(3, 9), None);
         assert_eq!(
@@ -624,12 +678,12 @@ mod tests {
             Some(0..3),
             "past the end is the end"
         );
-        assert!(Shown::of("", true).is_empty());
+        assert!(Shown::of("", Pointing::Full).is_empty());
     }
 
     #[test]
     fn an_entity_is_one_character_to_the_reader_and_six_in_the_file() {
-        let shown = Shown::of("א&nbsp;ב", true);
+        let shown = Shown::of("א&nbsp;ב", Pointing::Full);
         assert_eq!(shown.len(), 3);
         assert_eq!(shown.base_span(1, 2), Some(1..7));
     }
@@ -728,7 +782,7 @@ mod hit_tests {
         // byte range worked out against the pointed text and applied to the
         // stripped one lands letters away from the word it meant.
         let text = "שְׁמַע יִשְׂרָאֵל";
-        let marked = unpointed(runs_marking(text, &[at(text, "שְׁמַע")]));
+        let marked = unpointed(runs_marking(text, &[at(text, "שְׁמַע")]), Pointing::Plain);
         let hit: Vec<&str> = marked
             .iter()
             .filter(|r| r.hit)

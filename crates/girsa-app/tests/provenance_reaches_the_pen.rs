@@ -46,6 +46,7 @@
 use std::path::{Path, PathBuf};
 
 use girsa_app::sending::{send, Selection};
+use girsa_app::session::Pointing;
 use girsa_app::shelf::Shelf;
 use girsa_cite::CiteStyle;
 use girsa_corpus::import::{self, ImportedWork, RawSegment, SegmentKind};
@@ -94,6 +95,7 @@ fn corpus_as_the_importer_leaves_it(root: &Path) {
         he_title: "שולחן ערוך, אורח חיים".into(),
         en_title: "Shulchan Arukh, Orach Chayim".into(),
         categories: vec!["Halakhah".into(), "Shulchan Arukh".into()],
+        order: Vec::new(),
         source: Source::Sefaria,
         origin: PathBuf::new(),
         schema: None,
@@ -164,7 +166,14 @@ fn a_quote_on_its_way_to_ksav_carries_the_edition_it_came_from() {
         to_char: None,
     };
 
-    let sent = send(&sefer, &selection, CiteStyle::HebrewFull, false, None).expect("it sends");
+    let sent = send(
+        &sefer,
+        &selection,
+        CiteStyle::HebrewFull,
+        Pointing::Plain,
+        None,
+    )
+    .expect("it sends");
     let json = sent.packet.to_json().expect("it serializes");
 
     assert!(

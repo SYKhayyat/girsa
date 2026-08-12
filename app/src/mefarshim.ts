@@ -18,6 +18,7 @@
 // the door should say given what is behind it, and which sefer to offer first.
 
 import type { Comments, Companion } from "./api.ts";
+import { say } from "./say.ts";
 
 /**
  * The declared commentaries, and only those.
@@ -30,7 +31,12 @@ import type { Comments, Companion } from "./api.ts";
  * whole link layer is arranged to avoid.
  */
 export function mefarshim(companions: Companion[]): Companion[] {
-  return companions.filter((c) => c.declared);
+  // `stands === "on"`, and not `stands !== null`. The three relations are three
+  // claims: a mefaresh **on** this sefer, the sefer this one is a mefaresh on,
+  // and a sefer running alongside it. Counting all three would put `מפרשים · 30`
+  // over a list whose thirtieth row is the Chumash the commentary in front of
+  // you was written about.
+  return companions.filter((c) => c.stands === "on");
 }
 
 /**
@@ -44,7 +50,8 @@ export function mefarshim(companions: Companion[]): Companion[] {
  */
 export function ordered(companions: Companion[]): Companion[] {
   return [...companions].sort((a, b) => {
-    if (a.declared !== b.declared) return a.declared ? -1 : 1;
+    const related = (c: Companion) => (c.stands === null ? 0 : 1);
+    if (related(a) !== related(b)) return related(b) - related(a);
     if (a.links !== b.links) return b.links - a.links;
     return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
   });
@@ -63,14 +70,14 @@ export function ordered(companions: Companion[]): Companion[] {
  */
 export function doorLabel(companions: Companion[]): string {
   const n = mefarshim(companions).length;
-  return n === 0 ? "לצד" : `מפרשים · ${n}`;
+  return n === 0 ? say("beside") : `${say("mefarshimOf")} · ${n}`;
 }
 
 /** Both things the button does, since the label only has room for one. */
 export function doorTitle(companions: Companion[]): string {
   const n = mefarshim(companions).length;
-  const found = n === 0 ? "אין מפרשים מוצהרים על הספר הזה" : `${n} מפרשים על הספר הזה`;
-  return `${found} · פתח ספר בטור שלצדו (Ctrl+\\)`;
+  const found = n === 0 ? say("doorNone") : `${n} ${say("doorSome")}`;
+  return `${found} · ${say("doorWhy")}`;
 }
 
 // ── The weave moved to Rust (W44) ───────────────────────────────────────────
@@ -107,9 +114,9 @@ export function doorTitle(companions: Companion[]): string {
  */
 export function nothingHere(comments: Comments, chosen: number): string {
   if (comments.said.length > 0) return "";
-  if (chosen === 0) return "סמן מפרשים ברשימה כדי לראות מה כתבו על השורה";
-  if (comments.others) return "כתבו כאן מפרשים שלא סימנת";
-  return "אין מפרש שכתב על השורה הזאת";
+  if (chosen === 0) return say("tickSomebody");
+  if (comments.others) return say("othersWroteHere");
+  return say("nobodyWroteHere");
 }
 
 /**
@@ -120,7 +127,7 @@ export function nothingHere(comments: Comments, chosen: number): string {
  * shows no markers — *is there nothing here* and *have I asked for nothing*.
  */
 export function ticked(touched: number, chosen: number): string {
-  if (touched === 0) return "אין מפרשים על הספר הזה בגרסה שלך";
-  const of = `מפרשים על ${touched} שורות`;
-  return chosen === 0 ? `${of} · לא סימנת אף אחד` : `${of} · סימנת ${chosen}`;
+  if (touched === 0) return say("noMefarshimAtAll");
+  const of = `${say("mefarshimOn")} ${touched} ${say("lines")}`;
+  return chosen === 0 ? `${of} · ${say("tickedNobody")}` : `${of} · ${say("tickedN")} ${chosen}`;
 }

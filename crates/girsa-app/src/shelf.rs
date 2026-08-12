@@ -90,6 +90,11 @@ pub struct Shelf {
     /// and recomputed `query.to_lowercase()` inside the loop, so once per work
     /// as well — in the most-typed-into box in the application.
     titles: std::sync::OnceLock<Vec<(String, String)>>,
+    /// Where the corpus files each sefer, worked out once for the whole
+    /// catalogue rather than per work per question — see
+    /// [`crate::taxonomy::Shipped`]. Rebuilt by [`Shelf::catalogue_changed`],
+    /// beside the titles and for the same reason.
+    shipped: taxonomy::Shipped,
     by_slug: HashMap<String, usize>,
     /// Base work slug → the works that declare themselves commentaries on it.
     commentaries: HashMap<String, Vec<usize>>,
@@ -126,32 +131,89 @@ pub struct Companion {
     /// mefaresh in the tick-list and an undeclared link in the picker; the
     /// window filters this field to count the button, so it read *5* over a
     /// list of forty.
-    pub declared: bool,
     /// How many edges join the two, where that is what relates them.
     pub links: usize,
     /// How this sefer stands to the one you are reading, where the corpus can
-    /// say: a mefaresh on it, or its own sefer following the same order.
+    /// say: a mefaresh on it, the sefer it is a mefaresh **on**, or its own
+    /// sefer following the same order.
     ///
     /// `None` where only the edge count relates them.
     pub stands: Option<Related>,
+}
+
+impl Companion {
+    /// Whether the corpus **states** a relationship, as against counting edges.
+    ///
+    /// This was a `declared: bool` field beside `stands`, set to
+    /// `stands.is_some()` — one bool over three different claims, and the reader
+    /// found the seam in five minutes: *"bereishis is counted as a peirush on
+    /// onkelos."* Onkelos declares Bereshis as its base text, so Bereshis was in
+    /// the list with `declared: true`, and `declared` is what the window prints
+    /// `פירוש` from. Derived rather than stored, so there is nothing to set
+    /// wrongly.
+    #[must_use]
+    pub const fn related(&self) -> bool {
+        self.stands.is_some()
+    }
 }
 
 /// How the corpus places one sefer against another, for a row that says so.
 ///
 /// `girsa_corpus::taxonomy::Stands` without the two answers a row cannot draw —
 /// *apart*, which is not offered at all, and *ask the edges*, which is a
-/// question rather than an answer and is settled before it gets here.
+/// question rather than an answer and is settled before it gets here — plus the
+/// one it has no opinion about, which is direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Related {
     /// A mefaresh: written **about** this sefer, keyed to its words.
     On,
+    /// The other way round: **this** sefer is the one you are reading a
+    /// commentary on. Onkelos declares Bereshis; open Onkelos and Bereshis is
+    /// the sefer to put beside it, and it is not a peirush on it.
+    ///
+    /// Worth offering and worth naming, and the two are not the same thing:
+    /// `Stands` answers *is this a commentary on that*, so both directions came
+    /// back `On`-ish through a bool and the window printed `פירוש` over the
+    /// Chumash.
+    Base,
     /// Its own sefer, following this one's order — the Shulchan Arukh on the
     /// Tur, the Arukh HaShulchan on the Shulchan Arukh.
     Alongside,
 }
 
-girsa_corpus::spelled!(Related { On => "on", Alongside => "alongside" });
+girsa_corpus::spelled!(Related {
+    On => "on",
+    Base => "base",
+    Alongside => "alongside",
+});
+
+impl Related {
+    /// What a row says it is, in the window's Hebrew.
+    ///
+    /// Here and not in the window: it is **what the relation is**, and a
+    /// vocabulary invented in TypeScript is one no Rust test can hold —
+    /// `girsa_app::links::kinds` made the same move for edge types after a tenth
+    /// edge type printed an English slug into a Hebrew interface.
+    #[must_use]
+    pub const fn said(self) -> &'static str {
+        match self {
+            Self::On => "פירוש",
+            Self::Base => "הספר עצמו",
+            Self::Alongside => "על סדר הספר",
+        }
+    }
+
+    /// The sentence behind the hover, which says what the claim rests on.
+    #[must_use]
+    pub const fn why(self) -> &'static str {
+        match self {
+            Self::On => "the corpus declares this a commentary on what you are reading",
+            Self::Base => "what you are reading is a commentary on this sefer",
+            Self::Alongside => "its own sefer, following the order of what you are reading",
+        }
+    }
+}
 
 impl Shelf {
     /// Read the corpus catalogue, your own catalogue, your arrangement, and
@@ -217,6 +279,7 @@ impl Shelf {
 
         Ok(Self {
             titles: std::sync::OnceLock::new(),
+            shipped: taxonomy::Shipped::of(&works),
             linked: read_companions(root),
             root: root.to_path_buf(),
             personal: personal.to_path_buf(),
@@ -400,7 +463,7 @@ impl Shelf {
                 self.works.push(work);
             }
         }
-        self.titles_changed();
+        self.catalogue_changed();
         Ok(written)
     }
 
@@ -422,7 +485,7 @@ impl Shelf {
             // work is taken out by rebuilding the index rather than by leaving
             // a hole every later slug would point past.
             self.works.retain(|work| work.slug != slug);
-            self.titles_changed();
+            self.catalogue_changed();
             self.by_slug = self
                 .works
                 .iter()
@@ -538,7 +601,7 @@ impl Shelf {
         let slug = added.work.slug.clone();
         self.by_slug.insert(slug.clone(), self.works.len());
         self.works.push(added.work);
-        self.titles_changed();
+        self.catalogue_changed();
         Ok(slug)
     }
 
@@ -555,19 +618,33 @@ impl Shelf {
         let mut out: Vec<Companion> = Vec::new();
         let mut seen: HashMap<&str, usize> = HashMap::new();
 
-        let mut declared: Vec<&Work> = self
+        // The works that declare **this** one as their base: mefarshim on what
+        // you are reading.
+        let mut declared: Vec<(&Work, Option<Related>)> = self
             .commentaries
             .get(slug)
             .into_iter()
             .flatten()
             .filter_map(|i| self.works.get(*i))
+            .map(|work| (work, self.related(&work.slug, slug, 0)))
             .collect();
         // And the other direction: what you are reading may itself be the
         // commentary, in which case the sefer to put beside it is its base.
+        //
+        // **Its base, and named as such.** Both directions used to arrive as
+        // `declared: true` and the window prints `פירוש` from that field, so
+        // opening Onkelos offered Bereshis as a commentary on it. It is the
+        // opposite claim, it is still the right sefer to offer, and
+        // `Related::Base` is the difference.
         if let Some(work) = self.work(slug) {
-            declared.extend(work.commentary_on.iter().filter_map(|b| self.work(&b.slug)));
+            declared.extend(
+                work.commentary_on
+                    .iter()
+                    .filter_map(|b| self.work(&b.slug))
+                    .map(|base| (base, Some(Related::Base))),
+            );
         }
-        for work in declared {
+        for (work, stands) in declared {
             if seen.insert(work.slug.as_str(), out.len()).is_some() {
                 continue;
             }
@@ -575,9 +652,8 @@ impl Shelf {
                 slug: work.slug.clone(),
                 he_title: work.he_title.clone(),
                 en_title: work.en_title.clone(),
-                declared: true,
                 links: 0,
-                stands: self.related(&work.slug, slug, 0),
+                stands,
             });
         }
 
@@ -602,19 +678,38 @@ impl Shelf {
                 slug: work.slug.clone(),
                 he_title: work.he_title.clone(),
                 en_title: work.en_title.clone(),
-                declared: stands.is_some(),
                 links: *count,
                 stands,
             });
         }
 
-        out.sort_by(|a, b| {
-            b.declared
-                .cmp(&a.declared)
+        // Stated relationships first, then by how much joins them — and within
+        // that, **in the order the seforim are printed in**. Rashi on Bereshis
+        // before Rashi on Shemos, because a rishon's five volumes are a sequence
+        // and `a.slug.cmp(&b.slug)` made them an alphabet.
+        //
+        // Decorated rather than looked up inside the comparator: `sort_by` calls
+        // it O(n log n) times and each lookup is a hash and a clone.
+        let mut decorated: Vec<(&[i32], Companion)> = out
+            .into_iter()
+            .map(|row| {
+                let order: &[i32] = self.work(&row.slug).map_or(&[], |w| w.order.as_slice());
+                (order, row)
+            })
+            .collect();
+        decorated.sort_by(|(a_order, a), (b_order, b)| {
+            b.related()
+                .cmp(&a.related())
                 .then(b.links.cmp(&a.links))
-                .then(a.slug.cmp(&b.slug))
+                .then_with(|| match (a_order.is_empty(), b_order.is_empty()) {
+                    (false, true) => std::cmp::Ordering::Less,
+                    (true, false) => std::cmp::Ordering::Greater,
+                    _ => a_order.cmp(b_order),
+                })
+                .then_with(|| a.he_title.cmp(&b.he_title))
+                .then_with(|| a.slug.cmp(&b.slug))
         });
-        out
+        decorated.into_iter().map(|(_, row)| row).collect()
     }
 
     /// How many seforim are joined to this one, and how many of those the
@@ -714,13 +809,15 @@ impl Shelf {
         })
     }
 
-    /// The catalogue changed, so the normalized titles are no longer about it.
+    /// The catalogue changed, so everything derived from it has to be.
     ///
     /// Called wherever `works` is, which is the same four places `by_slug` is
-    /// maintained — the two have to move together or the search box ranks a
-    /// sefer by another sefer's name.
-    fn titles_changed(&mut self) {
+    /// maintained — they have to move together or the search box ranks a sefer
+    /// by another sefer's name, and the bookcase draws a sefer on a shelf it is
+    /// no longer on.
+    fn catalogue_changed(&mut self) {
         self.titles = std::sync::OnceLock::new();
+        self.shipped = taxonomy::Shipped::of(&self.works);
     }
 
     #[must_use]
@@ -742,17 +839,25 @@ impl Shelf {
     /// The shelf as it is browsed: the shipped taxonomy with your edits on top.
     #[must_use]
     pub fn tree(&self) -> Vec<Branch> {
-        taxonomy::tree(&self.works, &self.arrangement)
+        taxonomy::tree(&self.works, &self.arrangement, &self.shipped)
     }
 
     /// The seforim standing on one shelf — not the ones on the shelves under
     /// it, which is what makes browsing a walk rather than a dump.
+    ///
+    /// **In the order they are printed in**, not in the order their names sort.
+    /// This was `a.he_title.cmp(&b.he_title)`, and it is the reader's first
+    /// complaint: *"it sorts sefarim in categories by name, not by true
+    /// order."* A shelf of the Chumash came back
+    /// *במדבר · בראשית · דברים · ויקרא · שמות*. What the corpus says comes first
+    /// ([`Work::by_order`]); what the reader has dragged into place comes before
+    /// even that, because they said so.
     #[must_use]
     pub fn works_on(&self, key: &str) -> Vec<&Work> {
         let mut on: Vec<&Work> = self
             .works
             .iter()
-            .filter(|w| taxonomy::shelf_key_of(w, &self.arrangement) == key)
+            .filter(|w| taxonomy::shelf_key_of(w, &self.arrangement, &self.shipped) == key)
             .collect();
         let placed = |slug: &str| {
             self.arrangement
@@ -764,7 +869,7 @@ impl Shelf {
         on.sort_by(|a, b| {
             placed(&a.slug)
                 .cmp(&placed(&b.slug))
-                .then_with(|| a.he_title.cmp(&b.he_title))
+                .then_with(|| Work::by_order(a, b))
         });
         on
     }
@@ -772,6 +877,13 @@ impl Shelf {
     #[must_use]
     pub fn arrangement(&self) -> &Arrangement {
         &self.arrangement
+    }
+
+    /// Where the corpus files each sefer — the shipped half of the shelf,
+    /// worked out once for the whole catalogue.
+    #[must_use]
+    pub fn shipped(&self) -> &taxonomy::Shipped {
+        &self.shipped
     }
 
     /// Where the arrangement is kept.
@@ -1336,6 +1448,7 @@ pub(crate) mod tests {
             he_title: slug.to_string(),
             en_title: slug.to_string(),
             categories: Vec::new(),
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: PathBuf::new(),
             schema: None,
@@ -1366,6 +1479,7 @@ pub(crate) mod tests {
         let (queries, _) = girsa_note::Queries::open(personal);
         let (collections, _) = girsa_note::Collections::open(personal);
         Shelf {
+            shipped: taxonomy::Shipped::of(&works),
             titles: std::sync::OnceLock::new(),
             root: PathBuf::new(),
             personal: personal.to_path_buf(),
@@ -1475,7 +1589,7 @@ pub(crate) mod tests {
         let beside_gemara = shelf.companions("bavli/berakhot");
         assert_eq!(beside_gemara.len(), 1);
         assert_eq!(beside_gemara[0].slug, "bavli/rashi-on-berakhot");
-        assert!(beside_gemara[0].declared);
+        assert!(beside_gemara[0].related());
 
         // And from the commentary, the sefer it is on.
         let beside_rashi = shelf.companions("bavli/rashi-on-berakhot");

@@ -1,0 +1,19 @@
+1. Bug - It sorts sefarim in categories by name, not bytrue order.
+2. Big Bug - It leaves a gap on the left side and puts the madaf over the sefer on the right side. It should leave the gap where the madaf goes (right makes sense), and it should be minimizable in a way that you can easily reopen it.
+3. There is no way to change UI into english - only seforim names. there should be 2 seperate commands.
+4. hagdaros does absolutely nothing - nothing opens. Same forthe two font size buttons.
+5. im nikkud and bli nikkud are backwards. Also, there is no way to have nikud and no trup.
+6. medrash lekach tov seems to be in a separate category? i dont know why, but it looks confusing.
+7. bereishis is counted as a peirush on onkelos.
+8. there should be a way to open at one time multiple windows with multiple meforshim. also, when they opens eperately, there should be an option to link or unlink scroll.
+9. checking off a mefarsh does not open it when its line is clicked.
+10. i have no clue what okev does.
+11. i dont know what kishurim does and it is imposssibles to and it is hard on the eyes.
+12 send to ksav and export dont let you pick a folder.
+13. ksov does nothing.
+14 the open sefer is confusing - it should just open a new tab and let you choose to open madaf etc.
+15 tabs and windows should be done like we decided in ksav (the emacs model)
+16 search opens with onthing to search for. then it goes to the last searched item without telling you. 
+17 i dont know how to add some and minus some things from the search (some seforim or folders). often the tree to pick from (where i can see only how to pick a certain folder) is not even visible - it flashes, then flashes off.
+18 within 5 words - this should be easily customizable.
+all in all, this looks like a toy written by ai. it is awful, but, you are smart,a nd i know you can do tihs, since you have done better - and you did all this in rust, which is not easy.

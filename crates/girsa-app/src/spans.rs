@@ -42,6 +42,7 @@
 //! sibling rule: nothing here compares two Hebrew strings with `==`.
 
 use crate::display::{Shown, Style};
+use crate::session::Pointing;
 
 /// The words a commentary segment declares it is about — every way it might
 /// have said so.
@@ -116,8 +117,12 @@ pub fn dibur(commentary: &str) -> Option<String> {
 /// `None` when they are not there, or are there more than once. Both are
 /// answers; a nearest match is not.
 #[must_use]
-pub fn dibur_span(base: &str, commentary: &str, nikud: bool) -> Option<std::ops::Range<usize>> {
-    let drawn = Shown::of(base, nikud);
+pub fn dibur_span(
+    base: &str,
+    commentary: &str,
+    pointing: Pointing,
+) -> Option<std::ops::Range<usize>> {
+    let drawn = Shown::of(base, pointing);
     // The candidates in order, and the first one that is **in this line exactly
     // once** wins. A candidate that is not there is not evidence of anything,
     // so it costs a lookup and nothing else.
@@ -311,7 +316,7 @@ mod tests {
         let rashi = "<b>משעה שהכהנים נכנסים</b> – כהנים שנטמאו וטבלו";
         assert_eq!(dibur(rashi).as_deref(), Some("משעה שהכהנים נכנסים"));
 
-        let span = dibur_span(MISHNAH, rashi, true).expect("found in the mishnah");
+        let span = dibur_span(MISHNAH, rashi, Pointing::Full).expect("found in the mishnah");
         let letters: Vec<char> = MISHNAH.chars().collect();
         let covered: String = letters[span].iter().collect();
         assert_eq!(covered, "מִשָּׁעָה שֶׁהַכֹּהֲנִים נִכְנָסִים");
@@ -322,8 +327,8 @@ mod tests {
         // With nikud off the same words are half as many characters, and the
         // span has to be the ones on the screen.
         let rashi = "<b>משעה שהכהנים</b> – כהנים שנטמאו";
-        let bare = crate::display::Shown::of(MISHNAH, false);
-        let span = dibur_span(MISHNAH, rashi, false).expect("found");
+        let bare = crate::display::Shown::of(MISHNAH, Pointing::Plain);
+        let span = dibur_span(MISHNAH, rashi, Pointing::Plain).expect("found");
         let letters: Vec<char> = bare.text().chars().collect();
         assert_eq!(letters[span].iter().collect::<String>(), "משעה שהכהנים");
     }
@@ -335,13 +340,13 @@ mod tests {
         // one.
         let base = "אמר רבי יוחנן משום רבי שמעון וכן אמר רבי יוחנן משום רבי שמעון";
         let commentary = "<b>אמר רבי יוחנן</b> – פירוש";
-        assert_eq!(dibur_span(base, commentary, true), None);
+        assert_eq!(dibur_span(base, commentary, Pointing::Full), None);
     }
 
     #[test]
     fn a_commentary_with_no_dibur_hamatchil_has_no_span() {
         assert_eq!(dibur("כהנים שנטמאו וטבלו"), None);
-        assert_eq!(dibur_span(MISHNAH, "כהנים שנטמאו", true), None);
+        assert_eq!(dibur_span(MISHNAH, "כהנים שנטמאו", Pointing::Full), None);
     }
 
     #[test]
@@ -353,7 +358,7 @@ mod tests {
         assert_eq!(dibur(rashi).as_deref(), Some("עד סוף האשמורה הראשונה"));
 
         let gemara = "והא קא קרינן עד סוף האשמורה הראשונה דברי רבי אליעזר";
-        let span = dibur_span(gemara, rashi, true).expect("found");
+        let span = dibur_span(gemara, rashi, Pointing::Full).expect("found");
         let letters: Vec<char> = gemara.chars().collect();
         assert_eq!(
             letters[span].iter().collect::<String>(),
@@ -374,7 +379,8 @@ mod tests {
         // Rashi quotes `בערבין` where the mishnah in front of him reads
         // `בערבית`, which is a girsa and not a typo. So the first clause is
         // what lands, and it lands on the words it actually quotes.
-        let span = dibur_span(MISHNAH, rashi, true).expect("one of them is in the mishnah");
+        let span =
+            dibur_span(MISHNAH, rashi, Pointing::Full).expect("one of them is in the mishnah");
         let letters: Vec<char> = MISHNAH.chars().collect();
         assert_eq!(
             letters[span].iter().collect::<String>(),
@@ -393,7 +399,7 @@ mod tests {
     #[test]
     fn words_that_are_not_in_the_base_segment_give_nothing() {
         let elsewhere = "<b>מאימתי קורין בשחרית</b> – פירוש";
-        assert_eq!(dibur_span(MISHNAH, elsewhere, true), None);
+        assert_eq!(dibur_span(MISHNAH, elsewhere, Pointing::Full), None);
     }
 }
 

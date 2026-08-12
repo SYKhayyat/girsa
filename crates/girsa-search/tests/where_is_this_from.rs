@@ -108,6 +108,7 @@ fn work(slug: &str, title: &str) -> Work {
         he_title: title.to_string(),
         en_title: slug.to_string(),
         categories: Vec::new(),
+        order: Vec::new(),
         source: Source::Sefaria,
         origin: PathBuf::new(),
         schema: None,

@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use girsa_app::sending::{quote, Sent};
+use girsa_app::session::Pointing;
 use girsa_app::Shelf;
 use girsa_cite::CiteStyle;
 use girsa_desk::buffer::Buffer;
@@ -50,7 +51,13 @@ fn main() -> ExitCode {
 
     let sent: Sent =
         match Shelf::open(&root, &personal).and_then(|shelf| shelf.read(&reference.work_slug())) {
-            Ok(sefer) => match quote(&sefer, &reference, None, CiteStyle::HebrewFull, false) {
+            Ok(sefer) => match quote(
+                &sefer,
+                &reference,
+                None,
+                CiteStyle::HebrewFull,
+                Pointing::Plain,
+            ) {
                 Ok(sent) => sent,
                 Err(e) => {
                     eprintln!("{e}");

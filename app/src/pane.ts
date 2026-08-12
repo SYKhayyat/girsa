@@ -6,6 +6,7 @@
 
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
 import { alsoCalled, sefer } from "./names.ts";
+import { say } from "./say.ts";
 
 /** How many lines are put on the page at once, and how many more at an edge. */
 const WINDOW = 400;
@@ -255,7 +256,7 @@ export class PaneView {
     for (const row of this.body.querySelectorAll<HTMLElement>(".line")) {
       const on = this.marked.has(row.dataset.id ?? "");
       row.classList.toggle("has-mefarshim", on);
-      if (on && !row.title) row.title = "מפרשים שסימנת כתבו על השורה הזאת — לחץ";
+      if (on && !row.title) row.title = say("markWhy");
     }
   }
 
@@ -330,14 +331,14 @@ export class PaneView {
       // The honest answer, and the reason this app does not scroll to the
       // nearest thing: there is no comment on this line, and the column stays
       // where it is rather than showing a comment on a different one.
-      this.note.textContent = "אין כאן";
-      this.note.title = "nothing in this sefer sits on that line";
+      this.note.textContent = say("nothingHere");
+      this.note.title = say("nothingHereWhy");
       this.note.classList.add("is-empty");
       this.highlight([]);
       return;
     }
     this.note.textContent =
-      typeof relation === "object" ? "" : relation === "linked" ? "מקושר" : "";
+      typeof relation === "object" ? "" : relation === "linked" ? say("linked") : "";
     this.scrollTo(place.ids, true);
   }
 
@@ -533,13 +534,18 @@ function lineElement(line: Line): HTMLElement {
   // of a table, a block quote — and is drawn as that rather than as one more
   // paragraph. Nothing else in the corpus has these kinds, so nothing else
   // changes shape (W29).
-  const row = el("p", line.kind === "text" ? "line" : `line is-${line.kind}`);
+  // A missing kind is `text`, and a missing style is `plain`: both are left off
+  // the wire because nearly every line and nearly every run is one of them, and
+  // opening the largest sefer on the shelf hands this window megabytes of JSON
+  // before it can draw a word. See `girsa_app::view::Line::kind`.
+  const kind = line.kind ?? "text";
+  const row = el("p", kind === "text" ? "line" : `line is-${kind}`);
   row.dataset.id = line.id;
   row.dataset.address = line.address;
   const label = el("span", "line-address");
   label.textContent = line.address;
   const words = el("span", "line-text");
-  if (line.kind === "row") {
+  if (kind === "row") {
     // The cells arrive tab-separated, which is what a column boundary is in
     // every plain rendering of a table. Split here rather than on the Rust
     // side: the boundary is a fact about the text and the columns are a fact
@@ -575,8 +581,8 @@ function fixMark(line: Line): HTMLElement {
   mark.textContent = applied.length > 0 ? "✓" : "≠";
   const said = fixed
     .map((f) => {
-      const claim = f.kind === "ocr" ? "תוקן" : "גרסה";
-      const state = f.applied ? "" : " (לא הוחל)";
+      const claim = f.kind === "ocr" ? say("fixWasFixed") : say("fixKindGirsa");
+      const state = f.applied ? "" : say("fixNotApplied");
       const who = f.source ? ` · ${f.source}` : f.who ? ` · ${f.who}` : "";
       return `${claim}${state}: ${f.was} ← ${f.now}${who}`;
     })
@@ -589,10 +595,11 @@ function fixMark(line: Line): HTMLElement {
  * comes out of a file and nothing that came out of a file is put into the
  * document as markup. */
 function runElement(run: Run): Node {
-  if (run.style === "break") return document.createElement("br");
-  if (run.style === "plain") return document.createTextNode(run.text);
+  const style = run.style ?? "plain";
+  if (style === "break") return document.createElement("br");
+  if (style === "plain") return document.createTextNode(run.text);
   const node = document.createElement("span");
-  node.className = run.style === "opening" ? "run-opening" : "run-quiet";
+  node.className = style === "opening" ? "run-opening" : "run-quiet";
   node.textContent = run.text;
   return node;
 }

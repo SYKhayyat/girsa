@@ -421,6 +421,7 @@ mod tests {
             he_title: he_title.into(),
             en_title: slug.into(),
             categories: vec![],
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: std::path::PathBuf::new(),
             schema: None,

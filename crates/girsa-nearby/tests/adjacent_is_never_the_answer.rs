@@ -140,6 +140,7 @@ fn work(slug: &str, title: &str, lines: &[&str]) -> ImportedWork {
             he_title: title.to_string(),
             en_title: slug.to_string(),
             categories: vec!["Halakhah".into()],
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: PathBuf::new(),
             schema: None,

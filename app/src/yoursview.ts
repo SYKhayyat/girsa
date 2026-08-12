@@ -19,15 +19,16 @@ import {
 } from "./api.ts";
 import { sayTrouble } from "./trouble.ts";
 import { area, glyph } from "./controls.ts";
+import { say } from "./say.ts";
 
 type Panel = "notes" | "marks" | "queries" | "folders" | "tags";
 
 const PANELS: [Panel, string][] = [
-  ["notes", "הערות"],
-  ["marks", "סימונים"],
-  ["queries", "שאילתות"],
-  ["folders", "תיקיות"],
-  ["tags", "תגיות"],
+  ["notes", say("yoursNotes")],
+  ["marks", say("yoursMarks")],
+  ["queries", say("yoursQueries")],
+  ["folders", say("yoursFolders")],
+  ["tags", say("yoursTags")],
 ];
 
 export class YoursView {
@@ -54,19 +55,19 @@ export class YoursView {
     head.className = "yours-head";
     const title = document.createElement("span");
     title.className = "yours-title";
-    title.textContent = "שלי";
+    title.textContent = say("mine");
     this.note = document.createElement("span");
     this.note.className = "yours-note";
 
     const out = document.createElement("button");
     out.className = "tool";
-    out.textContent = "ייצוא";
+    out.textContent = say("yoursExport");
     out.title = "everything, as plain files";
     out.addEventListener("click", () => void this.exportLayer());
 
     const close = document.createElement("button");
     close.className = "tool";
-    close.textContent = "סגור";
+    close.textContent = say("close");
     close.title = "Esc";
     close.addEventListener("click", () => this.close());
     head.append(title, this.note, out, close);
@@ -130,7 +131,7 @@ export class YoursView {
     for (const button of this.tabs.querySelectorAll<HTMLElement>(".lens")) {
       button.classList.toggle("is-on", button.dataset.panel === this.panel);
     }
-    this.note.textContent = "קורא…";
+    this.note.textContent = say("linksReading");
     this.list.replaceChildren();
     try {
       switch (this.panel) {
@@ -152,7 +153,7 @@ export class YoursView {
 
   private async drawNotes(): Promise<void> {
     const notes = await api.notes();
-    this.note.textContent = notes.length === 0 ? "עוד לא כתבת" : `${notes.length} הערות`;
+    this.note.textContent = notes.length === 0 ? say("yoursNothingWritten") : `${notes.length} הערות`;
     for (const note of notes) {
       this.list.append(await this.noteRow(note));
     }
@@ -165,7 +166,7 @@ export class YoursView {
     const title = document.createElement("button");
     title.className = "yours-where";
     title.textContent = note.title;
-    title.title = "פתח כספר";
+    title.title = say("yoursOpenAsSefer");
     title.addEventListener("click", () => void this.goTo?.(note.slug, ""));
 
     const opening = document.createElement("span");
@@ -178,7 +179,7 @@ export class YoursView {
 
     const edit = document.createElement("button");
     edit.className = "tool";
-    edit.textContent = this.editing === note.name ? "סגור" : "ערוך";
+    edit.textContent = this.editing === note.name ? say("close") : say("yoursEdit");
     edit.addEventListener("click", () => {
       this.editing = this.editing === note.name ? null : note.name;
       void this.draw();
@@ -186,7 +187,7 @@ export class YoursView {
 
     const forget = document.createElement("button");
     forget.className = "tool";
-    forget.textContent = "מחק";
+    forget.textContent = say("yoursDelete");
     forget.title = "the file, the sefer and the catalogue line";
     forget.addEventListener("click", () => {
       void (async () => {
@@ -228,14 +229,14 @@ export class YoursView {
       id.textContent = para.id.split("#")[1] ?? "";
       id.title = para.id;
 
-      const words = area("פסקה", { className: "yours-words", value: para.text });
+      const words = area(say("yoursParagraph"), { className: "yours-words", value: para.text });
       words.rows = Math.max(2, Math.ceil(para.text.length / 60));
       words.addEventListener("blur", () => {
         if (words.value === para.text) return;
         void api.noteEdit(note.name, "set", para.id, words.value);
       });
 
-      const after = glyph("+", "פסקה חדשה אחרי זו", () => {
+      const after = glyph("+", say("yoursNewParagraph"), () => {
         void (async () => {
           await api.noteEdit(note.name, "after", para.id, "");
           await this.draw();
@@ -243,7 +244,7 @@ export class YoursView {
       });
       after.classList.add("tool");
 
-      const drop = glyph("−", "הסר פסקה", () => {
+      const drop = glyph("−", say("yoursDropParagraph"), () => {
         void (async () => {
           await api.noteEdit(note.name, "remove", para.id);
           await this.draw();
@@ -256,7 +257,7 @@ export class YoursView {
 
     const add = document.createElement("button");
     add.className = "tool";
-    add.textContent = "פסקה בסוף";
+    add.textContent = say("yoursParagraphAtEnd");
     add.addEventListener("click", () => {
       void (async () => {
         await api.noteEdit(note.name, "append", undefined, "");
@@ -269,7 +270,7 @@ export class YoursView {
       const where = document.createElement("button");
       where.className = "yours-where";
       where.textContent = at;
-      where.title = "פתח את המקום";
+      where.title = say("linksOpen");
       where.addEventListener("click", () => void this.goTo?.(workOf(at), at));
       box.append(where);
     }
@@ -279,7 +280,7 @@ export class YoursView {
   private async drawMarks(): Promise<void> {
     const marks = await api.bookmarks();
     this.note.textContent =
-      marks.length === 0 ? "אין סימניות" : `${marks.length} סימניות`;
+      marks.length === 0 ? say("yoursNoMarks") : `${marks.length} סימניות`;
     for (const mark of marks) this.list.append(this.markRow(mark));
   }
 
@@ -298,16 +299,16 @@ export class YoursView {
     // Three different sentences, and a mark that quietly said nothing would be
     // a highlight the reader thinks is still on the words it was made on.
     said.textContent = mark.stale
-      ? "המילים שסומנו אינן בשורה — הסימון לא מוצג"
+      ? say("yoursStale")
       : mark.moved
-        ? "השורה זזה, והסימון נמצא מחדש לפי המילים"
+        ? say("yoursMoved")
         : mark.kind === "bookmark"
-          ? "סימנייה"
+          ? say("bookmark")
           : mark.was;
 
     const forget = document.createElement("button");
     forget.className = "tool";
-    forget.textContent = "מחק";
+    forget.textContent = say("yoursDelete");
     forget.addEventListener("click", () => {
       void (async () => {
         await api.markForget(mark.id);
@@ -324,7 +325,7 @@ export class YoursView {
   private async drawQueries(): Promise<void> {
     const queries = await api.queries();
     this.note.textContent =
-      queries.length === 0 ? "לא שמרת שאילתות" : `${queries.length} שאילתות`;
+      queries.length === 0 ? say("yoursNoQueries") : `${queries.length} שאילתות`;
     for (const query of queries) this.list.append(this.queryRow(query));
   }
 
@@ -335,7 +336,7 @@ export class YoursView {
     const again = document.createElement("button");
     again.className = "yours-where";
     again.textContent = query.name;
-    again.title = "שאל שוב";
+    again.title = say("yoursAskAgain");
     again.addEventListener("click", () => {
       void (async () => {
         // The chips and the scope are set back in Rust; what comes back is the
@@ -351,7 +352,7 @@ export class YoursView {
 
     const forget = document.createElement("button");
     forget.className = "tool";
-    forget.textContent = "מחק";
+    forget.textContent = say("yoursDelete");
     forget.addEventListener("click", () => {
       void (async () => {
         await api.queryForget(query.name);
@@ -366,7 +367,7 @@ export class YoursView {
 
   private async drawFolders(): Promise<void> {
     const folders = await api.folders();
-    this.note.textContent = folders.length === 0 ? "אין תיקיות" : `${folders.length} תיקיות`;
+    this.note.textContent = folders.length === 0 ? say("yoursNoFolders") : `${folders.length} תיקיות`;
     for (const folder of folders) this.list.append(this.folderRow(folder));
   }
 
@@ -384,7 +385,7 @@ export class YoursView {
 
     const forget = document.createElement("button");
     forget.className = "tool";
-    forget.textContent = "מחק";
+    forget.textContent = say("yoursDelete");
     forget.title = "the folder only — what was in it is untouched";
     forget.addEventListener("click", () => {
       void (async () => {
@@ -409,7 +410,7 @@ export class YoursView {
       }
       const out = document.createElement("button");
       out.className = "tool";
-      out.textContent = "הסר";
+      out.textContent = say("yoursRemove");
       out.addEventListener("click", () => {
         void (async () => {
           await api.folderEdit(folder.name, "take-out", member.key);
@@ -424,7 +425,7 @@ export class YoursView {
 
   private async drawTags(): Promise<void> {
     const tags = await api.tags();
-    this.note.textContent = tags.length === 0 ? "אין תגיות" : `${tags.length} תגיות`;
+    this.note.textContent = tags.length === 0 ? say("yoursNoTags") : `${tags.length} תגיות`;
     for (const tag of tags) this.list.append(this.tagRow(tag));
   }
 

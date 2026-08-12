@@ -13,6 +13,7 @@
 
 import type { FixMark } from "./api.ts";
 import { field } from "./controls.ts";
+import { say } from "./say.ts";
 
 /** What the reader highlighted, and what is already on that line. */
 export interface Correcting {
@@ -57,14 +58,14 @@ export class FixBox {
 
     const head = document.createElement("p");
     head.className = "fixbox-head";
-    head.textContent = "תיקון";
+    head.textContent = say("fixTitle");
     const printed = document.createElement("span");
     printed.className = "fixbox-printed";
     printed.textContent = what.words;
-    printed.title = "כפי שנדפס";
+    printed.title = say("fixAsPrinted");
     head.append(printed);
 
-    const input = field("התיקון");
+    const input = field(say("fixTheWords"));
     input.className = "fixbox-input";
     input.type = "text";
     input.dir = "rtl";
@@ -77,13 +78,13 @@ export class FixBox {
     // noted beside the text and not applied to it.
     const kinds = document.createElement("div");
     kinds.className = "fixbox-kinds";
-    const ocr = this.kindButton("טעות דפוס", "ocr", "השגיאה של הסורק — מתוקנת בגוף הטקסט");
-    const girsa = this.kindButton("גרסה", "girsa", "כך גורס מישהו — נרשם ואינו מוחל");
+    const ocr = this.kindButton(say("fixKindOcr"), "ocr", say("fixKindOcrWhy"));
+    const girsa = this.kindButton(say("fixKindGirsa"), "girsa", say("fixKindGirsaWhy"));
     kinds.append(ocr, girsa);
 
     const hint = document.createElement("p");
     hint.className = "fixbox-hint";
-    hint.textContent = "Enter — שמור · Esc — בטל";
+    hint.textContent = say("fixKeys");
 
     this.element.append(head, input, kinds, hint);
 
@@ -123,11 +124,11 @@ export class FixBox {
     const row = document.createElement("p");
     row.className = "fixbox-existing";
     const words = document.createElement("span");
-    words.textContent = `${fix.kind === "ocr" ? "תוקן" : "גרסה"}: ${fix.was} ← ${fix.now}`;
+    words.textContent = `${fix.kind === "ocr" ? say("fixWasFixed") : say("fixKindGirsa")}: ${fix.was} ← ${fix.now}`;
     const back = document.createElement("button");
     back.className = "fixbox-back";
-    back.textContent = "החזר";
-    back.title = "בטל את התיקון — הטקסט חוזר כפי שנדפס";
+    back.textContent = say("fixRevert");
+    back.title = say("fixRevertWhy");
     back.addEventListener("click", () => {
       const handlers = this.handlers;
       this.close();

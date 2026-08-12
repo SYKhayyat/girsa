@@ -1104,7 +1104,7 @@ impl SearchIndex {
             ));
         }
         for slug in scope.excluded_works() {
-            clauses.push((Occur::MustNot, self.one_term(self.fields.work, slug)));
+            clauses.push((Occur::MustNot, self.one_term(self.fields.work, &slug)));
         }
         if !scope.link_types().is_empty() {
             clauses.push((

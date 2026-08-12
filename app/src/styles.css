@@ -14,7 +14,14 @@
  */
 
 :root {
-  --reading-size: 100%;
+  /* A **number**, not a percentage. Every rule below scales with
+   * `calc(19px * var(--reading-size) / 100)`, and `calc` cannot multiply a
+   * length by a percentage — with `100%` in here the whole declaration was
+   * invalid at computed-value time and thrown away, so the two font-size
+   * buttons, both keyboard shortcuts and the size row in the settings panel all
+   * did nothing visible. `main.ts` writes the number; `girsa_app::session`
+   * clamps it to 60-250. */
+  --reading-size: 100;
 
   --ink: #e8e2d6;
   --ink-quiet: #9a9284;
@@ -123,17 +130,44 @@ body {
  */
 :root {
   --dock: 380px;
+  /* What is left of a docked panel when it is minimised: a strip wide enough to
+   * carry its name, and to be clicked. */
+  --dock-small: 34px;
 }
 
 :root.is-docked .app {
   margin-inline-start: var(--dock);
 }
 
-/* No scrim: there is nothing modal about a docked panel, and a dimmed sefer is
+:root.is-docked-small .app {
+  margin-inline-start: var(--dock-small);
+}
+
+/* # The panel and the gap were on opposite sides
+ *
+ * > *"Big Bug - It leaves a gap on the left side and puts the madaf over the
+ * > sefer on the right side. It should leave the gap where the madaf goes
+ * > (right makes sense)."*
+ *
+ * Two properties, two coordinate systems. The reading's gap is
+ * `margin-inline-start`, which is **logical** — the right-hand edge in an RTL
+ * document. The panel was `inset: 0 auto 0 0`, which is **physical** — the
+ * left-hand edge, always. So the space was made on one side of the window and
+ * the panel stood on the other, over the text, which is the exact complaint the
+ * docking was built to answer in the first place (*"it is weirdly over the text,
+ * so i cant see it or the text"*).
+ *
+ * Logical on both sides now, so they cannot disagree — and the edge they agree
+ * on is the reading's leading one, which in a Hebrew window is the right, which
+ * is where a bookcase goes.
+ *
+ * No scrim: there is nothing modal about a docked panel, and a dimmed sefer is
  * a sefer you are not reading. */
 .find.is-docked,
 .shelf.is-docked {
-  inset: 0 auto 0 0;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inset-inline-end: auto;
   width: var(--dock);
   background: none;
   display: block;
@@ -149,6 +183,38 @@ body {
   border-block: none;
   border-inline-start: none;
   box-shadow: 2px 0 12px rgb(0 0 0 / 25%);
+}
+
+/* Minimised: the panel is still open, still holding its query and its place in
+ * the list, and takes a strip instead of a column.
+ *
+ * > *"it should be minimizable in a way that you can easily reopen it."*
+ *
+ * The strip is the reopen: it is the panel, `writing-mode` on its side, and
+ * clicking it puts the column back. A minimise that hid the panel entirely would
+ * be a close with another name — the reader would have to remember it was ever
+ * there. */
+.find.is-small,
+.shelf.is-small {
+  width: var(--dock-small);
+}
+
+.find.is-small .find-sheet > *,
+.shelf.is-small .shelf-sheet > * {
+  display: none;
+}
+
+.find.is-small .find-sheet::after,
+.shelf.is-small .shelf-sheet::after {
+  content: attr(data-name);
+  display: block;
+  writing-mode: vertical-rl;
+  padding: 12px 0;
+  font-family: var(--hebrew);
+  font-size: 13px;
+  color: var(--ink-quiet);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 /* The facets sit beside the results at full width and under them in a column
@@ -550,14 +616,16 @@ body {
  */
 .links {
   position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
+  /* Logical, not physical: `left: 0` in an RTL window puts a drawer on the
+   * trailing edge, the far side of the text from the line it is about. The dock
+   * had the same bug and it is the same fix - see `--dock`. */
+  inset-block: 0;
+  inset-inline-start: 0;
   width: 0;
   overflow: hidden;
   z-index: 30;
   background: var(--page-raised);
-  border-left: 1px solid var(--rule);
+  border-inline-end: 1px solid var(--rule);
   transition: width 0.12s ease-out;
 }
 
@@ -765,14 +833,13 @@ body {
  */
 .suspects {
   position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
+  inset-block: 0;
+  inset-inline-start: 0;
   width: 0;
   overflow: hidden;
   z-index: 30;
   background: var(--page-raised);
-  border-left: 1px solid var(--rule);
+  border-inline-end: 1px solid var(--rule);
   transition: width 0.12s ease-out;
 }
 
@@ -1770,7 +1837,7 @@ body {
   background: transparent;
   color: var(--ink);
   font-family: "Cascadia Mono", "Consolas", var(--hebrew), monospace;
-  font-size: calc(15px * var(--reading-size) / 100%);
+  font-size: calc(15px * var(--reading-size) / 100);
   line-height: 1.7;
 }
 
@@ -1957,14 +2024,13 @@ body {
  */
 .yours {
   position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
+  inset-block: 0;
+  inset-inline-start: 0;
   width: 0;
   overflow: hidden;
   z-index: 31;
   background: var(--page-raised);
-  border-left: 1px solid var(--rule);
+  border-inline-end: 1px solid var(--rule);
   transition: width 0.12s ease-out;
 }
 
@@ -2508,4 +2574,201 @@ body {
   font-family: ui-monospace, "Cascadia Mono", monospace;
   min-width: 8.5em;
   text-align: center;
+}
+
+
+/* ── Where the search looks (the scope panel) ───────────────────────────────
+ *
+ * A panel and not a rail: the facet rail is derived from an answer, so it did
+ * not exist before a search and was cleared at the start of the next one — the
+ * tree that *"flashes, then flashes off"*. This is the scope itself, which
+ * exists before any search and outlives every one.
+ */
+.scope {
+  border-block-end: 1px solid var(--rule);
+  background: var(--page-raised);
+  max-height: 42vh;
+  overflow-y: auto;
+  padding: 8px 12px 10px;
+}
+
+.scope-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-block-end: 6px;
+}
+
+.scope-title {
+  margin: 0;
+  font-family: var(--hebrew);
+  font-size: 15px;
+}
+
+.scope-said {
+  margin: 0;
+  flex: 1;
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--mark);
+}
+
+.scope-said.is-everything {
+  color: var(--ink-quiet);
+}
+
+/* What is in the scope now — one chip per step, each with its own `×`, because
+ * taking one back used to mean starting over. */
+.scope-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-block-end: 8px;
+}
+
+.scope-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--mark-quiet);
+  border-radius: 10px;
+  background: var(--page);
+  font-family: var(--hebrew);
+  font-size: 12px;
+}
+
+.scope-step.is-out {
+  border-style: dashed;
+  color: var(--ink-quiet);
+}
+
+.scope-step-drop {
+  border: 0;
+  background: none;
+  color: var(--ink-quiet);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.scope-box {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--hebrew);
+  font-size: 13px;
+}
+
+.scope-found:not(:empty) {
+  padding-block: 6px;
+  border-block-end: 1px solid var(--rule);
+  margin-block-end: 6px;
+}
+
+.scope-tree {
+  max-height: 26vh;
+  overflow-y: auto;
+}
+
+.scope-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-family: var(--hebrew);
+  font-size: 13px;
+}
+
+.scope-row:hover {
+  background: var(--page);
+}
+
+.scope-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-count {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.scope-twist {
+  width: 16px;
+  border: 0;
+  background: none;
+  color: var(--ink-quiet);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+}
+
+.scope-add,
+.scope-out {
+  width: 20px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink-quiet);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.4;
+  padding: 0;
+}
+
+.scope-add:hover {
+  color: var(--mark);
+  border-color: var(--mark-quiet);
+}
+
+.scope-out:hover {
+  color: var(--ink);
+}
+
+/* The scope chip is a doorway rather than a setting, and says so by looking
+ * like one: it opens the panel above instead of a menu of one item. */
+.find-chip-face.is-doorway {
+  border-style: dashed;
+}
+
+/* Pick several mefarshim and open them together (the reader's eighth bug). */
+.picker-open {
+  margin-block-start: 8px;
+  width: 100%;
+}
+
+.picker-pick {
+  accent-color: var(--mark);
+}
+
+/* ── An English interface around a Hebrew sefer ─────────────────────────────
+ *
+ * The chrome turns; **the reading does not**. `speakInterface` puts
+ * `dir="ltr"` on the document when the window is in English, which is right for
+ * a menu and catastrophic for a daf — so every surface that holds corpus text
+ * is pinned back to RTL here rather than relying on the document.
+ *
+ * This is the same rule `names.ts` states for `is-english` and could not
+ * enforce, because it only ever changed which of two titles was printed.
+ */
+:root.is-english-ui .panes,
+:root.is-english-ui .pane,
+:root.is-english-ui .line,
+:root.is-english-ui .find-text,
+:root.is-english-ui .said-line,
+:root.is-english-ui .link-preview {
+  direction: rtl;
+}
+
+:root.is-english-ui .tools,
+:root.is-english-ui .tabs {
+  font-family: var(--plain);
 }

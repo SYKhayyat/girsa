@@ -829,6 +829,7 @@ mod tests {
             he_title: slug.into(),
             en_title: slug.into(),
             categories: Vec::new(),
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: PathBuf::new(),
             schema: None,

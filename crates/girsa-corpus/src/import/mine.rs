@@ -152,6 +152,7 @@ pub fn add(personal: &Path, file: &Path, title: Option<&str>) -> Result<Imported
         en_title: named,
         // spec.md §5's *yours*, and [`crate::taxonomy`] shelves it there.
         categories: vec!["שלי".to_string()],
+        order: Vec::new(),
         source: Source::Mine,
         origin: copied,
         schema: None,

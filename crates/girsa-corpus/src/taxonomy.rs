@@ -436,42 +436,93 @@ fn canonical_path(categories: &[String]) -> Vec<String> {
     shelf
 }
 
-/// The shelf a work sits on, as a path from the top.
+/// The shelf every work in a catalogue sits on, as paths from the top.
 ///
-/// Always at least one element, and its first element is always one of [`TOP`]
-/// — a sefer with no shelf is a sefer a reader cannot browse to.
+/// One per work, in the order they were handed in. Always at least one element
+/// each, and the first is always one of [`TOP`] — a sefer with no shelf is a
+/// sefer a reader cannot browse to.
+///
+/// # Why the whole catalogue and not one work at a time
+///
+/// This used to be `shelf_of(work)`, and one of its two rules cannot be answered
+/// from a work alone. W46 files a declared commentary **one level down, with the
+/// commentaries**, and the case it was written for is a commentary the corpus
+/// filed on its base's own shelf:
+///
+/// ```text
+/// peri-megadim-on-orach-chayim  ['Halakhah','Shulchan Arukh']
+/// peri-megadim-on-yoreh-deah    ['Halakhah','Shulchan Arukh','Commentary','Pri Megadim']
+/// ```
+///
+/// Same author, same sefer, two chalakim, two filings — so one of them stood
+/// beside the four chalakim as though it were a fifth. Written without the
+/// catalogue, the rule had to fire on *any* declared commentary not already on a
+/// commentary shelf, and that is one rule doing the work of two: it also moved
+/// **Midrash Lekach Tov**, which declares the five chumashim, stands on its own
+/// shelf `מדרש/אגדה/Midrash Lekach Tov` — named after itself, because Sefaria
+/// files its commentaries under it — and was thereby filed into a `מפרשים`
+/// folder among its own mefarshim. The reader's words: *"medrash lekach tov
+/// seems to be in a separate category? i dont know why, but it looks
+/// confusing."*
+///
+/// With the catalogue the rule says what it always meant: **a commentary does
+/// not stand on the same shelf as the sefer it comments on.** Over the shipped
+/// corpus that is 25 works moved and 5 left alone, and the 5 are the Lekach Tov.
 #[must_use]
-pub fn shelf_of(work: &Work) -> Vec<String> {
+pub fn shelves_of(works: &[Work]) -> Vec<Vec<String>> {
     // The same mapping [`stands`] compares over. One implementation, because two
     // would put a sefer on one shelf in the bookcase and judge it by another.
-    let mut shelf = canonical_path(&work.categories);
+    let plain: Vec<Vec<String>> = works
+        .iter()
+        .map(|w| canonical_path(&w.categories))
+        .collect();
+    let by_slug: std::collections::BTreeMap<&str, usize> = works
+        .iter()
+        .enumerate()
+        .map(|(at, w)| (w.slug.as_str(), at))
+        .collect();
 
-    // W46. A sefer that **declares** itself a commentary and whose categories put
-    // it on its own base's shelf is filed one level down, with the commentaries.
-    //
-    // Sefaria's own data disagrees with itself about this, in one line:
-    //
-    //     peri-megadim-on-orach-chayim  ['Halakhah','Shulchan Arukh']
-    //     peri-megadim-on-yoreh-deah    ['Halakhah','Shulchan Arukh','Commentary','Pri Megadim']
-    //
-    // Same author, same sefer, two chalakim, two filings — so one of them stands
-    // beside the four chalakim as though it were a fifth. The declaration is the
-    // stronger statement and it wins, which is the precedence the rest of this
-    // codebase already uses everywhere else.
-    if !work.commentary_on.is_empty() && commentary_shelf(work).is_none() {
-        // What the corpus called the shelf before it was mapped, which is what
-        // `term_of` strips an `on Y` against.
-        let categories: Vec<&str> = work
-            .categories
-            .iter()
-            .map(String::as_str)
-            .filter(|c| !c.trim().is_empty())
-            .collect();
-        let (_, consumed) = top_of(&categories);
-        let said: Vec<&str> = categories.iter().take(consumed.max(1)).copied().collect();
-        shelf.push(term_of("Commentary", &said));
-    }
-    shelf
+    plain
+        .iter()
+        .enumerate()
+        .map(|(at, shelf)| {
+            let work = &works[at];
+            let mut shelf = shelf.clone();
+            let on_its_bases_shelf = || {
+                work.commentary_on.iter().any(|base| {
+                    by_slug
+                        .get(base.slug.as_str())
+                        .and_then(|at| plain.get(*at))
+                        .is_some_and(|theirs| theirs == &shelf)
+                })
+            };
+            if commentary_shelf(work).is_none() && on_its_bases_shelf() {
+                // What the corpus called the shelf before it was mapped, which
+                // is what `term_of` strips an `on Y` against.
+                let categories: Vec<&str> = work
+                    .categories
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|c| !c.trim().is_empty())
+                    .collect();
+                let (_, consumed) = top_of(&categories);
+                let said: Vec<&str> = categories.iter().take(consumed.max(1)).copied().collect();
+                shelf.push(term_of("Commentary", &said));
+            }
+            shelf
+        })
+        .collect()
+}
+
+/// The shelf **one** work sits on, with no catalogue to compare it against.
+///
+/// For a sefer that has just arrived and is not on any shelf yet — a file
+/// dropped on the window (spec.md §5) — and for a caller that holds one work and
+/// nothing else. It cannot answer W46, and it says so by not trying: see
+/// [`shelves_of`], which is what the bookcase and the facets both use.
+#[must_use]
+pub fn shelf_of(work: &Work) -> Vec<String> {
+    canonical_path(&work.categories)
 }
 
 /// The top shelf, and how many of the work's own categories it used up.
@@ -532,6 +583,7 @@ mod tests {
             he_title: "x".into(),
             en_title: "x".into(),
             categories: categories.iter().map(|c| (*c).to_string()).collect(),
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: std::path::PathBuf::new(),
             schema: None,
@@ -552,6 +604,7 @@ mod tests {
             he_title: slug.into(),
             en_title: slug.into(),
             categories: categories.iter().map(|c| (*c).to_string()).collect(),
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: std::path::PathBuf::new(),
             schema: None,
@@ -579,6 +632,14 @@ mod tests {
 
     // ── W46: a sefer that says it is a commentary is filed as one ────────────
 
+    /// Where each of these works lands, filed together as a catalogue.
+    fn shelves(works: &[Work]) -> Vec<String> {
+        shelves_of(works)
+            .into_iter()
+            .map(|shelf| shelf.join("/"))
+            .collect()
+    }
+
     #[test]
     fn the_pri_megadim_is_filed_with_the_mefarshim_and_not_beside_the_shulchan_arukh() {
         // Upstream, in one line, and this is the reader's *"pri megadim is lumped
@@ -590,13 +651,69 @@ mod tests {
         // Same author, same sefer, two chalakim, two different filings. So one of
         // them stands on the Shulchan Arukh's own shelf as though it were a fifth
         // chelek. It is not a guess to move it: it **declares**
-        // `commentary_on: shulchan-arukh/orach-chayim`.
+        // `commentary_on: shulchan-arukh/orach-chayim`, and that sefer is on the
+        // very shelf this one is standing on.
+        let arukh = work_of(
+            "shulchan-arukh/orach-chayim",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
         let pri_megadim = work_of(
             "peri-megadim-on-orach-chayim",
             &["Halakhah", "Shulchan Arukh"],
             &["shulchan-arukh/orach-chayim"],
         );
-        assert_eq!(shelf_of(&pri_megadim).join("/"), "הלכה/שולחן ערוך/מפרשים");
+        assert_eq!(
+            shelves(&[arukh, pri_megadim]),
+            ["הלכה/שולחן ערוך", "הלכה/שולחן ערוך/מפרשים"]
+        );
+    }
+
+    #[test]
+    fn a_sefer_whose_shelf_is_named_after_it_is_not_filed_among_its_own_mefarshim() {
+        // The reader, five minutes into the first test of the window: *"medrash
+        // lekach tov seems to be in a separate category? i dont know why, but it
+        // looks confusing."*
+        //
+        // It declares all five chumashim, so the old rule — *any* declared
+        // commentary not already on a commentary shelf — moved it. But the shelf
+        // it stands on is `מדרש/אגדה/Midrash Lekach Tov`, named after **itself**
+        // because that is where Sefaria files its mefarshim; the chumashim are
+        // nowhere near it. So it was filed into a `מפרשים` folder among its own
+        // commentaries, which is where a reader found it.
+        let genesis = work_of("genesis", &["Tanakh", "Torah"], &[]);
+        let lekach_tov = work_of(
+            "midrash-lekach-tov",
+            &["Midrash", "Aggadah", "Midrash Lekach Tov"],
+            &["genesis"],
+        );
+        // Its own mefaresh, which really is one and really does move.
+        let beur = work_of(
+            "beur-hareem-on-midrash-lekach-tov",
+            &["Midrash", "Aggadah", "Midrash Lekach Tov", "Commentary"],
+            &["midrash-lekach-tov"],
+        );
+        assert_eq!(
+            shelves(&[genesis, lekach_tov, beur]),
+            [
+                "תנ״ך/תורה",
+                "מדרש/אגדה/Midrash Lekach Tov",
+                "מדרש/אגדה/Midrash Lekach Tov/מפרשים"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_commentary_whose_base_is_not_on_the_shelf_is_left_where_the_corpus_put_it() {
+        // The rule compares against a base that is **here**. A declaration
+        // naming a sefer this shelf does not have is not evidence about where
+        // this one stands, and guessing from it would be BUILDER.md rule 6.
+        let footnotes = work_of(
+            "footnotes-on-orot",
+            &["Jewish Thought", "Modern", "Rav Kook"],
+            &["orot"],
+        );
+        assert_eq!(shelves(&[footnotes]), ["מחשבה/מחברי זמננו/Rav Kook"]);
     }
 
     #[test]
@@ -609,7 +726,7 @@ mod tests {
             &["Halakhah", "Shulchan Arukh"],
             &[],
         );
-        assert_eq!(shelf_of(&arukh).join("/"), "הלכה/שולחן ערוך");
+        assert_eq!(shelves(&[arukh]), ["הלכה/שולחן ערוך"]);
 
         // And an introduction to a sefer is part of the sefer.
         let intro = work_of(
@@ -617,7 +734,7 @@ mod tests {
             &["Halakhah", "Shulchan Arukh"],
             &[],
         );
-        assert_eq!(shelf_of(&intro).join("/"), "הלכה/שולחן ערוך");
+        assert_eq!(shelves(&[intro]), ["הלכה/שולחן ערוך"]);
     }
 
     #[test]
@@ -625,14 +742,15 @@ mod tests {
         // Rashi declares Berakhot and is already under the rishonim. Moving it
         // again would put it under `תלמוד/בבלי/ראשונים/מפרשים`, which is a folder
         // nobody asked for.
+        let berakhot = work_of("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[]);
         let rashi = work_of(
             "bavli/rashi-on-berakhot",
             &["Talmud", "Bavli", "Rishonim on Talmud", "Rashi"],
             &["bavli/berakhot"],
         );
         assert_eq!(
-            shelf_of(&rashi).join("/"),
-            "תלמוד/בבלי/ראשונים/Rashi",
+            shelves(&[berakhot, rashi]),
+            ["תלמוד/בבלי/סדר זרעים", "תלמוד/בבלי/ראשונים/Rashi"],
             "a commentary on a commentary shelf stays on it"
         );
     }

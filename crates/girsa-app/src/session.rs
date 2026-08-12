@@ -22,10 +22,12 @@ use crate::workspace::Workspace;
 
 /// Everything the app remembers.
 ///
-/// [`Default`] is written out rather than derived. Derived, `nikud` would be
-/// `false` — and since a session file that will not parse falls back to the
-/// default, a corrupt preferences file would silently strip the nikud out of
-/// every sefer on the shelf and look like a rendering bug.
+/// [`Default`] is written out rather than derived, so that every field's
+/// default is a decision somebody made and can be read in one place. It matters
+/// most for the ones a corrupt preferences file would otherwise fall back
+/// through: a session that will not parse gives a fresh one, and a fresh one
+/// that stripped the nikud out of every sefer on the shelf would look like a
+/// rendering bug rather than a lost file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     #[serde(default)]
@@ -43,11 +45,21 @@ pub struct Session {
     /// are not the ones you follow on Chullin.
     #[serde(default)]
     pub chosen: BTreeMap<String, Vec<String>>,
-    /// Whether nikud is shown. One setting for the window, because a reader
-    /// who turns it off wants it off — not off in this pane and on in the one
-    /// beside it.
-    #[serde(default = "yes")]
-    pub nikud: bool,
+    /// How much of the pointing is shown. One setting for the window, because a
+    /// reader who turns it off wants it off — not off in this pane and on in the
+    /// one beside it.
+    #[serde(default)]
+    pub pointing: Pointing,
+    /// A session written when this was a bool, read once and folded into
+    /// [`Session::pointing`] by [`Session::sane`].
+    ///
+    /// The alternative is that a reader who had turned the nikud off finds it
+    /// back on after an update, with nothing saying why — and there is a whole
+    /// decision record in the sibling repository called *no preference ever
+    /// survived a reload*. Never written out: the file says `pointing` from the
+    /// first save onwards.
+    #[serde(default, rename = "nikud", skip_serializing)]
+    was_nikud: Option<bool>,
     /// Reading size, as a percentage. Hebrew with nikud at a small size is
     /// unreadable in a way Latin text at the same size is not.
     #[serde(default = "hundred")]
@@ -67,8 +79,22 @@ pub struct Session {
     /// A setting and not a guess from the machine's locale: a reader in New York
     /// whose Windows is in English still wants ברכות to be called ברכות, and the
     /// one who wants Berakhot wants it everywhere at once.
+    ///
+    /// **Only the seforim.** What the buttons say is [`Session::interface`], and
+    /// they are two settings because they are two questions: *"there is no way
+    /// to change UI into english — only seforim names. there should be 2
+    /// seperate commands."* A reader who learns in Hebrew and reads an English
+    /// interface is ordinary, and so is the reverse.
     #[serde(default)]
     pub language: Language,
+    /// What the window itself says — buttons, headings, panel titles, the
+    /// sentences it says back.
+    ///
+    /// Defaults to Hebrew, like the seforim, because that is what shipped and a
+    /// reader who never opens the settings must not find the application in a
+    /// language they did not ask for.
+    #[serde(default)]
+    pub interface: Language,
     /// How the reading looks: theme, fonts, line height, column width (B13).
     ///
     /// > *"There is no settings panel. No font. No theme control … Otzar
@@ -90,6 +116,118 @@ pub struct Session {
     /// until they say otherwise.
     #[serde(default)]
     pub showing: girsa_fix::Showing,
+    /// Where the last file was written, so the next one is offered there.
+    ///
+    /// > *"send to ksav and export dont let you pick a folder."*
+    ///
+    /// They did not: an export went to `personal/exports/` and said the path
+    /// afterwards. This is what a folder dialog opens on the second time, and
+    /// `None` is *nobody has chosen one yet*, which is the reader's own
+    /// documents folder rather than a directory inside the application's data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_into: Option<String>,
+}
+
+/// How much of the pointing is drawn.
+///
+/// Three, and the middle one is the reader's: *"im nikkud and bli nikkud are
+/// backwards. Also, there is no way to have nikud and no trup."* A bool could
+/// hold two of these and the one that was missing is the one most people
+/// actually read a Chumash in — the nikud without the te'amim, because the trup
+/// is for laining and on a screen it is a second storey of marks over every
+/// word.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Pointing {
+    /// Everything the corpus has: nikud and te'amim both.
+    #[default]
+    Full,
+    /// The nikud, without the te'amim.
+    Nikud,
+    /// The letters alone.
+    Plain,
+}
+
+girsa_corpus::spelled!(Pointing {
+    Full => "full",
+    Nikud => "nikud",
+    Plain => "plain",
+});
+
+impl Pointing {
+    /// Every setting, in the order the control rounds them.
+    pub const ALL: [Self; 3] = [Self::Full, Self::Nikud, Self::Plain];
+
+    /// The next one round, for a control that cycles.
+    #[must_use]
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Full => Self::Nikud,
+            Self::Nikud => Self::Plain,
+            Self::Plain => Self::Full,
+        }
+    }
+
+    /// Whether a mark is drawn under this setting.
+    ///
+    /// **The one predicate.** `display::Shown`, the export, the copy and the
+    /// correction box all ask it, and they have to agree to the character or a
+    /// highlight lands on the wrong letters (`girsa_app::display`'s whole
+    /// reason for existing).
+    #[must_use]
+    pub fn draws(self, ch: char) -> bool {
+        match self {
+            Self::Full => true,
+            // The te'amim only. `girsa_hebrew::is_mark` cannot make this
+            // distinction — it is one range, and it is the right answer for the
+            // *index*, where nobody types either. On the page they are two
+            // different things to a reader.
+            Self::Nikud => !is_taam(ch),
+            Self::Plain => !girsa_hebrew::is_mark(ch),
+        }
+    }
+
+    /// What the control says it will do **next**, which is what a button is for.
+    ///
+    /// The toolbar printed the state it was already in — `עם ניקוד` while the
+    /// nikud was on — beside a language button whose own comment says *"a button
+    /// labelled with the state you are already in is a button nobody can
+    /// predict."* Two buttons, two conventions, one toolbar.
+    #[must_use]
+    pub const fn said(self) -> &'static str {
+        match self {
+            Self::Full => "ניקוד וטעמים",
+            Self::Nikud => "ניקוד בלי טעמים",
+            Self::Plain => "בלי ניקוד",
+        }
+    }
+
+    /// The same, for a window running in English.
+    #[must_use]
+    pub const fn said_en(self) -> &'static str {
+        match self {
+            Self::Full => "nikud and te'amim",
+            Self::Nikud => "nikud, no te'amim",
+            Self::Plain => "no nikud",
+        }
+    }
+}
+
+/// Whether a mark is a **taam** — cantillation — rather than a nikud point.
+///
+/// The accents are their own block, `U+0591`–`U+05AF`; meteg and the two dots
+/// are counted with them because they are set by the same hand and read by the
+/// same eye. Everything else in the mark range — sheva through dagesh, rafe, the
+/// shin and sin dots, qamats qatan — is nikud and stays.
+///
+/// Here and not in `girsa-hebrew`: that crate's `is_mark` is the **index's**
+/// question (spec.md §9.1), one range, deliberately blunt, and shared with Ksav
+/// through a pinned release. This is a question about a page.
+#[must_use]
+pub fn is_taam(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{0591}'..='\u{05AF}' | '\u{05BD}' | '\u{05C4}' | '\u{05C5}'
+    )
 }
 
 /// Which language the window speaks.
@@ -267,10 +405,6 @@ impl Look {
     }
 }
 
-const fn yes() -> bool {
-    true
-}
-
 const fn hundred() -> u16 {
     100
 }
@@ -286,13 +420,16 @@ impl Default for Session {
             workspace: Workspace::default(),
             positions: BTreeMap::new(),
             chosen: BTreeMap::new(),
-            nikud: yes(),
+            pointing: Pointing::default(),
+            was_nikud: None,
             text_size: hundred(),
             cite: full(),
             language: Language::default(),
+            interface: Language::default(),
             look: Look::default(),
             keys: BTreeMap::new(),
             showing: girsa_fix::Showing::default(),
+            export_into: None,
         }
     }
 }
@@ -339,6 +476,11 @@ impl Session {
     /// a clamp that only fires in a setter is a rule about a code path rather
     /// than about the value.
     pub fn sane(&mut self) {
+        // A session written when the pointing was a bool. Read once, on the way
+        // in, and never written back — see `Session::was_nikud`.
+        if let Some(on) = self.was_nikud.take() {
+            self.pointing = if on { Pointing::Full } else { Pointing::Plain };
+        }
         self.text_size = self.text_size.clamp(SMALLEST_TEXT, LARGEST_TEXT);
         self.look = std::mem::take(&mut self.look).sane();
         self.workspace.sane();
@@ -536,7 +678,11 @@ mod tests {
         std::fs::write(&path, r#"{"nikud":false,"text_size":120}"#).expect("writes");
 
         let session = Session::load(&path);
-        assert!(!session.nikud, "the file was read, not fallen back from");
+        assert_eq!(
+            session.pointing,
+            Pointing::Plain,
+            "the file was read, not fallen back from — and `nikud: false` is `plain`"
+        );
         assert!(session.chosen_for("bavli/berakhot").is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -554,7 +700,7 @@ mod tests {
             .split(gemara, Axis::Vertical, "bavli/rashi-on-berakhot", true)
             .expect("splits");
         session.remember(id("bavli/berakhot", 4));
-        session.nikud = false;
+        session.pointing = Pointing::Nikud;
         session.save(&path).expect("saves");
 
         assert_eq!(Session::load(&path), session);
@@ -571,7 +717,11 @@ mod tests {
 
         let session = Session::load(&path);
         assert_eq!(session, Session::default());
-        assert!(session.nikud, "the default is nikud on, as printed");
+        assert_eq!(
+            session.pointing,
+            Pointing::Full,
+            "the default is the sefer as printed, marks and all"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

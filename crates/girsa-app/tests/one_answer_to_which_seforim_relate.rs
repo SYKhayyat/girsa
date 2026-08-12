@@ -75,11 +75,11 @@ fn the_picker_and_the_column_place_a_sefer_the_same_way() {
         checked += 1;
         let relation = Beside::between(&gemara, &other, root).relation();
         assert_eq!(
-            companion.declared,
+            companion.related(),
             matches!(relation, Relation::Declared { .. }),
-            "{}: the picker says declared={} and the column says {relation:?}",
+            "{}: the picker says stands={:?} and the column says {relation:?}",
             companion.slug,
-            companion.declared,
+            companion.stands,
         );
     }
     assert!(
@@ -134,7 +134,10 @@ fn a_declared_commentary_is_declared_by_all_three() {
         .into_iter()
         .find(|c| c.slug == RASHI)
         .expect("Rashi is offered beside Berakhot");
-    assert!(offered.declared, "the picker does not call Rashi declared");
+    assert!(
+        offered.related(),
+        "the picker does not relate Rashi to Berakhot"
+    );
     assert_eq!(offered.stands, Some(Related::On), "and it is a mefaresh");
 
     assert_eq!(
@@ -167,7 +170,10 @@ fn the_two_commentaries_on_one_gemara_are_offered_and_placed_alike() {
             .find(|c| c.slug == slug)
             .unwrap_or_else(|| panic!("{slug} is not offered beside Berakhot"));
         let relation = Beside::between(&gemara, &other, root).relation();
-        assert!(offered.declared, "{slug}: the picker calls it undeclared");
+        assert!(
+            offered.related(),
+            "{slug}: the picker relates it to nothing"
+        );
         assert!(
             matches!(relation, Relation::Declared { .. }),
             "{slug}: the column says {relation:?}"

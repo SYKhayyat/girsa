@@ -39,8 +39,8 @@ use girsa_link::{inbound, EdgeType};
 use serde::Serialize;
 
 use crate::arrangement::Arrangement;
-use crate::shelf::Companion;
-use crate::taxonomy::{shelf_key_of, Branch};
+use crate::shelf::{Companion, Related};
+use crate::taxonomy::{shelf_key_of, Branch, Shipped};
 
 /// Which works comment on which segment of one sefer.
 #[derive(Debug, Default, Clone)]
@@ -309,11 +309,11 @@ pub struct Folders {
 /// respected here as everywhere else. There is a test that reads this file's own
 /// source to keep it that way.
 #[must_use]
-pub fn folders(works: &[Work], arrangement: &Arrangement) -> Folders {
+pub fn folders(works: &[Work], arrangement: &Arrangement, shipped: &Shipped) -> Folders {
     let paths: Vec<(String, Vec<String>)> = works
         .iter()
         .map(|work| {
-            let key = shelf_key_of(work, arrangement);
+            let key = shelf_key_of(work, arrangement, shipped);
             let parts = key
                 .split('/')
                 .filter(|p| !p.is_empty())
@@ -434,15 +434,27 @@ pub struct Choice {
     pub slug: String,
     pub he_title: String,
     pub en_title: String,
-    /// The corpus places this sefer on the one you are reading — a mefaresh, or
-    /// a sefer following its order. See `girsa_corpus::taxonomy::settled`.
-    pub declared: bool,
+    /// How the corpus places this sefer against the one you are reading — a
+    /// mefaresh on it, the sefer it is a mefaresh **on**, or its own sefer
+    /// following the same order. `None` where only edges join them.
+    ///
+    /// See `girsa_corpus::taxonomy::settled` and [`crate::shelf::Related`]. This
+    /// was `declared: bool`, and one bool over three claims is what put Bereshis
+    /// in Onkelos's list labelled `פירוש`.
+    pub stands: Option<Related>,
+    /// What the row says this relationship is, in the window's Hebrew — worded
+    /// once, in Rust, beside the enum it describes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub said: Option<&'static str>,
+    /// And what the claim rests on, for the hover.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<&'static str>,
     /// How many edges join the two, where that is all there is.
     pub links: usize,
     /// Whether ticking it could mark a line — that is, whether the link graph
     /// has it commenting somewhere in this sefer.
     ///
-    /// **Not the same question as `declared`.** `Tosafot on Berakhot` declares
+    /// **Not the same question as `stands`.** `Tosafot on Berakhot` declares
     /// itself a commentary; whether *this* corpus holds edges placing its
     /// comments on particular lines is a separate fact. A tick-box that can
     /// never mark anything is worse than no box.
@@ -472,6 +484,10 @@ pub enum Listed {
 /// because a heading invented in the window is a heading no Rust test can hold.
 /// `girsa_app::links::kinds` made the same move for edge types.
 mod heading {
+    /// The sefer this one was written **about** — the other direction, which a
+    /// bool could not hold. Onkelos declares Bereshis; Bereshis is the sefer to
+    /// put beside Onkelos and is not a peirush on it.
+    pub const BASE: &str = "הספר שעליו נכתב";
     /// Seforim that keep this one's order without commenting on it.
     pub const ALONGSIDE: &str = "על סדר הספר";
     /// Declared commentaries whose comments the graph cannot place on a line.
@@ -518,12 +534,14 @@ pub fn listed(
     shelf: &crate::shelf::Shelf,
 ) -> Vec<Listed> {
     let placeable: BTreeSet<&str> = can_mark.iter().map(String::as_str).collect();
-    let named = |slug: &str, declared: bool, links: usize, tickable: bool| {
+    let named = |slug: &str, stands: Option<Related>, links: usize, tickable: bool| {
         let work = shelf.work(slug);
         Choice {
             he_title: work.map_or_else(|| slug.to_string(), |w| w.he_title.clone()),
             en_title: work.map_or_else(|| slug.to_string(), |w| w.en_title.clone()),
-            declared,
+            stands,
+            said: stands.map(Related::said),
+            why: stands.map(Related::why),
             links,
             tickable,
             chosen: chosen.iter().any(|c| c == slug),
@@ -531,27 +549,47 @@ pub fn listed(
             slug: slug.to_string(),
         }
     };
+    // Where each sefer stands in the printed sequence, so a mefaresh's five
+    // volumes come back in the order they are printed in rather than in the
+    // order their slugs sort. Read once per row, not once per comparison.
+    let order_of = |slug: &str| -> Vec<i32> {
+        shelf
+            .work(slug)
+            .map(|w| w.order.clone())
+            .unwrap_or_default()
+    };
+    let in_order = |a: &Choice, b: &Choice| {
+        let (mine, theirs) = (order_of(&a.slug), order_of(&b.slug));
+        match (mine.is_empty(), theirs.is_empty()) {
+            (false, true) => std::cmp::Ordering::Less,
+            (true, false) => std::cmp::Ordering::Greater,
+            _ => mine.cmp(&theirs),
+        }
+        .then_with(|| a.he_title.cmp(&b.he_title))
+        .then_with(|| a.slug.cmp(&b.slug))
+    };
 
     // The companions, in the order a reader learns: placed first, then by how
-    // much joins them, then by slug so the same daf opened twice is the same
-    // list. Sorted rather than taken as it arrived, because `companions()`
-    // builds in two passes.
+    // much joins them, then in the order the seforim are printed in so the same
+    // daf opened twice is the same list. Sorted rather than taken as it arrived,
+    // because `companions()` builds in two passes.
     let mut rows: Vec<Choice> = companions
         .iter()
         .map(|c| {
             named(
                 &c.slug,
-                c.declared,
+                c.stands,
                 c.links,
                 placeable.contains(c.slug.as_str()),
             )
         })
         .collect();
     rows.sort_by(|a, b| {
-        b.declared
-            .cmp(&a.declared)
+        b.stands
+            .is_some()
+            .cmp(&a.stands.is_some())
             .then(b.links.cmp(&a.links))
-            .then(a.slug.cmp(&b.slug))
+            .then_with(|| in_order(a, b))
     });
     // Mefarshim the graph knows and the catalogue does not — the Ben Yehoyada on
     // Berakhot, most of Otzaria's shelf — follow rather than being dropped.
@@ -559,9 +597,9 @@ pub fn listed(
     let mut rest: Vec<Choice> = can_mark
         .iter()
         .filter(|slug| !offered.contains(*slug))
-        .map(|slug| named(slug, false, 0, true))
+        .map(|slug| named(slug, None, 0, true))
         .collect();
-    rest.sort_by(|a, b| a.slug.cmp(&b.slug));
+    rest.sort_by(&in_order);
     rows.extend(rest);
 
     let mut out: Vec<Listed> = Vec::new();
@@ -573,9 +611,25 @@ pub fn listed(
         });
     };
 
-    // The mefarshim with no folder go first, above the headings, so a heading
+    // The sefer this one is a commentary **on**, at the top, under its own
+    // heading. Reading Onkelos, Bereshis is the first thing you want beside it
+    // — and it is not a peirush on Onkelos, which is what the list said before
+    // the relation had a direction.
+    let base: Vec<Choice> = rows
+        .iter()
+        .filter(|r| r.stands == Some(Related::Base))
+        .cloned()
+        .collect();
+    section(heading::BASE, &base, &mut out, &mut shown, &mut say);
+
+    // The mefarshim with no folder go next, above the headings, so a heading
     // always has its own seforim under it and never somebody else's.
-    for row in rows.iter().filter(|r| r.tickable && r.shelf.is_none()) {
+    let loose: Vec<Choice> = rows
+        .iter()
+        .filter(|r| r.tickable && r.shelf.is_none() && !shown.contains(&r.slug))
+        .cloned()
+        .collect();
+    for row in &loose {
         say(&mut out, &mut shown, row);
     }
     walk(&folders.tree, 0, &rows, &mut out, &mut shown, &mut say);
@@ -586,9 +640,9 @@ pub fn listed(
     let mut following: Vec<Choice> = alongside
         .iter()
         .filter(|slug| !shown.contains(*slug))
-        .map(|slug| named(slug, false, 0, true))
+        .map(|slug| named(slug, Some(Related::Alongside), 0, true))
         .collect();
-    following.sort_by(|a, b| a.slug.cmp(&b.slug));
+    following.sort_by(&in_order);
     section(
         heading::ALONGSIDE,
         &following,
@@ -602,7 +656,8 @@ pub fn listed(
         .filter(|r| !shown.contains(&r.slug))
         .cloned()
         .collect();
-    let (declared, linked): (Vec<Choice>, Vec<Choice>) = left.into_iter().partition(|r| r.declared);
+    let (declared, linked): (Vec<Choice>, Vec<Choice>) =
+        left.into_iter().partition(|r| r.stands.is_some());
     section(heading::NO_PLACE, &declared, &mut out, &mut shown, &mut say);
     section(heading::LINKED, &linked, &mut out, &mut shown, &mut say);
     out
@@ -989,7 +1044,7 @@ mod tests {
                 ],
             ),
         ]);
-        let folders = folders(&works, &Arrangement::default());
+        let folders = folders(&works, &Arrangement::default(), &Shipped::of(&works));
 
         assert_eq!(folders.tree.len(), 3, "{:?}", titles(&folders.tree));
         // Rishonim first: that order is a fact about the seforim and it is
@@ -1030,7 +1085,7 @@ mod tests {
             ),
             ("nothing-says", &[]),
         ]);
-        let folders = folders(&works, &Arrangement::default());
+        let folders = folders(&works, &Arrangement::default(), &Shipped::of(&works));
         // Every sefer is in a folder or loose, and nothing is both or neither.
         // The one with no categories at all is loose, which is the honest answer:
         // it is on the `אחר` shelf with nobody to stand beside.
@@ -1069,7 +1124,7 @@ mod tests {
                 ],
             ),
         ]);
-        let folders = folders(&works, &Arrangement::default());
+        let folders = folders(&works, &Arrangement::default(), &Shipped::of(&works));
         assert!(folders.tree.is_empty(), "{:?}", titles(&folders.tree));
         assert_eq!(folders.loose, 2, "both are drawn, ungrouped");
     }
@@ -1089,7 +1144,7 @@ mod tests {
                 &["Talmud", "Bavli", "Rishonim on Talmud", "Tosafot", "Zeraim"],
             ),
         ]);
-        let folders = folders(&works, &Arrangement::default());
+        let folders = folders(&works, &Arrangement::default(), &Shipped::of(&works));
         // Both are rishonim; the common shelf is stripped, and what is left —
         // one author each — is not worth a folder. So: no folders, two rows.
         assert!(folders.tree.is_empty(), "{:?}", titles(&folders.tree));
@@ -1116,7 +1171,7 @@ mod tests {
             ("chida-a", &["Tanakh", "Acharonim on Tanakh", "Chida"]),
             ("chida-b", &["Tanakh", "Acharonim on Tanakh", "Chida"]),
         ]);
-        let folders = folders(&works, &Arrangement::default());
+        let folders = folders(&works, &Arrangement::default(), &Shipped::of(&works));
         assert_eq!(folders.tree.len(), 2, "{:?}", titles(&folders.tree));
 
         let rishonim = folders
@@ -1159,12 +1214,12 @@ mod tests {
             ),
         ]);
         let mut moved = Arrangement::default();
-        let onto = crate::taxonomy::shelf_key_of(&works[0], &moved);
+        let onto = crate::taxonomy::shelf_key_of(&works[0], &moved, &Shipped::of(&works));
         moved
             .works
             .insert("bavli/ben-yehoyada".to_string(), onto.clone());
 
-        let folders = folders(&works, &moved);
+        let folders = folders(&works, &moved, &Shipped::of(&works));
         assert_eq!(
             folders.of.get("bavli/ben-yehoyada"),
             folders.of.get("bavli/rashi-on-berakhot"),
@@ -1214,7 +1269,7 @@ mod tests {
             .iter()
             .filter_map(|slug| shelf.work(slug).cloned())
             .collect();
-        let folders = folders(&on, &Arrangement::default());
+        let folders = folders(&on, &Arrangement::default(), &Shipped::of(&on));
 
         assert_eq!(folders.of.len(), on.len(), "every mefaresh is placed");
         assert!(
@@ -1455,7 +1510,6 @@ mod tests {
             slug: slug.to_string(),
             he_title: slug.to_string(),
             en_title: slug.to_string(),
-            declared,
             links,
             stands: declared.then_some(crate::shelf::Related::On),
         }
@@ -1551,7 +1605,11 @@ mod tests {
         });
         let tosafot = tosafot.expect("Tosafos is offered");
         assert!(!tosafot.tickable, "a dead tick-box");
-        assert!(tosafot.declared, "and it is still a declared commentary");
+        assert_eq!(
+            tosafot.stands,
+            Some(Related::On),
+            "and it is still a declared commentary"
+        );
     }
 
     #[test]

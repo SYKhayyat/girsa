@@ -1186,6 +1186,7 @@ mod tests {
             he_title: "שולחן ערוך, אורח חיים".into(),
             en_title: "Shulchan Arukh, Orach Chayim".into(),
             categories: vec!["Halakhah".into()],
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: PathBuf::from("merged.json"),
             schema: None,

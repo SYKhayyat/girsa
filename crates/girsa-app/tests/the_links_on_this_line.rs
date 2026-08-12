@@ -17,6 +17,7 @@
 
 use std::path::{Path, PathBuf};
 
+use girsa_app::session::Pointing;
 use girsa_app::shelf::Shelf;
 use girsa_corpus::segment::SegmentId;
 use girsa_link::repair::Verdict;
@@ -257,12 +258,13 @@ fn rashi_says_which_words_he_is_on_and_they_are_found_in_the_gemara() {
         else {
             continue;
         };
-        let Some(span) = girsa_app::spans::dibur_span(&base.text, &comment.text, true) else {
+        let Some(span) = girsa_app::spans::dibur_span(&base.text, &comment.text, Pointing::Full)
+        else {
             continue;
         };
         landed += 1;
 
-        let drawn = girsa_app::display::Shown::of(&base.text, true);
+        let drawn = girsa_app::display::Shown::of(&base.text, Pointing::Full);
         let letters: Vec<char> = drawn.text().chars().collect();
         assert!(span.end <= letters.len(), "the span is inside the line");
         let words: String = letters[span.clone()].iter().collect();

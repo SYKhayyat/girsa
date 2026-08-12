@@ -23,13 +23,24 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use girsa_app::sending::{send, Selection};
+use girsa_app::session::Pointing;
 use girsa_app::Shelf;
 use girsa_cite::CiteStyle;
 use girsa_ref::{resolve, Lexicon, Resolution};
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let nikud = args.iter().any(|a| a == "--nikud");
+    // Three settings now, not a flag — `girsa_app::session::Pointing`. The
+    // flag stays as the shorthand for *everything the corpus has*, and
+    // `--pointing nikud` is the middle one: the nikud with the trup off.
+    let pointing = match args.iter().position(|a| a == "--pointing") {
+        Some(at) => args
+            .get(at + 1)
+            .and_then(|word| Pointing::named(word))
+            .unwrap_or(Pointing::Plain),
+        None if args.iter().any(|a| a == "--nikud") => Pointing::Full,
+        None => Pointing::Plain,
+    };
     let from_char = flag(&mut args, "--from").unwrap_or(0);
     let to_char = flag(&mut args, "--to");
     let style = named_style(&mut args);
@@ -37,7 +48,7 @@ fn main() -> ExitCode {
 
     let mut args = args.into_iter();
     let (Some(root), Some(citation)) = (args.next(), args.next()) else {
-        eprintln!("usage: send [--nikud] [--style hebrew-full|hebrew-short|english] \\");
+        eprintln!("usage: send [--nikud|--pointing full|nikud|plain] [--style hebrew-full|hebrew-short|english] \\");
         eprintln!("            [--from N] [--to N] <corpus-root> <citation>");
         return ExitCode::from(2);
     };
@@ -98,7 +109,7 @@ fn main() -> ExitCode {
         to_char,
     };
 
-    let sent = match send(&sefer, &selection, style, nikud, None) {
+    let sent = match send(&sefer, &selection, style, pointing, None) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{e}");

@@ -22,6 +22,10 @@
 /** The panels standing in the dock. */
 const standing = new Set<string>();
 
+/** …and which of those are minimised to a strip. A subset of `standing`: a
+ * panel that is not docked cannot be a strip. */
+const small = new Set<string>();
+
 /**
  * Whether the reading has to make room.
  *
@@ -30,6 +34,18 @@ const standing = new Set<string>();
  */
 export function docked(panels: Set<string>): boolean {
   return panels.size > 0;
+}
+
+/**
+ * How much room: a column, or a strip.
+ *
+ * A strip only when **everything** docked is minimised. One panel open beside
+ * one minimised panel is a column wide, because the open one is standing in it —
+ * and the two of them sharing an edge is what `--dock` being one width is for.
+ */
+export function width(panels: Set<string>, minimised: Set<string>): "none" | "small" | "full" {
+  if (panels.size === 0) return "none";
+  return [...panels].every((panel) => minimised.has(panel)) ? "small" : "full";
 }
 
 /** Put a panel in the dock. */
@@ -42,6 +58,14 @@ export function dock(panel: string): void {
  * panel that was never docked is the ordinary case. */
 export function undock(panel: string): void {
   standing.delete(panel);
+  small.delete(panel);
+  apply();
+}
+
+/** Shrink a docked panel to a strip, or put it back. */
+export function minimise(panel: string, on: boolean): void {
+  if (on) small.add(panel);
+  else small.delete(panel);
   apply();
 }
 
@@ -50,6 +74,14 @@ export function inTheDock(): Set<string> {
   return new Set(standing);
 }
 
+/** The minimised ones. For a test, and for a reader of this file. */
+export function shrunk(): Set<string> {
+  return new Set(small);
+}
+
 function apply(): void {
-  document.documentElement.classList.toggle("is-docked", docked(standing));
+  const how = width(standing, small);
+  const root = document.documentElement;
+  root.classList.toggle("is-docked", how === "full");
+  root.classList.toggle("is-docked-small", how === "small");
 }

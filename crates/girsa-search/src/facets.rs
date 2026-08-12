@@ -196,13 +196,18 @@ impl Catalogue {
     /// Read the works as they came off the shelf.
     #[must_use]
     pub fn of(works: &[Work]) -> Self {
+        // Over the whole catalogue at once, because one of the shelf's rules is
+        // about a work's **base text** and cannot be answered from the work
+        // alone — see `girsa_corpus::taxonomy::shelves_of`. Asking it one work at
+        // a time is what filed Midrash Lekach Tov among its own mefarshim.
+        let shelves = taxonomy::shelves_of(works);
         let mut rows = BTreeMap::new();
-        for work in works {
+        for (work, shelf) in works.iter().zip(shelves) {
             rows.insert(
                 work.slug.clone(),
                 Facts {
                     title: work.he_title.clone(),
-                    shelf: taxonomy::shelf_of(work),
+                    shelf,
                     era: work.era.clone(),
                     author: work.author.clone(),
                     // Filled by `tagged`, from the notes. A `Work` does not carry
@@ -545,6 +550,7 @@ mod tests {
             he_title: slug.to_string(),
             en_title: slug.to_string(),
             categories: categories.iter().map(|c| (*c).to_string()).collect(),
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: std::path::PathBuf::new(),
             schema: None,

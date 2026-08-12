@@ -110,7 +110,7 @@ pub fn export(
     sefer: &Open,
     fixes: &Layer,
     format: Format,
-    nikud: bool,
+    pointing: girsa_app::session::Pointing,
     to: &Path,
 ) -> Result<Exported, ExportError> {
     let mut done = Exported {
@@ -141,7 +141,9 @@ pub fn export(
         .iter()
         .map(|segment| Line {
             heading: segment.kind == girsa_corpus::import::SegmentKind::Heading,
-            words: display::Shown::of(&segment.text, nikud).text().to_string(),
+            words: display::Shown::of(&segment.text, pointing)
+                .text()
+                .to_string(),
         })
         .filter(|line| !line.words.trim().is_empty())
         .collect();

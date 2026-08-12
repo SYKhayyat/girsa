@@ -26,6 +26,7 @@ import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } f
 import { glyphsOf } from "./glyphs.ts";
 import { sayTrouble } from "./trouble.ts";
 import { area, button, choice, field } from "./controls.ts";
+import { say } from "./say.ts";
 
 /**
  * pdf.js, loaded the first time a scan is opened and not before.
@@ -113,23 +114,23 @@ export class ScanView {
     this.element.append(header);
 
     const bar = el("div", "scan-bar");
-    const back = button("‹", "העמוד הקודם", () => void this.turn(-1));
-    const on = button("›", "העמוד הבא", () => void this.turn(1));
-    this.pageBox = field("עמוד או דף", { className: "scan-page" });
+    const back = button("‹", say("scanPrev"), () => void this.turn(-1));
+    const on = button("›", say("scanNext"), () => void this.turn(1));
+    this.pageBox = field(say("scanPageOrDaf"), { className: "scan-page" });
     this.pageBox.type = "text";
     this.pageBox.inputMode = "numeric";
-    this.pageBox.title = "עמוד בקובץ";
+    this.pageBox.title = say("scanPageInFile");
     this.pageBox.addEventListener("change", () => {
       const wanted = Number(this.pageBox.value);
       if (Number.isFinite(wanted)) void this.goTo(wanted);
       else this.paint();
     });
 
-    this.goBox = field("קפוץ לדף", {
+    this.goBox = field(say("scanGoToDaf"), {
       className: "scan-goto",
-      placeholder: "לדף…",
+      placeholder: say("scanToDaf"),
     });
-    this.goBox.title = "כתוב דף — ב. או ב ע\"ב — או הדבק מראה מקום";
+    this.goBox.title = say("scanGoWhy");
     this.goBox.addEventListener("keydown", (event) => {
       if (event.key === "Enter") void this.goToPlace(this.goBox.value);
     });
@@ -183,7 +184,7 @@ export class ScanView {
 
     const url = assetUrl(open.file);
     if (!url) {
-      this.note.textContent = "סריקות נפתחות בחלון בלבד";
+      this.note.textContent = say("browserScans");
       return;
     }
     try {
@@ -228,8 +229,8 @@ export class ScanView {
     this.quiet = true;
     if (page === null) {
       if (why === "no_place") {
-        this.note.textContent = "אין כאן";
-        this.note.title = "הדף הזה אינו בסריקה";
+        this.note.textContent = say("nothingHere");
+        this.note.title = say("scanNoSuchDaf");
         this.note.classList.add("is-empty");
       }
       this.quiet = false;
@@ -321,11 +322,11 @@ export class ScanView {
     if (this.open.trouble) {
       this.note.textContent = this.open.trouble;
     } else if (this.open.paged) {
-      this.note.textContent = "אין כאן דף";
-      this.note.title = "לא נדפס על העמוד הזה דבר שאפשר לציין";
+      this.note.textContent = say("scanNoDafHere");
+      this.note.title = say("scanNothingPrinted");
     } else {
-      this.note.textContent = "לא מופה — אין מראה מקום";
-      this.note.title = "אמור איזה עמוד הוא איזה דף, פעם אחת";
+      this.note.textContent = say("scanUnmapped");
+      this.note.title = say("scanSayOnce");
     }
     this.note.classList.add("is-empty");
   }
@@ -381,7 +382,7 @@ export class ScanView {
    * the page it was on and nothing else.
    */
   private readButton(): HTMLElement {
-    return button("קרא", "קרא את המילים שבסריקה — אפשר להפסיק בכל רגע", () => {
+    return button(say("scanRead"), say("scanReadWhy"), () => {
       if (this.job) {
         this.job = false;
         return;
@@ -472,7 +473,7 @@ export class ScanView {
 
   /** *Say which page is which daf* — the once-per-sefer chore. */
   private mapButton(): HTMLElement {
-    return button("דפים", "אמור איזה עמוד הוא איזה דף", () => this.mapper());
+    return button(say("scanPages"), say("scanPagesWhy"), () => this.mapper());
   }
 
   /**
@@ -493,12 +494,12 @@ export class ScanView {
     }
 
     const box = el("div", "scan-map");
-    const scheme = choice("איך העמודים נקראים");
+    const scheme = choice(say("scanScheme"));
     scheme.className = "scan-scheme";
     for (const [value, label] of [
-      ["amud", "עמוד לכל דף בקובץ (ב. ב: ג.)"],
-      ["daf", "דף שלם בכל עמוד (ב. וב: יחד)"],
-      ["numbered", "מספר לכל עמוד"],
+      ["amud", say("scanSchemeAmud")],
+      ["daf", say("scanSchemeDaf")],
+      ["numbered", say("scanSchemeNumbered")],
     ] as [Scheme, string][]) {
       const option = document.createElement("option");
       option.value = value;
@@ -507,25 +508,24 @@ export class ScanView {
       scheme.append(option);
     }
 
-    const anchors = area("עמוד=מקום, שורה לכל אחד");
+    const anchors = area(say("scanAnchors"));
     anchors.className = "scan-anchors";
     anchors.rows = 4;
     anchors.spellcheck = false;
     anchors.value =
       this.open.anchors.map((a) => `${a.page}=${a.at ?? "-"}`).join("\n") ||
       `${this.page}=`;
-    anchors.title =
-      "שורה לכל עוגן: עמוד=דף. `43=-` אומר שמכאן אין אלו עמודי הספר — לוחות, מפתח";
+    anchors.title = say("scanAnchorsWhy");
 
-    const of = field("של איזה ספר");
+    const of = field(say("scanOfWhich"));
     of.className = "scan-of";
     of.type = "text";
-    of.placeholder = "צילום של… (bavli/berakhot)";
-    of.title = "אם זו סריקה של ספר שעל המדף, המקורות ייכתבו בשמו";
+    of.placeholder = say("scanOfWhichHint");
+    of.title = say("scanOfWhichWhy");
     of.value = this.open.of ?? "";
 
     const said = el("p", "scan-said");
-    const save = button("שמור", "שמור את המיפוי", () => {
+    const save = button(say("save"), say("scanSaveMapping"), () => {
       const rows: Anchor[] = [];
       for (const line of anchors.value.split("\n")) {
         const text = line.trim();
@@ -540,7 +540,7 @@ export class ScanView {
       }
       void this.saveMap(scheme.value as Scheme, rows, of.value.trim() || null, said, box);
     });
-    const forget = button("בטל מיפוי", "מוטב בלי מראה מקום מאשר מראה מקום שגוי", () => {
+    const forget = button(say("scanForget"), say("scanForgetWhy"), () => {
       void api
         .scanForget(this.slug)
         .then(async (open) => {

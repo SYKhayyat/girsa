@@ -35,6 +35,7 @@ use girsa_ref::{Address, Ref};
 use girsa_source::{Range, SourcePacket, Version};
 
 use crate::display;
+use crate::session::Pointing;
 use crate::shelf::{address_of, Open};
 
 /// What the reader highlighted.
@@ -152,7 +153,7 @@ pub fn send(
     sefer: &Open,
     selection: &Selection,
     style: CiteStyle,
-    nikud: bool,
+    pointing: Pointing,
     note: Option<String>,
 ) -> Result<Sent, SendError> {
     let first = sefer
@@ -178,7 +179,7 @@ pub fn send(
         .iter()
         .enumerate()
     {
-        let shown = shown(&segment.text, nikud);
+        let shown = shown(&segment.text, pointing);
         let head = if at == 0 { from_char } else { 0 };
         let tail = if first + at == last { to_char } else { None };
         let line = slice(&shown, head, tail);
@@ -256,7 +257,7 @@ pub fn quote(
     reference: &Ref,
     range: Option<Range>,
     style: CiteStyle,
-    nikud: bool,
+    pointing: Pointing,
 ) -> Result<Sent, SendError> {
     if reference.work_slug() != sefer.work.slug {
         return Err(SendError::NotThisSefer {
@@ -292,19 +293,15 @@ pub fn quote(
             to_char: range.to,
         },
         style,
-        nikud,
+        pointing,
         None,
     )
 }
 
-/// A segment as it was shown: markup off, and nikud if the reader has it on.
-fn shown(text: &str, nikud: bool) -> String {
-    let plain = display::plain(text);
-    if nikud {
-        plain
-    } else {
-        display::without_marks(&plain)
-    }
+/// A segment as it was shown: markup off, and as much pointing as the reader
+/// has on.
+fn shown(text: &str, pointing: Pointing) -> String {
+    display::pointed(&display::plain(text), pointing)
 }
 
 /// `text[from_char..to_char]`, counted in characters and clamped.
@@ -406,7 +403,13 @@ mod tests {
         // every ref in a document on purpose.
         let sefer = shulchan_arukh();
         let elsewhere: Ref = "girsa:mishnah-berurah/1:1".parse().expect("a ref");
-        let refused = quote(&sefer, &elsewhere, None, CiteStyle::HebrewFull, false);
+        let refused = quote(
+            &sefer,
+            &elsewhere,
+            None,
+            CiteStyle::HebrewFull,
+            Pointing::Plain,
+        );
         assert!(
             matches!(refused, Err(SendError::NotThisSefer { .. })),
             "{refused:?}"
@@ -419,12 +422,12 @@ mod tests {
             .expect("a segment id")
     }
 
-    fn sent(selection: &Selection, nikud: bool) -> Sent {
+    fn sent(selection: &Selection, pointing: Pointing) -> Sent {
         send(
             &shulchan_arukh(),
             selection,
             CiteStyle::HebrewFull,
-            nikud,
+            pointing,
             None,
         )
         .expect("sends")
@@ -432,7 +435,7 @@ mod tests {
 
     #[test]
     fn a_source_travels_as_its_words_and_the_place_they_are_from() {
-        let one = sent(&Selection::whole(id(1)), true);
+        let one = sent(&Selection::whole(id(1)), Pointing::Full);
         assert_eq!(one.packet.text, "יִתְגַּבֵּר כָּאֲרִי לַעֲמוֹד בַּבֹּקֶר לַעֲבוֹדַת בּוֹרְאוֹ");
         assert_eq!(one.display(), "שולחן ערוך, אורח חיים סימן א' סעיף א'");
         // And the place is kept as a *place*, not only as the printed string.
@@ -454,7 +457,7 @@ mod tests {
             from_char: 0,
             to_char: Some(10),
         };
-        let sent = sent(&selection, false);
+        let sent = sent(&selection, Pointing::Plain);
         assert_eq!(sent.packet.text, "יתגבר כארי");
         assert!(sent.plain.starts_with("יתגבר כארי\n("));
         assert!(sent.html.contains("<p dir=\"rtl\">יתגבר כארי</p>"));
@@ -471,7 +474,7 @@ mod tests {
             from_char: 11,
             to_char: Some(6),
         };
-        let sent = sent(&selection, false);
+        let sent = sent(&selection, Pointing::Plain);
         assert_eq!(
             sent.packet.text,
             "לעמוד בבקר לעבודת בוראו\nשויתי ה' לנגדי תמיד\nהמשכים"
@@ -491,7 +494,7 @@ mod tests {
     fn a_highlight_dragged_upwards_is_read_in_reading_order() {
         let backwards = Selection::run(id(3), id(1));
         assert_eq!(
-            sent(&backwards, false).packet.reference,
+            sent(&backwards, Pointing::Plain).packet.reference,
             "girsa:shulchan-arukh/orach-chayim/1:1-1:3"
         );
     }
@@ -502,11 +505,11 @@ mod tests {
         // pointed in a document written without nikud is a paste the writer
         // has to go and clean up by hand — which is the cleanup this whole
         // design exists to remove.
-        let with = sent(&Selection::whole(id(1)), true);
+        let with = sent(&Selection::whole(id(1)), Pointing::Full);
         assert!(with.packet.nikud);
         assert!(with.packet.text.contains('\u{05B4}'));
 
-        let without = sent(&Selection::whole(id(1)), false);
+        let without = sent(&Selection::whole(id(1)), Pointing::Plain);
         assert!(!without.packet.nikud);
         assert_eq!(without.packet.text, "יתגבר כארי לעמוד בבקר לעבודת בוראו");
     }
@@ -515,7 +518,7 @@ mod tests {
     fn the_corpus_markup_never_reaches_the_clipboard() {
         // `<b>שויתי</b>` is a dibur hamatchil in the file. Pasted raw into
         // WhatsApp it is four characters of angle brackets.
-        let sent = sent(&Selection::whole(id(2)), false);
+        let sent = sent(&Selection::whole(id(2)), Pointing::Plain);
         assert_eq!(sent.packet.text, "שויתי ה' לנגדי תמיד");
         assert!(!sent.html.contains("<b>"), "{}", sent.html);
     }
@@ -527,7 +530,7 @@ mod tests {
             &sefer,
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewShort,
-            false,
+            Pointing::Plain,
             None,
         )
         .expect("sends");
@@ -545,14 +548,14 @@ mod tests {
         // Word takes its direction from the paragraph the quote is pasted
         // into. A Hebrew quote landing in an English document without this
         // comes out with its punctuation at the wrong end.
-        let sent = sent(&Selection::whole(id(1)), false);
+        let sent = sent(&Selection::whole(id(1)), Pointing::Plain);
         assert!(sent.html.contains("dir=\"rtl\""));
         assert!(sent.html.contains("direction:rtl"));
     }
 
     #[test]
     fn the_citation_in_a_word_document_is_a_way_back_into_the_library() {
-        let sent = sent(&Selection::whole(id(1)), false);
+        let sent = sent(&Selection::whole(id(1)), Pointing::Plain);
         assert!(
             sent.html
                 .contains("href=\"girsa:shulchan-arukh/orach-chayim/1:1\""),
@@ -563,7 +566,7 @@ mod tests {
 
     #[test]
     fn the_packet_survives_the_wire_as_a_place_and_not_only_as_words() {
-        let sent = sent(&Selection::whole(id(1)), true);
+        let sent = sent(&Selection::whole(id(1)), Pointing::Full);
         let json = sent.packet.to_json().expect("serializes");
         let back = SourcePacket::from_json(&json).expect("deserializes");
         assert_eq!(back, sent.packet);
@@ -574,7 +577,7 @@ mod tests {
 
     #[test]
     fn provenance_travels_with_the_quote() {
-        let sent = sent(&Selection::whole(id(1)), false);
+        let sent = sent(&Selection::whole(id(1)), Pointing::Plain);
         assert_eq!(sent.packet.version.license, "Public Domain");
         assert!(sent.packet.version.edition.contains("Lemberg"));
     }
@@ -585,7 +588,7 @@ mod tests {
             &shulchan_arukh(),
             &Selection::whole(id(1)),
             CiteStyle::HebrewShort,
-            false,
+            Pointing::Plain,
             Some("צריך עיון".into()),
         )
         .expect("sends");
@@ -608,7 +611,7 @@ mod tests {
             to_char: Some(9_999),
         };
         assert_eq!(
-            sent(&selection, false).packet.text,
+            sent(&selection, Pointing::Plain).packet.text,
             "יתגבר כארי לעמוד בבקר לעבודת בוראו"
         );
     }
@@ -623,7 +626,14 @@ mod tests {
         let reference: girsa_ref::Ref = "girsa:shulchan-arukh/orach-chayim/1:2"
             .parse()
             .expect("a ref");
-        let sent = quote(&sefer, &reference, None, CiteStyle::HebrewFull, false).expect("quotes");
+        let sent = quote(
+            &sefer,
+            &reference,
+            None,
+            CiteStyle::HebrewFull,
+            Pointing::Plain,
+        )
+        .expect("quotes");
         assert_eq!(sent.packet.text, "שויתי ה' לנגדי תמיד");
         assert_eq!(sent.display(), "שולחן ערוך, אורח חיים סימן א' סעיף ב'");
     }
@@ -639,7 +649,7 @@ mod tests {
             from_char: 0,
             to_char: Some(10),
         };
-        let sent = sent(&selection, false);
+        let sent = sent(&selection, Pointing::Plain);
         assert_eq!(sent.packet.text, "יתגבר כארי");
         let range = sent.packet.range.expect("a range");
         assert_eq!(range.from, 0);
@@ -649,7 +659,7 @@ mod tests {
 
     #[test]
     fn a_whole_line_still_says_the_whole_line() {
-        let sent = sent(&Selection::whole(id(1)), false);
+        let sent = sent(&Selection::whole(id(1)), Pointing::Plain);
         assert!(sent.packet.range.expect("a range").is_all());
     }
 
@@ -665,14 +675,14 @@ mod tests {
             from_char: 0,
             to_char: Some(10),
         };
-        let first = sent(&selection, false);
+        let first = sent(&selection, Pointing::Plain);
         let reference = first.packet.reference().expect("a ref");
         let again = quote(
             &sefer,
             &reference,
             first.packet.range,
             CiteStyle::HebrewFull,
-            false,
+            Pointing::Plain,
         )
         .expect("quotes");
         assert_eq!(again.packet.text, first.packet.text);
@@ -689,7 +699,14 @@ mod tests {
         let reference: girsa_ref::Ref = "girsa:shulchan-arukh/orach-chayim/1:1"
             .parse()
             .expect("a ref");
-        let sent = quote(&sefer, &reference, None, CiteStyle::HebrewFull, false).expect("quotes");
+        let sent = quote(
+            &sefer,
+            &reference,
+            None,
+            CiteStyle::HebrewFull,
+            Pointing::Plain,
+        )
+        .expect("quotes");
         assert_eq!(sent.packet.text, "יתגבר כארי לעמוד בבקר לעבודת בוראו");
     }
 
@@ -698,10 +715,17 @@ mod tests {
         // `Ref::to()` was not read at all: a quote of two se'ifim came back as
         // its first se'if, with no error to say the rest had been dropped.
         let sefer = shulchan_arukh();
-        let whole = sent(&Selection::run(id(1), id(2)), false);
+        let whole = sent(&Selection::run(id(1), id(2)), Pointing::Plain);
         let reference = whole.packet.reference().expect("a ref");
         assert!(reference.is_span());
-        let again = quote(&sefer, &reference, None, CiteStyle::HebrewFull, false).expect("quotes");
+        let again = quote(
+            &sefer,
+            &reference,
+            None,
+            CiteStyle::HebrewFull,
+            Pointing::Plain,
+        )
+        .expect("quotes");
         assert_eq!(again.packet.text, whole.packet.text);
         assert!(again.packet.text.contains(char::from(10)));
     }
@@ -713,7 +737,13 @@ mod tests {
             .parse()
             .expect("a ref");
         assert!(matches!(
-            quote(&sefer, &reference, None, CiteStyle::HebrewFull, false),
+            quote(
+                &sefer,
+                &reference,
+                None,
+                CiteStyle::HebrewFull,
+                Pointing::Plain
+            ),
             Err(SendError::NoSuchPlace { .. })
         ));
     }
@@ -725,7 +755,13 @@ mod tests {
             .parse()
             .expect("a ref");
         assert!(matches!(
-            quote(&sefer, &reference, None, CiteStyle::HebrewFull, false),
+            quote(
+                &sefer,
+                &reference,
+                None,
+                CiteStyle::HebrewFull,
+                Pointing::Plain
+            ),
             Err(SendError::NoSuchPlace { .. })
         ));
     }
@@ -743,7 +779,7 @@ mod tests {
                 &shulchan_arukh(),
                 &selection,
                 CiteStyle::HebrewShort,
-                false,
+                Pointing::Plain,
                 None
             )
             .err(),
@@ -759,7 +795,7 @@ mod tests {
                 &shulchan_arukh(),
                 &Selection::whole(stranger),
                 CiteStyle::HebrewShort,
-                false,
+                Pointing::Plain,
                 None
             )
             .err(),
@@ -771,7 +807,7 @@ mod tests {
     fn the_three_flavours_are_three_ways_of_saying_one_thing() {
         // The promise of the layered clipboard: paste anywhere and get
         // something sane, paste into Ksav and get everything.
-        let sent = sent(&Selection::whole(id(1)), false);
+        let sent = sent(&Selection::whole(id(1)), Pointing::Plain);
         for flavour in [&sent.plain, &sent.html] {
             assert!(flavour.contains("יתגבר כארי"), "{flavour}");
             assert!(flavour.contains(sent.display()), "{flavour}");

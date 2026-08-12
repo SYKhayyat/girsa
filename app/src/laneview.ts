@@ -33,6 +33,7 @@ import {
 } from "./api.ts";
 import { field } from "./controls.ts";
 import { trouble } from "./trouble.ts";
+import { say } from "./say.ts";
 
 /** Open a sefer at a segment — the same handler the search list is given. */
 type Opened = (slug: string, id: string | null, marked?: string[]) => void;
@@ -140,7 +141,7 @@ export class LaneColumn {
     } else if (answer.near.length === 0) {
       const none = document.createElement("p");
       none.className = "lane-refused";
-      none.textContent = "אין דבר סמוך לזה במה שנכנס ללשון";
+      none.textContent = say("laneNothingNear");
       box.append(none);
     }
 
@@ -206,10 +207,10 @@ export class LanePanel {
     bar.className = "lane-bar";
     const title = document.createElement("p");
     title.className = "lane-title";
-    title.textContent = "הלשון הסמוכה";
+    title.textContent = say("laneTitle");
     const close = document.createElement("button");
     close.className = "tool";
-    close.textContent = "סגור";
+    close.textContent = say("close");
     close.addEventListener("click", () => this.close());
     bar.append(title, close);
 
@@ -262,7 +263,7 @@ export class LanePanel {
     if (progress.doing === "done") {
       this.working = false;
       this.progress.hidden = false;
-      this.progress.textContent = progress.trouble ?? "נגמר";
+      this.progress.textContent = progress.trouble ?? say("laneDone");
       void this.refresh();
       return;
     }
@@ -280,7 +281,7 @@ export class LanePanel {
     if (!this.state) {
       const none = document.createElement("p");
       none.className = "lane-refused";
-      none.textContent = "אין מדף כאן";
+      none.textContent = say("laneNoShelf");
       this.body.append(none);
       return;
     }
@@ -293,14 +294,14 @@ export class LanePanel {
     const what = document.createElement("p");
     what.className = "lane-what";
     what.textContent =
-      "כתוב שורה כמו שאתה זוכר אותה, והלשון תמצא מקומות סמוכים לה בעניין — לא במילים. " +
-      "אין זו חיפוש ואינה פוסקת.";
+      say("laneAbout") +
+      say("laneNotSearch");
     this.body.append(what);
 
     // 2 · On or off. One control, and off is the default.
     const onoff = document.createElement("button");
     onoff.className = "tool lane-onoff";
-    onoff.textContent = state.state === "off" ? "הדלק" : "כבה";
+    onoff.textContent = state.state === "off" ? say("laneOn") : say("laneOff");
     onoff.addEventListener("click", async () => {
       const next = await api.laneSet(state.state === "off").catch((e) => {
         this.trouble(e);
@@ -327,9 +328,9 @@ export class LanePanel {
     model.className = "lane-row";
     const pick = document.createElement("button");
     pick.className = "tool";
-    pick.textContent = "בחר תיקיית מודל…";
+    pick.textContent = say("laneChooseModel");
     pick.addEventListener("click", async () => {
-      const dir = await pickFolder("תיקיית המודל");
+      const dir = await pickFolder(say("laneModelFolder"));
       if (!dir) return;
       const next = await api.laneSet(true, dir).catch((e) => {
         this.trouble(e);
@@ -357,7 +358,7 @@ export class LanePanel {
     // than the rule itself (`girsa_lane::bring`).
     const allow = document.createElement("label");
     allow.className = "lane-allow";
-    const box = field("נתיב אל המודל");
+    const box = field(say("laneModelPath"));
     box.type = "checkbox";
     box.checked = state.may_fetch;
     box.addEventListener("change", async () => {
@@ -371,7 +372,7 @@ export class LanePanel {
       }
     });
     const allowSaid = document.createElement("span");
-    allowSaid.textContent = "הרשה ל־Girsa להביא מודל מן הרשת";
+    allowSaid.textContent = say("laneAllowFetch");
     allow.append(box, allowSaid);
     this.body.append(allow);
 
@@ -398,7 +399,7 @@ export class LanePanel {
       bring.addEventListener("click", async () => {
         bring.disabled = true;
         this.progress.hidden = false;
-        this.progress.textContent = "מתחיל…";
+        this.progress.textContent = say("laneStarting");
         await api.laneBring().catch((e) => this.trouble(e));
       });
       this.body.append(terms, about, why, bring);
@@ -409,7 +410,7 @@ export class LanePanel {
     chose.className = "lane-row";
     const all = document.createElement("button");
     all.className = "tool";
-    all.textContent = state.everything ? "הוצא את כל הספרייה" : "הכנס את כל הספרייה";
+    all.textContent = state.everything ? say("laneTakeAll") : say("laneAddAll");
     all.addEventListener("click", async () => {
       const next = await api.laneChoose(null, !state.everything, true).catch((e) => {
         this.trouble(e);
@@ -474,17 +475,17 @@ export class LanePanel {
       run.className = "lane-row";
       const go = document.createElement("button");
       go.className = "tool lane-go";
-      go.textContent = "הכנס לאינדקס";
+      go.textContent = say("laneEmbed");
       go.disabled = this.working;
       go.addEventListener("click", async () => {
         this.working = true;
         this.progress.hidden = false;
-        this.progress.textContent = "מתחיל…";
+        this.progress.textContent = say("laneStarting");
         await api.laneEmbed().catch((e) => this.trouble(e));
       });
       const stop = document.createElement("button");
       stop.className = "tool";
-      stop.textContent = "עצור";
+      stop.textContent = say("laneStop");
       stop.addEventListener("click", async () => {
         await api.laneStop().catch(() => undefined);
       });

@@ -51,6 +51,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use girsa_app::sending::{send, Selection};
+use girsa_app::session::Pointing;
 use girsa_app::Shelf;
 use girsa_cite::CiteStyle;
 use girsa_corpus::import::{self, ImportedWork, RawSegment, SegmentKind};
@@ -79,6 +80,7 @@ fn main() -> ExitCode {
         he_title: "שולחן ערוך, אורח חיים".into(),
         en_title: "Shulchan Arukh, Orach Chayim".into(),
         categories: vec!["Halakhah".into(), "Shulchan Arukh".into()],
+        order: Vec::new(),
         source: Source::Sefaria,
         // Where this came from on the machine it was imported on, which is not
         // the same on two machines and is not in the packet. Left empty so the
@@ -159,7 +161,13 @@ fn main() -> ExitCode {
         to_char: None,
     };
 
-    let sent = match send(&sefer, &selection, CiteStyle::HebrewFull, false, None) {
+    let sent = match send(
+        &sefer,
+        &selection,
+        CiteStyle::HebrewFull,
+        Pointing::Plain,
+        None,
+    ) {
         Ok(sent) => sent,
         Err(e) => {
             eprintln!("nothing was sent: {e}");

@@ -39,6 +39,7 @@ pub fn sefer(slug: &str, he_title: &str, sections: &[&str], texts: &[&str]) -> O
         he_title: he_title.to_string(),
         en_title: "A Sefer".to_string(),
         categories: Vec::new(),
+        order: Vec::new(),
         source: Source::Sefaria,
         origin: PathBuf::new(),
         schema: None,

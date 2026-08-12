@@ -12,10 +12,11 @@
 // format.* A second renderer here would be two applications producing
 // documents that differ depending on which end wrote them.
 
-import { api, isShell, type Presence } from "./api.ts";
+import { api, isShell, pickFolder, type Presence } from "./api.ts";
 import { KSAV, withPrefix } from "./names.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
 import { area, button, field } from "./controls.ts";
+import { say } from "./say.ts";
 
 /** How long after the last keystroke the buffer is written to disk. */
 const SAVE_AFTER_MS = 900;
@@ -43,7 +44,7 @@ export class WritingView {
     const head = document.createElement("header");
     head.className = "writing-head";
 
-    this.title = field("שם המסמך");
+    this.title = field(say("documentName"));
     this.title.className = "writing-name";
     this.title.spellcheck = false;
     this.title.addEventListener("change", () => void this.rename());
@@ -53,11 +54,20 @@ export class WritingView {
 
     head.append(this.title, this.note);
     head.append(
-      button("כותרת", "#כותרת1[…]", () => this.wrap("#כותרת1[", "]\n")),
-      button("ציטוט", "#ציטוט[…]", () => this.wrap("#ציטוט[", "]")),
-      button("הערה", "#הערת_עורך[…]", () => this.wrap("#הערת_עורך[", "]")),
-      button("מקור", "הכנס את הבחירה שבספר", () => void this.insertSource()),
+      button(say("heading1"), "#כותרת1[…]", () => this.wrap("#כותרת1[", "]\n")),
+      button(say("quote"), "#ציטוט[…]", () => this.wrap("#ציטוט[", "]")),
+      button(say("editorNote"), "#הערת_עורך[…]", () => this.wrap("#הערת_עורך[", "]")),
+      button(say("insertSource"), say("insertSourceWhy"), () => void this.insertSource()),
     );
+
+    // > *"send to ksav and export dont let you pick a folder."*
+    //
+    // The working buffer lives in `personal/ksav/`, which is what `buffers()`
+    // lists and what makes *the last thing you were writing* findable; a buffer
+    // that wandered off to wherever a dialog last pointed would be a document
+    // the drawer could no longer offer. So this writes a **copy** where it is
+    // asked to, which is what *save a copy* means everywhere else.
+    head.append(button(say("saveACopy"), say("saveACopyWhy"), () => void this.saveACopy()));
 
     this.ksavButton = button(
       `פתח ${withPrefix("ב", KSAV)}`,
@@ -66,9 +76,9 @@ export class WritingView {
       void this.handOver(),
     );
     head.append(this.ksavButton);
-    head.append(button("סגור", "Esc", () => this.close()));
+    head.append(button(say("close"), say("esc"), () => this.close()));
 
-    this.box = area("מה שאתה כותב", { className: "writing-box", dir: "rtl" });
+    this.box = area(say("writingBox"), { className: "writing-box", dir: "rtl" });
     this.box.spellcheck = false;
     this.box.addEventListener("input", () => this.scheduleSave());
 
@@ -165,7 +175,7 @@ export class WritingView {
     if (!this.askForSource) return;
     const markup = await this.askForSource();
     if (!markup) {
-      this.note.textContent = "לא נבחר כלום בספר";
+      this.note.textContent = say("nothingChosen");
       return;
     }
     const at = this.box.selectionStart;
@@ -174,6 +184,20 @@ export class WritingView {
     this.box.setSelectionRange(caret, caret);
     this.box.focus();
     this.scheduleSave();
+  }
+
+  /** Write a copy of the document into a folder the reader chooses. */
+  private async saveACopy(): Promise<void> {
+    await this.save();
+    const into = await pickFolder(say("chooseFolder"));
+    if (into === null) return;
+    try {
+      const path = await api.bufferWriteTo(this.name, this.box.value, into);
+      this.note.textContent = `${say("wrote")} — ${path}`;
+      clearTrouble(this.note);
+    } catch (e) {
+      sayTrouble(this.note, e, "write_note");
+    }
   }
 
   /** Hand the document to the real Ksav. */

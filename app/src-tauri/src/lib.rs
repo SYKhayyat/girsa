@@ -334,13 +334,14 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
     }
     Ok(girsa_app::view::Opening {
         workspace: state.session.workspace.clone(),
-        nikud: state.session.nikud,
+        pointing: state.session.pointing,
         text_size: state.session.text_size,
         positions: state.session.positions.clone(),
         works: state.shelf.as_ref().map_or(0, |s| s.works().len()),
         trouble: state.trouble.clone(),
         cite: state.session.cite,
         language: state.session.language,
+        interface: state.session.interface,
         keys: girsa_app::keys::Bound::of(&state.session.keys)
             .table()
             .clone(),
@@ -408,7 +409,7 @@ fn hit_row(
     hit: &girsa_search::index::Hit,
     marker: &girsa_search::bar::Marker,
     names: Option<&girsa_app::Names<'_>>,
-    nikud: bool,
+    pointing: girsa_app::session::Pointing,
 ) -> HitRow {
     let (page, by, guessed) = scanned(hit);
     HitRow {
@@ -426,7 +427,7 @@ fn hit_row(
             },
             |names| AtRow::of(&names.of(&hit.id)),
         ),
-        runs: shown(hit, marker, nikud),
+        runs: shown(hit, marker, pointing),
         page,
         by,
         guessed,
@@ -446,14 +447,12 @@ fn hit_row(
 fn shown(
     hit: &girsa_search::index::Hit,
     marker: &girsa_search::bar::Marker,
-    nikud: bool,
+    pointing: girsa_app::session::Pointing,
 ) -> Vec<display::Run> {
-    let marked = display::runs_marking(&hit.text, &marker.marks(hit));
-    if nikud {
-        marked
-    } else {
-        display::unpointed(marked)
-    }
+    display::unpointed(
+        display::runs_marking(&hit.text, &marker.marks(hit)),
+        pointing,
+    )
 }
 
 fn marked(marker: &girsa_search::bar::Marker, hit: &girsa_search::index::Hit) -> Vec<String> {
@@ -514,7 +513,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
     // one a way of *finding* the chips rather than a syntax beside them.
     let (chips, _) = state.chips.read(&query);
     state.chips = chips;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let chips = state.chips.clone();
     // What to call each place, in the window's language (W41), with its
     // address and its dates. See `girsa_app::Naming` — four surfaces used to
@@ -544,7 +543,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                 hits: results
                     .hits
                     .iter()
-                    .map(|hit| hit_row(hit, &results.marker, names.as_ref(), nikud))
+                    .map(|hit| hit_row(hit, &results.marker, names.as_ref(), pointing))
                     .collect(),
                 total: results.total,
                 page: page.max(1),
@@ -642,7 +641,7 @@ fn find_rung(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let (chips, text) = state.chips.read(&query);
     state.chips = chips.clone();
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let Some(rung) = girsa_search::ladder::Rung::named(&rung) else {
         return Err(format!("no such rung: {rung}"));
     };
@@ -679,7 +678,7 @@ fn find_rung(
         hits: found
             .hits
             .iter()
-            .map(|hit| hit_row(hit, &marker, names.as_ref(), nikud))
+            .map(|hit| hit_row(hit, &marker, names.as_ref(), pointing))
             .collect(),
         total: found.total,
         page: page.max(1),
@@ -729,6 +728,106 @@ fn find_whole_shelf(shared: tauri::State<'_, Shared>) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.chips.scope = girsa_search::scope::Scope::everything();
     Ok(())
+}
+
+/// One thing the reader has added to or subtracted from where the search looks.
+#[derive(Serialize)]
+struct ScopeStep {
+    /// What they clicked.
+    label: String,
+    /// Subtracting rather than adding.
+    exclude: bool,
+    /// How many seforim it names, so a row can say what it is worth.
+    seforim: usize,
+}
+
+/// Where the search is looking, as a list a panel can draw and edit.
+#[derive(Serialize)]
+struct ScopeView {
+    /// The chip's own sentence, so the panel and the chip cannot word it two
+    /// ways.
+    said: String,
+    steps: Vec<ScopeStep>,
+    /// Whether this is the whole shelf — which is not the same as *no steps*
+    /// once link types are in it.
+    everything: bool,
+}
+
+/// What the scope is now.
+///
+/// The panel that draws this is the answer to *"i dont know how to add some and
+/// minus some things from the search (some seforim or folders). often the tree
+/// to pick from … is not even visible - it flashes, then flashes off."* The tree
+/// was the **facet rail**, which is computed from a result set: it existed only
+/// after a search returned hits, and it was cleared at the start of the next
+/// one. So the one control for choosing where to look could only be used
+/// after you had already looked, and vanished while you looked again.
+///
+/// This is the scope itself, which exists before any search and outlives every
+/// one — asked for by the panel, not derived from an answer.
+#[tauri::command]
+fn find_scope(shared: tauri::State<'_, Shared>) -> Result<ScopeView, String> {
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let scope = &state.chips.scope;
+    Ok(ScopeView {
+        said: scope.describe(),
+        steps: scope
+            .steps()
+            .iter()
+            .map(|step| ScopeStep {
+                label: step.label.clone(),
+                exclude: step.exclude,
+                seforim: step.len(),
+            })
+            .collect(),
+        everything: scope.is_everything(),
+    })
+}
+
+/// Add a shelf or a sefer to where the search looks, or take it out.
+///
+/// The same two clicks the facet rows carry, reachable **before** a search:
+/// `dimension` is `shelf` or `sefer`, `key` is a shelf key or a slug, and
+/// `label` is what to call it on the chip. Resolved through the same
+/// `facets::narrow`/`exclude` the rail uses, so a scope built from the panel and
+/// one built from a result row are the same scope.
+#[tauri::command]
+fn find_scope_add(
+    shared: tauri::State<'_, Shared>,
+    dimension: Dimension,
+    key: String,
+    label: String,
+    exclude: bool,
+) -> Result<ScopeView, String> {
+    {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        let Some(bar) = state.bar.as_ref() else {
+            return Err(state.no_search());
+        };
+        let row = Row {
+            key,
+            label,
+            count: 0,
+            depth: 0,
+        };
+        let scope = if exclude {
+            facets::exclude(&state.chips.scope, bar.catalogue(), dimension, &row)
+        } else {
+            facets::narrow(&state.chips.scope, bar.catalogue(), dimension, &row)
+        };
+        state.chips.scope = scope;
+    }
+    find_scope(shared)
+}
+
+/// Take one step back — the `×` on a row of the scope panel.
+#[tauri::command]
+fn find_scope_drop(shared: tauri::State<'_, Shared>, at: usize) -> Result<ScopeView, String> {
+    {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        state.chips.scope.drop_step(at);
+    }
+    find_scope(shared)
 }
 
 /// The lexicon `girsa-import` wrote, both halves of it.
@@ -946,6 +1045,26 @@ fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Comp
 #[tauri::command]
 fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    mefarshim_of(&mut state, &slug)
+}
+
+/// The same, for a caller that already holds the lock.
+///
+/// # Why ticking goes through here too
+///
+/// `choose_mefaresh` answered with the **marked lines only**, and the window
+/// patched its own copy of the rest: it flipped `chosen` inside `works` and
+/// counted that array to decide whether a click on a line means anything. But
+/// the list the reader is ticking in is `listed`, which also carries the seforim
+/// running alongside and the mefarshim the graph knows and the catalogue does
+/// not — tick one of those and `works` never mentioned it, so the count stayed
+/// zero and clicking a line did nothing at all. The reader's ninth bug:
+/// *"checking off a mefarsh does not open it when its line is clicked."*
+///
+/// One answer, from the one place that builds it, and the window draws what it
+/// is given.
+fn mefarshim_of(state: &mut State, slug: &str) -> Result<Mefarshim, String> {
+    let slug = slug.to_string();
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
     let marks = state.marks(&slug)?;
     let commentators = marks.commentators();
@@ -962,7 +1081,7 @@ fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim
         .iter()
         .filter_map(|slug| shelf.work(slug).cloned())
         .collect();
-    let folders = girsa_app::mefarshim::folders(&works, shelf.arrangement());
+    let folders = girsa_app::mefarshim::folders(&works, shelf.arrangement(), shelf.shipped());
     // One naming, both lists. Two copies would drift the day one of them learns
     // to say something the other does not.
     let named = |work: String| {
@@ -1000,19 +1119,21 @@ fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim
     })
 }
 
-/// Tick or untick one mefaresh, and say which lines are marked now.
+/// Tick or untick one mefaresh, and answer with the whole list as it stands
+/// now.
+///
+/// The **whole** list, not just the marked lines: see [`mefarshim_of`].
 #[tauri::command]
 fn choose_mefaresh(
     shared: tauri::State<'_, Shared>,
     slug: String,
     work: String,
     on: bool,
-) -> Result<Vec<String>, String> {
+) -> Result<Mefarshim, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.choose(&slug, &work, on);
     state.save();
-    let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
-    Ok(state.marks(&slug)?.marked(&chosen).into_iter().collect())
+    mefarshim_of(&mut state, &slug)
 }
 
 /// Click a line: read the ticked mefarshim on it.
@@ -1024,7 +1145,7 @@ fn mefarshim_at(
 ) -> Result<Comments, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
 
     let marks = state.marks(&slug)?;
@@ -1055,7 +1176,7 @@ fn mefarshim_at(
                 .map_or(first, |to| to.max(first));
             sefer.segments[first..=last]
                 .iter()
-                .map(|s| Line::of(sefer, s, nikud))
+                .map(|s| Line::of(sefer, s, pointing))
                 .collect()
         };
         let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
@@ -1080,7 +1201,7 @@ fn mefarshim_at(
 #[tauri::command]
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let sefer = state.sefer(&slug)?;
     let has_nikud = sefer.segments.iter().any(|s| display::has_marks(&s.text));
     Ok(Text {
@@ -1088,7 +1209,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         lines: sefer
             .segments
             .iter()
-            .map(|s| Line::of(sefer, s, nikud))
+            .map(|s| Line::of(sefer, s, pointing))
             .collect(),
         has_nikud,
     })
@@ -1518,7 +1639,7 @@ fn fix(
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let kind = girsa_fix::Kind::named(&kind).ok_or_else(|| format!("no such kind: {kind}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let slug = at.work().to_string();
 
     let patch = {
@@ -1530,7 +1651,7 @@ fn fix(
             &now,
             kind,
             &girsa_app::who(),
-            nikud,
+            pointing,
         )
         .map_err(|e| e.to_string())?;
         if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
@@ -1554,7 +1675,7 @@ fn fix(
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, nikud),
+        line: Line::of(sefer, segment, pointing),
         said: format!("{was} → {now}"),
     })
 }
@@ -1564,7 +1685,7 @@ fn fix(
 fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<Fixed, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let slug = at.work().to_string();
 
     let trouble = state.trouble();
@@ -1586,7 +1707,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, nikud),
+        line: Line::of(sefer, segment, pointing),
         said: "הוחזר כפי שנדפס".to_string(),
     })
 }
@@ -1656,7 +1777,7 @@ fn links(
 ) -> Result<Links, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let lens = lens.filter(|key| !key.is_empty());
 
     // The line itself, as the pane drew it, because a span is in those
@@ -1687,7 +1808,7 @@ fn links(
     // text is only consulted for seforim that are **already open**.
     for link in &mut links {
         let far = state.open.peek(&link.work);
-        link.span = girsa_app::links::span_on(link, &at, &base, &anchors, far, nikud);
+        link.span = girsa_app::links::span_on(link, &at, &base, &anchors, far, pointing);
     }
     if let (Some(from), Some(to)) = (from_char, to_char) {
         if from < to {
@@ -1706,7 +1827,7 @@ fn links(
     Ok(Links {
         links: links
             .iter()
-            .map(|l| LinkRow::of(l, language, first_words(&state, l, nikud)))
+            .map(|l| LinkRow::of(l, language, first_words(&state, l, pointing)))
             .collect(),
         incoming_unknown: touching.incoming_unknown,
         types: girsa_app::links::kinds(),
@@ -1752,10 +1873,14 @@ fn link_pin(
 /// reason it gives: a sidebar is not entitled to open forty seforim to decorate
 /// itself. The rows without one still name the sefer and the place, which is what
 /// every row said before this.
-fn first_words(state: &State, link: &girsa_app::Link, nikud: bool) -> Option<String> {
+fn first_words(
+    state: &State,
+    link: &girsa_app::Link,
+    pointing: girsa_app::session::Pointing,
+) -> Option<String> {
     let sefer = state.open.peek(&link.work)?;
     let nth = sefer.position_of(&link.other.from)?;
-    let text = display::Shown::of(&sefer.segments.get(nth)?.text, nikud)
+    let text = display::Shown::of(&sefer.segments.get(nth)?.text, pointing)
         .text()
         .to_string();
     Some(girsa_app::enough::first_words(&text))
@@ -1869,22 +1994,34 @@ fn parse_anchor(text: &str) -> Result<girsa_link::Anchor, String> {
 
 // ── Exporting a fixed sefer (spec.md §7.4, BUILDER.md W22) ──────────────────
 
-/// Write a sefer out with your corrections in it.
+/// Write a sefer out with your corrections in it, into a folder you chose.
 ///
-/// Into your own layer, at `personal/exports/`, rather than through a save
-/// dialog: the file is the point and where it goes is not, and a reader who
-/// wants it somewhere else has a file manager. The path comes back so the
-/// window can say it.
+/// # It used to choose for you
+///
+/// *"send to ksav and export dont let you pick a folder."* They did not: this
+/// wrote into `personal/exports/` and said the path afterwards, and the comment
+/// where this one is argued that *"the file is the point and where it goes is
+/// not, and a reader who wants it somewhere else has a file manager."* That is
+/// a reasonable thing to believe about a debug artefact and the wrong thing to
+/// believe about a sefer somebody is going to hand to a chavrusa — the whole
+/// reason to export is to put the file **somewhere**, and the somewhere is the
+/// reader's business.
+///
+/// `into` is a folder the window got from a real directory dialog. `None` is
+/// *the last one you chose*, and failing that the old default — so the second
+/// export does not ask again and a reader who never opens the dialog is exactly
+/// where they were.
 #[tauri::command]
 fn export_sefer(
     shared: tauri::State<'_, Shared>,
     slug: String,
     format: String,
+    into: Option<String>,
 ) -> Result<Written, String> {
     let format =
         girsa_export::Format::named(&format).ok_or_else(|| format!("no such format: {format}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let showing = state.session.showing;
     let personal = state
         .shelf
@@ -1892,20 +2029,29 @@ fn export_sefer(
         .ok_or_else(|| state.trouble())?
         .personal()
         .to_path_buf();
+    // Remembered, so the next export opens where the last one went.
+    if let Some(chosen) = into.as_ref().filter(|p| !p.trim().is_empty()) {
+        state.session.export_into = Some(chosen.clone());
+        state.save();
+    }
+    let folder = state
+        .session
+        .export_into
+        .clone()
+        .map_or_else(|| personal.join("exports"), PathBuf::from);
 
     // The sefer as it is being read — corrections already applied, because
     // that is what `Open` is (W20). Nothing is applied here.
     let sefer = state.sefer(&slug)?;
-    let to = personal
-        .join("exports")
-        .join(girsa_export::suggested_name(sefer, format));
+    let to = folder.join(girsa_export::suggested_name(sefer, format));
     let fixes = state
         .shelf
         .as_ref()
         .ok_or("there is no shelf here")?
         .fixes();
     let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let done = girsa_export::export(sefer, fixes, format, nikud, &to).map_err(|e| e.to_string())?;
+    let done =
+        girsa_export::export(sefer, fixes, format, pointing, &to).map_err(|e| e.to_string())?;
     Ok(Written {
         said: format!(
             "{} · {} · {}",
@@ -1980,14 +2126,14 @@ fn suspect_at(
 ) -> Result<Standing, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let (queue, _) = girsa_fix::suspect::Queue::open(shelf.personal());
     let suspect = queue.get(&id).ok_or("there is no such candidate")?.clone();
     state.queue = Some(queue);
 
     let sefer = state.sefer(at.work())?;
-    let span = girsa_app::fixing::where_word(sefer, &at, &suspect.rare, nikud)
+    let span = girsa_app::fixing::where_word(sefer, &at, &suspect.rare, pointing)
         .ok_or("that word is not in that line any more")?;
     let drawn = girsa_app::display::Shown::of(
         &sefer
@@ -1995,7 +2141,7 @@ fn suspect_at(
             .get(sefer.position_of(&at).ok_or("not in this sefer")?)
             .ok_or("not in this sefer")?
             .text,
-        nikud,
+        pointing,
     );
     let printed: String = drawn
         .text()
@@ -2083,7 +2229,7 @@ fn copy(
         None => from.clone(),
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
     let selection = girsa_app::Selection {
@@ -2092,7 +2238,8 @@ fn copy(
         from_char,
         to_char,
     };
-    let sent = girsa_app::send(sefer, &selection, style, nikud, note).map_err(|e| e.to_string())?;
+    let sent =
+        girsa_app::send(sefer, &selection, style, pointing, note).map_err(|e| e.to_string())?;
     Ok(Copied {
         display: sent.display().to_string(),
         reference: sent.packet.reference.clone(),
@@ -2140,6 +2287,41 @@ fn buffer_save(
         .to_string())
 }
 
+/// Write the document out into a folder the reader chose.
+///
+/// The other half of *"send to ksav and export dont let you pick a folder"*.
+/// The working buffer stays where it lives — `personal/ksav/` is what
+/// `buffers()` lists, and a buffer that wandered off would be a document the
+/// drawer could no longer find — so this writes a **copy** where it was asked
+/// to, which is what *save a copy* means everywhere else.
+///
+/// # Errors
+///
+/// If the folder will not take the file, or the name is not one.
+#[tauri::command]
+fn buffer_write_to(
+    shared: tauri::State<'_, Shared>,
+    name: String,
+    text: String,
+    into: String,
+) -> Result<String, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let folder = PathBuf::from(into.trim());
+    if folder.as_os_str().is_empty() {
+        return Err("no folder was chosen".to_string());
+    }
+    let named = name.trim();
+    if named.is_empty() || named.contains(['/', '\\']) {
+        return Err(format!("`{name}` is not a name for a document"));
+    }
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let path = folder.join(format!("{named}.ksav"));
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    state.session.export_into = Some(folder.display().to_string());
+    state.save();
+    Ok(path.display().to_string())
+}
+
 /// The markup for a selection, ready to go into the buffer.
 ///
 /// **The window does not build this string.** It is `girsa-ksav`'s, the writer
@@ -2160,7 +2342,7 @@ fn source_markup(
         None => from.clone(),
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
     let selection = girsa_app::Selection {
@@ -2169,7 +2351,8 @@ fn source_markup(
         from_char,
         to_char,
     };
-    let sent = girsa_app::send(sefer, &selection, style, nikud, None).map_err(|e| e.to_string())?;
+    let sent =
+        girsa_app::send(sefer, &selection, style, pointing, None).map_err(|e| e.to_string())?;
     Ok(girsa_ksav::to_ksav(
         &sent.packet,
         girsa_ksav::CitationPlacement::Mekor,
@@ -2263,7 +2446,7 @@ fn send_to_ksav(
         None => from.clone(),
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
     let selection = girsa_app::Selection {
@@ -2272,7 +2455,8 @@ fn send_to_ksav(
         from_char,
         to_char,
     };
-    let sent = girsa_app::send(sefer, &selection, style, nikud, note).map_err(|e| e.to_string())?;
+    let sent =
+        girsa_app::send(sefer, &selection, style, pointing, note).map_err(|e| e.to_string())?;
     let packet = sent.packet.to_json().map_err(|e| e.to_string())?;
     girsa_post::send(girsa_post::App::Ksav, "/insert", Some(&packet)).map_err(|e| e.to_string())?;
     Ok(Copied {
@@ -2371,9 +2555,16 @@ fn set_ratio(shared: tauri::State<'_, Shared>, pane: PaneId, ratio: u16) -> Resu
 }
 
 #[tauri::command]
-fn set_nikud(shared: tauri::State<'_, Shared>, on: bool) -> Result<(), String> {
+fn set_pointing(shared: tauri::State<'_, Shared>, pointing: String) -> Result<(), String> {
+    let Some(pointing) = girsa_app::session::Pointing::named(&pointing) else {
+        // Refused by name rather than defaulted. A window that sent a spelling
+        // this project does not write has a wiring bug, and silently drawing
+        // the sefer with everything on is how it would never be found —
+        // `girsa_search::chips::choose` says the same thing at more length.
+        return Err(format!("no such pointing: {pointing}"));
+    };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    state.session.nikud = on;
+    state.session.pointing = pointing;
     state.save();
     Ok(())
 }
@@ -2384,9 +2575,10 @@ fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
     let session = &state.session;
     let bound = girsa_app::keys::Bound::of(&session.keys);
     Ok(SettingsView {
-        nikud: session.nikud,
+        pointing: session.pointing,
         text_size: session.text_size,
         language: session.language,
+        interface: session.interface,
         cite: session.cite,
         showing: session.showing,
         theme: session.look.theme.as_str(),
@@ -2490,6 +2682,25 @@ fn set_language(
 ) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.language = language;
+    state.save();
+    Ok(())
+}
+
+/// What language the **window** speaks — as against what the seforim are called.
+///
+/// > *"there is no way to change UI into english - only seforim names. there
+/// > should be 2 seperate commands."*
+///
+/// There is now, and they are two because they are two questions. A reader who
+/// learns in Hebrew and wants the buttons in English is ordinary; so is the
+/// reverse; and one setting could serve neither.
+#[tauri::command]
+fn set_interface(
+    shared: tauri::State<'_, Shared>,
+    language: girsa_app::session::Language,
+) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state.session.interface = language;
     state.save();
     Ok(())
 }
@@ -3146,8 +3357,9 @@ pub fn run() {
             focus,
             set_follows,
             set_ratio,
-            set_nikud,
+            set_pointing,
             set_language,
+            set_interface,
             settings,
             set_look,
             bind_key,
@@ -3168,6 +3380,9 @@ pub fn run() {
             find_rung,
             find_narrow,
             find_whole_shelf,
+            find_scope,
+            find_scope_add,
+            find_scope_drop,
             copy,
             set_cite_style,
             ksav_presence,
@@ -3175,6 +3390,7 @@ pub fn run() {
             buffers,
             buffer_open,
             buffer_save,
+            buffer_write_to,
             source_markup,
             buffer_to_ksav,
             who_cites,
@@ -3254,8 +3470,8 @@ fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> 
         // place had when you wrote them, which a corpus update may have moved.
         (text, sefer.standing(&at))
     };
-    let nikud = state.session.nikud;
-    let drawn = display::Shown::of(&base, nikud).text().to_string();
+    let pointing = state.session.pointing;
+    let drawn = display::Shown::of(&base, pointing).text().to_string();
 
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let found = girsa_app::yours(shelf, &standing, &drawn);
@@ -3428,7 +3644,7 @@ fn mark_here(
 ) -> Result<MarkRow, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let base = {
         let sefer = state.sefer(at.work())?;
         sefer
@@ -3437,7 +3653,7 @@ fn mark_here(
             .map(|segment| segment.text.clone())
             .unwrap_or_default()
     };
-    let drawn = display::Shown::of(&base, nikud).text().to_string();
+    let drawn = display::Shown::of(&base, pointing).text().to_string();
 
     let who = girsa_app::who();
     let mut made = match (from_char, to_char) {
@@ -3491,7 +3707,7 @@ fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, S
 #[tauri::command]
 fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRow>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let drawn: HashMap<String, String> = {
         let sefer = state.sefer(&slug)?;
         sefer
@@ -3500,7 +3716,9 @@ fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRo
             .map(|segment| {
                 (
                     segment.id.to_string(),
-                    display::Shown::of(&segment.text, nikud).text().to_string(),
+                    display::Shown::of(&segment.text, pointing)
+                        .text()
+                        .to_string(),
                 )
             })
             .collect()

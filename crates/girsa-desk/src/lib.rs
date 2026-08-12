@@ -41,4 +41,4 @@ pub mod refreshing;
 pub use buffer::{Buffer, BufferError};
 pub use citing::{linkify, who_cites, Citing, Linked};
 pub use documents::Documents;
-pub use refreshing::{refreshed, Refreshed, Wanted};
+pub use refreshing::{refreshed, refreshed_reporting, Refreshed, Wanted};

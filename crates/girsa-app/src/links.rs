@@ -33,6 +33,7 @@ use girsa_corpus::standing::Standing;
 use girsa_link::repair::{Repaired, Repairs};
 use girsa_link::{inbound, store, Anchor, EdgeType};
 
+use crate::session::Pointing;
 use crate::shelf::Shelf;
 
 /// One link on a segment, from that segment's point of view.
@@ -235,7 +236,7 @@ pub fn span_on(
     base: &str,
     anchors: &[girsa_corpus::anchors::Anchor],
     far: Option<&crate::shelf::Open>,
-    nikud: bool,
+    pointing: Pointing,
 ) -> Option<std::ops::Range<usize>> {
     if let Some((pinned_at, span)) = &link.repaired.pinned {
         if pinned_at == at {
@@ -264,7 +265,7 @@ pub fn span_on(
     let commentary = far
         .position_of(&link.other.from)
         .and_then(|nth| far.segments.get(nth))?;
-    crate::spans::dibur_span(base, &commentary.text, nikud)
+    crate::spans::dibur_span(base, &commentary.text, pointing)
 }
 
 /// Keep the links that touch a highlight.

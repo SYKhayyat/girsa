@@ -30,6 +30,7 @@ fn work(slug: &str) -> Work {
         he_title: slug.to_string(),
         en_title: slug.to_string(),
         categories: Vec::new(),
+        order: Vec::new(),
         source: Source::Sefaria,
         origin: PathBuf::new(),
         schema: None,

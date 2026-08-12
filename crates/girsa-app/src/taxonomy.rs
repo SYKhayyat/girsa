@@ -1,10 +1,11 @@
 //! The shelf as the reader has it: the shipped taxonomy, plus their edits.
 //!
 //! The shipped half — *which shelf would the corpus file this sefer on* — is
-//! [`girsa_corpus::taxonomy`], because it is a function of a work and nothing
-//! else, and because the **search facets** (spec.md §9.8) have to group results
-//! by the same shelf this bookcase browses by. Two mappings would put a sefer
-//! on one shelf here and another there, and nothing would say which was wrong.
+//! [`girsa_corpus::taxonomy`], because it is a function of the catalogue and
+//! nothing else, and because the **search facets** (spec.md §9.8) have to group
+//! results by the same shelf this bookcase browses by. Two mappings would put a
+//! sefer on one shelf here and another there, and nothing would say which was
+//! wrong. [`Shipped`] is that answer, worked out once.
 //!
 //! What is here is everything that needs the personal layer: where the reader
 //! moved a sefer to, what they renamed a shelf, what order they put things in,
@@ -17,11 +18,49 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use girsa_corpus::taxonomy::{rank_of, shelf_of, top_rank_of};
+use girsa_corpus::taxonomy::{rank_of, shelves_of, top_rank_of};
 use girsa_corpus::work::Work;
 use serde::Serialize;
 
 use crate::arrangement::{self, Arrangement};
+
+/// Where the corpus would file each sefer, worked out once for the catalogue.
+///
+/// # Why this is a value and not a call
+///
+/// The shipped shelf used to be `shelf_of(work)`, asked afresh every time
+/// anything wanted to know where a sefer stands — once per work per `tree()`,
+/// once per work per `works_on()`, once per mefaresh per `folders()`. Two things
+/// made that wrong rather than merely wasteful:
+///
+/// - one of the rules is about the sefer's **base text** and cannot be answered
+///   from the work alone (`girsa_corpus::taxonomy::shelves_of`), so asking one
+///   work at a time gave the wrong shelf as well as a slow one;
+/// - `canonical_path` walks two tables per call, and `works_on` did it 7,189
+///   times for one click on one shelf.
+#[derive(Debug, Clone, Default)]
+pub struct Shipped(BTreeMap<String, String>);
+
+impl Shipped {
+    /// File the whole catalogue.
+    #[must_use]
+    pub fn of(works: &[Work]) -> Self {
+        Self(
+            works
+                .iter()
+                .zip(shelves_of(works))
+                .map(|(work, shelf)| (work.slug.clone(), shelf.join("/")))
+                .collect(),
+        )
+    }
+
+    /// Where the corpus files this sefer. Empty for one the catalogue has never
+    /// seen, which is `אחר` by the same rule that puts an unfiled sefer there.
+    #[must_use]
+    pub fn of_slug(&self, slug: &str) -> &str {
+        self.0.get(slug).map_or("אחר", String::as_str)
+    }
+}
 
 /// One shelf, and everything under it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -59,12 +98,12 @@ pub struct Branch {
 
 /// The shelf a work is on now: the shipped one, unless it was moved.
 #[must_use]
-pub fn shelf_key_of(work: &Work, arrangement: &Arrangement) -> String {
+pub fn shelf_key_of(work: &Work, arrangement: &Arrangement, shipped: &Shipped) -> String {
     arrangement
         .works
         .get(&work.slug)
         .cloned()
-        .unwrap_or_else(|| shelf_of(work).join("/"))
+        .unwrap_or_else(|| shipped.of_slug(&work.slug).to_string())
 }
 
 /// The whole shelf, as a reader browses it.
@@ -72,12 +111,12 @@ pub fn shelf_key_of(work: &Work, arrangement: &Arrangement) -> String {
 /// Every work is under exactly one branch — the counts are the check on that,
 /// and [`Branch::count`] over the roots has to come to the number of works.
 #[must_use]
-pub fn tree(works: &[Work], arrangement: &Arrangement) -> Vec<Branch> {
+pub fn tree(works: &[Work], arrangement: &Arrangement, shipped: &Shipped) -> Vec<Branch> {
     let mut here: BTreeMap<String, usize> = BTreeMap::new();
     let mut keys: BTreeSet<String> = BTreeSet::new();
 
     for work in works {
-        let key = shelf_key_of(work, arrangement);
+        let key = shelf_key_of(work, arrangement, shipped);
         *here.entry(key.clone()).or_default() += 1;
         keys.insert(key);
     }
@@ -285,7 +324,7 @@ mod tests {
                 &["Halakhah", "Shulchan Arukh", "Commentary"],
             ),
         ];
-        let tree = tree(&works, &Arrangement::default());
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
         let arukh = find(&tree, "שולחן ערוך").expect("the shelf is there");
 
         assert_eq!(arukh.here, 0, "nothing stands loose beside a folder");
@@ -310,7 +349,7 @@ mod tests {
             work_on("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"]),
             work_on("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"]),
         ];
-        let tree = tree(&works, &Arrangement::default());
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
         let zeraim = find(&tree, "סדר זרעים").expect("the seder is there");
         assert_eq!(zeraim.here, 1);
         assert!(zeraim.children.is_empty());
@@ -323,7 +362,7 @@ mod tests {
             work_on("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"]),
             work_on("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"]),
         ];
-        let tree = tree(&works, &Arrangement::default());
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
         let bavli = find(&tree, "בבלי").expect("the bavli is there");
         assert_eq!(bavli.here, 0);
         assert_eq!(bavli.children.len(), 2, "two sedarim and no gathered child");
@@ -346,7 +385,7 @@ mod tests {
             work_on("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"]),
             work_on("nothing-says", &[]),
         ];
-        let tree = tree(&works, &Arrangement::default());
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
         let counted: usize = tree.iter().map(|b| b.count).sum();
         assert_eq!(counted, works.len());
     }
@@ -365,7 +404,7 @@ mod tests {
                 &["Halakhah", "Shulchan Arukh", "Commentary"],
             ),
         ];
-        let tree = tree(&works, &Arrangement::default());
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
         let arukh = find(&tree, "שולחן ערוך").expect("the shelf is there");
         let gathered = &arukh.children[0];
         assert!(gathered.loose);

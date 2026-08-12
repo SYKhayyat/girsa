@@ -25,18 +25,25 @@ import {
   ticked,
 } from "../.tmp-test/mefarshim.mjs";
 
-/** As `Shelf::companions` returns them: declared ones first, then by links. */
-function companion(slug, declared, links) {
-  return { slug, he_title: slug, en_title: slug, declared, links };
+/**
+ * As `Shelf::companions` returns them: related ones first, then by links.
+ *
+ * `stands` and not a `declared` bool. The bool was true for three different
+ * claims — a mefaresh **on** this sefer, a sefer running **alongside** it, and
+ * the sefer this one is a mefaresh **on** — and the last of those is why opening
+ * Onkelos listed Bereshis under the word `פירוש`.
+ */
+function companion(slug, stands, links) {
+  return { slug, he_title: slug, en_title: slug, stands, links };
 }
 
 export function run() {
 
   const ON_BERAKHOT = [
-    companion("bavli/rashi-on-berakhot", true, 3139),
-    companion("bavli/tosafot-on-berakhot", true, 812),
-    companion("beit-yosef", false, 815),
-    companion("mishnah-berurah", false, 41),
+    companion("bavli/rashi-on-berakhot", "on", 3139),
+    companion("bavli/tosafot-on-berakhot", "on", 812),
+    companion("beit-yosef", null, 815),
+    companion("mishnah-berurah", null, 41),
   ];
 
   // ---------------------------------------------------------------- which are mefarshim
@@ -70,7 +77,7 @@ export function run() {
 
   check(
     "with companions but none declared, still no claim",
-    doorLabel([companion("beit-yosef", false, 815)]),
+    doorLabel([companion("beit-yosef", null, 815)]),
     "לצד",
   );
 
@@ -100,8 +107,8 @@ export function run() {
   check(
     "among mefarshim, the better attached comes first",
     ordered([
-      companion("declared-but-unlinked", true, 0),
-      companion("bavli/rashi-on-berakhot", true, 3139),
+      companion("declared-but-unlinked", "on", 0),
+      companion("bavli/rashi-on-berakhot", "on", 3139),
     ]).map((c) => c.slug),
     ["bavli/rashi-on-berakhot", "declared-but-unlinked"],
   );

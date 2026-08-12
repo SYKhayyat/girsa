@@ -30,6 +30,7 @@ use girsa_corpus::segment::SegmentId;
 use girsa_fix::{Kind, Patch};
 
 use crate::display::Shown;
+use crate::session::Pointing;
 use crate::shelf::Open;
 
 /// Why a highlight could not be turned into a correction.
@@ -68,7 +69,7 @@ pub fn correction(
     now: &str,
     kind: Kind,
     who: &str,
-    nikud: bool,
+    pointing: Pointing,
 ) -> Result<Patch, FixHere> {
     let (from_char, to_char) = (highlighted.start, highlighted.end);
     let position = sefer
@@ -80,7 +81,7 @@ pub fn correction(
         .ok_or_else(|| FixHere::NotHere(at.to_string()))?;
 
     // What the pane drew, which is the corrected text with the markup off.
-    let drawn = Shown::of(&segment.text, nikud);
+    let drawn = Shown::of(&segment.text, pointing);
     let on_screen = drawn.base_span(from_char, to_char).ok_or(FixHere::Empty)?;
 
     // …and where that is in the file, which is a different question the moment
@@ -131,11 +132,11 @@ pub fn where_word(
     sefer: &Open,
     at: &SegmentId,
     word: &str,
-    nikud: bool,
+    pointing: Pointing,
 ) -> Option<std::ops::Range<usize>> {
     let position = sefer.position_of(at)?;
     let segment = sefer.segments.get(position)?;
-    let drawn = Shown::of(&segment.text, nikud);
+    let drawn = Shown::of(&segment.text, pointing);
     let token = girsa_hebrew::tokenize(drawn.text())
         .into_iter()
         .find(|token| token.text == word)?;
@@ -186,11 +187,19 @@ mod tests {
         // Nikud off, so the reader sees `ובשבת` — five characters where the
         // file has thirteen. The patch has to name the thirteen.
         let sefer = sefer(&Layer::nowhere());
-        let drawn = Shown::of(AS_PRINTED, false);
+        let drawn = Shown::of(AS_PRINTED, Pointing::Plain);
         assert_eq!(drawn.text(), "כל הרבר ובשבת הזה");
 
-        let patch = correction(&sefer, &id(), 8..13, "ובשבתות", Kind::Ocr, "me", false)
-            .expect("a correction");
+        let patch = correction(
+            &sefer,
+            &id(),
+            8..13,
+            "ובשבתות",
+            Kind::Ocr,
+            "me",
+            Pointing::Plain,
+        )
+        .expect("a correction");
         assert_eq!(patch.was, "וּבַשַּׁבָּת");
         assert_eq!(patch.now, "ובשבתות");
 
@@ -214,7 +223,7 @@ mod tests {
                     "הדבר",
                     Kind::Ocr,
                     "me",
-                    false,
+                    Pointing::Plain,
                 )
                 .expect("a correction"),
             )
@@ -226,15 +235,27 @@ mod tests {
         // the correction — are in play at once.
         let sefer = sefer(&layer);
         assert_eq!(
-            Shown::of(&sefer.segments[0].text, false).text(),
+            Shown::of(&sefer.segments[0].text, Pointing::Plain).text(),
             "כל הדבר ובשבת הזה"
         );
-        let patch = correction(&sefer, &id(), 14..17, "ההוא", Kind::Ocr, "me", false)
-            .expect("a correction");
+        let patch = correction(
+            &sefer,
+            &id(),
+            14..17,
+            "ההוא",
+            Kind::Ocr,
+            "me",
+            Pointing::Plain,
+        )
+        .expect("a correction");
         assert_eq!(patch.was, "הזה");
         layer.add(patch).expect("takes it");
         assert_eq!(
-            Shown::of(&layer.apply(&id(), AS_PRINTED, Showing::Fixed).text, false).text(),
+            Shown::of(
+                &layer.apply(&id(), AS_PRINTED, Showing::Fixed).text,
+                Pointing::Plain
+            )
+            .text(),
             "כל הדבר ובשבת ההוא"
         );
     }
@@ -251,7 +272,7 @@ mod tests {
                     "הדבר",
                     Kind::Ocr,
                     "me",
-                    false,
+                    Pointing::Plain,
                 )
                 .expect("a correction"),
             )
@@ -264,7 +285,7 @@ mod tests {
             "הדברים",
             Kind::Ocr,
             "me",
-            false,
+            Pointing::Plain,
         );
         assert!(
             matches!(refused, Err(FixHere::AlreadyCorrected { .. })),
@@ -278,10 +299,10 @@ mod tests {
         // `וּבַשַּׁבָּת` inside a `<b>`, and the reader may have nikud on or off. All
         // three are the same word, and only the normalizer knows it.
         let sefer = sefer(&Layer::nowhere());
-        let bare = where_word(&sefer, &id(), "ובשבת", false).expect("it is on the page");
+        let bare = where_word(&sefer, &id(), "ובשבת", Pointing::Plain).expect("it is on the page");
         assert_eq!(bare, 8..13);
         assert_eq!(
-            Shown::of(AS_PRINTED, false)
+            Shown::of(AS_PRINTED, Pointing::Plain)
                 .text()
                 .chars()
                 .collect::<Vec<_>>()[bare]
@@ -292,9 +313,9 @@ mod tests {
 
         // With nikud on, the same word is twice as many characters, and the
         // span still covers exactly it.
-        let pointed = where_word(&sefer, &id(), "ובשבת", true).expect("still there");
+        let pointed = where_word(&sefer, &id(), "ובשבת", Pointing::Full).expect("still there");
         assert_eq!(
-            Shown::of(AS_PRINTED, true)
+            Shown::of(AS_PRINTED, Pointing::Full)
                 .text()
                 .chars()
                 .collect::<Vec<_>>()[pointed]
@@ -303,19 +324,27 @@ mod tests {
             "וּבַשַּׁבָּת"
         );
 
-        assert_eq!(where_word(&sefer, &id(), "אנפילאות", false), None);
+        assert_eq!(where_word(&sefer, &id(), "אנפילאות", Pointing::Plain), None);
     }
 
     #[test]
     fn a_highlight_of_nothing_is_refused() {
         let sefer = sefer(&Layer::nowhere());
         assert_eq!(
-            correction(&sefer, &id(), 4..4, "x", Kind::Ocr, "me", true),
+            correction(&sefer, &id(), 4..4, "x", Kind::Ocr, "me", Pointing::Full),
             Err(FixHere::Empty)
         );
         let elsewhere = SegmentId::new("bavli/berakhot", vec!["2a".into()], Ordinal::root(1));
         assert!(matches!(
-            correction(&sefer, &elsewhere, 0..2, "x", Kind::Ocr, "me", true),
+            correction(
+                &sefer,
+                &elsewhere,
+                0..2,
+                "x",
+                Kind::Ocr,
+                "me",
+                Pointing::Full
+            ),
             Err(FixHere::NotHere(_))
         ));
     }

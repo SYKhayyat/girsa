@@ -207,6 +207,7 @@ mod tests {
     use super::*;
     use girsa_app::pretend::shulchan_arukh;
     use girsa_app::sending::{quote, Selection};
+    use girsa_app::session::Pointing;
     use girsa_cite::CiteStyle;
     use girsa_ksav::CitationPlacement;
 
@@ -217,7 +218,7 @@ mod tests {
             &sefer,
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewFull,
-            false,
+            Pointing::Plain,
             None,
         )
         .expect("sends");
@@ -230,7 +231,7 @@ mod tests {
                 to_char: Some(5),
             },
             CiteStyle::HebrewFull,
-            false,
+            Pointing::Plain,
             None,
         )
         .expect("sends");
@@ -244,7 +245,14 @@ mod tests {
     fn against(markup: &str) -> Vec<Refreshed> {
         let sefer = shulchan_arukh();
         refreshed(markup, |reference, range| {
-            quote(&sefer, reference, range, CiteStyle::HebrewFull, false).map_err(|e| e.to_string())
+            quote(
+                &sefer,
+                reference,
+                range,
+                CiteStyle::HebrewFull,
+                Pointing::Plain,
+            )
+            .map_err(|e| e.to_string())
         })
     }
 

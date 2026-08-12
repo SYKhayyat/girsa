@@ -68,6 +68,28 @@ pub struct Work {
     /// Sefaria's category path, or Otzaria's folder path. Drives the shelf
     /// (spec.md §5) and the search facets (§9.8).
     pub categories: Vec<String>,
+    /// Where this sefer stands among the ones beside it — **the order it is
+    /// printed in**, not the order its name happens to sort in.
+    ///
+    /// Bereshis, Shemos, Vayikra; Berakhos, Shabbos, Eruvin. Every list in this
+    /// application sorted seforim by [`Work::he_title`], so a shelf of the
+    /// Chumash read *במדבר · בראשית · דברים · ויקרא · שמות* — alphabetical
+    /// order over a sequence that has had an order for two thousand years.
+    ///
+    /// Sefaria states it: `order` in the schema, `[1, 1]` for Genesis, `[2, 1]`
+    /// for Shabbat. 551 of the 6,595 schemas carry one, and they are exactly the
+    /// seforim a reader browses to — Tanach, Shas, Mishnah, the chalakim of the
+    /// Shulchan Arukh. A commentary carries none and **inherits its base's**
+    /// (see [`Catalogue::build`]), so the Rashi on Bereshis comes before the
+    /// Rashi on Shemos for the same reason Bereshis does.
+    ///
+    /// In **tenths**, so that the one schema in the corpus with a fractional
+    /// order (`Rambam_Introduction_to_Seder_Kodashim`, `[40.5]`) sits where it
+    /// says it does and two works with the same order still compare equal after
+    /// a round trip through the catalogue. Empty is *the corpus does not say*,
+    /// which sorts after everything that does.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub order: Vec<i32>,
     pub source: Source,
     /// The file the text is read from.
     pub origin: PathBuf,
@@ -121,6 +143,38 @@ pub struct Work {
     /// already names which sefer it is holding.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commentary_on: Vec<BaseText>,
+}
+
+impl Work {
+    /// Two seforim, in the order they stand on a shelf.
+    ///
+    /// **The one comparator.** Every list of seforim in this application goes
+    /// through it: the bookcase, the mefarshim behind the door, the picker, the
+    /// facets. There were five of them and every one was `a.he_title.cmp(&b.he_title)`,
+    /// which is why the Chumash came back in alphabetical order in all five
+    /// places at once.
+    ///
+    /// The rule, in order:
+    ///
+    /// 1. what the corpus says ([`Work::order`]) — and a sefer the corpus has
+    ///    ordered comes before one it has not, because an unordered sefer is
+    ///    one nobody has placed and it belongs at the end rather than in the
+    ///    middle of a sequence;
+    /// 2. the title, so the answer is stable and a shelf of unordered seforim
+    ///    is still alphabetical rather than arbitrary;
+    /// 3. the slug, so the same shelf drawn twice is the same shelf.
+    #[must_use]
+    pub fn by_order(a: &Self, b: &Self) -> std::cmp::Ordering {
+        match (a.order.is_empty(), b.order.is_empty()) {
+            (false, true) => return std::cmp::Ordering::Less,
+            (true, false) => return std::cmp::Ordering::Greater,
+            _ => {}
+        }
+        a.order
+            .cmp(&b.order)
+            .then_with(|| a.he_title.cmp(&b.he_title))
+            .then_with(|| a.slug.cmp(&b.slug))
+    }
 }
 
 /// A sefer this work comments on, and how the two line up.
@@ -395,6 +449,43 @@ impl Catalogue {
             work.commentary_on = bases.into_iter().filter(|b| b.slug != work.slug).collect();
         }
 
+        // A commentary takes its base's place in the sequence.
+        //
+        // Sefaria states an `order` on the seforim that have one — the chumashim,
+        // the masechtos, the chalakim — and on almost no commentary. So the
+        // rishonim on the Torah, which are five works apiece for sixteen
+        // authors, sorted alphabetically inside their folder: *Rashi on
+        // Deuteronomy* above *Rashi on Genesis*, on a shelf where the reader
+        // knows exactly what order those five come in.
+        //
+        // Done here because this is the first point that knows every work, and
+        // done from the **declaration** rather than from the title — `X on Y` in
+        // a slug is not evidence (BUILDER.md rule 6). A commentary on more than
+        // one sefer takes the first base that has an order, which is the one
+        // Sefaria lists first.
+        let ordered: BTreeMap<&str, Vec<i32>> = sefaria
+            .iter()
+            .filter(|w| !w.order.is_empty())
+            .map(|w| (w.slug.as_str(), w.order.clone()))
+            .collect();
+        let inherited: Vec<Option<Vec<i32>>> = sefaria
+            .iter()
+            .map(|work| {
+                if !work.order.is_empty() {
+                    return None;
+                }
+                work.commentary_on
+                    .iter()
+                    .find_map(|base| ordered.get(base.slug.as_str()))
+                    .cloned()
+            })
+            .collect();
+        for (work, order) in sefaria.iter_mut().zip(inherited) {
+            if let Some(order) = order {
+                work.order = order;
+            }
+        }
+
         let sefaria_keys: BTreeMap<String, ()> = sefaria
             .iter()
             .map(|w| (match_key(&w.he_title), ()))
@@ -546,6 +637,7 @@ fn read_sefaria(root: &Path) -> Result<(Vec<Work>, usize, Vec<Declared>), Catalo
             slug: slug_of(en_title, &categories),
             he_title: he_title.to_string(),
             en_title: en_title.to_string(),
+            order: order_of(schema.get("order")),
             categories,
             source: Source::Sefaria,
             origin: origin.clone(),
@@ -627,6 +719,33 @@ pub fn section_names(schema: &Value) -> Vec<String> {
         })
         .map(section_names)
         .unwrap_or_default()
+}
+
+/// Sefaria's `order`, in tenths — see [`Work::order`].
+///
+/// Tenths and not the number as written, because one schema in the corpus says
+/// `[40.5]` and a shelf order that rounded it would put the Rambam's
+/// introduction to Seder Kodashim on top of the sefer it introduces. Anything
+/// that is not a number is dropped rather than guessed at: an order nobody can
+/// read is *no order*, which sorts after the ones that can.
+fn order_of(value: Option<&Value>) -> Vec<i32> {
+    let Some(list) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(list.len());
+    for step in list {
+        let Some(number) = step.as_f64() else {
+            return Vec::new();
+        };
+        // The corpus's largest is 88 and its smallest fraction is a half; this
+        // clamp is against a hand-edited schema, not against the download.
+        out.push(
+            (number * 10.0)
+                .round()
+                .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+        );
+    }
+    out
 }
 
 /// `[{"en": "Berakhot", "he": "ברכות"}, …]` → the values under one key.
@@ -731,6 +850,11 @@ fn read_otzaria(root: &Path) -> Result<Vec<Work>, CatalogueError> {
                 // No schema, so nothing says what a level of this sefer is
                 // called. Cited by number.
                 he_sections: Vec::new(),
+                // Otzaria has no schemas and so states no order. Its shelves
+                // fall back to the title, which is what `Work::by_order` does
+                // with an empty one — and which is what the folder listing on
+                // disk already is.
+                order: Vec::new(),
                 author: meta.and_then(|m| m.author.clone()),
                 era: None,
                 comp_date: meta.and_then(|m| m.comp_date.clone()),

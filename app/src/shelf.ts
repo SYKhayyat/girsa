@@ -13,9 +13,11 @@
 
 import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
-import { field } from "./controls.ts";
-import { dock, undock } from "./dock.ts";
+import { button, field } from "./controls.ts";
+import { dock, minimise, undock } from "./dock.ts";
+import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
+import { say } from "./say.ts";
 
 type Opened = (slug: string) => void;
 
@@ -37,6 +39,9 @@ export class ShelfView {
   private chosen = "";
   private held: Held | null = null;
   private opened: Opened = () => {};
+  /** One answer at a time — a reader who clicks three shelves quickly used to
+   * be shown whichever of the three answered last. See `latest.ts`. */
+  private readonly draws = new Latest();
 
   constructor() {
     this.element = document.createElement("div");
@@ -45,17 +50,29 @@ export class ShelfView {
 
     const sheet = document.createElement("div");
     sheet.className = "shelf-sheet";
+    // What the strip says when the bookcase is minimised.
+    sheet.dataset.name = say("theShelf");
+    sheet.addEventListener("click", () => {
+      if (this.element.classList.contains("is-small")) this.dock();
+    });
 
     const bar = document.createElement("div");
     bar.className = "shelf-bar";
     const title = document.createElement("p");
     title.className = "shelf-title";
-    title.textContent = "המדף";
-    bar.append(title, this.tool("מדף חדש", "פתח מדף תחת המדף המסומן", () => void this.make()));
-    bar.append(
-      this.tool("החזר לסדר המקורי", "בטל את כל השינויים בסידור", () => void this.reset()),
-    );
-    const close = this.tool("סגור", "Esc", () => this.close());
+    title.textContent = say("theShelf");
+    bar.append(title, this.tool(say("newShelf"), say("newShelfWhy"), () => void this.make()));
+    bar.append(this.tool(say("resetShelf"), say("resetShelfWhy"), () => void this.reset()));
+    // > *"it should be minimizable in a way that you can easily reopen it."*
+    //
+    // Minimise, and not another close: the bookcase keeps the shelf you were on
+    // and the shelves you had open, and the strip it leaves behind is the way
+    // back. Docking already made the reading narrower rather than covering it;
+    // this is the same idea one notch further.
+    const shrink = this.tool(say("minimize"), say("minimizeWhy"), () => this.minimise());
+    shrink.classList.add("shelf-minimise");
+    bar.append(shrink);
+    const close = this.tool(say("close"), say("esc"), () => this.close());
     close.classList.add("shelf-close");
     bar.append(close);
 
@@ -83,12 +100,7 @@ export class ShelfView {
   }
 
   private tool(label: string, title: string, click: () => void): HTMLElement {
-    const node = document.createElement("button");
-    node.className = "tool";
-    node.textContent = label;
-    node.title = title;
-    node.addEventListener("click", click);
-    return node;
+    return button(label, title, click);
   }
 
   get isOpen(): boolean {
@@ -103,8 +115,16 @@ export class ShelfView {
 
   close(): void {
     this.element.hidden = true;
-    this.element.classList.remove("is-docked");
+    this.element.classList.remove("is-docked", "is-small");
     undock("shelf");
+  }
+
+  /** Shrink to a strip, keeping the shelf you were on. Clicking it opens the
+   * column again. */
+  private minimise(): void {
+    this.element.classList.add("is-docked", "is-small");
+    dock("shelf");
+    minimise("shelf", true);
   }
 
   /**
@@ -120,7 +140,9 @@ export class ShelfView {
    */
   private dock(): void {
     this.element.classList.add("is-docked");
+    this.element.classList.remove("is-small");
     dock("shelf");
+    minimise("shelf", false);
   }
 
   async toggle(opened: Opened): Promise<void> {
@@ -134,9 +156,7 @@ export class ShelfView {
     if (!this.chosen) this.chosen = this.branches[0]?.key ?? "";
     this.drawTree();
     await this.drawList();
-    this.note.textContent = isShell()
-      ? "גרור ספר למדף אחר · לחיצה כפולה על שם מדף כדי לשנותו · גרור קובץ לחלון כדי להוסיף ספר משלך"
-      : "דפדפן — הסידור כאן לקריאה בלבד";
+    this.note.textContent = isShell() ? say("shelfHint") : say("shelfReadOnly");
   }
 
   // --- the shelves ---------------------------------------------------------
@@ -171,7 +191,7 @@ export class ShelfView {
     name.className = "shelf-name";
     name.textContent = branch.title;
     if (branch.mine) name.classList.add("is-mine");
-    if (branch.edited) name.title = "שינית את המדף הזה";
+    if (branch.edited) name.title = say("editedShelf");
 
     const count = document.createElement("span");
     count.className = "shelf-count";
@@ -180,7 +200,7 @@ export class ShelfView {
     const pin = document.createElement("button");
     pin.className = "shelf-pin";
     pin.textContent = "⇱";
-    pin.title = "העלה לראש הרשימה";
+    pin.title = say("pinToTop");
     pin.addEventListener("click", (event) => {
       event.stopPropagation();
       void this.edit(() => api.shelfPin(parent, branch.key));
@@ -207,7 +227,7 @@ export class ShelfView {
     } else {
       row.draggable = false;
       name.classList.add("is-loose");
-      name.title = "הספרים שעומדים על המדף הזה עצמו";
+      name.title = say("looseSeforim");
     }
     this.receives(row, branch.key);
 
@@ -240,7 +260,7 @@ export class ShelfView {
 
   private rename(branch: Branch, name: HTMLElement): void {
     if (!isShell()) return;
-    const input = field("שם המדף");
+    const input = field(say("shelfName"));
     input.className = "shelf-rename";
     input.value = branch.title;
     input.setAttribute("dir", "auto");
@@ -266,20 +286,23 @@ export class ShelfView {
   private async drawList(): Promise<void> {
     const branch = find(this.branches, this.chosen);
     this.heading.textContent = branch
-      ? `${branch.title} · ${branch.here.toLocaleString("he-IL")} מתוך ${branch.count.toLocaleString("he-IL")}`
+      ? `${branch.title} · ${branch.here.toLocaleString("he-IL")} ${say("shelfOf")} ${branch.count.toLocaleString("he-IL")}`
       : "";
 
-    const works = this.chosen ? await api.shelfWorks(this.chosen) : [];
-    if (works.length === 0) {
-      const none = document.createElement("p");
-      none.className = "shelf-empty";
-      none.textContent = branch?.count
-        ? "הספרים כאן יושבים במדפים שתחתיו"
-        : "אין ספרים במדף הזה";
-      this.list.replaceChildren(none);
-      return;
-    }
-    this.list.replaceChildren(...works.map((card) => this.card(card)));
+    const asked = this.chosen;
+    await this.draws.run(
+      () => (asked ? api.shelfWorks(asked) : Promise.resolve([] as Card[])),
+      (works) => {
+        if (works.length === 0) {
+          const none = document.createElement("p");
+          none.className = "shelf-empty";
+          none.textContent = branch?.count ? say("shelfBelow") : say("shelfEmpty");
+          this.list.replaceChildren(none);
+          return;
+        }
+        this.list.replaceChildren(...works.map((card) => this.card(card)));
+      },
+    );
   }
 
   private card(card: Card): HTMLElement {
@@ -294,7 +317,7 @@ export class ShelfView {
     const aside = document.createElement("span");
     aside.className = "shelf-work-aside";
     const said = [card.author, card.era].filter(Boolean).join(" · ");
-    aside.textContent = card.source === "mine" ? said || "שלי" : said;
+    aside.textContent = card.source === "mine" ? said || say("mine") : said;
     if (card.source === "mine") aside.classList.add("is-mine");
 
     row.append(title, aside);
@@ -318,7 +341,7 @@ export class ShelfView {
   private async make(): Promise<void> {
     if (!isShell()) return;
     const under = find(this.branches, this.chosen);
-    const title = window.prompt("שם המדף החדש", "מדף חדש");
+    const title = window.prompt(say("newShelfNamed"), say("newShelfDefault"));
     if (!title?.trim()) return;
     await this.edit(async () => {
       const key = await api.shelfMake(under ? under.key : "", title);
@@ -329,7 +352,7 @@ export class ShelfView {
 
   private async reset(): Promise<void> {
     if (!isShell()) return;
-    if (!window.confirm("להחזיר את כל המדפים לסדר שהגיע עם הספרייה? הספרים שלך יישארו.")) return;
+    if (!window.confirm(say("resetAsk"))) return;
     await this.edit(() => api.shelfReset());
   }
 

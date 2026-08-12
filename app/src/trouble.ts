@@ -28,6 +28,7 @@
 // never the message.
 
 import { KSAV, withPrefix } from "./names.ts";
+import { say } from "./say.ts";
 
 /**
  * What was being attempted. Needed because "what failed in the reader's words"
@@ -70,19 +71,19 @@ export interface Trouble {
 const DOING: Record<Doing, string> = {
   reach_ksav: `הקשר עם ${KSAV}`,
   send_to_ksav: `השליחה ${withPrefix("ל", KSAV)}`,
-  open_pdf: "פתיחת הקובץ",
-  read_page: "קריאת העמוד",
-  read_links: "קריאת הקישורים",
-  repair_link: "תיקון הקישור",
-  read_lane: "קריאת נתיב המשמעות",
-  write_note: "כתיבת הרשומה",
-  fix: "התיקון",
-  export: "הכתיבה לקובץ",
-  mark: "הסימון",
-  keep_query: "שמירת החיפוש",
-  copy_scan: "העתקת המקור",
-  read_suspects: "קריאת החשודים",
-  general: "הפעולה",
+  open_pdf: say("doingOpenFile"),
+  read_page: say("doingReadPage"),
+  read_links: say("doingReadLinks"),
+  repair_link: say("doingRepairLink"),
+  read_lane: say("doingReadLane"),
+  write_note: say("doingWriteNote"),
+  fix: say("doingFix"),
+  export: say("doingExport"),
+  mark: say("doingMark"),
+  keep_query: say("doingKeepQuery"),
+  copy_scan: say("doingCopySource"),
+  read_suspects: say("doingReadSuspects"),
+  general: say("doingSomething"),
 };
 
 /**
@@ -110,17 +111,17 @@ const DOING: Record<Doing, string> = {
  * code Rust can send has no line here.
  */
 const CODED: Record<string, (doing: string) => string> = {
-  "no-index": () => "אין אינדקס חיפוש — יש לבנות אותו: girsa-index build",
-  "no-shelf": () => "אין מדף כאן — ייתכן שהייבוא לא רץ",
-  "no-sefer": () => "אין ספר בשם הזה במדף",
-  "will-not-open": () => "הספר רשום במדף ואינו נפתח — פרטים בהצבה על ההודעה",
-  poisoned: () => "המצב הפנימי נפגם — יש לפתוח את החלון מחדש",
+  "no-index": () => say("codeNoIndex"),
+  "no-shelf": () => say("codeNoShelf"),
+  "no-sefer": () => say("codeNoSefer"),
+  "will-not-open": () => say("codeWillNotOpen"),
+  poisoned: () => say("codePoisoned"),
   "no-such": (doing) => `${doing} נכשלה — נתבקש דבר שאינו קיים`,
-  cycle: () => "לא ניתן להכניס מדף לתוך עצמו",
+  cycle: () => say("codeShelfLoop"),
   "read-only": (doing) => `${doing} נכשלה — אין אפשרות לכתוב לשכבה האישית`,
-  "no-lane": () => "הלשון הסמוכה כבויה — אפשר להדליק אותה בהגדרות",
+  "no-lane": () => say("codeLaneOff"),
   "no-desk": () => `${KSAV} אינו מחובר`,
-  "no-page": () => "אין עמוד כזה בסריקה",
+  "no-page": () => say("codeNoSuchPage"),
 
   // `girsa_post::PostError::code()`. The three below used to be matched by
   // their English words, here *and* in Ksav's `diagnostics.ts`, with four

@@ -12,12 +12,14 @@ import {
   isShell,
   whenAskedToOpen,
   whenAskedToSearch,
+  pickFolder,
   whenFilesDropped,
   type AppState,
   type Asked,
   type Mefarshim,
   type PaneId,
   type Presence,
+  type Pointing,
   type Showing,
   type SuspectRow,
   type Tab,
@@ -35,7 +37,8 @@ import { SettingsView, applyLook } from "./settingsview.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
-import { KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
+import { GIRSA, KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
+import { say, speakInterface } from "./say.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Held } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
@@ -84,21 +87,45 @@ function titleOf(slug: string): string {
   return held ? sefer(held) : slug;
 }
 
+/**
+ * Every panel's element, in one list, put into the document **once**.
+ *
+ * # The bug this shape exists to make impossible
+ *
+ * `main()` appended eleven panels and `draw()` then called
+ * `root.replaceChildren(chrome, …)` with a hand-written list of **eight** of
+ * them. So from the first redraw — which is boot — `settingsview` and `writing`
+ * were no longer in the document at all, and their buttons still worked
+ * perfectly: `toggle()` set `hidden = false` on a node nobody was rendering.
+ *
+ * The reader's fourth and thirteenth bugs, and they are one bug:
+ *
+ * > *"hagdaros does absolutely nothing - nothing opens."*
+ * > *"ksov does nothing."*
+ *
+ * There was already a frozen list of the panels in this file — `PANELS`, added
+ * after two panels were forgotten from the *keyboard* table, with a test that
+ * sweeps this module for anything constructed here and missing from it. It knew
+ * about `settingsview` and `writing`. The DOM list was a second list, three
+ * lines long, that nothing checked.
+ *
+ * So there is one list now: `PANELS` is the panels, and this is derived from it.
+ * `draw()` replaces the chrome and touches nothing else, so a panel cannot be
+ * removed from the document by a redraw — and a twelfth panel is in the document
+ * the moment it is in `PANELS`, which is the moment its Escape works.
+ */
+function panelElements(): HTMLElement[] {
+  return PANELS.map((held) => held.panel.element);
+}
+
 async function main(): Promise<void> {
   if (!root) return;
   await connect();
-  root.append(
-    picker.element,
-    shelf.element,
-    find.element,
-    writing.element,
-    suspects.element,
-    linksview.element,
-    yoursview.element,
-    lanepanel.element,
-    settingsview.element,
-    fixbox.element,
-  );
+  // The chrome is a single node that `draw()` replaces; the panels sit beside
+  // it and are never rebuilt.
+  const chrome = document.createElement("div");
+  chrome.className = "app";
+  root.append(chrome, ...panelElements());
   settingsview.onChanged(() => {
     // Everything on that panel can change how a sefer is drawn, so the panes are
     // rebuilt rather than patched.
@@ -134,7 +161,7 @@ async function main(): Promise<void> {
  * a segment id, so this is the same landing a search result gets. */
 async function whenAskedFor(landing: Asked): Promise<void> {
   await openFound(landing.slug, landing.id);
-  say(`נפתח — ${landing.ref}`, false);
+  announce(`${say("opened")} — ${landing.ref}`, false);
 }
 
 /** Whether Ksav is there. Polled while the window is open, because the answer
@@ -192,7 +219,7 @@ async function lookForKsav(): Promise<void> {
 async function whenDropped(paths: string[]): Promise<void> {
   if (paths.length === 0) return;
   if (!shelf.isOpen) await shelf.show(openTab);
-  shelf.say(`קורא ${paths.length} קבצים…`, false);
+  shelf.say(`${say("readingFiles")} ${paths.length} ${say("files")}…`, false);
   const dropped = await api.addMine(paths);
   await shelf.refresh();
 
@@ -201,11 +228,11 @@ async function whenDropped(paths: string[]): Promise<void> {
   // reader believing a sefer is on the shelf when it is not.
   const refused = dropped.refused.map((r) => r.why).join(" · ");
   if (dropped.added.length > 0 && dropped.refused.length === 0) {
-    shelf.say(`נוסף: ${added}`, false);
+    shelf.say(`${say("addedSeforim")}: ${added}`, false);
   } else if (dropped.added.length > 0) {
-    shelf.say(`נוסף: ${added} — ולא נוסף: ${refused}`, true);
+    shelf.say(`${say("addedSeforim")}: ${added} — ${say("refusedSeforim")}: ${refused}`, true);
   } else {
-    shelf.say(refused || "לא נוסף כלום", true);
+    shelf.say(refused || say("nothingAdded"), true);
   }
 }
 
@@ -216,11 +243,20 @@ async function openTab(slug: string): Promise<void> {
 
 async function reload(): Promise<void> {
   state = await api.state();
-  document.documentElement.style.setProperty("--reading-size", `${state.text_size}%`);
-  // The language the window is in (W41), set once from the session so that every
-  // `sefer()` in every module answers the same way. Rust holds the setting; this
-  // is the one place the window is told.
+  // **A number, not a percentage.** `styles.css` scales every reading size with
+  // `calc(19px * var(--reading-size) / 100)`, and `calc` cannot multiply a
+  // length by a percentage — the declaration is invalid at computed-value time
+  // and thrown away. So `א+`, `א−`, `Ctrl+=`, `Ctrl+-` and the size row in the
+  // settings panel all worked perfectly, wrote the session, redrew the window
+  // and changed nothing anybody could see. The reader's fourth bug, second half:
+  // *"Same for the two font size buttons."*
+  document.documentElement.style.setProperty("--reading-size", String(state.text_size));
+  // The language the **seforim** are named in (W41), set once from the session so
+  // that every `sefer()` in every module answers the same way.
   speak(state.language);
+  // …and the language the **window** speaks, which is a different setting and
+  // used to be no setting at all.
+  speakInterface(state.interface);
   // How the reading looks (B13): theme, the two fonts, leading and measure. On the
   // document as custom properties, so `styles.css` keeps owning the appearance.
   applyLook(state.look);
@@ -229,6 +265,14 @@ async function reload(): Promise<void> {
 
 function tab(): Tab | null {
   return state?.workspace.tabs[state.workspace.active] ?? null;
+}
+
+/** Put the freshly built chrome where the old one was, leaving the panels
+ * alone — see [`panelElements`]. */
+function replaceChrome(chrome: HTMLElement): void {
+  const standing = root?.querySelector<HTMLElement>(":scope > .app");
+  if (standing) standing.replaceWith(chrome);
+  else root?.prepend(chrome);
 }
 
 async function draw(): Promise<void> {
@@ -240,16 +284,7 @@ async function draw(): Promise<void> {
   const open = tab();
   if (!open) {
     chrome.append(nothingOpen());
-    root.replaceChildren(
-      chrome,
-      picker.element,
-      shelf.element,
-      find.element,
-      suspects.element,
-      linksview.element,
-      yoursview.element,
-      fixbox.element,
-    );
+    replaceChrome(chrome);
     return;
   }
 
@@ -258,19 +293,9 @@ async function draw(): Promise<void> {
   });
   boxes.classList.add("panes");
   boxes.setAttribute("role", "main");
-  boxes.setAttribute("aria-label", "הקריאה");
+  boxes.setAttribute("aria-label", say("theReading"));
   chrome.append(boxes);
-  root.replaceChildren(
-    chrome,
-    picker.element,
-    shelf.element,
-    find.element,
-    suspects.element,
-    linksview.element,
-    yoursview.element,
-    lanepanel.element,
-    fixbox.element,
-  );
+  replaceChrome(chrome);
 
   // Panes that are no longer open go, and the ones that stayed keep their
   // scroll position rather than being rebuilt underneath the reader.
@@ -360,27 +385,85 @@ async function openMefarshim(id: PaneId): Promise<void> {
     title: titleOf(slug),
     mefarshim: await mefarshimFor(slug),
     chosen: async (opened) => {
-      await api.split(id, "vertical", opened, true);
-      await reload();
+      await openBeside(id, opened);
     },
     tick: (work, on) => void tickMefaresh(slug, work, on),
   });
 }
 
-/** Tick one mefaresh, and redraw the markers on every pane reading this sefer. */
+/**
+ * Open one or more seforim in columns beside this one.
+ *
+ * > *"there should be a way to open at one time multiple windows with multiple
+ * > meforshim."*
+ *
+ * There was not: the door closed on the first click and each further mefaresh
+ * cost the whole round trip again — open the door, find the row, click, watch it
+ * shut. Each new column is split off the **one before it** rather than all off
+ * the base, so three mefarshim beside a Gemara are three columns of even width
+ * instead of one wide one and two slivers; and every one of them follows the
+ * base, because that is what a reader means by putting them there.
+ */
+async function openBeside(id: PaneId, seforim: string[]): Promise<void> {
+  let from = id;
+  for (const slug of seforim) {
+    const opened = await api.split(from, "vertical", slug, true);
+    if (opened === null) break;
+    // Each pane follows the sefer the reader is actually reading, not the
+    // mefaresh that happens to be beside it — `workspace::split` follows the
+    // pane it was split from, which for the second mefaresh onward is the first
+    // mefaresh. Every commentary keeps step with the daf.
+    if (from !== id) await api.setFollows(opened, id);
+    from = opened;
+  }
+  await reload();
+}
+
+/**
+ * Tick one mefaresh, and redraw the markers on every pane reading this sefer.
+ *
+ * # Why the whole list comes back
+ *
+ * > *"checking off a mefarsh does not open it when its line is clicked."*
+ *
+ * It did not, and this is where. `choose_mefaresh` answered with the marked
+ * lines and the window patched the rest of its own copy: it flipped `chosen`
+ * inside `works`, and `drawMefarshim` counts that array to decide whether a
+ * click on a line means anything at all (`PaneView.ticked`). But the list the
+ * reader is ticking in is `listed`, which also carries the seforim running
+ * alongside and every mefaresh the link graph knows and the catalogue does not.
+ * Tick one of those — and on a masechta most of them are those — and `works`
+ * never mentioned it, so the count stayed at zero, so the pane went on ignoring
+ * clicks, so nothing opened.
+ *
+ * The tick-box also un-ticked itself: `listed` was not patched either, and it is
+ * what the picker draws.
+ *
+ * Rust now answers with the whole `Mefarshim` and this holds it. One answer,
+ * from the one place that builds it.
+ */
 async function tickMefaresh(slug: string, work: string, on: boolean): Promise<void> {
-  const held = await mefarshimFor(slug);
-  const marked = await api.chooseMefaresh(slug, work, on);
-  // Rust owns which lines are marked; this only records what was ticked, so the
-  // next opening of the list draws the boxes the reader left.
-  mefarshimOf.set(slug, {
-    ...held,
-    marked,
-    works: held.works.map((w) => (w.slug === work ? { ...w, chosen: on } : w)),
-  });
+  const now = await api.chooseMefaresh(slug, work, on);
+  mefarshimOf.set(slug, now);
+  picker.refreshMefarshim(slug, now);
   for (const view of views.values()) {
     if (view.slug === slug) await drawMefarshim(view);
   }
+}
+
+/** How many mefarshim are ticked on a sefer — over **every** group.
+ *
+ * `works.filter(chosen).length` counted one of the four, which is the same bug
+ * as the one above wearing a different hat. */
+function tickedCount(on: Mefarshim): number {
+  const slugs = new Set<string>();
+  for (const row of on.listed) {
+    if (row.kind === "sefer" && row.choice.chosen) slugs.add(row.choice.slug);
+  }
+  for (const w of [...on.works, ...on.alongside]) {
+    if (w.chosen) slugs.add(w.slug);
+  }
+  return slugs.size;
 }
 
 /**
@@ -410,10 +493,7 @@ async function mefarshimFor(slug: string): Promise<Mefarshim> {
 /** Draw the markers on a pane, for whatever is ticked now. */
 async function drawMefarshim(view: PaneView): Promise<void> {
   const on = await mefarshimFor(view.slug);
-  view.setMefarshim(
-    on.marked,
-    on.works.filter((w) => w.chosen).length,
-  );
+  view.setMefarshim(on.marked, tickedCount(on));
 }
 
 /**
@@ -425,13 +505,14 @@ async function drawMefarshim(view: PaneView): Promise<void> {
  */
 async function openComments(view: PaneView, at: string): Promise<void> {
   const on = await mefarshimFor(view.slug);
-  const chosen = on.works.filter((w) => w.chosen).length;
+  const chosen = tickedCount(on);
   try {
     const comments = await api.mefarshimAt(view.slug, at);
     view.showSaid(at, comments.said, nothingHere(comments, chosen));
   } catch (e) {
     // A read that failed is not *nobody wrote here*, and must not be shown as it.
-    view.showSaid(at, [], `לא הצלחתי לקרוא את המפרשים: ${e}`);
+    const t = trouble(e, "read_links");
+    view.showSaid(at, [], t.said);
   }
 }
 
@@ -458,11 +539,57 @@ function followLabel(leader: PaneId | undefined): string {
   if (leader === undefined) return "";
   const open = tab();
   const of = open?.panes.find((p) => p.id === leader);
-  return of ? `עוקב אחרי ${titleOf(of.slug)}` : "";
+  return of ? `${say("following")} ${titleOf(of.slug)}` : "";
+}
+
+/**
+ * The control that ties one column's scroll to another's.
+ *
+ * # It was called `עוקב`
+ *
+ * > *"i have no clue what okev does."*
+ *
+ * Neither would anybody. `עוקב` is a bare participle — *following* — with no
+ * object and no direction: it does not say what follows what, whether clicking
+ * starts or stops it, or which of the two columns it is about. And it toggled
+ * blindly: with nothing followed it grabbed `others[0]`, which on a three-way
+ * split is whichever pane the layout happens to list first.
+ *
+ * So it is named after the thing it does — the scroll — it says which column it
+ * will tie this one to, and its label is the **state it will move to**, like
+ * every other control in this toolbar. The reader's eighth bug asks for exactly
+ * this in so many words: *"there should be an option to link or unlink
+ * scroll."*
+ */
+function scrollLink(id: PaneId): HTMLElement {
+  const pane = tab()?.panes.find((p) => p.id === id);
+  const others = tab()?.panes.filter((p) => p.id !== id) ?? [];
+  const linked = pane?.follows !== undefined;
+  const to = others[0];
+  const control = button(
+    linked ? say("unlinkScroll") : say("linkScroll"),
+    linked
+      ? `${say("linkScrollWhy")}${pane ? ` — ${followLabel(pane.follows)}` : ""}`
+      : to
+        ? `${say("unlinkScrollWhy")} — ${titleOf(to.slug)}`
+        : say("unlinkScrollWhy"),
+    async () => {
+      await api.setFollows(id, linked ? null : (to?.id ?? null));
+      await reload();
+    },
+  );
+  control.classList.add("tool-wide");
+  control.classList.toggle("is-on", linked);
+  // With nothing to follow there is nothing to link to, and a control that
+  // cannot do its one job is a control that teaches the reader the buttons lie
+  // — the same argument `addScanControls` already makes for the buttons it
+  // leaves off.
+  control.disabled = !linked && !to;
+  return control;
 }
 
 function addControls(view: PaneView, id: PaneId): void {
-  const beside = button("לצד", doorTitle([]), () => {
+  const beside = button(say("beside"), doorTitle([]), () => {
     void openMefarshim(id);
   });
   // Named after what is behind it, once the shelf has said what that is.
@@ -473,31 +600,24 @@ function addControls(view: PaneView, id: PaneId): void {
   // because a header that waits on the shelf before drawing is worse than one
   // whose label sharpens a moment later.
   void nameTheDoor(beside, id);
-  const unfollow = button("עוקב", "עקוב אחרי הטור שלצדו, או הפסק", async () => {
-    const pane = tab()?.panes.find((p) => p.id === id);
-    if (!pane) return;
-    const others = tab()?.panes.filter((p) => p.id !== id) ?? [];
-    const leader = pane.follows === undefined ? (others[0]?.id ?? null) : null;
-    await api.setFollows(id, leader);
-    await reload();
-  });
-  const links = button("קישורים", "מה מקושר לשורה הזאת (Ctrl+L)", () => {
+  const links = button(say("links"), say("linksWhy"), () => {
     void showLinks();
   });
   // W22: base text + your patches → a file. On the pane, because what is
-  // written out is the sefer this pane is reading, corrections and all.
-  const save = button("ייצא", "כתוב את הספר לקובץ, עם התיקונים שלך", () => {
+  // written out is the sefer this pane is reading, corrections and all — and it
+  // asks **where**, which it did not.
+  const save = button(say("exportSefer"), say("exportWhy"), () => {
     const pane = tab()?.panes.find((p) => p.id === id);
     if (pane) void exportSefer(pane.slug);
   });
-  const close = button("סגור", "סגור את הטור (Ctrl+W)", async () => {
+  const close = button(say("closePane"), say("closePaneWhy"), async () => {
     await api.closePane(id);
     views.delete(id);
     scans.delete(id);
     await reload();
   });
   view.addControl(beside);
-  view.addControl(unfollow);
+  view.addControl(scrollLink(id));
   view.addControl(links);
   view.addControl(save);
   view.addControl(close);
@@ -512,29 +632,21 @@ function addControls(view: PaneView, id: PaneId): void {
  * nothing would be a button that teaches the reader the buttons lie.
  */
 function addScanControls(view: ScanView, id: PaneId): void {
-  const beside = button("לצד", doorTitle([]), () => {
+  const beside = button(say("beside"), doorTitle([]), () => {
     void openMefarshim(id);
   });
   // A scan of a daf has mefarshim like any other copy of that daf, so it gets
   // the same name on the same button. Fixing one and not the other is how the
   // label drifts back apart.
   void nameTheDoor(beside, id);
-  const unfollow = button("עוקב", "עקוב אחרי הטור שלצדו, או הפסק", async () => {
-    const pane = tab()?.panes.find((p) => p.id === id);
-    if (!pane) return;
-    const others = tab()?.panes.filter((p) => p.id !== id) ?? [];
-    const leader = pane.follows === undefined ? (others[0]?.id ?? null) : null;
-    await api.setFollows(id, leader);
-    await reload();
-  });
-  const close = button("סגור", "סגור את הטור (Ctrl+W)", async () => {
+  const close = button(say("closePane"), say("closePaneWhy"), async () => {
     await api.closePane(id);
     views.delete(id);
     scans.delete(id);
     await reload();
   });
   view.addControl(beside);
-  view.addControl(unfollow);
+  view.addControl(scrollLink(id));
   view.addControl(close);
 }
 
@@ -564,51 +676,85 @@ function redrawTabs(): void {
   document.querySelector(".tabs")?.replaceWith(tabBar());
 }
 
+/**
+ * What a tab is called.
+ *
+ * **The focused pane's sefer**, not `panes[0]`'s.
+ *
+ * A tab is an *arrangement* — a pane tree with a sefer in each pane — which is
+ * the model settled next door and written down in
+ * `Ksav/decisions/2026-08-11-marking-up-the-ui-inventory.md`: *"a tab's label
+ * defaults to the title of the document in its focused pane, so until a split is
+ * deliberately built the strip reads and behaves exactly like ordinary tabs."*
+ * Reading `panes[0]` made a tab holding a Gemara and its Rashi say `ברכות`
+ * whichever of the two you were actually in, and a reader with three such tabs
+ * had three labels that could not tell them apart.
+ */
+function tabLabel(open: Tab): string {
+  const focused = open.panes.find((p) => p.id === open.focused) ?? open.panes[0];
+  const named = titleOf(focused?.slug ?? "—");
+  // A split says so, because the label is now about one pane out of several.
+  return open.panes.length > 1 ? `${named} +${open.panes.length - 1}` : named;
+}
+
 function tabBar(): HTMLElement {
   const bar = document.createElement("nav");
   bar.className = "tabs";
-  bar.setAttribute("aria-label", "לשוניות");
-  state?.workspace.tabs.forEach((open, index) => {
-    const named = titleOf(open.panes[0]?.slug ?? "—");
-    const holder = document.createElement("span");
-    holder.className = "tab-holder" + (index === state?.workspace.active ? " is-active" : "");
-    const go = document.createElement("button");
-    go.className = "tab";
-    go.textContent = named;
-    go.addEventListener("click", async () => {
-      if (state) state.workspace.active = index;
-      const first = open.panes[0];
-      if (first) await api.focus(first.id);
-      await draw();
-    });
-    // W40: *"needs a way to close tab without going in."* Named after the sefer
-    // it closes, because `×` is a glyph and a glyph is not a name — B14's guard
-    // is about exactly this, and a strip of eight identical × buttons is a strip
-    // a screen reader cannot tell apart.
-    const shut = glyph("×", `סגור ${named}`, () => {
-      void (async () => {
-        await api.closeTab(index);
-        for (const pane of open.panes) {
-          views.delete(pane.id);
-          scans.delete(pane.id);
-        }
+  bar.setAttribute("aria-label", say("tabs"));
+  const tabs = state?.workspace.tabs ?? [];
+  // **One tab draws no strip.** Ksav's decision again: *"the tab strip must
+  // therefore hide itself when only one document is open — a single tab is pure
+  // noise."* The row of actions below stays either way, because it is not the
+  // strip and it is the only route in.
+  if (tabs.length > 1) {
+    const strip = document.createElement("span");
+    strip.className = "tab-strip";
+    tabs.forEach((open, index) => {
+      const named = tabLabel(open);
+      const holder = document.createElement("span");
+      holder.className = "tab-holder" + (index === state?.workspace.active ? " is-active" : "");
+      const go = document.createElement("button");
+      go.className = "tab";
+      go.textContent = named;
+      go.title = open.panes.map((p) => titleOf(p.slug)).join(" · ");
+      go.addEventListener("click", async () => {
+        if (state) state.workspace.active = index;
+        // The pane that had the cursor in **this** tab, not its first pane: a
+        // tab is an arrangement and returning to it means returning to where you
+        // were in it.
+        await api.focus(open.focused);
         await reload();
-      })();
+      });
+      // W40: *"needs a way to close tab without going in."* Named after the
+      // sefer it closes, because `×` is a glyph and a glyph is not a name — and
+      // it says **close**, never delete: closing a tab closes the arrangement
+      // and leaves every sefer exactly where it was.
+      const shut = glyph("×", `${say("closeTab")} — ${named}`, () => {
+        void (async () => {
+          await api.closeTab(index);
+          for (const pane of open.panes) {
+            views.delete(pane.id);
+            scans.delete(pane.id);
+          }
+          await reload();
+        })();
+      });
+      shut.classList.add("tab-shut");
+      holder.append(go, shut);
+      strip.append(holder);
     });
-    shut.classList.add("tab-shut");
-    holder.append(go, shut);
-    bar.append(holder);
-  });
-  bar.append(button("＋", "פתח ספר (Ctrl+O)", openSomething));
-  bar.append(button("מדף", "עיין במדף (Ctrl+B)", browseShelf));
-  bar.append(button("חפש", "חפש בכל המדף (Ctrl+F)", search));
-  bar.append(button("כתוב", "פתח את הכתיבה (Ctrl+E)", () => void writing.toggle()));
+    bar.append(strip);
+  }
+  bar.append(button(say("newTab"), `${say("openSefer")} (Ctrl+O)`, openSomething));
+  bar.append(button(say("browseShelf"), say("browseShelfWhy"), browseShelf));
+  bar.append(button(say("search"), say("searchWhy"), search));
+  bar.append(button(say("write"), say("writeWhy"), () => void writing.toggle()));
   // The semantic lane (spec.md §9.9, W30). Always here, whether or not it is
   // on: it is a setting rather than a queue, and a reader who has never met it
   // needs somewhere to meet it. Standing beside it is the sefer in the focused
   // pane, so *put this one in the lane* has something to name.
   bar.append(
-    button("לשון סמוכה", "הלשון הסמוכה — מציאה לפי עניין (Ctrl+Shift+L)", openLane),
+    button(say("lane"), say("laneWhy"), openLane),
   );
   // The queue, where there is one. Not shown at all when the batch job has
   // never been run: a button that opens an empty list teaches the reader that
@@ -616,8 +762,8 @@ function tabBar(): HTMLElement {
   if ((state?.suspects ?? 0) > 0) {
     bar.append(
       button(
-        `טעויות ${state?.suspects ?? 0}`,
-        "תור שגיאות הסריקה (Ctrl+J)",
+        `${say("queue")} ${state?.suspects ?? 0}`,
+        say("queueWhy"),
         () => void suspects.toggle(),
       ),
     );
@@ -664,46 +810,37 @@ function bareWord(word: string): string {
 function toolBar(): HTMLElement {
   // A landmark with a name, so a reader can reach the toolbar without walking the
   // tab strip first (B14).
-  const bar = region("toolbar", "כלים", "tools");
+  const bar = region("toolbar", say("tools"), "tools");
 
-  const nikud = button(state?.nikud ? "עם ניקוד" : "בלי ניקוד", "Alt+N", async () => {
-    if (!state) return;
-    await api.setNikud(!state.nikud);
+  // **What it will do, not what it is.**
+  //
+  // > *"im nikkud and bli nikkud are backwards."*
+  //
+  // They were: this printed `עם ניקוד` while the nikud was on — the state you
+  // are already in — twenty lines from a language button whose own comment says
+  // *"a button labelled with the state you are already in is a button nobody can
+  // predict."* Two buttons, two conventions, one toolbar, and the reader read
+  // the toolbar the way the toolbar's own comment says to.
+  //
+  // Three settings now rather than two, so it rounds: the label is the **next**
+  // one, which is the one clicking gets you.
+  const next = nextPointing(state?.pointing ?? "full");
+  const nikud = button(pointingSaid(next), say("pointingWhy"), async () => {
+    await api.setPointing(next);
+    // The words themselves change, so the panes are rebuilt.
     views.clear();
     await reload();
   });
   nikud.classList.add("tool-wide");
 
-  const showing = button(showingSaid(state?.showing ?? "fixed"), showingWhy(), () => {
+  const showing = button(showingSaid(state?.showing ?? "fixed"), say("showingWhy"), () => {
     void nextShowing();
   });
   showing.classList.add("tool-wide");
   if ((state?.fixes ?? 0) === 0) showing.classList.add("is-quiet");
 
-  // W41. *"hebrew and english ui. all seforim names in hebrew ui should be heb
-  // all in english ui should be english."* The control names the language it
-  // switches **to**, because a button labelled with the state you are already in
-  // is a button nobody can predict.
-  const language = button(
-    state?.language === "english" ? "עברית" : "English",
-    state?.language === "english"
-      ? "החזר את שמות הספרים לעברית"
-      : "name every sefer in English",
-    async () => {
-      if (!state) return;
-      await api.setLanguage(state.language === "english" ? "hebrew" : "english");
-      // The panes are **kept**. Every header carries a sefer's name, and which
-      // name that is is `titleIn` over the two titles this window already
-      // holds — so redrawing is enough, and clearing the views made the window
-      // re-fetch every open sefer over IPC to change one string. Mishnah
-      // Berurah is 18,120 segments.
-      await reload();
-    },
-  );
-  language.classList.add("tool-wide");
-
-  const smaller = button("א−", "Ctrl+-", () => resize(-10));
-  const bigger = button("א+", "Ctrl+=", () => resize(10));
+  const smaller = button(say("smaller"), say("smallerWhy"), () => resize(-10));
+  const bigger = button(say("bigger"), say("biggerWhy"), () => resize(10));
 
   const where = document.createElement("span");
   where.className = "tools-note";
@@ -711,14 +848,16 @@ function toolBar(): HTMLElement {
     where.textContent = state.trouble;
     where.classList.add("is-trouble");
   } else {
-    where.textContent = `${state?.works ?? 0} ספרים`;
-    if (!isShell()) where.textContent += " · דפדפן, נתוני דוגמה";
+    where.textContent = `${state?.works ?? 0} ${say("seforimCount")}`;
+    if (!isShell()) where.textContent += ` · ${say("inBrowser")}`;
   }
 
   // B13. A panel, and a way to reach it — the reading settings that used to be
-  // four buttons and nothing else.
-  const setup = button("הגדרות", "הגדרות הקריאה (Ctrl+,)", () => void settingsview.toggle());
-  bar.append(nikud, language, showing, smaller, bigger, setup, where);
+  // four buttons and nothing else. Both language settings live on it: they are
+  // settings rather than gestures, and a toolbar that carried one of the two
+  // taught a reader that the other did not exist.
+  const setup = button(say("settings"), say("settingsWhy"), () => void settingsview.toggle());
+  bar.append(nikud, showing, smaller, bigger, setup, where);
 
   // Presence (spec.md §10.6): the affordance is never offered when it would
   // fail. Live, it is a button; not live, it is a word saying which of the two
@@ -727,8 +866,8 @@ function toolBar(): HTMLElement {
     const said = presenceSaid(ksav);
     if (said.canSend) {
       const send = button(
-        `שלח ${withPrefix("ל", KSAV)}`,
-        "Ctrl+Shift+C — שלח את הבחירה למסמך הפתוח",
+        `${say("sendToKsav")} ${withPrefix("ל", KSAV)}`,
+        say("sendToKsavWhy"),
         () => void sendToKsav(),
       );
       send.classList.add("tool-wide");
@@ -750,16 +889,24 @@ function toolBar(): HTMLElement {
 
 /** What the three settings are called, and what each one promises. */
 function showingSaid(showing: Showing): string {
-  if (showing === "as_printed") return "כפי שנדפס";
-  if (showing === "fixed_with_variants") return "עם גרסאות";
-  return "מתוקן";
+  if (showing === "as_printed") return say("showingAsPrinted");
+  if (showing === "fixed_with_variants") return say("showingVariants");
+  return say("showingFixed");
 }
 
-function showingWhy(): string {
-  return (
-    "מתוקן — טעויות דפוס מתוקנות, גרסאות נרשמות בלבד · " +
-    "כפי שנדפס — הטקסט המקורי · עם גרסאות — גם ההגהות מוחלות (Ctrl+Shift+K)"
-  );
+/** What each pointing setting is called. Three, because the middle one is the
+ * one a reader asked for: nikud with the trup off. */
+export function pointingSaid(pointing: Pointing): string {
+  if (pointing === "full") return say("pointingFull");
+  if (pointing === "nikud") return say("pointingNikud");
+  return say("pointingPlain");
+}
+
+/** The next pointing setting round — the one clicking the control gets you. */
+export function nextPointing(pointing: Pointing): Pointing {
+  if (pointing === "full") return "nikud";
+  if (pointing === "nikud") return "plain";
+  return "full";
 }
 
 /** Round the three states (spec.md §7.1, §7.2). Everything open is redrawn,
@@ -771,7 +918,7 @@ async function nextShowing(): Promise<void> {
   await api.setShowing(next);
   views.clear();
   await reload();
-  say(showingSaid(next), false);
+  announce(showingSaid(next), false);
 }
 
 /**
@@ -811,14 +958,14 @@ function correct(): void {
   // it says so rather than opening an empty box.
   const here = view.fixesHere();
   if (!here || here.fixed.length === 0) {
-    say("סמן את המילה שצריכה תיקון", false);
+    announce(say("highlightFirst"), false);
     return;
   }
   fixbox.show(
     { at: here.at, fromChar: 0, toChar: 0, words: "", fixed: here.fixed, printed: here.printed },
     null,
     {
-      save: async () => say("סמן את המילה שצריכה תיקון", false),
+      save: async () => announce(say("highlightFirst"), false),
       revert: (patch) => revertFix(view, here.at, patch),
     },
   );
@@ -863,7 +1010,7 @@ async function openSuspect(row: SuspectRow): Promise<void> {
     );
   } catch (e) {
     const t = trouble(e, "read_suspects");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
@@ -878,7 +1025,7 @@ async function applyFix(
   try {
     const fixed = await api.fix(at, fromChar, toChar, now, kind);
     view.replaceLine(fixed.line);
-    say(`${kind === "ocr" ? "תוקן" : "נרשמה גרסה"} — ${fixed.said}`, false);
+    announce(`${kind === "ocr" ? say("fixed") : say("variantNoted")} — ${fixed.said}`, false);
     if (state) state.fixes += 1;
   } catch (e) {
     // "There is already a correction here" and "nothing is selected" are
@@ -888,7 +1035,7 @@ async function applyFix(
     // `trouble()` reads them by *name* and keeps the distinction exactly —
     // `CODED` is where the two sentences live.
     const t = trouble(e, "fix");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
@@ -896,11 +1043,11 @@ async function revertFix(view: PaneView, at: string, patch: string): Promise<voi
   try {
     const fixed = await api.unfix(at, patch);
     view.replaceLine(fixed.line);
-    say(fixed.said, false);
+    announce(fixed.said, false);
     if (state) state.fixes = Math.max(0, state.fixes - 1);
   } catch (e) {
     const t = trouble(e, "fix");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
@@ -937,18 +1084,34 @@ function whatIsHighlighted(): [number, number] | null {
   return chosen ? [chosen.fromChar, chosen.toChar] : null;
 }
 
-/** Write the sefer out with your corrections in it (spec.md §7.4). */
+/**
+ * Write the sefer out with your corrections in it (spec.md §7.4) — **into a
+ * folder the reader chose**.
+ *
+ * > *"send to ksav and export dont let you pick a folder."*
+ *
+ * It did not ask: it wrote into `personal/exports/` and then said the path,
+ * which is a fine way to produce a file and a poor way to hand somebody a sefer.
+ * The dialog is the shell's own, and a reader who cancels it gets nothing
+ * written rather than a file somewhere they did not choose.
+ *
+ * Outside the shell there is no dialog, so `null` comes straight back and Rust
+ * falls through to where the last one went — which is also what happens on the
+ * second export, so the question is asked once.
+ */
 async function exportSefer(slug: string): Promise<void> {
   try {
-    const written = await api.exportSefer(slug, "docx");
+    const into = await pickFolder(say("chooseFolder"));
+    if (isShell() && into === null) return;
+    const written = await api.exportSefer(slug, "docx", into ?? undefined);
     // The path, because the file is the point and a reader has to be able to
     // find it — and what did *not* land, because exporting is the moment
     // somebody would otherwise never hear about a stale correction.
-    const trouble = written.stale > 0 ? ` · ${written.stale} תיקונים לא חלו` : "";
-    say(`נכתב — ${written.said}${trouble} · ${written.path}`, written.stale > 0);
+    const trouble = written.stale > 0 ? ` · ${written.stale} ${say("staleFixes")}` : "";
+    announce(`${say("wrote")} — ${written.said}${trouble} · ${written.path}`, written.stale > 0);
   } catch (e) {
     const t = trouble(e, "export");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
@@ -964,15 +1127,18 @@ function nothingOpen(): HTMLElement {
   empty.className = "empty";
   const title = document.createElement("p");
   title.className = "empty-title";
-  title.textContent = "גִּרְסָא";
+  // The application, as it spells its own name — `names.ts`, which is where
+  // both applications' names live so a seventh site cannot spell one a third
+  // way. A name is not translated.
+  title.textContent = GIRSA;
   const hint = document.createElement("p");
   hint.className = "empty-hint";
-  hint.textContent = "Ctrl+O — פתח ספר · Ctrl+B — עיין במדף · Ctrl+F — חפש · Ctrl+K — תקן";
-  const open = button("פתח ספר", "Ctrl+O", openSomething);
+  hint.textContent = say("emptyHint");
+  const open = button(say("openSefer"), say("openSeferKey"), openSomething);
   open.classList.add("empty-button");
-  const browse = button("עיין במדף", "Ctrl+B", browseShelf);
+  const browse = button(say("browseShelf"), say("browseShelfWhy"), browseShelf);
   browse.classList.add("empty-button");
-  const look = button("חפש", "Ctrl+F", search);
+  const look = button(say("search"), say("searchWhy"), search);
   look.classList.add("empty-button");
   empty.append(title, hint, open, browse, look);
   return empty;
@@ -1123,7 +1289,10 @@ function shortcut(event: KeyboardEvent): void {
       event.preventDefault();
       void (async () => {
         if (!state) return;
-        await api.setNikud(!state.nikud);
+        // The same round the toolbar button walks, and the same function that
+        // labels it — one rule, so the key and the button cannot get out of
+        // step about what *next* means.
+        await api.setPointing(nextPointing(state.pointing));
         views.clear();
         await reload();
       })();
@@ -1215,11 +1384,11 @@ async function copySource(): Promise<void> {
   if (scan) {
     try {
       const cited = await api.scanCopy(scan.slug, scan.here());
-      if (cited.put.trouble) say(cited.put.trouble, true);
-      else say(`הועתק — ${cited.display}`, false);
+      if (cited.put.trouble) announce(cited.put.trouble, true);
+      else announce(`${say("copied")} — ${cited.display}`, false);
     } catch (e) {
       const t = trouble(e, "copy_scan");
-      say(t.said, true, t.detail);
+      announce(t.said, true, t.detail);
     }
     return;
   }
@@ -1238,13 +1407,13 @@ async function copySource(): Promise<void> {
   }
 
   if (copied.put.trouble) {
-    say(copied.put.trouble, true);
+    announce(copied.put.trouble, true);
     return;
   }
   // Named, not "copied": a reader should be able to see from the confirmation
   // that they took the place they meant, without pasting it somewhere to look.
-  const lines = copied.lines > 1 ? ` · ${copied.lines} שורות` : "";
-  say(`הועתק — ${copied.display}${lines}`, false);
+  const lines = copied.lines > 1 ? ` · ${copied.lines} ${say("copiedLines")}` : "";
+  announce(`${say("copied")} — ${copied.display}${lines}`, false);
 }
 
 /**
@@ -1270,7 +1439,7 @@ async function sendToKsav(): Promise<void> {
     const sent = chosen
       ? await api.sendToKsav(chosen.from, chosen.to, chosen.fromChar, chosen.toChar)
       : await api.sendToKsav(here!, here!, 0, null);
-    say(`נשלח ${withPrefix("ל", KSAV)} — ${sent.display}`, false);
+    announce(`${say("sent")} ${withPrefix("ל", KSAV)} — ${sent.display}`, false);
   } catch (e) {
     // "Ksav is not running" and "Ksav refused it" *are* different things to a
     // reader — and that was the argument for showing `String(e)` as it came,
@@ -1283,7 +1452,7 @@ async function sendToKsav(): Promise<void> {
     // This line is the bug `presence.ts` and `trouble.ts` both cite as their
     // reason for existing, in the file neither of them reached.
     const t = trouble(e, "send_to_ksav");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
@@ -1328,21 +1497,21 @@ async function noteHere(): Promise<void> {
   const view = views.get(open.focused);
   const at = view?.here();
   if (!at) {
-    say("אין כאן שורה לכתוב עליה", true);
+    announce(say("noLineHere"), true);
     return;
   }
-  const text = window.prompt("מה יש לך לומר?", "");
+  const text = window.prompt(say("whatDoYouSay"), "");
   if (text === null || text.trim() === "") return;
   try {
     const note = await api.noteWrite(at, text);
-    say(`נכתב: ${note.title}`, false);
+    announce(`${say("written")}: ${note.title}`, false);
     // The note is a sefer now, so the shelf and the tabs know one more thing.
     await reload();
     if (linksview.isOpen) await linksview.show(at);
     await yoursview.refresh();
   } catch (e) {
     const t = trouble(e, "write_note");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
@@ -1360,30 +1529,30 @@ async function markHere(bookmark: boolean): Promise<void> {
       at,
       chosen ? [chosen.fromChar, chosen.toChar] : undefined,
     );
-    say(mark.kind === "bookmark" ? "סימנייה" : `סומן: ${mark.was}`, false);
+    announce(mark.kind === "bookmark" ? say("bookmark") : `${say("marked")}: ${mark.was}`, false);
     await repaintMarks();
     await yoursview.refresh();
   } catch (e) {
     const t = trouble(e, "mark");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
 /** Keep the question you just asked (spec.md §11). */
 async function keepQuery(typed: string): Promise<void> {
   if (typed === "") {
-    say("אין מה לשמור — תיבת החיפוש ריקה", true);
+    announce(say("nothingToKeep"), true);
     return;
   }
-  const name = window.prompt("איך לקרוא לשאילתה?", typed);
+  const name = window.prompt(say("nameTheQuery"), typed);
   if (name === null || name.trim() === "") return;
   try {
     const kept = await api.queryKeep(name.trim(), typed);
-    say(`נשמר: ${kept.name}`, false);
+    announce(`${say("kept")}: ${kept.name}`, false);
     await yoursview.refresh();
   } catch (e) {
     const t = trouble(e, "keep_query");
-    say(t.said, true, t.detail);
+    announce(t.said, true, t.detail);
   }
 }
 
@@ -1394,7 +1563,7 @@ async function keepQuery(typed: string): Promise<void> {
  * the same arrangement `sayTrouble` makes for an element, for the one surface
  * that is not an element anybody hands over.
  */
-function say(words: string, trouble: boolean, detail?: string): void {
+function announce(words: string, trouble: boolean, detail?: string): void {
   if (!root) return;
   let toast = root.querySelector<HTMLElement>(".said");
   if (!toast) {
@@ -1403,7 +1572,7 @@ function say(words: string, trouble: boolean, detail?: string): void {
     // A live region, so what the window says is announced rather than only drawn.
     // Ksav's README claims *"the status bar is a live region"* and its snapshot
     // bears that out; this is the same bar in the sibling application (B14).
-    announces(toast, "הודעות");
+    announces(toast, say("messages"));
     root.append(toast);
   }
   toast.textContent = words;

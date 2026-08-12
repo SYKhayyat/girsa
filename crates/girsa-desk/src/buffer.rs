@@ -197,6 +197,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use girsa_app::sending::{send, Selection};
+    use girsa_app::session::Pointing;
     use girsa_cite::CiteStyle;
 
     fn scratch(name: &str) -> PathBuf {
@@ -269,7 +270,7 @@ mod tests {
             &sefer,
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewFull,
-            false,
+            Pointing::Plain,
             None,
         )
         .expect("sends");
@@ -294,7 +295,7 @@ mod tests {
             &sefer,
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewShort,
-            false,
+            Pointing::Plain,
             None,
         )
         .expect("sends");

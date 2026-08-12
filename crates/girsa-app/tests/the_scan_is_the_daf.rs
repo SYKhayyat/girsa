@@ -42,6 +42,7 @@ fn corpus_with_berakhot(root: &Path) -> Work {
         he_title: "ברכות".to_string(),
         en_title: "Berakhot".to_string(),
         categories: vec!["Talmud".to_string(), "Bavli".to_string()],
+        order: Vec::new(),
         source: Source::Sefaria,
         origin: PathBuf::new(),
         schema: None,

@@ -36,6 +36,7 @@ fn a_work(slug: &str) -> Work {
         he_title: slug.to_string(),
         en_title: slug.to_string(),
         categories: vec!["Talmud".into()],
+        order: Vec::new(),
         source: Source::Otzaria,
         origin: PathBuf::new(),
         schema: None,

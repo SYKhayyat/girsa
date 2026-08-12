@@ -561,6 +561,7 @@ mod tests {
             he_title: "אורח חיים".into(),
             en_title: "Orach Chayim".into(),
             categories: vec!["Halakhah".into()],
+            order: Vec::new(),
             source: Source::Sefaria,
             origin,
             schema: None,

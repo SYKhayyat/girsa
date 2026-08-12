@@ -33,44 +33,77 @@ use std::collections::BTreeSet;
 
 use girsa_link::EdgeType;
 
+/// One thing the reader added to, or subtracted from, where the search looks.
+///
+/// # Why the steps are kept rather than folded down
+///
+/// They used to be folded: `only` was a list of anonymous sets, `without` was
+/// one merged set, and `named` was a parallel list of labels with no
+/// correspondence to either. Nothing could be **taken back**, which is the
+/// second half of what a reader asked for — *"i dont know how to add some and
+/// minus some things from the search (some seforim or folders)"* — and the only
+/// affordance the window could offer was *back to the whole shelf*, throwing
+/// away four clicks to undo the fifth.
+///
+/// A step knows its own label, its own direction and its own seforim, so a panel
+/// can list them and put a `×` on each.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    /// What the reader clicked, for the chip and the panel to show.
+    pub label: String,
+    /// Subtracting rather than adding.
+    pub exclude: bool,
+    slugs: BTreeSet<String>,
+}
+
+impl Step {
+    /// How many seforim this step names.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.slugs.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.slugs.is_empty()
+    }
+}
+
 /// Which seforim, and which kinds of link, a search is confined to.
 ///
 /// The default is the whole shelf, which is what the chip says when nobody has
 /// touched it.
 #[derive(Debug, Clone, Default)]
 pub struct Scope {
-    /// One set of seforim per click, and a hit has to be in **all** of them.
+    /// What the reader added and subtracted, in the order they did it.
     ///
-    /// A list rather than a set, because two clicks are an *and*: narrowing to
-    /// `תלמוד` and then to `ראשונים` is the rishonim of Shas, not everything on
-    /// either. One click is an *or* within itself — a shelf is the seforim on
-    /// it — which is exactly a clause. Empty means every sefer.
-    only: Vec<BTreeSet<String>>,
-    /// Seforim ruled out.
-    without: BTreeSet<String>,
+    /// Each *only* step is one clause and a hit has to be in **all** of them:
+    /// narrowing to `תלמוד` and then to `ראשונים` is the rishonim of Shas, not
+    /// everything on either. One step is an *or* within itself — a shelf is the
+    /// seforim on it. No *only* steps means every sefer.
+    steps: Vec<Step>,
     /// A hit must be touched by a link of one of these kinds.
     linked: BTreeSet<EdgeType>,
     /// A hit must be touched by none of these.
     unlinked: BTreeSet<EdgeType>,
-    /// What the reader clicked to get here, for the chip to show.
-    ///
-    /// Display only. Two scopes that hold the same seforim are the same scope
-    /// however they were arrived at, which is why this is not in the equality.
-    named: Vec<String>,
 }
 
 /// Two scopes are the same when they let the same segments through.
 ///
-/// [`Scope::named`] is deliberately not compared: it is what the reader
+/// A step's **label** is deliberately not compared: it is what the reader
 /// clicked, and `תלמוד/בבלי` and `the Bavli` naming one set of seforim are one
 /// scope. Comparing it would let a caller conclude that a scope had changed
 /// when nothing about the search had.
 impl PartialEq for Scope {
     fn eq(&self, other: &Self) -> bool {
-        self.only == other.only
-            && self.without == other.without
-            && self.linked == other.linked
-            && self.unlinked == other.unlinked
+        let sets = |scope: &Self| -> Vec<(bool, BTreeSet<String>)> {
+            scope
+                .steps
+                .iter()
+                .map(|step| (step.exclude, step.slugs.clone()))
+                .collect()
+        };
+        sets(self) == sets(other) && self.linked == other.linked && self.unlinked == other.unlinked
     }
 }
 
@@ -89,26 +122,64 @@ impl Scope {
     /// second click that merged into the first would **widen** — the reader
     /// would narrow twice and get more — and it would do it silently, since the
     /// chip would read as though both had been applied.
+    ///
+    /// Clicking the same thing twice is one step, not two: a reader who adds the
+    /// Bavli, wanders off and adds it again has said one thing.
     #[must_use]
     pub fn only(mut self, slugs: impl IntoIterator<Item = String>, named: &str) -> Self {
-        self.only.push(slugs.into_iter().collect());
-        self.name(named);
+        self.add(Step {
+            label: named.to_string(),
+            exclude: false,
+            slugs: slugs.into_iter().collect(),
+        });
         self
     }
 
     /// Rule these seforim out.
     #[must_use]
     pub fn without(mut self, slugs: impl IntoIterator<Item = String>, named: &str) -> Self {
-        self.without.extend(slugs);
-        self.name(&format!("not {named}"));
+        self.add(Step {
+            label: named.to_string(),
+            exclude: true,
+            slugs: slugs.into_iter().collect(),
+        });
         self
+    }
+
+    fn add(&mut self, step: Step) {
+        if step.slugs.is_empty() {
+            return;
+        }
+        if self
+            .steps
+            .iter()
+            .any(|held| held.exclude == step.exclude && held.slugs == step.slugs)
+        {
+            return;
+        }
+        self.steps.push(step);
+    }
+
+    /// Take one step back — the `×` on a row of the scope panel.
+    ///
+    /// Out of range does nothing: the window and the engine can disagree for a
+    /// frame, and a second impatient click is not a reason to refuse.
+    pub fn drop_step(&mut self, at: usize) {
+        if at < self.steps.len() {
+            self.steps.remove(at);
+        }
+    }
+
+    /// What the reader added and subtracted, in the order they did it.
+    #[must_use]
+    pub fn steps(&self) -> &[Step] {
+        &self.steps
     }
 
     /// Only segments a link of this kind touches.
     #[must_use]
     pub fn linked(mut self, kind: EdgeType) -> Self {
         self.linked.insert(kind);
-        self.name(kind.as_str());
         self
     }
 
@@ -116,29 +187,23 @@ impl Scope {
     #[must_use]
     pub fn unlinked(mut self, kind: EdgeType) -> Self {
         self.unlinked.insert(kind);
-        self.name(&format!("not {}", kind.as_str()));
         self
-    }
-
-    fn name(&mut self, what: &str) {
-        if !what.is_empty() && !self.named.iter().any(|n| n == what) {
-            self.named.push(what.to_string());
-        }
     }
 
     /// Whether this scope lets everything through.
     #[must_use]
     pub fn is_everything(&self) -> bool {
-        self.only.is_empty()
-            && self.without.is_empty()
-            && self.linked.is_empty()
-            && self.unlinked.is_empty()
+        self.steps.is_empty() && self.linked.is_empty() && self.unlinked.is_empty()
     }
 
     /// The clauses, in the order they were clicked. A hit is in every one.
     #[must_use]
-    pub fn clauses(&self) -> &[BTreeSet<String>] {
-        &self.only
+    pub fn clauses(&self) -> Vec<&BTreeSet<String>> {
+        self.steps
+            .iter()
+            .filter(|step| !step.exclude)
+            .map(|step| &step.slugs)
+            .collect()
     }
 
     /// The seforim this scope actually admits — the clauses, intersected.
@@ -149,7 +214,7 @@ impl Scope {
     /// to ask first.
     #[must_use]
     pub fn works(&self) -> BTreeSet<String> {
-        let mut clauses = self.only.iter();
+        let mut clauses = self.clauses().into_iter();
         let Some(first) = clauses.next() else {
             return BTreeSet::new();
         };
@@ -159,8 +224,12 @@ impl Scope {
     }
 
     #[must_use]
-    pub fn excluded_works(&self) -> &BTreeSet<String> {
-        &self.without
+    pub fn excluded_works(&self) -> BTreeSet<String> {
+        self.steps
+            .iter()
+            .filter(|step| step.exclude)
+            .flat_map(|step| step.slugs.iter().cloned())
+            .collect()
     }
 
     #[must_use]
@@ -180,10 +249,23 @@ impl Scope {
     /// read off the chip is a result count nobody can account for.
     #[must_use]
     pub fn describe(&self) -> String {
-        if self.named.is_empty() {
+        let mut named: Vec<String> = self
+            .steps
+            .iter()
+            .map(|step| {
+                if step.exclude {
+                    format!("not {}", step.label)
+                } else {
+                    step.label.clone()
+                }
+            })
+            .collect();
+        named.extend(self.linked.iter().map(|k| k.as_str().to_string()));
+        named.extend(self.unlinked.iter().map(|k| format!("not {}", k.as_str())));
+        if named.is_empty() {
             return "whole shelf".to_string();
         }
-        self.named.join(" · ")
+        named.join(" · ")
     }
 }
 
@@ -221,6 +303,51 @@ mod tests {
             ["b"],
             "what is in both, not what is in either"
         );
+    }
+
+    #[test]
+    fn a_step_can_be_taken_back_without_losing_the_others() {
+        // *"i dont know how to add some and minus some things from the search
+        // (some seforim or folders)."* Adding was a facet click; subtracting was
+        // a facet click; **un**-adding was *back to the whole shelf*, which threw
+        // away every other click as well.
+        let mut scope = Scope::everything()
+            .only(["a".to_string()], "תלמוד")
+            .only(["b".to_string()], "ראשונים")
+            .without(["c".to_string()], "משנה ברורה");
+        assert_eq!(scope.steps().len(), 3);
+        assert_eq!(scope.describe(), "תלמוד · ראשונים · not משנה ברורה");
+
+        scope.drop_step(1);
+        assert_eq!(scope.describe(), "תלמוד · not משנה ברורה");
+        assert_eq!(
+            scope.works().into_iter().collect::<Vec<_>>(),
+            ["a"],
+            "and the clause that is left is the one that was kept"
+        );
+        // Out of range is a window one frame behind, not a reason to panic.
+        scope.drop_step(9);
+        assert_eq!(scope.steps().len(), 2);
+    }
+
+    #[test]
+    fn adding_the_same_shelf_twice_is_one_step() {
+        // Two identical clauses intersect to themselves, so nothing about the
+        // search changes — but the chip would read `תלמוד · תלמוד` and the panel
+        // would grow a row that does nothing.
+        let scope = Scope::everything()
+            .only(["a".to_string()], "תלמוד")
+            .only(["a".to_string()], "תלמוד");
+        assert_eq!(scope.steps().len(), 1);
+    }
+
+    #[test]
+    fn a_step_that_names_no_sefer_is_not_a_step() {
+        // Clicking a shelf nothing is filed on would otherwise add a clause that
+        // admits nothing, and every search after it would come back empty with a
+        // chip that looked reasonable.
+        let scope = Scope::everything().only(Vec::new(), "מדף ריק");
+        assert!(scope.is_everything());
     }
 
     #[test]

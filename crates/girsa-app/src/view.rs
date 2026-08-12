@@ -301,6 +301,10 @@ pub struct Line {
     pub id: String,
     /// `2a:1` — what the address says, for the margin.
     pub address: String,
+    /// **Absent for an ordinary line of prose**, which nearly every line is —
+    /// the same measurement `display::Run::style` records. `pane.ts` reads a
+    /// missing kind as `text`.
+    #[serde(skip_serializing_if = "is_text")]
     pub kind: &'static str,
     /// The words, split by how they are set. Not a string of HTML: see
     /// [`display::runs`].
@@ -313,6 +317,11 @@ pub struct Line {
     /// can see what was printed without turning the whole sefer back.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub printed: Option<String>,
+}
+
+/// Whether a line is ordinary prose, and so does not need to say what it is.
+fn is_text(kind: &&'static str) -> bool {
+    **kind == *"text"
 }
 
 /// One correction, as the page shows it.
@@ -859,9 +868,13 @@ pub struct Writing {
 /// disagree.
 #[derive(Serialize)]
 pub struct SettingsView {
-    pub nikud: bool,
+    pub pointing: crate::session::Pointing,
     pub text_size: u16,
+    /// Which language the **seforim** are named in.
     pub language: crate::session::Language,
+    /// And which language the **window** speaks. Two settings, because a reader
+    /// asked for two: *"there should be 2 seperate commands."*
+    pub interface: crate::session::Language,
     pub cite: girsa_cite::CiteStyle,
     pub showing: girsa_fix::Showing,
     pub theme: &'static str,
@@ -1052,7 +1065,7 @@ pub struct HitRow {
 #[derive(Serialize)]
 pub struct Opening {
     pub workspace: crate::Workspace,
-    pub nikud: bool,
+    pub pointing: crate::session::Pointing,
     pub text_size: u16,
     /// Where you were in each sefer.
     pub positions: std::collections::BTreeMap<String, girsa_corpus::segment::SegmentId>,
@@ -1061,7 +1074,9 @@ pub struct Opening {
     /// Something wrong the reader should be told about, or nothing.
     pub trouble: Option<String>,
     pub cite: girsa_cite::CiteStyle,
+    /// Which language the seforim are named in, and which the window speaks.
     pub language: crate::session::Language,
+    pub interface: crate::session::Language,
     /// The resolved shortcut table (B13), keyed by the one spelling of each
     /// combination. Sent with the state because a `keydown` handler has to
     /// decide synchronously whether to swallow the key, and cannot await.
@@ -1090,17 +1105,17 @@ impl Line {
     /// moment `dev-fixtures.rs` has to draw a line too — and it did, and it
     /// hand-rolled four of this struct's six fields instead.
     #[must_use]
-    pub fn of(sefer: &crate::Open, segment: &girsa_corpus::import::Segment, nikud: bool) -> Self {
+    pub fn of(
+        sefer: &crate::Open,
+        segment: &girsa_corpus::import::Segment,
+        pointing: crate::session::Pointing,
+    ) -> Self {
         let corrected = sefer.correction(&segment.id);
         Self {
             id: segment.id.to_string(),
             address: segment.id.address(),
             kind: segment.kind.as_str(),
-            runs: display::runs(&if nikud {
-                segment.text.clone()
-            } else {
-                display::without_marks(&segment.text)
-            }),
+            runs: display::runs(&display::pointed(&segment.text, pointing)),
             fixed: corrected.map_or_else(Vec::new, |c| {
                 c.applied
                     .iter()
@@ -1109,7 +1124,7 @@ impl Line {
                     .collect()
             }),
             printed: corrected.map(|_| {
-                display::Shown::of(sefer.as_printed(&segment.id), nikud)
+                display::Shown::of(sefer.as_printed(&segment.id), pointing)
                     .text()
                     .to_string()
             }),

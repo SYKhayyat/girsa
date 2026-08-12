@@ -339,6 +339,7 @@ impl Note {
             // spec.md §5's *yours*, so the shelf files it where your own
             // material goes and nothing has to know a note is special.
             categories: vec!["שלי".to_string()],
+            order: Vec::new(),
             source: Source::Mine,
             origin: path_in(personal, self.name()),
             schema: None,

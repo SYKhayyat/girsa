@@ -30,6 +30,8 @@ function said(kinds: LinkKind[], key: string): string {
 }
 import { sayTrouble } from "./trouble.ts";
 import { button, choice } from "./controls.ts";
+import { Latest } from "./latest.ts";
+import { say } from "./say.ts";
 
 export class LinksView {
   readonly element: HTMLElement;
@@ -56,14 +58,10 @@ export class LinksView {
     head.className = "links-head";
     const title = document.createElement("span");
     title.className = "links-title";
-    title.textContent = "קישורים";
+    title.textContent = say("linksTitle");
     this.note = document.createElement("span");
     this.note.className = "links-note";
-    const close = document.createElement("button");
-    close.className = "tool";
-    close.textContent = "סגור";
-    close.title = "Esc";
-    close.addEventListener("click", () => this.close());
+    const close = button(say("close"), say("esc"), () => this.close());
     head.append(title, this.note, close);
 
     this.list = document.createElement("div");
@@ -88,6 +86,9 @@ export class LinksView {
   }
 
   private pinTo: (() => [number, number] | null) | null = null;
+  /** One answer at a time: a lens clicked twice used to draw whichever read
+   * finished last. See `latest.ts`. */
+  private readonly draws = new Latest();
 
   async toggle(at: string | null, span?: [number, number] | null): Promise<void> {
     if (this.isOpen) {
@@ -102,7 +103,7 @@ export class LinksView {
     this.at = at;
     this.span = span ?? null;
     this.element.classList.add("is-open");
-    this.note.textContent = "קורא…";
+    this.note.textContent = say("linksReading");
     this.list.replaceChildren();
     await this.draw();
   }
@@ -112,19 +113,23 @@ export class LinksView {
   }
 
   private async draw(): Promise<void> {
-    if (!this.at) return;
-    let found: Links;
-    try {
-      found = await api.links(this.at, this.lens ?? undefined, this.span ?? undefined);
-    } catch (e) {
-      sayTrouble(this.note, e, "read_links");
-      return;
-    }
+    const at = this.at;
+    if (!at) return;
+    await this.draws.attempt(
+      () => api.links(at, this.lens ?? undefined, this.span ?? undefined),
+      (found) => this.drawFound(found),
+      (e) => sayTrouble(this.note, e, "read_links"),
+    );
+  }
+
+  private drawFound(found: Links): void {
     this.list.replaceChildren();
     const shown = found.links.filter((link) => !link.rejected);
-    const words = this.span ? " על המילים שסימנת" : "";
+    const words = this.span ? ` ${say("linksOnWords")}` : "";
     this.note.textContent =
-      shown.length === 0 ? `אין קישורים${words}` : `${shown.length} קישורים${words}`;
+      shown.length === 0
+        ? `${say("linksNone")}${words}`
+        : `${shown.length} ${say("links")}${words}`;
     this.list.append(this.lensRow(found));
     if (found.incoming_unknown) {
       // Two different statements, and a short list says the wrong one.
@@ -138,8 +143,7 @@ export class LinksView {
       // the two was provably wrong without running either.
       const warn = document.createElement("p");
       warn.className = "links-warn";
-      warn.textContent =
-        "אין מטמון נכנס — הקישורים אל השורה הזאת אינם מוצגים. הרץ girsa-link-types.";
+      warn.textContent = say("linksNoInbound");
       this.list.append(warn);
     }
     this.list.append(...found.links.map((link) => this.row(link, found.types)));
@@ -150,7 +154,7 @@ export class LinksView {
   private lensRow(found: Links): HTMLElement {
     const row = document.createElement("div");
     row.className = "lenses";
-    const all = this.lensButton(null, "הכל");
+    const all = this.lensButton(null, say("linksAll"));
     row.append(all);
     for (const lens of found.lenses) row.append(this.lensButton(lens.key, lens.title));
     return row;
@@ -175,14 +179,24 @@ export class LinksView {
     const kind = document.createElement("span");
     kind.className = "link-kind" + (link.curated ? "" : " is-uncurated");
     kind.textContent = said(types, link.kind);
-    kind.title = link.curated
-      ? "טענה על הטקסטים"
-      : "הקורפוס לא אמר איזה קשר — לא מוצג כעובדה";
+    kind.title = link.curated ? say("linksCurated") : say("linksUncurated");
 
     const where = document.createElement("button");
+    where.type = "button";
     where.className = "link-where";
-    where.textContent = `${link.outgoing ? "←" : "→"} ${link.said}`;
-    where.title = "פתח את המקום";
+    // **The sefer, then the place.** The row used to lead with a bare arrow
+    // glyph — `←` for outgoing, `→` for incoming — which is a direction nobody
+    // can read without a legend, in a panel the reader described as *"hard on
+    // the eyes"*. The direction is a word now, and it is quiet, because the
+    // thing a reader wants first is *what does this say*.
+    const arrow = document.createElement("span");
+    arrow.className = "link-arrow";
+    arrow.textContent = link.outgoing ? say("linksOut") : say("linksIn");
+    const place = document.createElement("span");
+    place.className = "link-place";
+    place.textContent = link.said;
+    where.append(arrow, place);
+    where.title = say("linksOpen");
     where.addEventListener("click", () => void this.goTo?.(link.work, link.at));
 
     // W37. *"kishuri i cant tell what is going on. it is hard to read."*
@@ -213,7 +227,7 @@ export class LinksView {
     shown.className = "link-shown";
     const summary = document.createElement("summary");
     summary.textContent = provenanceSaid(link);
-    summary.title = "מאיפה הקישור, ומה עשית לו";
+    summary.title = say("linksShowWork");
     const work = document.createElement("span");
     work.className = "link-work";
     work.textContent = provenance(link, types).join(" · ");
@@ -227,22 +241,22 @@ export class LinksView {
     box.className = "link-actions";
 
     if (link.rejected) {
-      box.append(button("בטל דחייה", "החזר את הקישור", () => this.repair(link, "undo")));
+      box.append(button(say("linksUnreject"), say("linksUnrejectWhy"), () => this.repair(link, "undo")));
       return box;
     }
 
     if (!link.confirmed) {
       box.append(
-        button("אשר", "בדקתי — הקישור נכון", () => this.repair(link, "confirm")),
+        button(say("linksConfirm"), say("linksConfirmWhy"), () => this.repair(link, "confirm")),
       );
     }
-    box.append(button("דחה", "בדקתי — הקישור שגוי", () => this.repair(link, "reject")));
+    box.append(button(say("linksReject"), say("linksRejectWhy"), () => this.repair(link, "reject")));
 
-    const retype = choice("סוג הקישור");
+    const retype = choice(say("linksKind"));
     retype.className = "link-retype";
-    retype.title = "קבע את סוג הקשר";
+    retype.title = say("linksKindWhy");
     const keep = document.createElement("option");
-    keep.textContent = "סוג…";
+    keep.textContent = say("linksKindPick");
     keep.value = "";
     retype.append(keep);
     for (const type of types) {
@@ -260,7 +274,7 @@ export class LinksView {
     // Reanchoring: onto the line the reader is standing on, which is the only
     // segment the window can name without asking a second question.
     box.append(
-      button("העבר לכאן", "העבר את הקצה הזה לשורה שאתה עומד בה", async () => {
+      button(say("linksMoveHere"), say("linksMoveHereWhy"), async () => {
         const here = this.here?.();
         if (!here) return;
         try {
@@ -274,10 +288,10 @@ export class LinksView {
     // Pinning: onto the words the reader has highlighted right now, which is
     // the only span the window can name without asking a second question.
     box.append(
-      button("על מילים אלו", "קבע שהקישור מדבר על מה שסימנת", async () => {
+      button(say("linksPin"), say("linksPinWhy"), async () => {
         const span = this.pinTo?.();
         if (!span || !this.at) {
-          this.note.textContent = "סמן קודם את המילים";
+          this.note.textContent = say("linksPinFirst");
           return;
         }
         try {
@@ -289,7 +303,7 @@ export class LinksView {
       }),
     );
     if (link.changed.length > 0 && !link.mine) {
-      box.append(button("בטל", "בטל את מה שאמרת על הקישור", () => this.repair(link, "undo")));
+      box.append(button(say("linksUndo"), say("linksUndoWhy"), () => this.repair(link, "undo")));
     }
     return box;
   }
@@ -315,9 +329,9 @@ function provenance(link: LinkRow, kinds: LinkKind[]): string[] {
   const bits = [`${Math.round(link.confidence * 100)}%`, link.method];
   // Which words, and who says so — the dibur hamatchil the commentary itself
   // declares, or a span you pinned (spec.md §8.4).
-  if (link.span_from) bits.push(link.span_from === "pinned" ? "על מילים (שלך)" : "על מילים");
+  if (link.span_from) bits.push(link.span_from === "pinned" ? say("onWordsYours") : say("onWords"));
   if (link.label) bits.push(`"${link.label}"`);
-  if (link.was && link.was !== link.kind) bits.push(`היה: ${said(kinds, link.was)}`);
+  if (link.was && link.was !== link.kind) bits.push(`${say("wasKind")}: ${said(kinds, link.was)}`);
   if (link.changed.length > 0) bits.push(link.changed.join(", "));
   if (link.who) bits.push(link.who);
   return bits;

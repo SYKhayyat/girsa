@@ -239,6 +239,7 @@ mod tests {
             he_title: slug.to_string(),
             en_title: slug.to_string(),
             categories: Vec::new(),
+            order: Vec::new(),
             source: Source::Sefaria,
             origin: std::path::PathBuf::new(),
             schema: None,

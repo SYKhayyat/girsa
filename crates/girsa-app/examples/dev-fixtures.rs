@@ -80,7 +80,8 @@ fn main() -> std::process::ExitCode {
     let session = girsa_app::Session::default();
     let state = Opening {
         workspace,
-        nikud: true,
+        pointing: girsa_app::session::Pointing::Full,
+        interface: girsa_app::session::Language::Hebrew,
         text_size: 100,
         positions: session.positions.clone(),
         works: shelf.works().len(),
@@ -118,7 +119,11 @@ fn main() -> std::process::ExitCode {
     let mut by_shelf: BTreeMap<String, Vec<Card>> = BTreeMap::new();
     for work in shelf.works() {
         by_shelf
-            .entry(girsa_app::taxonomy::shelf_key_of(work, shelf.arrangement()))
+            .entry(girsa_app::taxonomy::shelf_key_of(
+                work,
+                shelf.arrangement(),
+                shelf.shipped(),
+            ))
             .or_default()
             .push(Card::of(work));
     }
@@ -139,7 +144,7 @@ fn main() -> std::process::ExitCode {
             lines: sefer
                 .segments
                 .iter()
-                .map(|s| Line::of(sefer, s, true))
+                .map(|s| Line::of(sefer, s, girsa_app::session::Pointing::Full))
                 .collect(),
         };
         write(

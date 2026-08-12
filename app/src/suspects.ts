@@ -12,6 +12,7 @@
 // goes through the same path a correction made while reading does.
 
 import { api, type SuspectRow } from "./api.ts";
+import { say } from "./say.ts";
 
 /** How many to ask for. More than fits on a screen, few enough to draw. */
 const PAGE = 60;
@@ -35,12 +36,12 @@ export class SuspectsView {
     head.className = "suspects-head";
     const title = document.createElement("span");
     title.className = "suspects-title";
-    title.textContent = "טעויות סריקה";
+    title.textContent = say("suspectsTitle");
     this.note = document.createElement("span");
     this.note.className = "suspects-note";
     const close = document.createElement("button");
     close.className = "tool";
-    close.textContent = "סגור";
+    close.textContent = say("close");
     close.title = "Esc";
     close.addEventListener("click", () => this.close());
     head.append(title, this.note, close);
@@ -66,7 +67,7 @@ export class SuspectsView {
 
   async show(): Promise<void> {
     this.element.classList.add("is-open");
-    this.note.textContent = "קורא…";
+    this.note.textContent = say("linksReading");
     this.rows = await api.suspects(PAGE);
     this.draw();
   }
@@ -84,7 +85,7 @@ export class SuspectsView {
       const empty = document.createElement("p");
       empty.className = "suspects-empty";
       empty.textContent =
-        "אין תור. הרץ: cargo run --release -p girsa-search --bin girsa-suspects -- index personal";
+        say("suspectsNoQueue");
       this.list.append(empty);
       return;
     }
@@ -111,12 +112,12 @@ export class SuspectsView {
     const counts = document.createElement("span");
     counts.className = "suspect-counts";
     counts.textContent = `${row.rare_count} · ${row.common_count.toLocaleString("he-IL")}`;
-    counts.title = "כמה קטעים מכילים כל מילה";
+    counts.title = say("suspectsCounts");
 
     const how = document.createElement("span");
     how.className = "suspect-how";
     how.textContent = row.confusion ?? said(row.how);
-    how.title = row.confusion ? "אותיות שנראות דומה בדפוס" : said(row.how);
+    how.title = row.confusion ? say("suspectsConfusion") : said(row.how);
 
     const where = document.createElement("span");
     where.className = "suspect-where";
@@ -127,8 +128,8 @@ export class SuspectsView {
 
     const open = document.createElement("button");
     open.className = "tool";
-    open.textContent = "פתח";
-    open.title = "פתח את המקום, עם המילה מסומנת";
+    open.textContent = say("open");
+    open.title = say("suspectsOpenWhy");
     open.disabled = !row.at;
     open.addEventListener("click", () => {
       void this.goTo?.(row);
@@ -136,8 +137,8 @@ export class SuspectsView {
 
     const dismiss = document.createElement("button");
     dismiss.className = "tool";
-    dismiss.textContent = "לא טעות";
-    dismiss.title = "אינה שגיאה — לא תוצע שוב";
+    dismiss.textContent = say("suspectsNotAnError");
+    dismiss.title = say("suspectsNotAnErrorWhy");
     dismiss.addEventListener("click", () => {
       void this.decide(row, line);
     });
@@ -166,8 +167,8 @@ export class SuspectsView {
 
 /** What the one edit was, in words. */
 function said(how: SuspectRow["how"]): string {
-  if (how === "letter") return "אות שהוחלפה";
-  if (how === "added") return "אות מיותרת";
-  if (how === "dropped") return "אות חסרה";
-  return "אותיות שהתחלפו";
+  if (how === "letter") return say("suspectsSwapped");
+  if (how === "added") return say("suspectsAdded");
+  if (how === "dropped") return say("suspectsDropped");
+  return say("suspectsTransposed");
 }

@@ -83,6 +83,7 @@ cargo run --release -p girsa-corpus --example measure-oversized    # segments th
 cargo run --release -p girsa-corpus --example measure-resolver     # the resolver against real citations
 cargo run --release -p girsa-corpus --example measure-ids          # what reading a work's ids costs
 cargo run --release -p girsa-app    --example measure-standing     # what asking the shelf costs
+cargo run --release -p girsa-app    --example measure-opening      # what opening a sefer costs the window
 cargo run --release -p girsa-lane   --example measure              # the lane against a real model
 cargo run --release -p girsa-link   --example why-the-panel-waits  # where the half-second goes
 ```

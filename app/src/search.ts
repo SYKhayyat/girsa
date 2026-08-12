@@ -1,8 +1,8 @@
-// The search bar: the query, the chips under it, the results, and the facets
-// beside them (spec.md §9.5, §9.6, §9.8 — BUILDER.md W14).
+// The search bar: the query, the chips under it, where it looks, the results,
+// and the facets beside them (spec.md §9.5, §9.6, §9.8 — BUILDER.md W14).
 //
 // Nothing here decides anything. Which chips exist, what they can be set to,
-// what a facet row means and what clicking it narrows by are all answered in
+// what a facet row means and what clicking one narrows by are all answered in
 // `girsa-search`, where they are tested; this file draws them and sends the
 // clicks back. That division is the same one the rest of the window keeps, and
 // it matters most here: a webview that worked out its own chip row would be a
@@ -18,11 +18,40 @@
 //     clicked;
 //   · a refusal is shown as a refusal, with its reason, and never as an empty
 //     list of results.
+//
+// # Two bugs this file is the site of, and they are both about time
+//
+// **Whichever answer came back last won.** Every draw here is `await` then
+// `replaceChildren`, which is correct exactly once. Opening the panel re-ran the
+// *previous* query — the box keeps its text between openings — so a reader who
+// opened it and immediately typed something new had two searches in flight, and
+// the old, broader, slower one landed second:
+//
+// > *"when i search, it gets the right search for a second, then that drops out
+// > and it has a list of totally different things."*
+//
+// Every ask goes through `Latest` now, and a stale answer is dropped rather than
+// drawn.
+//
+// **And the panel re-ran that query silently.** Opening a search panel is not
+// asking a question. It shows the last answer, says that is what it is showing,
+// and waits — *"then it goes to the last searched item without telling you."*
 
-import { api, type Chip, type Dimension, type FacetRow, type Found, type Run } from "./api.ts";
+import {
+  api,
+  type Chip,
+  type Dimension,
+  type FacetRow,
+  type Found,
+  type Run,
+  type ScopeView,
+} from "./api.ts";
 import { LaneColumn } from "./laneview.ts";
-import { announces, field, glyph, region } from "./controls.ts";
-import { dock, undock } from "./dock.ts";
+import { announces, button, field, glyph, region } from "./controls.ts";
+import { dock, minimise, undock } from "./dock.ts";
+import { Latest } from "./latest.ts";
+import { say } from "./say.ts";
+import { ScopePanel } from "./scopeview.ts";
 
 /** Open a sefer at a segment — or, with no id, at wherever it was left.
  *
@@ -32,16 +61,16 @@ import { dock, undock } from "./dock.ts";
 type Opened = (slug: string, id: string | null, marked?: string[]) => void;
 
 /** The facets, in the order spec.md §9.8 lists them. */
-const FACETS: { dimension: Dimension; label: string }[] = [
-  { dimension: "shelf", label: "מדף" },
-  { dimension: "era", label: "תקופה" },
-  { dimension: "author", label: "מחבר" },
-  { dimension: "sefer", label: "ספר" },
-  { dimension: "link", label: "קישור" },
+const FACETS: { dimension: Dimension; label: () => string }[] = [
+  { dimension: "shelf", label: () => say("facetShelf") },
+  { dimension: "era", label: () => say("facetEra") },
+  { dimension: "author", label: () => say("facetAuthor") },
+  { dimension: "sefer", label: () => say("facetSefer") },
+  { dimension: "link", label: () => say("facetLink") },
   // Your own tags, last, because they are yours and everything above is the
   // library's. A search over the corpus alone has none and the row is simply
   // absent, the way an author facet is absent from a sefer nobody attributed.
-  { dimension: "tag", label: "תג" },
+  { dimension: "tag", label: () => say("facetTag") },
 ];
 
 /** How many rows of one facet before the rest are counted rather than listed. */
@@ -54,6 +83,21 @@ export class SearchView {
   private readonly head: HTMLElement;
   private readonly list: HTMLElement;
   private readonly rail: HTMLElement;
+  /**
+   * Where the search looks (§9.8), as a panel rather than as a rail computed
+   * from an answer.
+   *
+   * > *"i dont know how to add some and minus some things from the search (some
+   * > seforim or folders). often the tree to pick from … is not even visible -
+   * > it flashes, then flashes off."*
+   *
+   * The tree was the facet rail, which is derived from a result set: it did not
+   * exist until a search returned hits and was cleared at the start of the next
+   * one. So the one control for saying *where to look* could only be used after
+   * you had already looked, and disappeared while you looked again. The scope
+   * itself is a thing that exists before any search and outlives every one.
+   */
+  private readonly scope = new ScopePanel();
   /** The semantic lane (spec.md §9.9, W30) — **beside** the literal results and
    * never among them. It is asked after they are drawn, so a literal search
    * never waits on a model, and it draws nothing at all when the lane is off. */
@@ -64,6 +108,13 @@ export class SearchView {
    * different search — which is the undo of spec.md §9.6. */
   private rung: string | null = null;
   private opened: Opened = () => {};
+  /** The query the results on screen actually answer, or null when they answer
+   * nothing yet. Read by nothing but the *these are the previous results* line,
+   * which is the whole point: the window has to be able to say what it is
+   * showing. */
+  private answering: string | null = null;
+  /** One answer at a time. See `latest.ts`. */
+  private readonly draws = new Latest();
 
   constructor() {
     this.element = document.createElement("div");
@@ -72,15 +123,22 @@ export class SearchView {
 
     const sheet = document.createElement("div");
     sheet.className = "find-sheet";
+    // What the strip says when the panel is minimised — `content: attr(…)` in
+    // the stylesheet, so the name is here, in the window's language, rather than
+    // in the CSS where it could only ever be in one.
+    sheet.dataset.name = say("search");
+    sheet.addEventListener("click", () => {
+      if (this.element.classList.contains("is-small")) this.dock();
+    });
 
     const bar = document.createElement("div");
     bar.className = "find-bar";
     // The one control the whole application is about, and it had no name at all:
     // an accessibility snapshot listed 29 controls and this was not one of them.
-    this.box = field("חיפוש בכל המדף", {
+    this.box = field(say("searchBox"), {
       className: "find-box",
       dir: "rtl",
-      placeholder: "חפש בכל המדף…",
+      placeholder: say("searchPlaceholder"),
     });
     this.box.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -95,18 +153,19 @@ export class SearchView {
     // and your own seforim go on the shelf, so what is worth keeping is the
     // asking. The chips and the scope are read off the engine, not off this
     // box — see `query_keep`.
-    const keep = document.createElement("button");
-    keep.className = "tool find-keep";
-    keep.textContent = "שמור";
-    keep.title = "keep this question";
-    keep.addEventListener("click", () => void this.keep?.(this.box.value.trim()));
+    const keep = button(say("keepQuery"), say("keepQueryWhy"), () => {
+      void this.keep?.(this.box.value.trim());
+    });
+    keep.classList.add("find-keep");
 
-    const close = document.createElement("button");
-    close.className = "tool find-close";
-    close.textContent = "סגור";
-    close.title = "Esc";
-    close.addEventListener("click", () => this.close());
-    bar.append(this.box, keep, close);
+    const close = button(say("close"), say("esc"), () => this.close());
+    close.classList.add("find-close");
+    // Minimise rather than close, for a reader working through a long list of
+    // results who wants the daf wide for a minute — see `ShelfView.minimise`,
+    // which is the same control on the other panel and the same complaint.
+    const shrink = button(say("minimize"), say("minimizeWhy"), () => this.minimise());
+    shrink.classList.add("find-minimise");
+    bar.append(this.box, keep, shrink, close);
 
     this.chipRow = document.createElement("div");
     this.chipRow.className = "find-chips";
@@ -114,17 +173,25 @@ export class SearchView {
     this.head.className = "find-head";
     // What the search said, as a live region: a count that changes without being
     // announced is a count a screen reader never mentions.
-    announces(this.head, "מה נמצא");
+    announces(this.head, say("whatWasFound"));
 
     const body = document.createElement("div");
     body.className = "find-body";
     // Landmarks, so a reader can jump between the results and the facets instead
     // of walking every row of one to reach the other.
-    this.list = region("region", "תוצאות", "find-list");
-    this.rail = region("region", "צמצום התוצאות", "find-rail");
+    this.list = region("region", say("results"), "find-list");
+    this.rail = region("region", say("narrowResults"), "find-rail");
     body.append(this.list, this.rail);
 
-    sheet.append(bar, this.chipRow, this.head, body, this.lane.element);
+    // The scope asks to be re-run when it changes, because narrowing is a
+    // different answer to the same question and the reader is looking at the
+    // old one.
+    this.scope.onChanged(() => {
+      this.page = 1;
+      void this.run();
+    });
+
+    sheet.append(bar, this.chipRow, this.scope.element, this.head, body, this.lane.element);
     this.element.append(sheet);
     this.element.addEventListener("pointerdown", (event) => {
       if (event.target === this.element) this.close();
@@ -148,6 +215,7 @@ export class SearchView {
     this.opened = opened;
     this.open = true;
     this.element.hidden = false;
+    this.element.classList.remove("is-small");
     this.box.value = typed;
     this.page = 1;
     this.rung = null;
@@ -155,23 +223,37 @@ export class SearchView {
     await this.run();
   }
 
+  /**
+   * Open the panel.
+   *
+   * **It does not search.** The chips and the scope are drawn, because they are
+   * what the search *will* do and a control you can only see after you have used
+   * it is not a control; the results already on screen stay where they are, with
+   * a line saying they are the previous search's. Re-running silently is how a
+   * reader ends up looking at an answer to a question they did not just ask.
+   */
   async show(opened: Opened): Promise<void> {
     this.opened = opened;
     this.open = true;
     this.element.hidden = false;
+    this.element.classList.remove("is-small");
     this.box.focus();
     this.box.select();
-    // The chips are drawn before anything has been searched for, because they
-    // are what the search *will* do — a control a reader can only see after
-    // they have already used it is not a control.
-    await this.run(true);
+    await this.drawControls();
   }
 
   close(): void {
     this.open = false;
     this.element.hidden = true;
-    this.element.classList.remove("is-docked");
+    this.element.classList.remove("is-docked", "is-small");
     undock("search");
+  }
+
+  /** The strip has to say what it is, and it says it in the reader's language,
+   * so it is written when the panel is drawn rather than once at construction. */
+  private nameTheStrip(): void {
+    const sheet = this.element.querySelector<HTMLElement>(".find-sheet");
+    if (sheet) sheet.dataset.name = say("search");
   }
 
   /**
@@ -184,15 +266,22 @@ export class SearchView {
    * the query, the chips, the page, and the place in the list.
    *
    * So it docks instead of closing: the scrim goes, the sheet becomes a column
-   * on the leading edge, and the reading pane is made narrower to fit rather than
-   * being covered. Narrower and not covered is the whole point — a panel over the
-   * text is the complaint that started this (*"it is weirdly over the text, so i
-   * cant see it r the text"*), and a search you can see beside the sefer you
-   * searched for is what the panel is for.
+   * on the **reading's leading edge**, and the reading pane is made narrower to
+   * fit rather than being covered.
    */
   private dock(): void {
     this.element.classList.add("is-docked");
+    this.element.classList.remove("is-small");
     dock("search");
+    minimise("search", false);
+  }
+
+  /** Shrink to a strip, keeping everything. Clicking the strip opens it again. */
+  private minimise(): void {
+    this.element.classList.add("is-docked", "is-small");
+    this.nameTheStrip();
+    dock("search");
+    minimise("search", true);
   }
 
   async toggle(opened: Opened): Promise<void> {
@@ -211,50 +300,73 @@ export class SearchView {
     this.opened = opened;
     this.open = true;
     this.element.hidden = false;
+    this.element.classList.remove("is-small");
     this.box.value = `"${phrase.trim()}"`;
     this.box.focus();
     await this.run();
   }
 
+  /**
+   * Draw everything that is not a result: the chips, the scope, and whatever the
+   * header should say about what is on screen.
+   *
+   * Called on open, and by nothing else — a search draws these from its own
+   * answer, which is the row the search actually ran under.
+   */
+  private async drawControls(): Promise<void> {
+    // `find("")` asks the engine for the chip row without asking it to search.
+    await this.draws.attempt(
+      () => api.find("", 1),
+      (empty) => {
+        this.drawChips(empty.chips);
+        this.head.classList.toggle("is-trouble", Boolean(empty.refused));
+        if (empty.refused) {
+          // The browser build **does** refuse, and the refusal used to be
+          // thrown away here — so the panel opened as a full-height empty box
+          // and said nothing until something was typed.
+          this.head.textContent = empty.refused;
+        } else {
+          this.head.replaceChildren();
+          if (this.answering !== null) {
+            // What is on screen, and whose question it answers. This is the
+            // whole of *"it goes to the last searched item without telling
+            // you"*: it still shows you, and now it tells you.
+            const said = document.createElement("p");
+            said.className = "find-said is-previous";
+            said.textContent = `${say("previously")} — ${this.answering}`;
+            this.head.append(said);
+          }
+          this.head.append(this.gapLine());
+        }
+      },
+      () => undefined,
+    );
+    await this.scope.refresh();
+  }
+
   /** Ask, and draw what came back. */
-  private async run(chipsOnly = false): Promise<void> {
+  private async run(): Promise<void> {
     const typed = this.box.value.trim();
-    if (chipsOnly && typed === "") {
-      const empty = await api.find("", 1);
-      this.drawChips(empty.chips);
-      // On open, and not only after the first keystroke.
-      //
-      // The browser build *does* refuse — *"החיפוש פועל בחלון בלבד — הדפדפן קורא
-      // קבצי דוגמה סטטיים, ואין בהם אינדקס"* — and the refusal was already in this
-      // response and was being thrown away here, so the panel opened as a
-      // full-height empty box and said nothing until something was typed. A reader
-      // who types a phrase into a box that cannot search has been let type it.
-      this.head.classList.toggle("is-trouble", Boolean(empty.refused));
-      if (empty.refused) {
-        this.head.textContent = empty.refused;
-      } else {
-        this.head.textContent = "";
-        // What this search will not be able to see, before it is run. Same
-        // sentence as after a search, because it is true either way (B7). Appended
-        // unconditionally: `gapLine` fills itself asynchronously and is an empty
-        // paragraph when there is nothing to say.
-        this.head.append(this.gapLine());
-      }
-      this.list.replaceChildren();
-      this.rail.replaceChildren();
-      this.lane.hide();
+    if (typed === "") {
+      await this.drawControls();
       return;
     }
-    if (typed === "") return;
-    const found = this.rung
-      ? await api.findRung(typed, this.page, this.rung)
-      : await api.find(typed, this.page);
-    // A sigil sets a chip; the box shows what is left, so what is on screen is
-    // what was searched for.
-    this.drawChips(found.chips);
-    this.drawHead(found);
-    this.drawHits(found);
-    this.drawRail(found);
+    const rung = this.rung;
+    const page = this.page;
+    const drew = await this.draws.run(
+      () => (rung ? api.findRung(typed, page, rung) : api.find(typed, page)),
+      (found) => {
+        this.answering = typed;
+        // A sigil sets a chip; the box shows what is left, so what is on screen
+        // is what was searched for.
+        this.drawChips(found.chips);
+        this.drawHead(found);
+        this.drawHits(found);
+        this.drawRail(found);
+      },
+    );
+    if (!drew) return;
+    await this.scope.refresh();
     // The lane, **after** — a separate call, a separate list, and a separate
     // claim (spec.md §9.9). It is not awaited: the literal answer is already on
     // screen and running a model over the query must not hold it there. And it
@@ -279,16 +391,29 @@ export class SearchView {
     const wrap = document.createElement("div");
     wrap.className = "find-chip";
 
-    const button = document.createElement("button");
-    button.className = "find-chip-face";
-    button.textContent = `${shown?.label ?? chip.name} ▾`;
-    button.title = chip.name;
+    const face = document.createElement("button");
+    face.type = "button";
+    face.className = "find-chip-face";
+    face.textContent = `${shown?.label ?? chip.name} ▾`;
+    face.title = chip.name;
     const menu = document.createElement("div");
     menu.className = "find-chip-menu";
     menu.hidden = true;
 
+    // The scope chip is a doorway, not a setting: it reports where the search is
+    // looking and opens the panel that changes it. It used to open a menu whose
+    // one item was *back to the whole shelf* — a doorway that only led out.
+    if (chip.name === "where") {
+      face.classList.add("is-doorway");
+      face.title = say("scopeWhy");
+      face.addEventListener("click", () => this.scope.toggle());
+      wrap.append(face);
+      return wrap;
+    }
+
     for (const choice of chip.choices) {
       const item = document.createElement("button");
+      item.type = "button";
       item.className = "find-chip-item" + (choice.chosen ? " is-chosen" : "");
       item.textContent = choice.label;
       if (choice.sigil) {
@@ -302,37 +427,18 @@ export class SearchView {
       }
       item.addEventListener("click", async () => {
         menu.hidden = true;
-        if (chip.name === "where") {
-          await api.findWholeShelf();
-        } else {
-          await api.findChip(chip.name, choice.key);
-        }
+        await api.findChip(chip.name, choice.key);
         this.page = 1;
         this.rung = null;
         await this.run();
       });
       menu.append(item);
     }
-    // The scope chip is not a list of options — it is what the facets set — so
-    // its one item is the way back to the whole shelf.
-    if (chip.name === "where") {
-      menu.replaceChildren();
-      const all = document.createElement("button");
-      all.className = "find-chip-item";
-      all.textContent = "כל המדף";
-      all.addEventListener("click", async () => {
-        menu.hidden = true;
-        await api.findWholeShelf();
-        this.page = 1;
-        await this.run();
-      });
-      menu.append(all);
-    }
 
-    button.addEventListener("click", () => {
+    face.addEventListener("click", () => {
       menu.hidden = !menu.hidden;
     });
-    wrap.append(button, menu);
+    wrap.append(face, menu);
     return wrap;
   }
 
@@ -350,15 +456,12 @@ export class SearchView {
     count.className = "find-count";
     count.textContent =
       found.pages > 1
-        ? `${found.total} · עמוד ${found.page} מתוך ${found.pages}`
+        ? `${found.total} · ${say("page")} ${found.page} ${say("pageOf")} ${found.pages}`
         : `${found.total}`;
     this.head.append(said, count);
     // What this search could not see (spec.md §9.7, W26). Drawn on every
     // result page, above the note and the offers, because it is a statement
-    // about the answer and not a suggestion about the query: a reader given
-    // forty hits over a shelf holding four unread scans has been told *these
-    // are the forty places this appears*, and the forty-first is on a page
-    // nobody has read.
+    // about the answer and not a suggestion about the query.
     this.head.append(this.gapLine());
     if (found.note) {
       const note = document.createElement("p");
@@ -369,8 +472,9 @@ export class SearchView {
     // One click back to the literal query (spec.md §9.6 — reversibly).
     if (this.rung) {
       const undo = document.createElement("button");
+      undo.type = "button";
       undo.className = "find-offer";
-      undo.textContent = "בטל";
+      undo.textContent = say("undo");
       undo.addEventListener("click", async () => {
         this.rung = null;
         this.page = 1;
@@ -381,6 +485,7 @@ export class SearchView {
     // The ladder: counts worked out before the click, and nothing applied.
     for (const offer of found.offers) {
       const chip = document.createElement("button");
+      chip.type = "button";
       chip.className = "find-offer";
       chip.textContent = `${offer.label} — ${offer.count}`;
       chip.addEventListener("click", async () => {
@@ -409,18 +514,23 @@ export class SearchView {
     void api
       .scanGap()
       .then((gap) => {
-        if (!gap) return;
+        // The header may have been rebuilt while this was in flight, in which
+        // case this paragraph is no longer in the document and appending to it
+        // costs nothing and shows nothing. `isConnected` says so rather than
+        // leaving a reader wondering why a sentence appeared twice.
+        if (!gap || !line.isConnected) return;
         const said = document.createElement("span");
         said.textContent = gap.said;
         line.append(said);
         const open = document.createElement("button");
+        open.type = "button";
         open.className = "find-offer";
-        open.textContent = "קרא אותם";
+        open.textContent = say("readThem");
         open.title = gap.scans.map((s) => `${s.title} — ${s.read}/${s.pages}`).join("\n");
         open.addEventListener("click", () => {
           const first = gap.scans[0];
           if (!first) return;
-          this.close();
+          this.dock();
           this.opened(first.slug, null);
         });
         line.append(open);
@@ -437,28 +547,27 @@ export class SearchView {
     }
     for (const hit of found.hits) {
       const row = document.createElement("button");
+      row.type = "button";
       row.className = "find-hit";
       const where = document.createElement("span");
       where.className = "find-where";
       where.textContent =
-        hit.page === null ? `${hit.title} ${hit.address}` : `${hit.title} — עמוד ${hit.page}`;
+        hit.page === null
+          ? `${hit.title} ${hit.address}`
+          : `${hit.title} — ${say("page")} ${hit.page}`;
       const text = document.createElement("p");
       text.className = "find-text";
       text.append(...runs(hit.runs));
       row.append(where);
       // The badge (spec.md §9.7). **Badge them, don't demote them**: the row is
-      // where the score put it, and this says what kind of reading it is. The
-      // two badges are not the same claim — a file that carries its own text
-      // said what its words are, and an engine guessed at a photograph, and the
-      // measurement in `girsa-scan/src/engine.rs` puts those forty points of
-      // precision apart.
+      // where the score put it, and this says what kind of reading it is.
       if (hit.by !== null) {
         const badge = document.createElement("span");
         badge.className = hit.guessed ? "find-badge is-guessed" : "find-badge";
-        badge.textContent = hit.guessed ? "OCR" : "סריקה";
+        badge.textContent = hit.guessed ? "OCR" : say("scanBadge");
         badge.title = hit.guessed
-          ? `נקרא במכונה (${hit.by}) — יש לבדוק מול הצילום`
-          : "המילים מתוך הקובץ עצמו";
+          ? `${say("scanGuessedWhy")} (${hit.by})`
+          : say("scanEmbeddedWhy");
         row.append(badge);
       }
       row.append(text);
@@ -470,13 +579,13 @@ export class SearchView {
       this.list.append(row);
     }
     if (found.pages > found.page) {
-      const more = document.createElement("button");
-      more.className = "tool find-more";
-      more.textContent = "עוד";
-      more.addEventListener("click", async () => {
-        this.page += 1;
-        await this.run();
+      const more = button(say("more"), say("more"), () => {
+        void (async () => {
+          this.page += 1;
+          await this.run();
+        })();
       });
+      more.classList.add("find-more");
       this.list.append(more);
     }
   }
@@ -491,6 +600,7 @@ export class SearchView {
     box.append(said);
     for (const place of found.landing?.places ?? []) {
       const row = document.createElement("button");
+      row.type = "button";
       row.className = "find-hit";
       row.textContent = place.reference;
       row.addEventListener("click", () => {
@@ -519,7 +629,7 @@ export class SearchView {
       group.className = "find-facet";
       const title = document.createElement("p");
       title.className = "find-facet-title";
-      title.textContent = label;
+      title.textContent = label();
       group.append(title);
 
       if (dimension === "link" && found.facets.link.state === "not_built") {
@@ -528,7 +638,7 @@ export class SearchView {
         // Never a silent gap: *nothing is commented on* and *nobody worked out
         // what is commented on* are different statements (spec.md §9.7's rule,
         // one facet over).
-        why.textContent = "לא נבנה — הרץ girsa-link-types ובנה אינדקס מחדש";
+        why.textContent = say("linkFacetUnbuilt");
         group.append(why);
         this.rail.append(group);
         continue;
@@ -548,7 +658,7 @@ export class SearchView {
       if (rows.length > ROWS) {
         const more = document.createElement("p");
         more.className = "find-facet-none";
-        more.textContent = `ועוד ${rows.length - ROWS}`;
+        more.textContent = `${say("andMore")} ${rows.length - ROWS}`;
         group.append(more);
       }
       this.rail.append(group);
@@ -557,7 +667,7 @@ export class SearchView {
     if (found.facets.uncatalogued > 0) {
       const note = document.createElement("p");
       note.className = "find-facet-none";
-      note.textContent = `${found.facets.uncatalogued} תוצאות בספרים שאינם בקטלוג — המדפים שלמעלה חסרים אותן`;
+      note.textContent = `${found.facets.uncatalogued} ${say("uncatalogued")}`;
       this.rail.append(note);
     }
   }
@@ -569,9 +679,10 @@ export class SearchView {
     line.style.paddingInlineStart = `${row.depth * 0.75}rem`;
 
     const narrow = document.createElement("button");
+    narrow.type = "button";
     narrow.className = "find-facet-narrow";
     narrow.textContent = row.label;
-    narrow.title = `צמצם ל־${row.label}`;
+    narrow.title = `${say("narrowTo")}${row.label}`;
     narrow.addEventListener("click", async () => {
       await api.findNarrow(dimension, row, false);
       this.page = 1;
@@ -583,7 +694,7 @@ export class SearchView {
     count.textContent = String(row.count);
 
     // `−` is not a name. What it does is, and it says which row it does it to.
-    const out = glyph("−", `הוצא את ${row.label}`, () => {
+    const out = glyph("−", `${say("takeOut")} ${row.label}`, () => {
       void (async () => {
         await api.findNarrow(dimension, row, true);
         this.page = 1;
@@ -600,14 +711,18 @@ export class SearchView {
 /** The runs of a segment, as elements — corpus text is never put in as markup. */
 function runs(list: Run[]): Node[] {
   return list.map((run) => {
-    if (run.style === "break") return document.createElement("br");
+    // Absent means plain — see `girsa_app::display::Run::style`.
+    const style = run.style ?? "plain";
+    if (style === "break") return document.createElement("br");
     // The words that answered the query get a `<mark>` (W39) — the element, not
     // just a colour, so a screen reader says *highlighted* and a reader can see
     // at a glance which part of the line is the hit. Which words those are came
     // from the engine; this does not go looking.
     const node = document.createElement(run.hit ? "mark" : "span");
-    node.className = run.hit ? `run run-${run.style} is-hit` : `run run-${run.style}`;
+    node.className = run.hit ? `run run-${style} is-hit` : `run run-${style}`;
     node.textContent = run.text;
     return node;
   });
 }
+
+export type { ScopeView };

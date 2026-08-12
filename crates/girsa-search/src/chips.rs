@@ -218,19 +218,34 @@ impl Chips {
                     self.matching_choice(Match::Letters, "these letters, in order", Some("~…")),
                 ],
             });
+            // The distances, and there is more than one of them.
+            //
+            // > *"within 5 words - this should be easily customizable."*
+            //
+            // It was not customizable at all by clicking: the chip offered
+            // exactly one proximity, `within {near_words} words`, and
+            // `near_words` is five unless the chip is *already* set to a
+            // proximity — so the only way to reach any other distance was to
+            // know that typing `~12` did it. §9.5's whole rule is that nothing
+            // is reachable only by typing a syntax.
+            //
+            // A ladder rather than a number box: two words is one phrase apart,
+            // twenty is the same se'if, and the sigil is still there for the
+            // reader who wants seventeen.
+            let mut choices = vec![
+                self.together_choice(Together::Anywhere, "anywhere in a segment", None),
+                self.together_choice(Together::Phrase, "one after the other", Some("\"…\"")),
+            ];
+            for words in self.distances() {
+                choices.push(self.together_choice(
+                    Together::Near { words },
+                    &format!("within {words} words of each other"),
+                    (words == 5).then_some("~5"),
+                ));
+            }
             out.push(Chip {
                 name: "together",
-                choices: vec![
-                    self.together_choice(Together::Anywhere, "anywhere in a segment", None),
-                    self.together_choice(Together::Phrase, "one after the other", Some("\"…\"")),
-                    self.together_choice(
-                        Together::Near {
-                            words: self.near_words(),
-                        },
-                        &format!("within {} words of each other", self.near_words()),
-                        Some("~5"),
-                    ),
-                ],
+                choices,
             });
         }
         if self.mode == Mode::Instruments {
@@ -273,12 +288,21 @@ impl Chips {
         }
     }
 
-    /// The distance the proximity chip shows. What was set, or five.
-    fn near_words(&self) -> u32 {
-        match self.together {
-            Together::Near { words } => words,
-            _ => 5,
+    /// The distances the chip offers, with whatever the reader typed among them.
+    ///
+    /// Fixed rungs so the row is the same every time it is opened, and the
+    /// reader's own number folded in and sorted rather than appended — a `~17`
+    /// typed once must be visible on the chip afterwards, or the control and the
+    /// search disagree about what is set, which is the one thing §9.5 forbids.
+    fn distances(&self) -> Vec<u32> {
+        let mut rungs = vec![2, 3, 5, 10, 20];
+        if let Together::Near { words } = self.together {
+            if !rungs.contains(&words) {
+                rungs.push(words);
+            }
         }
+        rungs.sort_unstable();
+        rungs
     }
 
     /// Read the sigils out of what was typed, and set the chips they name.
@@ -525,6 +549,54 @@ mod tests {
                 "within 5 words of each other"
             ]
         );
+    }
+
+    #[test]
+    fn the_proximity_chip_offers_more_than_one_distance() {
+        // *"within 5 words - this should be easily customizable."* It offered
+        // one distance, always five unless a proximity was already set, so every
+        // other distance was reachable only by knowing to type `~12`.
+        let chips = Chips::default();
+        let row = chips.row();
+        let together = row
+            .iter()
+            .find(|chip| chip.name == "together")
+            .expect("the together chip");
+        let labels: Vec<&str> = together.choices.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "anywhere in a segment",
+                "one after the other",
+                "within 2 words of each other",
+                "within 3 words of each other",
+                "within 5 words of each other",
+                "within 10 words of each other",
+                "within 20 words of each other",
+            ]
+        );
+        // And every one of them round-trips through `choose`, which is what
+        // `everything_offered_can_be_chosen` asserts over the whole row.
+        let mut chips = Chips::default();
+        assert!(chips.choose("together", "Near10").is_ok());
+        assert_eq!(chips.together, Together::Near { words: 10 });
+    }
+
+    #[test]
+    fn a_distance_the_reader_typed_appears_on_the_chip() {
+        // The other half of §9.5: a control that does not show what is set is a
+        // control that lies. `~17` is a real search and the chip has to say so.
+        let (chips, _) = Chips::default().read("יתגבר ~17 כארי");
+        let row = chips.row();
+        let together = row
+            .iter()
+            .find(|chip| chip.name == "together")
+            .expect("the together chip");
+        assert_eq!(together.shown(), "within 17 words of each other");
+        assert!(together
+            .choices
+            .iter()
+            .any(|c| c.label == "within 17 words of each other" && c.chosen));
     }
 
     #[test]

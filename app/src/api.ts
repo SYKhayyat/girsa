@@ -66,7 +66,9 @@ export interface Refusal {
 /** A stretch of words and how it is set — see `girsa_app::display::runs`. */
 export interface Run {
   text: string;
-  style: "plain" | "opening" | "quiet" | "break";
+  /** Absent means `plain`, which nearly every run is — it is left off the wire.
+   * See `girsa_app::display::Run::style`. */
+  style?: "plain" | "opening" | "quiet" | "break";
   /** These are the words that answered the search (W39). Beside the style and
    * not one of its values, because a hit inside a dibur hamatchil is both. */
   hit?: boolean;
@@ -90,8 +92,9 @@ export interface Line {
   id: string;
   address: string;
   /** What kind of line this is. `note`, `item`, `row` and `quote` come from a
-   * .ksav of your own (W29) and are drawn as themselves rather than as prose. */
-  kind: "heading" | "text" | "note" | "item" | "row" | "quote" | "page";
+   * .ksav of your own (W29) and are drawn as themselves rather than as prose.
+   * Absent means `text`, which nearly every line is. */
+  kind?: "heading" | "text" | "note" | "item" | "row" | "quote" | "page";
   runs: Run[];
   /** The corrections on this line. Absent on nearly every line there is. */
   fixed?: FixMark[];
@@ -234,11 +237,21 @@ export interface Text {
   has_nikud: boolean;
 }
 
+/**
+ * How the corpus places one sefer against another — `girsa_app::shelf::Related`.
+ *
+ * Three, not a bool. `declared: boolean` was one flag over three different
+ * claims, and Onkelos declares Bereshis as its base text, so opening Onkelos put
+ * Bereshis in the list under the word `פירוש`.
+ */
+export type Related = "on" | "base" | "alongside";
+
 export interface Companion {
   slug: string;
   he_title: string;
   en_title: string;
-  declared: boolean;
+  /** `null` where only the edge count joins them. */
+  stands: Related | null;
   links: number;
 }
 
@@ -292,8 +305,12 @@ export interface Choice {
   slug: string;
   he_title: string;
   en_title: string;
-  /** The corpus places this sefer on the one you are reading. */
-  declared: boolean;
+  /** How the corpus places this sefer against the one you are reading. */
+  stands: Related | null;
+  /** What that relationship is called, worded in Rust beside the enum. */
+  said?: string;
+  /** And what the claim rests on, for the hover. */
+  why?: string;
   /** How many edges join the two, where that is all there is. */
   links: number;
   /**
@@ -357,9 +374,12 @@ export type CiteStyleName = "hebrew-full" | "hebrew-short" | "english";
 
 /** The whole settings surface, in one call (B13). */
 export interface Settings {
-  nikud: boolean;
+  pointing: Pointing;
   text_size: number;
+  /** Which language the **seforim** are named in. */
   language: Language;
+  /** And which language the **window** speaks. Two settings, two commands. */
+  interface: Language;
   cite: CiteStyle;
   showing: Showing;
   theme: "system" | "light" | "dark";
@@ -449,6 +469,7 @@ export interface Copied {
  *  Two declarations of one type is the shape of every bug this project's rules
  *  are written to prevent. */
 import type { Presence } from "./presence.ts";
+import { say } from "./say.ts";
 export type { Presence };
 
 /**
@@ -475,12 +496,22 @@ export interface Writing {
   path: string;
 }
 
+/**
+ * How much of the pointing is drawn — `girsa_app::session::Pointing`.
+ *
+ * Three, and the middle one is what the reader asked for: *"there is no way to
+ * have nikud and no trup."*
+ */
+export type Pointing = "full" | "nikud" | "plain";
+
 export interface AppState {
   workspace: Workspace;
-  nikud: boolean;
+  pointing: Pointing;
   text_size: number;
-  /** Which language the window is in (W41). Every sefer name follows it. */
+  /** Which language the seforim are named in (W41). */
   language: Language;
+  /** Which language the window itself speaks. */
+  interface: Language;
   /** The resolved shortcut table (B13): spelling → action id. Sent with the state
    * because a `keydown` handler cannot await a round trip before deciding whether
    * to swallow the key. */
@@ -886,8 +917,12 @@ export const api = {
   recent: () => call<Card[]>("recent"),
   companions: (slug: string) => call<Companion[]>("companions", { slug }),
   mefarshim: (slug: string) => call<Mefarshim>("mefarshim", { slug }),
+  /** Tick one, and get the **whole** list back as it stands now. It used to
+   * answer with the marked lines only, and the window patched the rest of its
+   * own copy — which is why ticking a sefer that was not in `works` left the
+   * tick-count at zero and clicking a line did nothing. */
   chooseMefaresh: (slug: string, work: string, on: boolean) =>
-    call<string[]>("choose_mefaresh", { slug, work, on }),
+    call<Mefarshim>("choose_mefaresh", { slug, work, on }),
   mefarshimAt: (slug: string, at: string) => call<Comments>("mefarshim_at", { slug, at }),
   openSefer: (slug: string) => call<Text>("open_sefer", { slug }),
   openTab: (slug: string) => call<PaneId>("open_tab", { slug }),
@@ -899,8 +934,10 @@ export const api = {
   setFollows: (pane: PaneId, leader: PaneId | null) =>
     call<void>("set_follows", { pane, leader }),
   setRatio: (pane: PaneId, ratio: number) => call<void>("set_ratio", { pane, ratio }),
-  setNikud: (on: boolean) => call<void>("set_nikud", { on }),
+  setPointing: (pointing: Pointing) => call<void>("set_pointing", { pointing }),
   setLanguage: (language: Language) => call<void>("set_language", { language }),
+  /** What the **window** says, as against what the seforim are called. */
+  setInterface: (language: Language) => call<void>("set_interface", { language }),
   settings: () => call<Settings>("settings"),
   setLook: (look: {
     theme: string;
@@ -979,6 +1016,18 @@ export const api = {
     call<void>("find_narrow", { dimension, row, exclude }),
   findWholeShelf: () => call<void>("find_whole_shelf"),
 
+  // --- where the search looks (the scope panel) ---------------------------
+  //
+  // The scope exists before any search and outlives every one, which is the
+  // whole point: the facet rail is computed from a result set, so it only
+  // appeared after a search had already run and was cleared at the start of the
+  // next — *"often the tree to pick from … is not even visible - it flashes,
+  // then flashes off."*
+  findScope: () => call<ScopeView>("find_scope"),
+  findScopeAdd: (dimension: Dimension, key: string, label: string, exclude: boolean) =>
+    call<ScopeView>("find_scope_add", { dimension, key, label, exclude }),
+  findScopeDrop: (at: number) => call<ScopeView>("find_scope_drop", { at }),
+
   // --- the semantic lane (spec.md §9.9, W30) ------------------------------
   //
   // A separate set of calls, on purpose. There is no argument to `find` that
@@ -1019,6 +1068,10 @@ export const api = {
   buffers: () => call<string[]>("buffers"),
   bufferOpen: (name: string) => call<Writing>("buffer_open", { name }),
   bufferSave: (name: string, text: string) => call<string>("buffer_save", { name, text }),
+  /** Write a copy of the document into a folder the reader chose. The working
+   * buffer stays where `buffers()` can find it. */
+  bufferWriteTo: (name: string, text: string, into: string) =>
+    call<string>("buffer_write_to", { name, text, into }),
   sourceMarkup: (from: string, to: string, fromChar: number, toChar: number | null) =>
     call<string>("source_markup", { from, to, fromChar, toChar }),
   bufferToKsav: (name: string, text: string) => call<void>("buffer_to_ksav", { name, text }),
@@ -1059,8 +1112,10 @@ export const api = {
   // Base text + your patches → a file. Nothing is applied here that is not
   // already applied on the page: the export writes the sefer as it is being
   // read.
-  exportSefer: (slug: string, format: "txt" | "docx") =>
-    call<Written>("export_sefer", { slug, format }),
+  /** `into` is a folder the reader chose. Absent means *where the last one
+   * went*, so the second export does not ask again. */
+  exportSefer: (slug: string, format: "txt" | "docx", into?: string) =>
+    call<Written>("export_sefer", { slug, format, into: into ?? null }),
 
   // --- links, and repairing them (W23) ------------------------------------
   //
@@ -1185,6 +1240,21 @@ export interface Facets {
 
 export type Dimension = "sefer" | "shelf" | "era" | "author" | "link" | "tag";
 
+/** One thing the reader added to, or subtracted from, where the search looks. */
+export interface ScopeStep {
+  label: string;
+  exclude: boolean;
+  seforim: number;
+}
+
+/** Where the search is looking, as a list the panel draws and edits. */
+export interface ScopeView {
+  /** The chip's own sentence, so the panel and the chip cannot word it twice. */
+  said: string;
+  steps: ScopeStep[];
+  everything: boolean;
+}
+
 export interface Hit extends At {
   runs: Run[];
   /** Which page of a scan this is, where it is one — so the row opens the
@@ -1308,7 +1378,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
   if (!fixtureState) {
     fixtureState = await json<AppState>("/dev/state.json").catch((): AppState => ({
       workspace: { tabs: [], active: 0 },
-      nikud: true,
+      pointing: "full",
       text_size: 100,
       // The same numbers `girsa_app::workspace` holds. This literal is the
       // browser's last resort when even the fixture will not load, so it is not
@@ -1316,12 +1386,13 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       // normally answers here is generated from Rust.
       share_bounds: [150, 850],
       language: "hebrew",
+      interface: "hebrew",
       keys: {},
       look: { theme: "system", hebrew_font: "", latin_font: "", line_height: 195, column_ch: 0 },
       positions: {},
       works: 0,
       cite: "hebrew_full",
-      pairing: "הכתיבה פועלת בחלון בלבד",
+      pairing: say("browserWriting"),
       showing: "fixed",
       fixes: 0,
       suspects: 0,
@@ -1351,21 +1422,24 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // is the truth here — there are no edges in a fixture — so the door says
     // *nobody comments on this* rather than pretending six people do.
     case "mefarshim":
-      return { works: [], alongside: [], folders: [], marked: [], touched: 0 } as T;
     case "choose_mefaresh":
-      return [] as unknown as T;
+      return {
+        works: [], alongside: [], folders: [], listed: [], marked: [],
+        touched: 0, unbuilt: null,
+      } as T;
     case "mefarshim_at":
       return { said: [], others: false } as T;
     case "open_sefer": {
       const key = flatten(slug!);
       if (!texts.has(key)) texts.set(key, await json<Text>(`/dev/text-${key}.json`));
       const text = texts.get(key)!;
-      if (fixtureState.nikud) return text as T;
+      if (fixtureState.pointing === "full") return text as T;
+      const pointing = fixtureState.pointing;
       return {
         ...text,
         lines: text.lines.map((l) => ({
           ...l,
-          runs: l.runs.map((r) => ({ ...r, text: withoutMarks(r.text) })),
+          runs: l.runs.map((r) => ({ ...r, text: withoutMarks(r.text, pointing) })),
         })),
       } as T;
     }
@@ -1395,7 +1469,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
           plain: false,
           html: false,
           packet: false,
-          trouble: "העתקת מקור פועלת בחלון בלבד",
+          trouble: say("browserCopy"),
         },
       } as T;
     case "buffers":
@@ -1407,7 +1481,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "scan_map":
     case "scan_forget":
     case "scan_copy":
-      throw new Error("סריקות נפתחות בחלון בלבד");
+      throw new Error(say("browserScans"));
     case "scan_at":
       return { page: Number(args?.page ?? 1), display: null, reference: null, id: null } as T;
     case "scan_page_of":
@@ -1417,7 +1491,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "fix":
     case "unfix":
     case "export_sefer":
-      throw new Error("תיקונים פועלים בחלון בלבד");
+      throw new Error(say("browserFixes"));
     case "fixes":
     case "suspects":
       return [] as T;
@@ -1447,29 +1521,38 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "folder_edit":
     case "folder_forget":
     case "export_layer":
-      throw new Error("השכבה שלך פועלת בחלון בלבד");
+      throw new Error(say("browserLayer"));
     case "buffer_open":
       return {
         name: String(args?.name ?? ""),
         text: "",
-        path: "כתיבה פועלת בחלון בלבד",
+        path: say("browserBuffer"),
       } as T;
     case "ksav_presence":
       return { state: "not_running" } as T;
     case "set_language":
+    case "set_interface":
     case "set_look":
       return undefined as T;
     case "bind_key":
       return [] as unknown as T;
     case "settings":
       return {
-        nikud: true, text_size: 100, language: "hebrew", cite: "hebrew_full",
-        showing: "fixed", theme: "system", hebrew_font: "", latin_font: "",
-        line_height: 195, column_ch: 0, shortcuts: [], fonts: [],
+        pointing: "full", text_size: 100, language: "hebrew", interface: "hebrew",
+        cite: "hebrew_full", showing: "fixed", theme: "system", hebrew_font: "",
+        latin_font: "", line_height: 195, column_ch: 0, shortcuts: [], fonts: [],
+        share_bounds: [150, 850],
       } as T;
-    case "set_nikud":
-      fixtureState.nikud = Boolean(args?.on);
+    case "set_pointing":
+      fixtureState.pointing = (args?.pointing as Pointing) ?? "full";
       return undefined as T;
+    // The scope is the shell's: it lives beside the index, and there is no
+    // index out here. An empty one is the honest answer — the whole shelf —
+    // rather than a panel that looks editable and forgets every click.
+    case "find_scope":
+    case "find_scope_add":
+    case "find_scope_drop":
+      return { said: "whole shelf", steps: [], everything: true } as T;
     // Search is the shell's. The fixtures are static JSON written by
     // `dev-fixtures`, and a search index is neither static nor small — so the
     // browser says which of the two it is looking at rather than showing an
@@ -1486,7 +1569,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         chips: [],
         offers: [],
         refused:
-          "החיפוש פועל בחלון בלבד — הדפדפן קורא קבצי דוגמה סטטיים, ואין בהם אינדקס",
+          say("browserSearch"),
         landing: null,
       } as T;
     // The semantic lane in a browser build: **off, and saying so.** It cannot
@@ -1523,7 +1606,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         label: "adjacent — found by meaning rather than by these words",
         near: [],
         coverage: NOTHING_YET,
-        refused: "הלשון הסמוכה פועלת בחלון בלבד — הדפדפן קורא קבצי דוגמה סטטיים",
+        refused: say("browserLane"),
       } as T;
     default:
       return undefined as T;
@@ -1537,9 +1620,17 @@ function flatten(slug: string): string {
 // Only ever used by the browser fixtures, and only because a static file cannot
 // call into Rust. The shell strips marks in `girsa-app::display`, which is the
 // one implementation the app itself uses.
-function withoutMarks(text: string): string {
+function withoutMarks(text: string, pointing: Pointing): string {
   // The mark block, less the four code points inside it that separate words —
   // maqaf, paseq, sof pasuq and nun hafukha. Deleting a maqaf would join two
   // words into one on the page.
+  //
+  // Two ranges now, because there are three settings: `nikud` takes off the
+  // te'amim alone (U+0591-U+05AF, plus meteg and the two dots), and `plain`
+  // takes off everything. The Rust is `girsa_app::session::Pointing::draws`,
+  // and this is the browser's copy of it for a build with no Rust to ask.
+  if (pointing === "nikud") {
+    return text.replace(/[֑-ֽׅ֯ׄ]/gu, "");
+  }
   return text.replace(/[֑-ׇֽֿׁׂׅׄ]/g, "");
 }

@@ -25,16 +25,33 @@
 // spelling anybody has to agree with is the one `keys.ts` produces — and that one
 // is cross-checked against Rust's.
 
-import { api, type Settings, type Shortcut } from "./api.ts";
+import { api, type Pointing, type Settings, type Shortcut } from "./api.ts";
 import { announces, button, choice as pick, field, glyph, region } from "./controls.ts";
 import { said } from "./keys.ts";
+import { interfaceLanguage, say } from "./say.ts";
 
 /** What a theme row offers. Three, said out loud — see `session::Theme`. */
-const THEMES: { value: string; he: string; en: string }[] = [
-  { value: "system", he: "כמו המערכת", en: "Follow the system" },
-  { value: "light", he: "בהיר", en: "Light" },
-  { value: "dark", he: "כהה", en: "Dark" },
+const THEMES: { value: string; label: () => string }[] = [
+  { value: "system", label: () => say("themeSystem") },
+  { value: "light", label: () => say("themeLight") },
+  { value: "dark", label: () => say("themeDark") },
 ];
+
+/** The three pointing settings, in the order the control rounds them —
+ * `girsa_app::session::Pointing::ALL`. */
+const POINTING: { value: Pointing; label: () => string }[] = [
+  { value: "full", label: () => say("pointingFull") },
+  { value: "nikud", label: () => say("pointingNikud") },
+  { value: "plain", label: () => say("pointingPlain") },
+];
+
+/** The two languages, offered on both language rows. */
+function languages(): { value: string; label: string }[] {
+  return [
+    { value: "hebrew", label: say("hebrew") },
+    { value: "english", label: say("english") },
+  ];
+}
 
 export class SettingsView {
   readonly element: HTMLElement;
@@ -47,15 +64,15 @@ export class SettingsView {
     this.element.className = "settings";
     this.element.hidden = true;
 
-    const sheet = region("dialog", "הגדרות", "settings-sheet");
+    const sheet = region("dialog", say("settings"), "settings-sheet");
     const head = document.createElement("header");
     head.className = "settings-head";
     const title = document.createElement("h2");
-    title.textContent = "הגדרות";
-    head.append(title, glyph("×", "סגור את ההגדרות", () => this.close()));
+    title.textContent = say("settings");
+    head.append(title, glyph("×", say("settingsClose"), () => this.close()));
     this.body = document.createElement("div");
     this.body.className = "settings-body";
-    announces(this.body, "הגדרות");
+    announces(this.body, say("settings"));
     sheet.append(head, this.body);
     this.element.append(sheet);
 
@@ -100,11 +117,11 @@ export class SettingsView {
     if (!s) return;
     this.body.replaceChildren();
 
-    this.body.append(this.heading("הקריאה"));
+    this.body.append(this.heading(say("settingsReading")));
     this.body.append(
       this.choice(
-        "ערכת צבעים",
-        THEMES.map((t) => ({ value: t.value, label: t.he })),
+        say("settingsTheme"),
+        THEMES.map((t) => ({ value: t.value, label: t.label() })),
         s.theme,
         (value) => void this.look({ theme: value as Settings["theme"] }),
       ),
@@ -112,17 +129,17 @@ export class SettingsView {
     // Two font rows, and that is the point: a daf is Hebrew with an English
     // footnote, and one family for both means choosing which language reads badly.
     this.body.append(
-      this.fontRow("גופן עברי", s.hebrew_font, s.fonts, (value) =>
+      this.fontRow(say("settingsHebrewFont"), s.hebrew_font, s.fonts, (value) =>
         void this.look({ hebrew_font: value }),
       ),
     );
     this.body.append(
-      this.fontRow("גופן לטיני", s.latin_font, s.fonts, (value) =>
+      this.fontRow(say("settingsLatinFont"), s.latin_font, s.fonts, (value) =>
         void this.look({ latin_font: value }),
       ),
     );
     this.body.append(
-      this.number("גודל הקריאה", s.text_size, 60, 250, 5, "%", (value) => {
+      this.number(say("settingsSize"), s.text_size, 60, 250, 5, "%", (value) => {
         void api.setTextSize(value).then(() => this.changed());
       }),
     );
@@ -130,42 +147,57 @@ export class SettingsView {
     // compare equal to itself after a round trip — the same reason a split's ratio
     // is in tenths of a percent.
     this.body.append(
-      this.number("רווח בין השורות", s.line_height, 100, 320, 5, "%", (value) =>
+      this.number(say("settingsLeading"), s.line_height, 100, 320, 5, "%", (value) =>
         void this.look({ line_height: value }),
       ),
     );
     // Zero is *no limit*, which is a real answer and why the row says so rather
     // than showing a 0 somebody would read as a bug.
     this.body.append(
-      this.number("רוחב הטור (אותיות, 0 = בלי הגבלה)", s.column_ch, 0, 200, 5, "", (value) =>
+      this.number(say("settingsMeasure"), s.column_ch, 0, 200, 5, "", (value) =>
         void this.look({ column_ch: value }),
       ),
     );
-    this.body.append(
-      this.check("ניקוד", s.nikud, (on) => {
-        void api.setNikud(on).then(() => this.changed());
-      }),
-    );
-
-    this.body.append(this.heading("שפת התוכנה"));
+    // Three settings, not a checkbox. A bool could hold *everything* and
+    // *nothing*, and the one a reader asked for is the third: nikud with the
+    // te'amim off.
     this.body.append(
       this.choice(
-        "שמות הספרים",
-        [
-          { value: "hebrew", label: "עברית" },
-          { value: "english", label: "English" },
-        ],
-        s.language,
+        say("settingsPointing"),
+        POINTING.map((p) => ({ value: p.value, label: p.label() })),
+        s.pointing,
         (value) => {
-          void api.setLanguage(value as "hebrew" | "english").then(() => this.changed());
+          void api.setPointing(value as Pointing).then(() => this.changed());
         },
       ),
     );
 
-    this.body.append(this.heading("מקשים"));
+    // **Two** language rows, because they are two questions.
+    //
+    // > *"there is no way to change UI into english - only seforim names. there
+    // > should be 2 seperate commands."*
+    //
+    // There was one setting, and it was the seforim: the interface was Hebrew
+    // string literals typed into twenty modules. The window has a language of
+    // its own now, and a reader can have either combination — Hebrew seforim in
+    // an English window is the ordinary case for somebody who learns in Hebrew
+    // and works in English, and it was the one arrangement that was impossible.
+    this.body.append(this.heading(say("settingsLanguage")));
+    this.body.append(
+      this.choice(say("seforimIn"), languages(), s.language, (value) => {
+        void api.setLanguage(value as "hebrew" | "english").then(() => this.changed());
+      }),
+    );
+    this.body.append(
+      this.choice(say("windowIn"), languages(), s.interface, (value) => {
+        void api.setInterface(value as "hebrew" | "english").then(() => this.changed());
+      }),
+    );
+
+    this.body.append(this.heading(say("settingsKeys")));
     const note = document.createElement("p");
     note.className = "settings-note";
-    note.textContent = "לחץ על המקש הרצוי, או על ↺ כדי להחזיר";
+    note.textContent = say("settingsKeysHint");
     this.body.append(note);
     for (const row of s.shortcuts) this.body.append(this.shortcutRow(row));
   }
@@ -215,12 +247,10 @@ export class SettingsView {
     return this.row(label, box);
   }
 
-  private check(label: string, on: boolean, set: (on: boolean) => void): HTMLElement {
-    const input = field(label, { type: "checkbox", className: "settings-check" });
-    input.checked = on;
-    input.addEventListener("change", () => set(input.checked));
-    return this.row(label, input);
-  }
+// The checkbox helper went with the nikud row it was written for. Nothing else
+// on this panel is a yes-or-no: the pointing is three settings, the two
+// languages are two of two, and the rest are numbers, fonts and keys. A helper
+// kept for a caller that does not exist is the next reader's ten minutes.
 
   private choice(
     label: string,
@@ -258,7 +288,7 @@ export class SettingsView {
   ): HTMLElement {
     const input = field(label, { type: "text", className: "settings-text", dir: "auto" });
     input.value = value;
-    input.placeholder = "כמו שהוגדר בעיצוב";
+    input.placeholder = say("fontDefault");
     input.setAttribute("list", `fonts-${label}`);
     input.addEventListener("change", () => set(input.value));
     const list = document.createElement("datalist");
@@ -283,7 +313,13 @@ export class SettingsView {
    * take over again — one code path rather than two.
    */
   private shortcutRow(row: Shortcut): HTMLElement {
-    const key = button(row.bound ?? "—", `${row.en} · ${row.shipped}`, () => {
+    // Named in the language the **window** is in. `girsa_app::keys` carries
+    // both names for every action; this row printed the Hebrew as its label and
+    // the English as its tooltip whatever the window was set to, which reads as
+    // a translation of a tooltip rather than as a setting.
+    const named = interfaceLanguage() === "hebrew" ? row.he : row.en;
+    const other = interfaceLanguage() === "hebrew" ? row.en : row.he;
+    const key = button(row.bound ?? "—", `${other} · ${row.shipped}`, () => {
       key.textContent = "…";
       const listen = (event: KeyboardEvent) => {
         event.preventDefault();
@@ -302,13 +338,13 @@ export class SettingsView {
     });
     key.className = "settings-key";
 
-    const reset = glyph("↺", `${row.he} — החזר ל-${row.shipped}`, () => {
+    const reset = glyph("↺", `${named} — ${say("putBack")}${row.shipped}`, () => {
       void this.bind(row.id, "");
     });
     const box = document.createElement("span");
     box.className = "settings-with-unit";
     box.append(key, reset);
-    return this.row(row.he, box);
+    return this.row(named, box);
   }
 
   private async bind(action: string, to: string): Promise<void> {
