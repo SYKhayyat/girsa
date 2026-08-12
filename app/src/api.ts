@@ -1448,12 +1448,20 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // The mefarshim tick-list in a browser with no link graph. Empty, and empty
     // is the truth here — there are no edges in a fixture — so the door says
     // *nobody comments on this* rather than pretending six people do.
+    // The real tick-list, written by `dev-fixtures` through the same
+    // `Mefarshim::of` the shell answers with. It used to be a hardcoded empty
+    // one, so the door said `מפרשים · 34` — off the companions fixture, which
+    // *was* real — over a list with nothing in it.
+    //
+    // Ticking is the shell's: what is ticked lives in the session, and there is
+    // none out here. So a tick comes back as the list unchanged rather than as a
+    // tick that looks like it landed.
     case "mefarshim":
     case "choose_mefaresh":
-      return {
+      return json<Mefarshim>(`/dev/mefarshim-${flatten(slug!)}.json`).catch(() => ({
         works: [], alongside: [], folders: [], listed: [], marked: [],
         touched: 0, unbuilt: null,
-      } as T;
+      })) as Promise<T>;
     case "mefarshim_at":
       return { said: [], others: false } as T;
     case "open_sefer": {

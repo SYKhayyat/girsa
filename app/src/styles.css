@@ -2761,7 +2761,28 @@ body {
   width: 100%;
 }
 
+/* The pick is a press, not a tick — see `picker.ts`. Two identical checkboxes
+ * on one row is a control a reader has to discover by trying it. */
 .picker-pick {
+  width: 20px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink-quiet);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.picker-pick.is-on {
+  color: var(--mark);
+  border-color: var(--mark-quiet);
+  background: var(--mark-quiet);
+}
+
+.picker-tick {
   accent-color: var(--mark);
 }
 

@@ -139,6 +139,21 @@ fn main() -> std::process::ExitCode {
     }
     write(&out.join("shelf.json"), &serde_json::json!(by_shelf));
 
+    // The mefarshim door, for both seforim — through `Mefarshim::of`, which is
+    // what the shell answers `mefarshim` with. The browser build used to reply
+    // with an empty list while the door beside it said `מפרשים · 34` off the
+    // companions fixture: a button promising thirty-four over nothing, in the
+    // build whose purpose is looking at the window.
+    for sefer in [&leader, &follower] {
+        let marks = girsa_app::mefarshim::Marks::of(&shelf, &sefer.work.slug)
+            .unwrap_or_else(|_| girsa_app::mefarshim::Marks::default());
+        let door = girsa_app::view::Mefarshim::of(&shelf, &marks, &sefer.work.slug, &[]);
+        write(
+            &out.join(format!("mefarshim-{}.json", flatten(&sefer.work.slug))),
+            &serde_json::json!(door),
+        );
+    }
+
     for sefer in [&leader, &follower] {
         // `Text`, `Card` and `Line`, the real types.
         //

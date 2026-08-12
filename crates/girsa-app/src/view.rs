@@ -482,6 +482,76 @@ pub struct Mefarshim {
     pub unbuilt: Option<String>,
 }
 
+impl Mefarshim {
+    /// Weave the whole tick-list for one sefer.
+    ///
+    /// # Why this is here and not in the shell
+    ///
+    /// It was thirty lines of the `mefarshim` command: read the marks, ask for
+    /// the folders, name both lists the same way, work out `unbuilt`, call
+    /// `mefarshim::listed`. All of it is a decision about what the door shows,
+    /// none of it needs a window, and the shell was the only thing that could
+    /// run it — so `dev-fixtures` could not, and the browser build answered every
+    /// `mefarshim` call with an **empty list** while the door beside it said
+    /// `מפרשים · 34` off the companions fixture.
+    ///
+    /// A button that promises thirty-four over an empty list is the exact defect
+    /// this pass has been pulling out of the shell all day, sitting in the build
+    /// whose whole purpose is looking at the window. One composer, two callers.
+    #[must_use]
+    pub fn of(
+        shelf: &crate::shelf::Shelf,
+        marks: &crate::mefarshim::Marks,
+        slug: &str,
+        chosen: &[String],
+    ) -> Self {
+        let commentators = marks.commentators();
+        let alongside = marks.alongside();
+        let works: Vec<girsa_corpus::work::Work> = commentators
+            .iter()
+            .filter_map(|slug| shelf.work(slug).cloned())
+            .collect();
+        // The folders they stand in, over the same works the list offers —
+        // through `taxonomy`'s idea of a shelf, so a sefer is in one place here
+        // and on the bookcase. Only the mefarshim: the seforim running alongside
+        // are drawn flat, so grouping them would be a tree nobody asked for.
+        let folders = crate::mefarshim::folders(&works, shelf.arrangement(), shelf.shipped());
+        // One naming, both lists. Two copies would drift the day one of them
+        // learns to say something the other does not.
+        let named = |work: String| Mefaresh {
+            he_title: shelf
+                .work(&work)
+                .map_or_else(|| work.clone(), |w| w.he_title.clone()),
+            en_title: shelf
+                .work(&work)
+                .map_or_else(|| work.clone(), |w| w.en_title.clone()),
+            chosen: chosen.contains(&work),
+            shelf: folders.of.get(&work).cloned(),
+            slug: work,
+        };
+        let listed = crate::mefarshim::listed(
+            &shelf.companions(slug),
+            &commentators,
+            &alongside,
+            &folders,
+            chosen,
+            shelf,
+        );
+        Self {
+            marked: marks.marked(chosen).into_iter().collect(),
+            touched: marks.segments_touched(),
+            works: commentators.into_iter().map(&named).collect(),
+            alongside: alongside.into_iter().map(&named).collect(),
+            folders: folders.tree,
+            listed,
+            // The third answer. Nothing here and no cache are not the same.
+            unbuilt: (!girsa_link::inbound::built(shelf.root())).then(|| {
+                "the link graph has not been walked yet — run girsa-link-types".to_string()
+            }),
+        }
+    }
+}
+
 /// One mefaresh's words on one line.
 #[derive(Serialize)]
 pub struct Said {

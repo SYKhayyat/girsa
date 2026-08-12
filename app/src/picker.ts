@@ -7,7 +7,7 @@
 // order, which is a list and not a choice.
 
 import { api, type Card, type Mefarshim, type Related } from "./api.ts";
-import { field } from "./controls.ts";
+import { field, glyph } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
 import { say } from "./say.ts";
@@ -246,18 +246,28 @@ export class Picker {
       // tick, because they are different questions: *mark what this one says on
       // my daf* and *put it in a column beside me* are the two things the door
       // does, and a reader wants either without the other.
+      //
+      // **And it does not look like the tick.** It was a second checkbox, so
+      // every row carried two identical unlabelled boxes side by side and the
+      // only thing telling them apart was a tooltip. A reader would have to
+      // discover which column is which by trying one — which is the shape of
+      // *"i have no clue what okev does"*, built fresh. A box you tick and a
+      // plus you press are two different gestures for two different jobs.
       if (this.beside) {
-        const pick = field(`${say("scopeAdd")} ${row.title}`, {
-          type: "checkbox",
-          className: "picker-pick",
-        });
-        pick.checked = this.picked.includes(row.slug);
+        const on = this.picked.includes(row.slug);
+        const pick = glyph(on ? "✓" : "＋", `${say("openChosen")} — ${row.title}`, () => {});
+        pick.className = "picker-pick" + (on ? " is-on" : "");
         pick.title = say("openChosenWhy");
+        pick.setAttribute("aria-pressed", String(on));
         pick.addEventListener("click", (event) => {
           event.stopPropagation();
-          this.picked = pick.checked
+          const now = !this.picked.includes(row.slug);
+          this.picked = now
             ? [...this.picked.filter((s) => s !== row.slug), row.slug]
             : this.picked.filter((s) => s !== row.slug);
+          pick.textContent = now ? "✓" : "＋";
+          pick.classList.toggle("is-on", now);
+          pick.setAttribute("aria-pressed", String(now));
           this.drawOpenAll();
         });
         pick.addEventListener("pointerdown", (event) => event.stopPropagation());

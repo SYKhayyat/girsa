@@ -1066,57 +1066,9 @@ fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim
 fn mefarshim_of(state: &mut State, slug: &str) -> Result<Mefarshim, String> {
     let slug = slug.to_string();
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
-    let marks = state.marks(&slug)?;
-    let commentators = marks.commentators();
-    let alongside = marks.alongside();
-    let touched = marks.segments_touched();
-    let marked: Vec<String> = marks.marked(&chosen).into_iter().collect();
-
+    let marks = state.marks(&slug)?.clone();
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    // The folders they stand in, over the same works the list offers — through
-    // `taxonomy::tree`'s idea of a shelf, so a sefer is in one place here and on
-    // the bookcase. Only the mefarshim: the seforim running alongside are drawn
-    // flat, so grouping them would be a tree nobody asked for.
-    let works: Vec<girsa_corpus::work::Work> = commentators
-        .iter()
-        .filter_map(|slug| shelf.work(slug).cloned())
-        .collect();
-    let folders = girsa_app::mefarshim::folders(&works, shelf.arrangement(), shelf.shipped());
-    // One naming, both lists. Two copies would drift the day one of them learns
-    // to say something the other does not.
-    let named = |work: String| {
-        let found = shelf.work(&work);
-        Mefaresh {
-            he_title: found.map_or_else(|| work.clone(), |w| w.he_title.clone()),
-            en_title: found.map_or_else(|| work.clone(), |w| w.en_title.clone()),
-            chosen: chosen.contains(&work),
-            shelf: folders.of.get(&work).cloned(),
-            slug: work,
-        }
-    };
-    // The third answer. Nothing here and no cache is not nothing here.
-    let unbuilt = (!girsa_link::inbound::built(shelf.root()))
-        .then(|| "the link graph has not been walked yet — run girsa-link-types".to_string());
-    // The weave, in Rust. `mefarshim.ts`'s `choices`, `following` and `listed`
-    // did this between them, and the shape they needed to do it — four parallel
-    // arrays — is why the four are here at all.
-    let listed = girsa_app::mefarshim::listed(
-        &shelf.companions(&slug),
-        &commentators,
-        &alongside,
-        &folders,
-        &chosen,
-        shelf,
-    );
-    Ok(Mefarshim {
-        works: commentators.into_iter().map(&named).collect(),
-        alongside: alongside.into_iter().map(&named).collect(),
-        folders: folders.tree,
-        listed,
-        marked,
-        touched,
-        unbuilt,
-    })
+    Ok(Mefarshim::of(shelf, &marks, &slug, &chosen))
 }
 
 /// Tick or untick one mefaresh, and answer with the whole list as it stands
