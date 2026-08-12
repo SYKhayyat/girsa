@@ -157,6 +157,11 @@ const WORDS = {
 
   // --- the picker and the mefarshim door -----------------------------------
   filterList: ["סינון הרשימה", "Filter the list"] as Both,
+  whatIsOpen: ["פתוחים עכשיו", "Open now"] as Both,
+  recentlyRead: ["נקראו לאחרונה", "Read recently"] as Both,
+  readingNow: ["כאן אתה קורא", "you are here"] as Both,
+  /** *Open*, the state — not `open`, which is the button that opens something. */
+  isOpen: ["פתוח", "open"] as Both,
   startTyping: ["התחל להקליד שם של ספר", "start typing a sefer's name"] as Both,
   noSuchSefer: ["אין ספר בשם הזה", "no sefer is called that"] as Both,
   nothingBeside: ["אין ספר שהחיבור מעיד עליו — חפש אחד", "the corpus places nothing here — search for one"] as Both,

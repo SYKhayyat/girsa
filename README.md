@@ -81,7 +81,7 @@ built the forward pass in order to retest the taxonomy. Each of those
 dependencies now stops at the edge of a crate that is *about* it, the arrow
 runs one way, and the reading workspace compiles without any of them.
 
-`app/` is the Tauri shell: a window and **107**<!--=commands--> commands, and
+`app/` is the Tauri shell: a window and **108**<!--=commands--> commands, and
 **nothing that decides anything**. Where a pane lands, what may
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
@@ -90,7 +90,7 @@ is **27**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That sentence used to say *supposed to be*, and it was measured: of the
-shell's **4,006**<!--=shell-lines--> lines, about 150 — 23 commands — were
+shell's **4,054**<!--=shell-lines--> lines, about 150 — 23 commands — were
 genuine pass-through, and the rest decided cache policy, sort orders,
 truncation lengths, patch provenance, which fonts a Hebrew reader is offered,
 what makes a directory a corpus, and what to do with a chip key it did not

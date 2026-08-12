@@ -6,7 +6,7 @@
 // seforim the link graph joins it to — rather than 7,189 titles in alphabetical
 // order, which is a list and not a choice.
 
-import { api, type Card, type Mefarshim, type Related } from "./api.ts";
+import { api, type Card, type Mefarshim, type OpenSefer, type Related } from "./api.ts";
 import { field, glyph } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
@@ -170,9 +170,32 @@ export class Picker {
     }
     this.said.textContent = "";
     if (query.length === 0) {
+      // **What is open, first.** The open set is not the tab strip — a tab
+      // holding a Gemara, its Rashi and its Tosafos is one entry in the strip
+      // and three seforim that are open — so once a tab is an arrangement the
+      // strip stops being an inventory of what you have, and this is the surface
+      // that tells that truth. Borrowed from the sibling application, where the
+      // same absence produced seven complaints
+      // (`Ksav/decisions/2026-08-11-marking-up-the-ui-inventory.md`).
+      //
+      // Most recently read first, because the thing a keyboard route is for is
+      // *the sefer I was just in*.
       await this.draws.run(
-        () => api.recent(),
-        (cards) => this.fill(cards.map(cardRow), say("startTyping")),
+        async () => ({ open: await api.openSet(), recent: await api.recent() }),
+        ({ open, recent }) => {
+          const rows: Row[] = [];
+          if (open.length > 0) {
+            rows.push(headingRow(say("whatIsOpen"), open.length));
+            rows.push(...open.map(openRow));
+          }
+          const already = new Set(open.map((o) => o.slug));
+          const rest = recent.filter((c) => !already.has(c.slug));
+          if (rest.length > 0) {
+            rows.push(headingRow(say("recentlyRead"), rest.length));
+            rows.push(...rest.map(cardRow));
+          }
+          this.fill(rows, say("startTyping"));
+        },
       );
       return;
     }
@@ -357,6 +380,20 @@ function listedRow(entry: Listed): Row {
     };
   }
   return companionRow(entry.choice);
+}
+
+/** A heading over a group of rows — not a row you can choose. */
+function headingRow(title: string, count: number): Row {
+  return { slug: "", title, aside: "", heading: { depth: 0, count } };
+}
+
+/** One sefer that is already open. */
+function openRow(sefer: OpenSefer): Row {
+  return {
+    slug: sefer.slug,
+    title: sefer.title,
+    aside: sefer.here ? say("readingNow") : say("isOpen"),
+  };
 }
 
 function cardRow(card: Card): Row {

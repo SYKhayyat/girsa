@@ -213,6 +213,29 @@ pub struct Workspace {
     /// The next pane id to hand out. Kept so ids are never reused across a
     /// session or across a restart.
     next_pane: u32,
+    /// **The open set**, most recently focused first.
+    ///
+    /// Borrowed from the sibling application, where the same absence produced
+    /// seven separate complaints
+    /// (`Ksav/ksav/app/src/opendocs.ts`, and the decision of 11 August): *which
+    /// documents are open* is not the same question as *which documents exist*,
+    /// and a tab strip cannot answer it once a tab is an arrangement rather than
+    /// a document — a tab holding a Gemara, its Rashi and its Tosafos is one
+    /// entry in the strip and three seforim that are open.
+    ///
+    /// Girsa parts company with Ksav on one rule and it is deliberate. Ksav says
+    /// a document is never open twice, because two carets and two undo stacks
+    /// over one text is how a document gets eaten. A sefer is read-only, and two
+    /// panes on two places in one masechta is a thing people do all day — so the
+    /// same sefer may be open more than once here, and what is a **gesture**
+    /// rule instead: *open a sefer* goes to it if it is open, and a second view
+    /// of it is something you ask for by splitting.
+    ///
+    /// Most recently focused first, because that is the order a switcher wants:
+    /// the keyboard route to *the sefer I was just in* is the one thing a strip
+    /// cannot express.
+    #[serde(default)]
+    recent: Vec<String>,
 }
 
 /// The narrowest a pane may be squeezed to, in tenths of a per cent.
@@ -240,6 +263,57 @@ impl Workspace {
         }
     }
 
+    /// A pane already showing this sefer, if one is.
+    ///
+    /// The **active tab first**: a reader with Berakhos in two tabs who asks for
+    /// Berakhos means the one they are looking at, not the one they opened on
+    /// Tuesday.
+    #[must_use]
+    pub fn showing(&self, slug: &str) -> Option<PaneId> {
+        let here = self
+            .active_tab()
+            .and_then(|tab| tab.panes.iter().find(|p| p.slug == slug));
+        if let Some(pane) = here {
+            return Some(pane.id);
+        }
+        self.tabs
+            .iter()
+            .flat_map(|tab| tab.panes.iter())
+            .find(|p| p.slug == slug)
+            .map(|p| p.id)
+    }
+
+    /// Every sefer that is open, most recently focused first.
+    #[must_use]
+    pub fn open_set(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for slug in &self.recent {
+            if self.showing(slug).is_some() && !out.contains(slug) {
+                out.push(slug.clone());
+            }
+        }
+        // Anything open that nobody has focused since the session was read back
+        // — `recent` is not persisted from before this existed, and a sefer
+        // missing from the switcher is a sefer the reader cannot get back to.
+        for tab in &self.tabs {
+            for pane in &tab.panes {
+                if !out.contains(&pane.slug) {
+                    out.push(pane.slug.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// Note that this sefer is the one being read.
+    fn touched(&mut self, slug: &str) {
+        self.recent.retain(|s| s != slug);
+        self.recent.insert(0, slug.to_string());
+        // A session file is not a history. Long enough to be a switcher, short
+        // enough that nobody scrolls it.
+        self.recent.truncate(40);
+    }
+
     /// Open a sefer in a new tab, and make it the tab you are looking at.
     pub fn open_tab(&mut self, slug: impl Into<String>, at: Option<SegmentId>) -> PaneId {
         let id = self.mint();
@@ -254,7 +328,28 @@ impl Workspace {
             focused: id,
         });
         self.active = self.tabs.len() - 1;
+        self.touched(&self.tabs[self.active].panes[0].slug.clone());
         id
+    }
+
+    /// *Open this sefer* — go to it where it already is, or open it in a tab.
+    ///
+    /// > *"the open sefer is confusing - it should just open a new tab."*
+    ///
+    /// It always opened a new tab, including for a sefer already in front of
+    /// you, so asking for Berakhos twice gave two tabs called ברכות and no way
+    /// to tell them apart. Going to the open one is what every application with
+    /// an open set does, and a **second view** of one sefer — two places in one
+    /// masechta, side by side — is still available by splitting, which is the
+    /// gesture that means it.
+    pub fn open(&mut self, slug: &str, at: Option<SegmentId>) -> PaneId {
+        match self.showing(slug) {
+            Some(pane) => {
+                self.focus(pane);
+                pane
+            }
+            None => self.open_tab(slug, at),
+        }
     }
 
     /// Open a sefer beside an open pane, following it.
@@ -282,6 +377,10 @@ impl Workspace {
             follows: follow.then_some(at),
         });
         tab.focused = id;
+        let opened = tab.panes.last().map(|p| p.slug.clone());
+        if let Some(slug) = opened {
+            self.touched(&slug);
+        }
         Some(id)
     }
 
@@ -368,6 +467,9 @@ impl Workspace {
         }
         if let Some(i) = self.tabs.iter().position(|t| t.pane(pane).is_some()) {
             self.active = i;
+        }
+        if let Some(slug) = self.pane(pane).map(|p| p.slug.clone()) {
+            self.touched(&slug);
         }
     }
 
@@ -611,6 +713,86 @@ mod tests {
         w.close(only);
         assert!(w.tabs.is_empty());
         assert_eq!(w.active, 0);
+    }
+
+    // ── The open set, borrowed from Ksav ─────────────────────────────────────
+
+    #[test]
+    fn opening_a_sefer_that_is_already_open_goes_to_it() {
+        // > *"the open sefer is confusing - it should just open a new tab."*
+        //
+        // It always opened a new one, so asking for Berakhos twice gave two tabs
+        // called ברכות and nothing to tell them apart.
+        let mut w = Workspace::default();
+        let first = w.open("bavli/berakhot", None);
+        w.open_tab("bavli/shabbat", None);
+        assert_eq!(w.tabs.len(), 2);
+
+        let again = w.open("bavli/berakhot", None);
+        assert_eq!(again, first, "the pane that was already showing it");
+        assert_eq!(w.tabs.len(), 2, "and no second tab for one sefer");
+        assert_eq!(w.active, 0, "and the reader is looking at it");
+    }
+
+    #[test]
+    fn a_second_view_of_one_sefer_is_still_something_you_can_ask_for() {
+        // Where Girsa parts company with Ksav, and on purpose: a sefer is
+        // read-only, and two places in one masechta side by side is a thing
+        // people do all day. The **gesture** decides — *open* goes to it, a
+        // split makes another view.
+        let mut w = Workspace::default();
+        let gemara = w.open("bavli/berakhot", None);
+        let beside = w
+            .split(gemara, Axis::Vertical, "bavli/berakhot", false)
+            .expect("splits");
+        assert_ne!(beside, gemara);
+        assert_eq!(w.active_tab().expect("a tab").panes.len(), 2);
+    }
+
+    #[test]
+    fn the_open_set_is_most_recently_read_first() {
+        // What a switcher wants, and the one thing a strip of tabs cannot say
+        // once a tab is an arrangement: a tab holding a Gemara, its Rashi and
+        // its Tosafos is one entry in the strip and three seforim that are open.
+        let mut w = Workspace::default();
+        let gemara = w.open_tab("bavli/berakhot", None);
+        w.split(gemara, Axis::Vertical, "bavli/rashi-on-berakhot", true)
+            .expect("splits");
+        w.open_tab("genesis", None);
+        assert_eq!(
+            w.open_set(),
+            ["genesis", "bavli/rashi-on-berakhot", "bavli/berakhot"]
+        );
+
+        // Reading the Gemara again puts it back on top.
+        w.focus(gemara);
+        assert_eq!(
+            w.open_set(),
+            ["bavli/berakhot", "genesis", "bavli/rashi-on-berakhot"]
+        );
+    }
+
+    #[test]
+    fn a_sefer_that_is_closed_leaves_the_open_set() {
+        let mut w = Workspace::default();
+        w.open_tab("bavli/berakhot", None);
+        w.open_tab("genesis", None);
+        w.close_tab(1);
+        assert_eq!(w.open_set(), ["bavli/berakhot"]);
+    }
+
+    #[test]
+    fn a_session_written_before_the_open_set_still_lists_what_is_open() {
+        // `recent` is `serde(default)`, so a session from before this existed
+        // reads back empty — and a sefer missing from the switcher is a sefer
+        // the reader cannot get back to.
+        let mut w = Workspace::default();
+        w.open_tab("bavli/berakhot", None);
+        w.open_tab("genesis", None);
+        let text = serde_json::to_string(&w).expect("writes");
+        let older: Workspace =
+            serde_json::from_str(&text.replace("\"recent\"", "\"was_recent\"")).expect("reads");
+        assert_eq!(older.open_set().len(), 2);
     }
 
     #[test]

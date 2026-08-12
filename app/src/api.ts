@@ -15,7 +15,7 @@
 // does not answer.
 
 import type { Glyph } from "./glyphs.ts";
-import type { Language } from "./names.ts";
+import { titleIn, type Language } from "./names.ts";
 
 export type PaneId = number;
 
@@ -30,6 +30,14 @@ export interface Card {
   /** Whether this sefer is a scan (W25) — which of the two reading modes it
    * opens into, and a thing a shelf row should say. */
   scan: boolean;
+}
+
+/** One sefer that is open, for the switcher. */
+export interface OpenSefer {
+  slug: string;
+  title: string;
+  /** Whether it is the one being read right now. */
+  here: boolean;
 }
 
 /** One shelf, and everything under it — see `girsa_app::taxonomy`. */
@@ -940,7 +948,12 @@ export const api = {
    * which a link can honestly be. */
   seferIndexOf: (slug: string, at: string) =>
     call<number | null>("sefer_index_of", { slug, at }),
+  /** Open a sefer — **or go to it**, where it is already open. */
   openTab: (slug: string) => call<PaneId>("open_tab", { slug }),
+  /** Every sefer that is open, most recently read first. Not the tab strip: a
+   * tab holding a Gemara, its Rashi and its Tosafos is one entry in the strip
+   * and three seforim that are open. */
+  openSet: () => call<OpenSefer[]>("open_set"),
   split: (pane: PaneId, axis: "vertical" | "horizontal", slug: string, follow: boolean) =>
     call<PaneId | null>("split", { pane, axis, slug, follow }),
   closePane: (pane: PaneId) => call<void>("close_pane", { pane }),
@@ -1447,6 +1460,28 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
   switch (cmd) {
     case "state":
       return fixtureState as T;
+    // Derived from the fixture's own workspace rather than hardcoded, so the
+    // preview's switcher lists exactly the seforim the preview has open. The
+    // shell keeps the order in the session (most recently read first); out here
+    // the order is the panes, which is the same thing on a window nobody has
+    // switched around yet.
+    case "open_set": {
+      const named = await json<Card[]>("/dev/recent.json").catch(() => [] as Card[]);
+      const active = fixtureState.workspace.tabs[fixtureState.workspace.active];
+      const open: OpenSefer[] = [];
+      for (const tab of fixtureState.workspace.tabs) {
+        for (const pane of tab.panes) {
+          if (open.some((o) => o.slug === pane.slug)) continue;
+          const card = named.find((c) => c.slug === pane.slug);
+          open.push({
+            slug: pane.slug,
+            title: card ? titleIn(card, fixtureState.language) : pane.slug,
+            here: tab === active && pane.id === tab.focused,
+          });
+        }
+      }
+      return open as T;
+    }
     case "recent":
       return json<Card[]>("/dev/recent.json").catch(() => [] as Card[]) as Promise<T>;
     case "search": {

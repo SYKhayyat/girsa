@@ -209,12 +209,12 @@ fn quote(handle: &tauri::AppHandle, reference: &Ref, asked: &Asked, text: bool) 
     // remembers: that is the whole point of storing a ref (spec.md §7). Which
     // segments the address names is `girsa_app`'s to answer, and is tested
     // there.
-    let nikud = state.session.nikud;
+    let pointing = state.session.pointing;
     let sefer = match state.sefer(&slug) {
         Ok(sefer) => sefer,
         Err(e) => return Reply::refused(404, e),
     };
-    match girsa_app::quote(sefer, reference, asked.range, style, nikud) {
+    match girsa_app::quote(sefer, reference, asked.range, style, pointing) {
         Ok(sent) => match sent.packet.to_json() {
             Ok(json) => Reply::ok(json),
             Err(e) => Reply::refused(500, e.to_string()),
@@ -244,6 +244,11 @@ fn refresh(handle: &tauri::AppHandle, body: &str) -> Reply {
         style: Option<String>,
         /// Whether the words come back pointed. Absent is the reader's own
         /// setting — the window is open and it is their library.
+        ///
+        /// Still a bool on the wire, and deliberately: this is Ksav asking, over
+        /// a loopback both applications compile against, and *pointed or not* is
+        /// the question a document has. The reader's own three-way setting
+        /// (`Pointing`) is what *absent* falls back to.
         #[serde(default)]
         nikud: Option<bool>,
     }
@@ -259,11 +264,17 @@ fn refresh(handle: &tauri::AppHandle, body: &str) -> Reply {
         .as_deref()
         .and_then(CiteStyle::named)
         .unwrap_or(state.session.cite);
-    let nikud = document.nikud.unwrap_or(state.session.nikud);
+    let pointing = document.nikud.map_or(state.session.pointing, |on| {
+        if on {
+            girsa_app::session::Pointing::Full
+        } else {
+            girsa_app::session::Pointing::Plain
+        }
+    });
 
     let (rows, moved) = girsa_desk::refreshed_reporting(&document.markup, |reference, range| {
         let sefer = state.sefer(&reference.work_slug())?;
-        girsa_app::quote(sefer, reference, range, style, nikud).map_err(|e| e.to_string())
+        girsa_app::quote(sefer, reference, range, style, pointing).map_err(|e| e.to_string())
     });
     let trouble = rows.iter().filter(|row| row.is_trouble()).count();
     // Where the citations that moved point now. The words for them were already

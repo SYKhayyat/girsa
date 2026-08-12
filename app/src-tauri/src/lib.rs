@@ -31,10 +31,10 @@ use girsa_app::trouble::{refuse, Code};
 use girsa_app::view::{
     AnchorRow, AtRow, Card, Comments, CoveredRow, DrawnRow, Dropped, Fixed, FolderMember,
     FolderRow, GapRow, HitRow, LandingRow, LaneAnswer, LaneProgress, LaneRow, LensRow, Line,
-    LinkRow, Links, MarkRow, Mefaresh, Mefarshim, ModelOffer, Move, NearRow, NoteRow, OfferRow,
-    PageSaid, PageWordsRow, ParaRow, PatchRow, PlaceRow, QueryRow, ReadingRow, Refusal, Said,
-    ScanView, ScannedRow, SettingsView, Shortcut, Standing, SuspectRow, TagRow, Text, WordRow,
-    Writing, Written, Yours,
+    LinkRow, Links, MarkRow, Mefarshim, ModelOffer, Move, NearRow, NoteRow, OfferRow, PageSaid,
+    PageWordsRow, ParaRow, PatchRow, PlaceRow, QueryRow, ReadingRow, Refusal, Said, ScanView,
+    ScannedRow, SettingsView, Shortcut, Standing, SuspectRow, TagRow, Text, WordRow, Writing,
+    Written, Yours,
 };
 use girsa_app::workspace::{Axis, PaneId};
 use girsa_app::{display, Beside, Session, Shelf, Workspace};
@@ -884,7 +884,7 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
     // filed seforim by the shipped taxonomy while the bookcase beside it used
     // theirs would be two answers to one question (spec.md §5).
     for work in shelf.works() {
-        let key = girsa_app::taxonomy::shelf_key_of(work, shelf.arrangement());
+        let key = girsa_app::taxonomy::shelf_key_of(work, shelf.arrangement(), shelf.shipped());
         catalogue.filed(&work.slug, key.split('/').map(str::to_string).collect());
     }
     // Your own tags, so the tag facet has rows to count and a click has somewhere
@@ -1175,9 +1175,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
     let has_nikud = sefer.segments.iter().any(|s| display::has_marks(&s.text));
     let total = sefer.segments.len();
     let at = left.and_then(|id| sefer.position_of(&id)).unwrap_or(0);
-    let from = at
-        .saturating_sub(A_WINDOW / 2)
-        .min(total.saturating_sub(1).max(0));
+    let from = at.saturating_sub(A_WINDOW / 2).min(total.saturating_sub(1));
     let to = (from + A_WINDOW).min(total);
     Ok(Text {
         work: Card::of(&sefer.work),
@@ -2502,9 +2500,56 @@ fn open_tab(shared: tauri::State<'_, Shared>, slug: String) -> Result<PaneId, St
     // A sefer reopens where it was left, which is the whole point of
     // remembering (BUILDER.md W9, per-sefer position memory).
     let at = state.session.where_i_was(&slug).cloned();
-    let pane = state.session.workspace.open_tab(slug, at);
+    // **Go to it if it is open**, rather than opening a second tab on one sefer
+    // — `Workspace::open`, and the reason is in its doc comment.
+    let pane = state.session.workspace.open(&slug, at);
     state.save();
     Ok(pane)
+}
+
+/// One sefer that is open, for the switcher.
+#[derive(Serialize)]
+struct OpenSefer {
+    slug: String,
+    /// What to call it, in the window's language (W41).
+    title: String,
+    /// Whether it is the one being read right now.
+    here: bool,
+}
+
+/// Every sefer that is open, most recently read first.
+///
+/// The open set is not the tab strip — see `girsa_app::workspace::Workspace`.
+/// A tab holding a Gemara, its Rashi and its Tosafos is one entry in the strip
+/// and three seforim that are open, and the strip cannot say so.
+#[tauri::command]
+fn open_set(shared: tauri::State<'_, Shared>) -> Result<Vec<OpenSefer>, String> {
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let language = state.session.language;
+    let here = state
+        .session
+        .workspace
+        .active_tab()
+        .and_then(|tab| tab.pane(tab.focused))
+        .map(|pane| pane.slug.clone());
+    let shelf = state.shelf.as_ref();
+    Ok(state
+        .session
+        .workspace
+        .open_set()
+        .into_iter()
+        .map(|slug| {
+            let named = shelf.and_then(|s| s.work(&slug));
+            OpenSefer {
+                title: named.map_or_else(
+                    || slug.clone(),
+                    |w| language.title_of(&w.he_title, &w.en_title).to_string(),
+                ),
+                here: here.as_deref() == Some(slug.as_str()),
+                slug,
+            }
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -3350,6 +3395,7 @@ pub fn run() {
             sefer_lines,
             sefer_index_of,
             open_tab,
+            open_set,
             scan,
             scan_at,
             scan_map,
