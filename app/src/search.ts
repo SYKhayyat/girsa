@@ -127,8 +127,17 @@ export class SearchView {
     // the stylesheet, so the name is here, in the window's language, rather than
     // in the CSS where it could only ever be in one.
     sheet.dataset.name = say("search");
-    sheet.addEventListener("click", () => {
-      if (this.element.classList.contains("is-small")) this.dock();
+    sheet.addEventListener("click", (event) => {
+      // **The strip itself**, not anything inside it. Every control is a child
+      // of the sheet, so a bare `click` handler here fires for them too — and
+      // the minimise button is one of them: it added `is-small`, the click
+      // bubbled to this handler, and this handler took it straight off again.
+      // Minimising did nothing at all, visibly, which is the exact family of bug
+      // this whole pass is about. Minimised, the children are `display: none`,
+      // so the sheet is the only thing left to hit.
+      if (event.target === sheet && this.element.classList.contains("is-small")) {
+        this.dock();
+      }
     });
 
     const bar = document.createElement("div");
@@ -278,6 +287,9 @@ export class SearchView {
 
   /** Shrink to a strip, keeping everything. Clicking the strip opens it again. */
   private minimise(): void {
+    // A closed panel has nothing to minimise, and docking one would take a strip
+    // of the reading away for a panel nobody can see.
+    if (!this.isOpen) return;
     this.element.classList.add("is-docked", "is-small");
     this.nameTheStrip();
     dock("search");

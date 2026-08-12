@@ -116,16 +116,26 @@ fn main() -> std::process::ExitCode {
     // a second browser is to see the real thing, and a shelf of four seforim
     // would not show what 2,141 under `תלמוד` does to a scrolling list.
     write(&out.join("tree.json"), &serde_json::json!(shelf.tree()));
+    //
+    // **Through `works_on`**, which is the function the shell answers
+    // `shelf_works` with. This used to walk `shelf.works()` and group them by
+    // key, which is a second implementation of one question — and it gave a
+    // different answer: the catalogue is in slug order, so the browser build
+    // drew the Chumash as *דברים · שמות · בראשית · ויקרא · במדבר* while the
+    // shell drew it in the order it is printed in. A preview that disagrees
+    // with the thing it previews is worse than no preview.
     let mut by_shelf: BTreeMap<String, Vec<Card>> = BTreeMap::new();
+    let mut keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for work in shelf.works() {
-        by_shelf
-            .entry(girsa_app::taxonomy::shelf_key_of(
-                work,
-                shelf.arrangement(),
-                shelf.shipped(),
-            ))
-            .or_default()
-            .push(Card::of(work));
+        keys.insert(girsa_app::taxonomy::shelf_key_of(
+            work,
+            shelf.arrangement(),
+            shelf.shipped(),
+        ));
+    }
+    for key in keys {
+        let here: Vec<Card> = shelf.works_on(&key).into_iter().map(Card::of).collect();
+        by_shelf.insert(key, here);
     }
     write(&out.join("shelf.json"), &serde_json::json!(by_shelf));
 

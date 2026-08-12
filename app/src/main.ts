@@ -133,6 +133,14 @@ async function main(): Promise<void> {
     scans.clear();
     void reload();
   });
+  // The one setting that cannot be redrawn into place — see
+  // `SettingsView.onInterfaceChanged`. Whatever is in the writing drawer goes to
+  // disk first; everything else the window is holding is a copy of what Rust
+  // holds, and comes back the same.
+  settingsview.onInterfaceChanged(async () => {
+    await writing.flush();
+    window.location.reload();
+  });
   suspects.onOpen(openSuspect);
   linksview.onOpen(openFound);
   linksview.onHere(whereIAm);

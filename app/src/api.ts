@@ -1374,9 +1374,36 @@ async function json<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Where the browser build keeps what the shell keeps in `session.json`.
+ *
+ * The shell's session is a file, so reloading the window restores every setting
+ * — which is what lets a language switch simply reload (see
+ * `SettingsView.onInterfaceChanged`). Out here the state was a module variable,
+ * so a reload put it back to the fixture's defaults and the preview would have
+ * shown the switch doing nothing. `sessionStorage` is the same promise in the
+ * only terms a static-file build has. */
+const KEPT = "girsa-dev-state";
+
+function keep(): void {
+  try {
+    sessionStorage.setItem(KEPT, JSON.stringify(fixtureState));
+  } catch {
+    // A browser with storage disabled loses the setting on reload and nothing
+    // else. Not worth a sentence on screen.
+  }
+}
+
 async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!fixtureState) {
-    fixtureState = await json<AppState>("/dev/state.json").catch((): AppState => ({
+    const kept = (() => {
+      try {
+        const held = sessionStorage.getItem(KEPT);
+        return held ? (JSON.parse(held) as AppState) : null;
+      } catch {
+        return null;
+      }
+    })();
+    fixtureState = kept ?? (await json<AppState>("/dev/state.json").catch((): AppState => ({
       workspace: { tabs: [], active: 0 },
       pointing: "full",
       text_size: 100,
@@ -1399,7 +1426,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       trouble:
         "running in a browser with no fixtures — build them with " +
         "`cargo run -p girsa-app --example dev-fixtures`",
-    }));
+    })));
   }
   const slug = args?.slug as string | undefined;
   switch (cmd) {
@@ -1531,20 +1558,61 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "ksav_presence":
       return { state: "not_running" } as T;
     case "set_language":
+      fixtureState.language = (args?.language as Language) ?? "hebrew";
+      keep();
+      return undefined as T;
     case "set_interface":
+      fixtureState.interface = (args?.language as Language) ?? "hebrew";
+      keep();
+      return undefined as T;
     case "set_look":
+      fixtureState.look = { ...fixtureState.look, ...(args?.look as AppState["look"]) };
+      keep();
       return undefined as T;
     case "bind_key":
       return [] as unknown as T;
+    // Read off the same state the setters write, so the panel shows what it did
+    // rather than redrawing itself back to the defaults on every change.
     case "settings":
       return {
-        pointing: "full", text_size: 100, language: "hebrew", interface: "hebrew",
-        cite: "hebrew_full", showing: "fixed", theme: "system", hebrew_font: "",
-        latin_font: "", line_height: 195, column_ch: 0, shortcuts: [], fonts: [],
-        share_bounds: [150, 850],
+        pointing: fixtureState.pointing,
+        text_size: fixtureState.text_size,
+        language: fixtureState.language,
+        interface: fixtureState.interface,
+        cite: fixtureState.cite,
+        showing: fixtureState.showing,
+        theme: fixtureState.look.theme,
+        hebrew_font: fixtureState.look.hebrew_font,
+        latin_font: fixtureState.look.latin_font,
+        line_height: fixtureState.look.line_height,
+        column_ch: fixtureState.look.column_ch,
+        shortcuts: [],
+        fonts: [],
+        share_bounds: fixtureState.share_bounds,
       } as T;
+    // The settings that are purely about **how the page looks**, kept in memory
+    // so the browser build can be looked at with them changed.
+    //
+    // They used to fall through to `default: undefined`, so every one of them
+    // did exactly nothing out here — the size buttons, the pointing, both
+    // languages, the theme, the fonts. That is the same defect as the one the
+    // reader met in the shell (`calc` throwing the size away), in the build
+    // whose entire purpose is *looking at the window*: a control that does
+    // nothing teaches whoever is looking that the control does nothing.
+    //
+    // Only these. Anything that writes to a layer, an index or a document still
+    // refuses out loud, because out here there is nothing to write to.
     case "set_pointing":
       fixtureState.pointing = (args?.pointing as Pointing) ?? "full";
+      keep();
+      return undefined as T;
+    case "set_text_size":
+      fixtureState.text_size = Math.min(250, Math.max(60, Number(args?.percent ?? 100)));
+      keep();
+      return undefined as T;
+    case "set_showing":
+      fixtureState.showing = (args?.showing as Showing) ?? "fixed";
+      keep();
       return undefined as T;
     // The scope is the shell's: it lives beside the index, and there is no
     // index out here. An empty one is the honest answer — the whole shelf —

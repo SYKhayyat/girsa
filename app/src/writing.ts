@@ -117,6 +117,18 @@ export class WritingView {
     this.element.classList.remove("is-open");
   }
 
+  /** Write what is in the box to disk **now**, and wait for it.
+   *
+   * For the one thing that takes the window down under it: changing the
+   * interface language reloads (see `SettingsView.onInterfaceChanged`), and
+   * nothing the reader has typed may go with it. `save()` is otherwise called
+   * on a 900 ms timer, which is exactly long enough to lose a sentence. */
+  async flush(): Promise<void> {
+    if (this.saving !== null) window.clearTimeout(this.saving);
+    this.saving = null;
+    await this.save();
+  }
+
   /** Whether the "open in Ksav" button is offered — presence, again: never
    * offer what would fail (spec.md §10.6). */
   setKsav(presence: Presence): void {

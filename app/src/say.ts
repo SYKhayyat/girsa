@@ -504,7 +504,36 @@ const WORDS = {
 /** Every string the window can say. */
 export type Word = keyof typeof WORDS;
 
-let speaking: Language = "hebrew";
+/**
+ * Where the last known interface language is cached.
+ *
+ * # Why a cache at all
+ *
+ * Every panel builds its title, its buttons and its placeholders **in its
+ * constructor**, and the constructors run at module load — which is before
+ * `main()` has asked Rust anything. So on a fresh load `say()` answered in the
+ * default before the window had been told what language it was in, and the
+ * shelf came up saying `המדף` over an English window. Reloading did not help,
+ * because reloading runs the constructors again, earlier still.
+ *
+ * The session file in Rust remains the truth; this is what the window paints
+ * with in the milliseconds before the truth arrives, and `speakInterface`
+ * overwrites it the moment it does. It is the same shape as the theme cache
+ * every application keeps to avoid a flash of the wrong colours.
+ */
+const REMEMBERED = "girsa-interface";
+
+function lastKnown(): Language {
+  try {
+    return localStorage.getItem(REMEMBERED) === "english" ? "english" : "hebrew";
+  } catch {
+    // A browser with storage disabled paints Hebrew for one frame and is then
+    // corrected by `speakInterface`. Not worth a sentence on screen.
+    return "hebrew";
+  }
+}
+
+let speaking: Language = lastKnown();
 
 /**
  * Set the language the **window** is in.
@@ -516,6 +545,11 @@ let speaking: Language = "hebrew";
  */
 export function speakInterface(language: Language): void {
   speaking = language;
+  try {
+    localStorage.setItem(REMEMBERED, language);
+  } catch {
+    // See `lastKnown`.
+  }
   // Which language the window is in is a fact about this module; putting it on
   // the document is a side effect for the stylesheet. Split, because
   // `say.test.mjs` runs in node — the guard `sources.test.mjs` needs is a guard

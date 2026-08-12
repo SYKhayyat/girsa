@@ -86,6 +86,31 @@ export class SettingsView {
     this.changed = fn;
   }
 
+  /**
+   * Told when the **interface language** changed, which is not the same event.
+   *
+   * Everything else on this panel is redrawn by `changed()`: the chrome, the
+   * panes, this panel's own body. The interface language is different because
+   * every panel in the window builds its title, its buttons and its
+   * placeholders **in its constructor** and never rebuilds them — so after a
+   * switch the settings panel said `הגדרות` over rows that all read English,
+   * and the shelf, the search box, the links panel and the writing drawer kept
+   * every word they were born with.
+   *
+   * The window's answer is to reload rather than to grow a `retitle()` on
+   * eleven panels, each restating the strings its constructor already sets —
+   * which is a second list per panel, and a twelfth panel nobody adds one to.
+   * Reloading is safe here for a reason that is not luck: **the session lives
+   * in Rust**, so the tabs, the panes, where you are in each of them and every
+   * setting are read back exactly as they were. What is only in the window is
+   * what the reader is typing, and `main.ts` flushes that first.
+   */
+  onInterfaceChanged(fn: () => Promise<void>): void {
+    this.interfaceChanged = fn;
+  }
+
+  private interfaceChanged: (() => Promise<void>) | null = null;
+
   get isOpen(): boolean {
     return !this.element.hidden;
   }
@@ -189,8 +214,20 @@ export class SettingsView {
       }),
     );
     this.body.append(
+      // …and **this panel** with it. `changed()` redraws the window's chrome and
+      // its panes; it does not redraw the panel the reader is standing in, so
+      // switching the interface to English left the settings themselves in
+      // Hebrew — the one surface where the change is least deniable. Redrawn
+      // from `refresh()` rather than patched, because the row has to come back
+      // showing what Rust actually stored.
       this.choice(say("windowIn"), languages(), s.interface, (value) => {
-        void api.setInterface(value as "hebrew" | "english").then(() => this.changed());
+        void api.setInterface(value as "hebrew" | "english").then(async () => {
+          if (this.interfaceChanged) await this.interfaceChanged();
+          else {
+            this.changed();
+            await this.refresh();
+          }
+        });
       }),
     );
 

@@ -425,9 +425,25 @@ body {
   color: var(--mark);
 }
 
+/* *"scrolling with ברכות"* is longer than *"גלילה עם ברכות"*, and in a narrow
+ * column the header ran out of room and clipped it at the edge — the one label
+ * on the header whose whole job is to name the pane this one follows. It
+ * shrinks and ellipsises instead, and keeps its full text on hover. */
 .pane-follows {
   font-size: 11px;
   opacity: 0.65;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pane-head .tool {
