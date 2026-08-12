@@ -31,6 +31,24 @@ silently corrupt ten thousand commentary links is the actual project.
 4. **Verify.** `cargo build --all-targets` → `cargo test` → `cargo clippy
    --all-targets --all-features -- -D warnings` → `cargo fmt -- --check`.
    Unverified is not done.
+
+   **And then the same again from `app/src-tauri`.** Those four run against
+   `default-members`, which excludes the Tauri shell for a good reason (it cannot
+   build before `app/dist` exists) — so they compile everything in this
+   repository *except the 4,054 lines that own all the interop*. The shell went
+   two hours broken behind a green gate on 12 August: a renamed session field in
+   `post.rs`, a changed signature in `lib.rs`, and four passing commands.
+
+   ```sh
+   cd app/src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt -- --check
+   ```
+
+   And the window: `cd app && npx tsc --noEmit && node test/run.mjs`.
+
+   The browser build is the cheapest way to look at what you changed —
+   `cargo run -p girsa-app --example dev-fixtures -- corpus app/public/dev` then
+   `npm run dev`. It found four defects in ten minutes that all of the above had
+   passed over, three of them in code committed an hour earlier.
 5. **Commit per work order**, with a message saying what changed and what it does
    *not* yet do.
 6. **Never guess at a citation, a link, or a ref.** Ambiguity is surfaced to the

@@ -166,10 +166,22 @@ Tabs are arrangements, on the model settled next door in
 `ברכות` whichever you were in), the strip hides itself at one tab, and the `×`
 says *close* and never reads as delete.
 
-**Not yet done**, and named here rather than left implied: the global open set
-and the keyboard switcher. With arrangement tabs the strip stops being an
-inventory of what is open, and the switcher is the surface that tells that truth.
-That is the next order.
+**And the open set**, borrowed from Ksav, where the same absence produced seven
+separate complaints (`ksav/app/src/opendocs.ts`, and the decision of 11 August).
+*Which seforim are open* is not *which seforim exist*, and once a tab is an
+arrangement the strip cannot answer it: a tab holding a Gemara, its Rashi and its
+Tosafos is one entry in the strip and three seforim that are open. So
+`Workspace::open` goes to a sefer that is already open instead of opening a
+second tab on it, `Workspace::open_set` lists what is open most-recently-read
+first, and the picker leads with that list — the switcher, on a surface that
+already exists and already has a keyboard.
+
+Girsa parts company with Ksav on one rule, deliberately. Ksav says a document is
+never open twice, because two carets and two undo stacks over one text is how a
+document gets eaten. A sefer is read-only, and two panes on two places in one
+masechta is a thing people do all day — so the same sefer may be open more than
+once here, and the **gesture** carries the rule: *open* goes to it, a split makes
+another view.
 
 ### 16 and 17 · Search opened on nothing, then on the last thing
 
@@ -209,6 +221,37 @@ all ask through it.
 
 ---
 
+## What the browser found that the tests did not
+
+`cargo run -p girsa-app --example dev-fixtures -- corpus app/public/dev` then
+`npm run dev` serves the window at `localhost:5174`, and gstack's headless
+Chromium drives it. Ten minutes of that found four defects that a typecheck, 221
+window tests and 1,048 Rust tests had all passed over — three of them in code
+committed an hour earlier:
+
+- minimising a panel undid itself, because the click bubbled to the handler that
+  restores a minimised one;
+- every panel builds its labels **in its constructor**, which runs before
+  `main()` has asked Rust anything, so the shelf said `המדף` over an English
+  window and reloading made it worse;
+- the settings panel stayed Hebrew while everything around it turned English;
+- `dev-fixtures` grouped works by shelf key instead of calling `works_on`, so the
+  *preview* drew the Chumash in slug order while the shell drew it correctly.
+
+A second pass found the mefarshim door promising `מפרשים · 34` over an empty
+list, again only in the preview, and two identical unlabelled checkboxes per row
+where one ticks and one opens.
+
+**The pattern is the same one this whole document is about**, and the preview is
+now held to it: a build that disagrees with the thing it previews is worse than
+no preview.
+
+And one hole the gate itself had: `cargo build --all-targets` at the root builds
+`default-members`, which excludes the Tauri shell — so the four verify commands
+compiled everything **except the 4,054 lines that own all the interop**, and the
+shell sat broken behind a green gate for two hours. BUILDER.md rule 4 has the
+fifth command now.
+
 ## How fast it is, in numbers
 
 `cargo run --release -p girsa-app --example measure-opening -- corpus personal`,
@@ -229,11 +272,21 @@ The shelf got faster on the way past: the shipped shelf for every work is worked
 out once for the catalogue (`taxonomy::Shipped`) rather than from its categories
 on every question, which is also what made the Lekach Tov fix possible.
 
-**The 7.7 MB is the honest remaining problem**, and it is written down rather
-than fixed: a pane draws a window of 400 lines and is handed all 17,418. The fix
-is to hand it the window and let it ask for more — `open_sefer` returns a slice
-and a total, `pane.ts` fetches around a scroll, and an id it has not loaded is
-resolved by asking Rust where it is. That is a change to the hottest path in the
-application, the one thing that currently works properly, and it wants to be made
-with the window actually running in front of you. The measurement above is what
-justifies it and what it should be judged against.
+**The 7.7 MB is fixed**, and it was fixed with the window running in front of
+me, which is what made it safe to touch the reading path at all:
+
+| Mishnah Berurah, 17,418 segments | draw | serialize | on the wire |
+|---|---|---|---|
+| the whole sefer, as it was | 60 ms | 9 ms | **7,708 KB** |
+| the window, as it is | — | 3 ms | **315 KB** |
+
+`open_sefer` sends a window around where the reader was, plus `from` and `total`;
+`sefer_lines` serves a stretch at an edge; `sefer_index_of` answers *where is
+this segment* for a line the pane has never loaded. Verified by scrolling to
+2,800 of Rashi's 3,138 segments with no gaps and no duplicates, and by watching a
+follower pane jump from 2a to 25a when the Gemara moved to 34b — which is the
+`sefer_index_of` path, since those lines had never been loaded.
+
+Two guards that only bite over a real IPC round trip and not against fixtures:
+`fetching` makes a burst of scroll events one **request**, `extending` makes them
+one **append**.
