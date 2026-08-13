@@ -35,6 +35,31 @@
 //
 // A panel answers all three by being in the table below rather than by having
 // four branches written about it somewhere else.
+//
+// # The fourth question, which cost every shortcut in the application
+//
+// **Is it over the reading, or beside it?** W47 and W48 made the bookcase and
+// the search *dock* rather than close when you go through them — open a sefer,
+// click a result — so the ordinary path leaves one of them standing beside the
+// daf. Both were registered `keyboard: "all"`, which was right for the overlay
+// and catastrophic for the column: the reader is reading, and every key they
+// press is swallowed by a panel they are not looking at.
+//
+// Measured on the release build:
+//
+// ```
+// search docked (after clicking a result) → Ctrl+C → nothing. No toast.
+// search closed                           → Ctrl+C → "הועתק — שבת דף ל: שורה ז'"
+// ```
+//
+// Which took Ctrl+Shift+C with it — *the* five-minute story in `start-here.md`
+// is search, click the hit, highlight, send to Ksav, and the send did nothing,
+// silently, in every build that has ever existed.
+//
+// So `keyboard` may be a **function**, and a panel that is an overlay some of
+// the time says so; and the caret has three positions rather than two, because
+// focus inside a docked panel is almost always on a *button* — every result you
+// click is one — and `inside` would hand that button the whole keyboard.
 
 /** Anything the window can open, close, and ask whether it is open. */
 export interface Panel {
@@ -50,9 +75,35 @@ export type Keyboard =
   | "reading"
   /** Only while the caret is inside it — a text box. `Ctrl+C` in one is copy. */
   | "inside"
+  /**
+   * Only while the caret is in something you **type into**. A panel standing
+   * beside the reading rather than over it: its box owns what is typed into the
+   * box, and nothing else does.
+   *
+   * A third mode rather than `inside`, because focus lands on a *button* inside
+   * a docked panel constantly — every result you click is one. Under `inside`
+   * that button would hold the whole keyboard while the reader is looking at
+   * the daf, which is finding 3.
+   */
+  | "typing"
   /** All of it. A place, like the shelf or the search: a typed letter goes
    * into it and the reading shortcuts are not live. */
   | "all";
+
+/**
+ * Where the caret is, relative to one panel.
+ *
+ * Three answers rather than a boolean, because a panel beside the reading needs
+ * the distinction between *the focus is on my close button* and *the reader is
+ * typing into my box*. A boolean cannot carry it.
+ */
+export type Caret =
+  /** Nowhere near this panel. */
+  | "away"
+  /** Somewhere in it, but not in anything you type into. A button, a row. */
+  | "on"
+  /** In a text field of it. A typed letter is text, and `Ctrl+C` is copy. */
+  | "typing";
 
 /** How far Escape reaches into a panel. */
 export type Escapes =
@@ -67,7 +118,17 @@ export type Escapes =
 /** One panel, and what it does with a keypress. */
 export interface Held {
   panel: Panel;
-  keyboard: Keyboard;
+  /**
+   * Whose keyboard it is — or a function, for a panel that is an overlay some
+   * of the time and a column beside the reading the rest of it.
+   *
+   * The search and the bookcase are both: opened with a key they cover the
+   * reading and a typed letter is theirs; opened *through* — click a result,
+   * open a sefer — they dock, and the reader is reading again. One constant
+   * cannot say that, and saying it wrongly cost every shortcut in the
+   * application.
+   */
+  keyboard: Keyboard | (() => Keyboard);
   escape: Escapes;
   /**
    * The action id that opens it — which reaches it **even while it is open**,
@@ -90,7 +151,7 @@ export type Routed = "closed" | "answered" | "swallowed" | null;
  * Escape from anywhere and owns the keyboard only while the caret is in it, and
  * there was nowhere to say that except twice.
  *
- * `inside` says whether the caret is in a panel — a function rather than a
+ * `caret` says where the caret is relative to a panel — a function rather than a
  * `contains` call, so a test needs no DOM. `did` is the action the key is bound
  * to, from `girsa_app::keys`, so a panel's own toggle can reach it.
  */
@@ -100,7 +161,7 @@ export function route(
   // the rule (the first open one that wants a key gets it).
   panels: readonly Held[],
   event: KeyboardEvent,
-  inside: (panel: Panel) => boolean,
+  caret: (panel: Panel) => Caret,
   did: string | null,
 ): Routed {
   if (event.key === "Escape") {
@@ -108,7 +169,7 @@ export function route(
       (held) =>
         held.panel.isOpen &&
         held.escape !== false &&
-        (held.escape === "anywhere" || inside(held.panel)),
+        (held.escape === "anywhere" || caret(held.panel) !== "away"),
     );
     if (takes) {
       takes.panel.close();
@@ -117,7 +178,9 @@ export function route(
   }
   for (const held of panels) {
     if (!held.panel.isOpen) continue;
-    const holds = held.keyboard === "all" || (held.keyboard === "inside" && inside(held.panel));
+    const holds = whoHolds(typeof held.keyboard === "function" ? held.keyboard() : held.keyboard, () =>
+      caret(held.panel),
+    );
     if (!holds) continue;
     if (held.answers?.(event)) return "answered";
     // Its own key still reaches it. A reader who opened the search with Ctrl+F
@@ -128,4 +191,23 @@ export function route(
     return "swallowed";
   }
   return null;
+}
+
+/**
+ * Whether a panel in this mode holds the keyboard, given where the caret is.
+ *
+ * `where` is lazy because `reading` and `all` are answers on their own and the
+ * caret is a DOM question at every keypress.
+ */
+function whoHolds(mode: Keyboard, where: () => Caret): boolean {
+  switch (mode) {
+    case "reading":
+      return false;
+    case "all":
+      return true;
+    case "inside":
+      return where() !== "away";
+    case "typing":
+      return where() === "typing";
+  }
 }

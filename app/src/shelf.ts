@@ -14,7 +14,7 @@
 import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
 import { button, field } from "./controls.ts";
-import { dock, minimise, undock } from "./dock.ts";
+import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
 import { say } from "./say.ts";
@@ -114,6 +114,13 @@ export class ShelfView {
 
   get isOpen(): boolean {
     return !this.element.hidden;
+  }
+
+  /** Standing beside the reading rather than over it — so the reader is
+   * reading, and the keyboard is theirs (finding 3). From `dock.ts`, which owns
+   * the set, not from this panel's own class. */
+  get isDocked(): boolean {
+    return isDocked("shelf");
   }
 
   async show(opened: Opened): Promise<void> {

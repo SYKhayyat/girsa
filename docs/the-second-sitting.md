@@ -168,7 +168,7 @@ because the cache is read before the truth arrives and written after.
 they are constructed, or construct them after `connect()`. Not one line, but not
 large.
 
-### 3 · The keyboard dies after every search — including the send to Ksav
+### 3 · The keyboard dies after every search — including the send to Ksav — **fixed**
 
 `main.ts:1238-1239` gives the search and the shelf `keyboard: "all"`, which
 `panel.ts:120` reads as *swallow every key that is not Escape or my own toggle,
@@ -192,6 +192,24 @@ nothing at all, silently, and the docked panel is why.
 
 *Fix:* a docked panel is not an overlay. Give `dock()` a keyboard mode of
 `inside`, or drop to `reading` while `is-docked` is on.
+
+**Done, and `inside` turned out not to be enough.** A docked panel is full of
+buttons — every result is one — and clicking a result leaves the focus on it, so
+`inside` would have handed that button the keyboard for the whole time the
+reader spent reading what they clicked. The caret has three positions now
+(`away` · `on` · `typing`) and there is a fourth keyboard mode, `typing`: the
+panel owns what is typed into its own boxes and nothing else. `Held.keyboard`
+may be a function, because the search and the bookcase are overlays until you go
+*through* them and columns afterwards, and one constant cannot say that.
+
+`yoursview` was the sibling: it docks the moment it opens, and it was on
+`inside`. Cleared with it. `linksview`, `lanepanel` and `suspects` also dock and
+were already `reading`, so they were never affected — checked, not assumed.
+
+The guard is the class rather than the shape (lesson 2): `panel.test.mjs` sweeps
+`src/` for the modules that call `dock()`, and asserts that no panel built from
+one of them is registered `"all"` or `"inside"` in `PANELS`. The pre-fix tree
+fails it on three panels.
 
 ### 4 · A commentary column can jump fifteen chapters and still say it is following
 
@@ -586,9 +604,10 @@ grade more than anything else on the list.
    builds `said-one` and `styles.css` styles it, guarded by
    `collision.test.mjs`. Two lines. It turned the flagship interaction from dead
    to working.
-2. **Let a docked panel give the keyboard back** (finding 3). It restores every
-   shortcut in the application, including the send to Ksav that the whole
-   project is about.
+2. ~~**Let a docked panel give the keyboard back** (finding 3).~~ **Done** — a
+   fourth keyboard mode, `typing`, and a caret with three positions instead of
+   two. It restores every shortcut in the application, including the send to
+   Ksav that the whole project is about.
 3. **Make the panels ask for their strings at draw time** (finding 2), and drop
    the localStorage cache or write it before the panels are built.
 4. **Stop the follower jumping on an unrelated edge** (finding 4) — an edge is

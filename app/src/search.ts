@@ -48,7 +48,7 @@ import {
 } from "./api.ts";
 import { LaneColumn } from "./laneview.ts";
 import { announces, button, field, glyph, region } from "./controls.ts";
-import { dock, minimise, undock } from "./dock.ts";
+import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { say } from "./say.ts";
 import { ScopePanel } from "./scopeview.ts";
@@ -209,6 +209,13 @@ export class SearchView {
 
   get isOpen(): boolean {
     return this.open;
+  }
+
+  /** Standing beside the reading rather than over it — so the reader is
+   * reading, and the keyboard is theirs (finding 3). From `dock.ts`, which owns
+   * the set, not from this panel's own class. */
+  get isDocked(): boolean {
+    return isDocked("search");
   }
 
   private keep: ((typed: string) => Promise<void>) | null = null;

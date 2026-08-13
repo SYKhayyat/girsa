@@ -28,9 +28,15 @@ function press(key, ctrl = false) {
   return { key, ctrlKey: ctrl, metaKey: false, shiftKey: false, altKey: false };
 }
 
-/** `inside` for a test: the caret is in these panels and no others. */
+/** The caret is typing in these panels, and away from every other. */
 function caret(...held) {
-  return (p) => held.includes(p);
+  return (p) => (held.includes(p) ? "typing" : "away");
+}
+
+/** The caret is *on* these panels — focus inside them, but not in a box you
+ * type into. Every result row in a docked search is one of these. */
+function focusOn(...held) {
+  return (p) => (held.includes(p) ? "on" : "away");
 }
 
 export function run() {
@@ -113,6 +119,81 @@ export function run() {
     const shut = panel(false);
     const held = [{ panel: shut, keyboard: "all", escape: "anywhere" }];
     check("a panel that is not open takes nothing", route(held, press("n"), caret(), "note"), null);
+  }
+
+  // ── over the reading, or beside it (finding 3) ────────────────────────────
+  //
+  // The one that cost every shortcut in the application. W48 made clicking a
+  // search result **dock** the panel rather than close it, so the ordinary path
+  // leaves a column standing beside the daf — and it was registered
+  // `keyboard: "all"`, which swallowed Ctrl+C, Ctrl+N, Ctrl+D, Ctrl+L, Ctrl+K,
+  // Alt+N, Ctrl+= , Ctrl+− and, worst, the Ctrl+Shift+C that sends the line to
+  // Ksav. Silently, with the reader looking at the daf.
+  //
+  // On the pre-fix tree the first two of these read `swallowed`.
+
+  {
+    const find = panel(true);
+    let stood = "over";
+    const held = [
+      {
+        panel: find,
+        keyboard: () => (stood === "beside" ? "typing" : "all"),
+        escape: "anywhere",
+        toggle: "search",
+      },
+    ];
+
+    check(
+      "over the reading, the search owns what is typed",
+      route(held, press("c", true), focusOn(find), "copy"),
+      "swallowed",
+    );
+
+    stood = "beside";
+    check(
+      "docked, the send to Ksav reaches the reading",
+      route(held, press("C", true), focusOn(find), "send"),
+      null,
+    );
+    check(
+      "docked, so does a copy with the focus on the result you clicked",
+      route(held, press("c", true), focusOn(find), "copy"),
+      null,
+    );
+    check(
+      "docked, so does a shortcut pressed at the daf",
+      route(held, press("n", true), caret(), "note"),
+      null,
+    );
+    check(
+      "but its own box still owns a letter typed into it",
+      route(held, press("n"), caret(find), "note"),
+      "swallowed",
+    );
+    check(
+      "and Ctrl+C in that box is copy, not the line",
+      route(held, press("c", true), caret(find), "copy"),
+      "swallowed",
+    );
+    check(
+      "and Escape still closes it from the daf",
+      route(held, press("Escape"), caret(), null),
+      "closed",
+    );
+  }
+
+  {
+    // `inside` is not good enough for a docked panel, and this is why: focus
+    // lands on a *button* — every result you click is one — and a boolean
+    // caret cannot tell that from a caret in the box.
+    const docked = panel(true);
+    const held = [{ panel: docked, keyboard: "inside", escape: "anywhere" }];
+    check(
+      "a panel on `inside` swallows a key pressed with focus on one of its buttons",
+      route(held, press("c", true), focusOn(docked), "copy"),
+      "swallowed",
+    );
   }
 
   // ── a panel's own key reaches it ──────────────────────────────────────────
@@ -211,8 +292,10 @@ export function sweep() {
   const table = main.slice(at, main.indexOf("\n]);", at));
 
   const missing = [];
+  const built = new Map();
   for (const [, name, klass] of main.matchAll(/^const (\w+) = new (\w+)\(/gmu)) {
     if (!classes.has(klass)) continue;
+    built.set(name, klass);
     // A plain string, not a template literal. `\s` inside backticks is the
     // letter `s` — which is how the first version of this line matched nothing
     // and reported all ten panels missing, including the eight that were there.
@@ -224,5 +307,60 @@ export function sweep() {
     "and every panel the window constructs is in it",
     missing.length === 0,
     missing.length ? `not routed: ${missing.join(", ")}` : "all routed",
+  );
+
+  overTheReadingOrBesideIt(table, built);
+}
+
+// ── a panel that docks does not own the daf's keyboard ──────────────────────
+//
+// Lesson 2 of the second sitting: *the bespoke guard fits the bug that was, not
+// the bug that is.* The sweep above exists because two panels were missing from
+// this table; it could not see that two of the entries **in** the table
+// swallowed every key in the application while docked.
+//
+// So this asserts the class rather than the shape. A panel that calls `dock()`
+// is, at least some of the time, a column standing beside the reading — and a
+// column beside the reading may not be registered `"all"` or `"inside"`, which
+// both hand it keys the reader is pressing at the daf. It may be `"reading"`
+// (the drawers), `"typing"` (its own boxes and nothing else), or a **function**
+// that says which it is right now (the search and the bookcase, which are
+// overlays until you go through them).
+//
+// The pre-fix tree fails this on `find`, `shelf` and `yoursview`.
+
+/** The panel classes whose modules put themselves in the dock. */
+function classesThatDock() {
+  const out = new Set();
+  for (const file of readdirSync(SRC)) {
+    if (!file.endsWith(".ts") || file === "dock.ts") continue;
+    const body = readFileSync(path.join(SRC, file), "utf8");
+    // Imported from `dock.ts` and actually called with a panel name — not just
+    // `undock`, which every panel calls on the way out.
+    if (!/from "\.\/dock\.ts"/u.test(body)) continue;
+    if (!/[^a-z]dock\("/u.test(body)) continue;
+    for (const [, name] of body.matchAll(/^export class (\w+)/gmu)) out.add(name);
+  }
+  return out;
+}
+
+function overTheReadingOrBesideIt(table, built) {
+  const docks = classesThatDock();
+  ok("the sweep found the classes that dock", docks.size >= 3, [...docks].join(", "));
+
+  // Each entry, as text. The table is a list of object literals and `panel:` is
+  // the first key of every one, so splitting on it gives one chunk per panel.
+  const chunks = table.split(/\bpanel:\s*/u).slice(1);
+  const wrong = [];
+  for (const chunk of chunks) {
+    const name = /^(\w+)/u.exec(chunk)?.[1];
+    if (!name || !docks.has(built.get(name))) continue;
+    const mode = /keyboard:\s*("all"|"inside"|"reading"|"typing"|\(\))/u.exec(chunk)?.[1];
+    if (mode === '"all"' || mode === '"inside"') wrong.push(`${name}: ${mode}`);
+  }
+  ok(
+    "a panel that docks does not take the keyboard the reader is using at the daf",
+    wrong.length === 0,
+    wrong.length ? `beside the reading and swallowing it: ${wrong.join(", ")}` : "all beside",
   );
 }

@@ -40,7 +40,7 @@ import { YoursView } from "./yoursview.ts";
 import { GIRSA, KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
 import { say, speakInterface } from "./say.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
-import { route, type Held } from "./panel.ts";
+import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
 import { trouble } from "./trouble.ts";
 import { whatKey, type Pressed } from "./keys.ts";
@@ -1170,6 +1170,35 @@ function openLane(): void {
   void lanepanel.toggle();
 }
 
+/**
+ * Where the caret is, relative to one panel — the DOM half of `panel.ts`.
+ *
+ * `on` and `typing` are different questions and the difference is finding 3: a
+ * docked panel is full of buttons, one per result, and clicking a result leaves
+ * the focus on it. A panel that holds the keyboard whenever focus is anywhere
+ * inside it therefore holds the keyboard for the whole time the reader spends
+ * reading what they clicked.
+ *
+ * *Typing* is the `contentEditable` question rather than the tag question: a
+ * `<textarea>`, an `<input>` that takes text (not a checkbox or a button), or
+ * anything the reader can put a caret into. `readOnly` is excluded — a box you
+ * cannot type into does not own what is typed.
+ */
+function caretIn(panel: Panel, target: EventTarget | null): Caret {
+  if (!(target instanceof Node) || !panel.element.contains(target)) return "away";
+  const node = target instanceof HTMLElement ? target : target.parentElement;
+  if (!node) return "on";
+  if (node.isContentEditable) return "typing";
+  if (node instanceof HTMLTextAreaElement) return node.readOnly ? "on" : "typing";
+  if (node instanceof HTMLInputElement) {
+    // The input types a reader types into. A checkbox is an input and a typed
+    // letter in one is not text.
+    const typed = new Set(["text", "search", "email", "url", "tel", "password", "number", "date"]);
+    return typed.has(node.type) && !node.readOnly && !node.disabled ? "typing" : "on";
+  }
+  return "on";
+}
+
 /** Only the parts of a keyboard event a binding is made of. */
 function asPressed(event: KeyboardEvent): Pressed {
   return {
@@ -1232,11 +1261,29 @@ const PANELS: readonly Held[] = Object.freeze([
     // Drawers over the reading: Escape closes them from anywhere, and the
     // reading shortcuts stay live behind them.
     { panel: linksview, keyboard: "reading", escape: "anywhere" },
-    { panel: yoursview, keyboard: "inside", escape: "anywhere" },
+    // Your own layer docks the moment it opens, so it is never over the
+    // reading — the sibling of finding 3, cleared by moving it off `inside`.
+    // Its boxes still own what is typed into them; its buttons do not own the
+    // daf.
+    { panel: yoursview, keyboard: "typing", escape: "anywhere" },
     { panel: suspects, keyboard: "reading", escape: "anywhere" },
-    // Places, not overlays: a typed letter goes into them.
-    { panel: find, keyboard: "all", escape: "anywhere", toggle: "search" },
-    { panel: shelf, keyboard: "all", escape: "anywhere", toggle: "shelf" },
+    // Places while they are over the reading — a typed letter goes into them —
+    // and columns beside it once the reader has gone through them (W47, W48).
+    // Docked, they own only what is typed into their own boxes: the reader is
+    // reading, and `all` there is finding 3, which silently killed every
+    // shortcut in the application including the send to Ksav.
+    {
+      panel: find,
+      keyboard: () => (find.isDocked ? "typing" : "all"),
+      escape: "anywhere",
+      toggle: "search",
+    },
+    {
+      panel: shelf,
+      keyboard: () => (shelf.isDocked ? "typing" : "all"),
+      escape: "anywhere",
+      toggle: "shelf",
+    },
     // The two the report found missing. Both are drawers over the reading with
     // their own × already, so `anywhere` is what their close buttons already
     // promise — Escape was the only way to close them that did not work.
@@ -1256,7 +1303,7 @@ function shortcut(event: KeyboardEvent): void {
 
   // Whoever has the keyboard gets it first. One table, in `panel.ts`, rather
   // than forty-eight lines of `if (x.isOpen && …)` here.
-  const routed = route(PANELS, event, (p) => p.element.contains(event.target as Node), did);
+  const routed = route(PANELS, event, (p) => caretIn(p, event.target), did);
   if (routed === "closed" || routed === "answered") {
     event.preventDefault();
     return;

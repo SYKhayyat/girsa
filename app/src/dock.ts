@@ -133,6 +133,21 @@ export function inTheDock(): Map<string, number> {
   return new Map(standing);
 }
 
+/**
+ * Whether one named panel is standing in the dock.
+ *
+ * Asked by the keyboard routing, which needs to know whether a panel is over the
+ * reading or beside it — a docked panel is beside it, and does not own what the
+ * reader types at the daf (finding 3).
+ *
+ * Read from this set rather than from the panel's own `is-docked` class, for the
+ * reason at the top of this file: two writers on one value is how the class and
+ * the room disagreed in the first place.
+ */
+export function isDocked(panel: string): boolean {
+  return standing.has(panel);
+}
+
 /** The minimised ones. For a test, and for a reader of this file. */
 export function shrunk(): Set<string> {
   return new Set(small);
