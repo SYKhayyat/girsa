@@ -292,11 +292,17 @@ async function pageOf(port, said = () => "", alive = () => true) {
  * The guard itself is not what changed. It was right, and it was doing exactly
  * its job — refusing to measure unstyled HTML rather than passing sixteen
  * assertions against it. What it lacked was the patience to let the thing it is
- * asking about happen. Four seconds, in tenths, and then it reports whatever it
- * found: a timeout is still a failure and still says what it saw.
+ * asking about happen. A timeout is still a failure and still says what it saw.
+ *
+ * **Thirty seconds, not four.** The first version gave the browser thirty to
+ * start and left the page four to load, which is the same mistake twice in two
+ * clocks — and the second one duly went red on a cold runner with `no
+ * .pane-body after 4s`. There is no reason for the two budgets to differ; both
+ * are *how long a cold machine might take*, and neither costs anything on a warm
+ * one, because both return the moment the thing they want is true.
  */
 async function settled(eye) {
-  for (let tries = 0; tries < 40; tries += 1) {
+  for (let tries = 0; tries < 300; tries += 1) {
     const found = await eye.look(`(() => {
       if (document.readyState !== 'complete') return 'loading';
       const body = document.querySelector('.pane-body');
@@ -308,7 +314,7 @@ async function settled(eye) {
   // Whatever it last saw, so the failure names the state rather than the wait.
   return eye.look(`(() => {
     const body = document.querySelector('.pane-body');
-    return body ? getComputedStyle(body).overflowY : 'no .pane-body after 4s';
+    return body ? getComputedStyle(body).overflowY : 'no .pane-body after 30s';
   })()`);
 }
 
@@ -378,6 +384,17 @@ async function main() {
     // measurement of unstyled HTML and all of them pass.
     const styled = await settled(eye);
     seen("the stylesheet loaded", styled === "auto", `overflow-y was ${styled}`);
+    // And if it did not, **stop**. Every assertion below reaches into the page
+    // by id and hands the result to `getComputedStyle`; with no page they do not
+    // fail, they throw `parameter 1 is not of type 'Element'` — a stack trace
+    // printed over the top of the one line that had already said what was
+    // actually wrong. The report is the product here. Burying it under the
+    // consequences of ignoring it is the same fault this file catches for other
+    // people, committed by the file itself.
+    if (styled !== "auto") {
+      console.log(`${pass} seen, ${fail} wrong — stopped: there is no page to measure`);
+      return 1;
+    }
 
     // ------------------------------------------ who is holding the reader's place
     //
