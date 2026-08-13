@@ -239,9 +239,30 @@ class Eye {
  * failure here names the reason rather than the symptom. Without it this threw
  * *the browser never opened a page* and left the browser's own sentence —
  * `Failed to move to new namespace`, or whatever it was — discarded.
+ *
+ * # Two waits, and only one of them had been fixed
+ *
+ * The earlier flake was the **page** race: the first evaluation could land on a
+ * document still loading, which `settled` now waits out. This is the **browser**
+ * race, and it is a different clock. On the same commit, a CI run went green on
+ * `main` and red on the tag ten minutes later — the giveaway that this was a
+ * budget and not a broken environment, since nothing about the machine differed.
+ * Fifteen seconds is plenty for a warm desktop and not always enough for a cold
+ * runner starting Chrome for the first time.
+ *
+ * Thirty seconds now, and — the part that matters more — it stops waiting the
+ * moment the browser **dies**. Polling a port for fifteen seconds after the
+ * process has exited is fifteen seconds spent proving something already known,
+ * and it reports a timeout for what was a crash.
+ *
+ * The stderr it prints is raw, and on Linux it is mostly `Failed to connect to
+ * the bus` — noise Chrome emits on any machine with no session D-Bus, and not
+ * the reason for anything. Filtering it would mean deciding which of somebody
+ * else's diagnostics matter, which is the mistake `trouble.ts` is about. It is
+ * the browser's own words, printed whole, for a person to read.
  */
-async function pageOf(port, said = () => "") {
-  for (let tries = 0; tries < 60; tries += 1) {
+async function pageOf(port, said = () => "", alive = () => true) {
+  for (let tries = 0; tries < 120; tries += 1) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       const page = list.find((t) => t.type === "page");
@@ -249,12 +270,12 @@ async function pageOf(port, said = () => "") {
     } catch {
       // Not up yet.
     }
+    if (!alive()) break;
     await new Promise((r) => setTimeout(r, 250));
   }
   const why = said().trim();
-  throw new Error(
-    why ? `the browser never opened a page. It said:\n${why}` : "the browser never opened a page",
-  );
+  const what = alive() ? "never opened a page" : "started and then exited";
+  throw new Error(why ? `the browser ${what}. It said:\n${why}` : `the browser ${what}`);
 }
 
 /**
@@ -339,7 +360,11 @@ async function main() {
   });
 
   try {
-    const target = await pageOf(port, () => complained);
+    const target = await pageOf(
+      port,
+      () => complained,
+      () => child.exitCode === null && child.signalCode === null,
+    );
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.addEventListener("open", resolve);
