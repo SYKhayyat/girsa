@@ -857,12 +857,18 @@ fn the_shell_does_not_write_sentences_for_the_reader() {
     let shell = root.join("app/src-tauri/src");
     let mut prose = Vec::new();
     for entry in std::fs::read_dir(&shell).unwrap_or_else(|e| panic!("the shell reads: {e}")) {
-        let path = entry.unwrap_or_else(|e| panic!("a shell entry reads: {e}")).path();
+        let path = entry
+            .unwrap_or_else(|e| panic!("a shell entry reads: {e}"))
+            .path();
         if path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
         let body = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         for (at, line) in body.lines().enumerate() {
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") || trimmed.starts_with("///") {

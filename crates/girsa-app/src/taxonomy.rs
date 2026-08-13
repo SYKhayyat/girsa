@@ -302,10 +302,22 @@ fn branch(
             .get(key)
             .into_iter()
             .flatten()
-            .map(|child| branch(child, arrangement, shipped, here, orders, children, depth + 1))
+            .map(|child| {
+                branch(
+                    child,
+                    arrangement,
+                    shipped,
+                    here,
+                    orders,
+                    children,
+                    depth + 1,
+                )
+            })
             .collect()
     };
-    kids.sort_by(|a, b| ordered(arrangement, key, &a.key, &b.key).then_with(|| by_the_corpus(a, b)));
+    kids.sort_by(|a, b| {
+        ordered(arrangement, key, &a.key, &b.key).then_with(|| by_the_corpus(a, b))
+    });
 
     let here_count = here.get(key).copied().unwrap_or_default();
     // Counted before anything is gathered, and used as the total afterwards.
@@ -546,8 +558,16 @@ mod tests {
             ordered_work("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"], &[2]),
             ordered_work("bavli/eruvin", &["Talmud", "Bavli", "Seder Moed"], &[3]),
             ordered_work("bavli/yevamot", &["Talmud", "Bavli", "Seder Nashim"], &[14]),
-            ordered_work("bavli/bava-kamma", &["Talmud", "Bavli", "Seder Nezikin"], &[21]),
-            ordered_work("bavli/zevachim", &["Talmud", "Bavli", "Seder Kodashim"], &[28]),
+            ordered_work(
+                "bavli/bava-kamma",
+                &["Talmud", "Bavli", "Seder Nezikin"],
+                &[21],
+            ),
+            ordered_work(
+                "bavli/zevachim",
+                &["Talmud", "Bavli", "Seder Kodashim"],
+                &[28],
+            ),
             ordered_work("bavli/niddah", &["Talmud", "Bavli", "Seder Tahorot"], &[37]),
         ];
         let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
@@ -599,15 +619,27 @@ mod tests {
         // `Bartenura` is not a word anybody could put in a translation table —
         // it is the name of a sefer, and the corpus already knows it in Hebrew,
         // sixty-three times over.
-        let mut one = work_on("bartenura-on-berakhot", &["Mishnah", "Rishonim on Mishnah", "Bartenura"]);
+        let mut one = work_on(
+            "bartenura-on-berakhot",
+            &["Mishnah", "Rishonim on Mishnah", "Bartenura"],
+        );
         one.he_title = "ברטנורא על ברכות".into();
-        let mut two = work_on("bartenura-on-shabbat", &["Mishnah", "Rishonim on Mishnah", "Bartenura"]);
+        let mut two = work_on(
+            "bartenura-on-shabbat",
+            &["Mishnah", "Rishonim on Mishnah", "Bartenura"],
+        );
         two.he_title = "ברטנורא על שבת".into();
         let works = vec![one, two];
 
         let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
-        assert!(find(&tree, "ברטנורא").is_some(), "named off its own seforim");
-        assert!(find(&tree, "Bartenura").is_none(), "and not left in English");
+        assert!(
+            find(&tree, "ברטנורא").is_some(),
+            "named off its own seforim"
+        );
+        assert!(
+            find(&tree, "Bartenura").is_none(),
+            "and not left in English"
+        );
     }
 
     #[test]
@@ -615,10 +647,16 @@ mod tests {
         // The Chida's shelf holds `Chomat Anakh`, `Nachal Eshkol`, `Marit
         // HaAyin` — no shared title stem, and all forty-five carry the same
         // author. A shelf named after a man takes his name.
-        let mut one = work_on("chomat-anakh-on-isaiah", &["Tanakh", "Acharonim on Tanakh", "Chida"]);
+        let mut one = work_on(
+            "chomat-anakh-on-isaiah",
+            &["Tanakh", "Acharonim on Tanakh", "Chida"],
+        );
         one.he_title = "חומת אנך על ישעיהו".into();
         one.author = Some("חיים דוד אזולאי".into());
-        let mut two = work_on("nachal-eshkol-on-ruth", &["Tanakh", "Acharonim on Tanakh", "Chida"]);
+        let mut two = work_on(
+            "nachal-eshkol-on-ruth",
+            &["Tanakh", "Acharonim on Tanakh", "Chida"],
+        );
         two.he_title = "נחל אשכול על רות".into();
         two.author = Some("חיים דוד אזולאי".into());
         let works = vec![one, two];
@@ -632,14 +670,16 @@ mod tests {
     fn a_rename_by_the_reader_beats_the_name_the_corpus_gives() {
         // spec.md §5: the shipped taxonomy is a default, not a fact. Naming a
         // shelf off its seforim must not undo a drag.
-        let mut one = work_on("bartenura-on-berakhot", &["Mishnah", "Rishonim on Mishnah", "Bartenura"]);
+        let mut one = work_on(
+            "bartenura-on-berakhot",
+            &["Mishnah", "Rishonim on Mishnah", "Bartenura"],
+        );
         one.he_title = "ברטנורא על ברכות".into();
         let works = vec![one];
         let mut arrangement = Arrangement::default();
-        arrangement.titles.insert(
-            "משנה/ראשונים/Bartenura".to_string(),
-            "רע״ב".to_string(),
-        );
+        arrangement
+            .titles
+            .insert("משנה/ראשונים/Bartenura".to_string(), "רע״ב".to_string());
 
         let tree = tree(&works, &arrangement, &Shipped::of(&works));
         assert!(find(&tree, "רע״ב").is_some(), "the reader's name stands");
@@ -678,7 +718,11 @@ mod tests {
         let mut latin: Vec<(String, usize)> = Vec::new();
         fn walk(branches: &[Branch], out: &mut Vec<(String, usize)>) {
             for b in branches {
-                if !b.title.chars().any(|c| ('\u{0590}'..='\u{05FF}').contains(&c)) {
+                if !b
+                    .title
+                    .chars()
+                    .any(|c| ('\u{0590}'..='\u{05FF}').contains(&c))
+                {
                     out.push((b.title.clone(), b.count));
                 }
                 walk(&b.children, out);
@@ -717,7 +761,10 @@ mod tests {
 
         let at = |name: &str| titles.iter().position(|t| *t == name);
         let (zeraim, moed) = (at("סדר זרעים"), at("סדר מועד"));
-        assert!(zeraim.is_some() && moed.is_some(), "the sedarim are {titles:?}");
+        assert!(
+            zeraim.is_some() && moed.is_some(),
+            "the sedarim are {titles:?}"
+        );
         assert!(zeraim < moed, "Zeraim comes before Moed");
         if let Some(rishonim) = at("ראשונים") {
             assert!(

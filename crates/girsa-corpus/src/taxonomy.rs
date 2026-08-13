@@ -725,7 +725,10 @@ pub fn hebrew_names(
             if is_hebrew(&shelf[depth - 1]) {
                 continue;
             }
-            under.entry(shelf[..depth].join("/")).or_default().push(work);
+            under
+                .entry(shelf[..depth].join("/"))
+                .or_default()
+                .push(work);
         }
     }
 
@@ -744,7 +747,10 @@ fn is_hebrew(part: &str) -> bool {
 /// `ברטנורא` — or `None` when it has no Hebrew title at all.
 fn hebrew_stem(work: &Work) -> Option<&str> {
     let title = work.he_title.trim();
-    let head = title.split_once(" על ").map_or(title, |(head, _)| head).trim();
+    let head = title
+        .split_once(" על ")
+        .map_or(title, |(head, _)| head)
+        .trim();
     (!head.is_empty() && is_hebrew(head)).then_some(head)
 }
 
@@ -1257,7 +1263,10 @@ mod tests {
         // What genuinely has no Hebrew name anywhere in the corpus is carried
         // through, and `hebrew_names` is what gets most of these off the shelf
         // by asking the seforim standing on them.
-        assert_eq!(shelf(&["Kabbalah", "Nobody Filed This"]), "קבלה/Nobody Filed This");
+        assert_eq!(
+            shelf(&["Kabbalah", "Nobody Filed This"]),
+            "קבלה/Nobody Filed This"
+        );
     }
 
     #[test]

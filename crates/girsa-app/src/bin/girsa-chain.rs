@@ -228,8 +228,8 @@ impl<'a> Printer<'a> {
             Language::Hebrew,
             girsa_cite::CiteStyle::HebrewFull,
         )
-            .of(&at.from)
-            .dated()
+        .of(&at.from)
+        .dated()
     }
 
     /// The first words of a segment, so a row can be recognised.

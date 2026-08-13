@@ -729,10 +729,7 @@ mod tests {
         let dir = std::env::temp_dir().join("girsa-app-beside-far-edge");
         shard_with(
             &dir,
-            &[(
-                "girsa:rashi-on-genesis/35:18:2#2",
-                "girsa:genesis/12:12#2",
-            )],
+            &[("girsa:rashi-on-genesis/35:18:2#2", "girsa:genesis/12:12#2")],
         );
 
         let (base, rashi) = chumash();
@@ -796,7 +793,10 @@ mod tests {
         // commentary shelf with enough edges settles as `Stands::On` — so it
         // takes the same path as Rashi and must not be cut by it.
         let dir = std::env::temp_dir().join("girsa-app-beside-flat-mefaresh");
-        shard_with(&dir, &[("girsa:korban-netanel/7#2", "girsa:bavli/berakhot/2a:3#3")]);
+        shard_with(
+            &dir,
+            &[("girsa:korban-netanel/7#2", "girsa:bavli/berakhot/2a:3#3")],
+        );
 
         let gemara = gemara();
         let mut flat = open("korban-netanel", &[&["6"], &["7"], &["8"]]);

@@ -197,11 +197,7 @@ pub fn cite_of(work: &Work, id: &SegmentId, style: CiteStyle) -> String {
         return id.to_string();
     };
     let path: Vec<String> = work.slug.split('/').map(str::to_string).collect();
-    cite(
-        &about(work),
-        &girsa_ref::Ref::point(path, address),
-        style,
-    )
+    cite(&about(work), &girsa_ref::Ref::point(path, address), style)
 }
 
 /// Build the three flavours for a selection.

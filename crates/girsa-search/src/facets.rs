@@ -639,7 +639,10 @@ mod tests {
         assert_eq!(facets.era.len(), 1);
         assert_eq!(facets.era[0].key, NO_ERA);
         assert_eq!(facets.era[0].label, "", "unnamed here; the window names it");
-        assert_eq!(facets.era[0].key, NO_ERA, "and the key is what says which absence");
+        assert_eq!(
+            facets.era[0].key, NO_ERA,
+            "and the key is what says which absence"
+        );
         assert_eq!(facets.era[0].count, 5);
     }
 

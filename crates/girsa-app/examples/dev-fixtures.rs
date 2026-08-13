@@ -177,7 +177,14 @@ fn main() -> std::process::ExitCode {
             lines: sefer
                 .segments
                 .iter()
-                .map(|s| Line::of(sefer, s, girsa_app::session::Pointing::Full, girsa_cite::CiteStyle::HebrewShort))
+                .map(|s| {
+                    Line::of(
+                        sefer,
+                        s,
+                        girsa_app::session::Pointing::Full,
+                        girsa_cite::CiteStyle::HebrewShort,
+                    )
+                })
                 .collect(),
         };
         write(

@@ -189,7 +189,12 @@ impl<'a> Names<'a> {
     /// surface drawing a blank date column is a surface that asked for one.
     #[must_use]
     pub const fn on(shelf: &'a Shelf) -> Self {
-        Self::new(shelf, None, Language::Hebrew, girsa_cite::CiteStyle::HebrewFull)
+        Self::new(
+            shelf,
+            None,
+            Language::Hebrew,
+            girsa_cite::CiteStyle::HebrewFull,
+        )
     }
 
     /// Name a place.
@@ -273,14 +278,27 @@ mod tests {
         // window has one.
         let at = id("user/שלי", &["1"]);
         assert_eq!(
-            Naming::named(&at, Some(("שלי", "")), When::default(), Language::English, None).title,
+            Naming::named(
+                &at,
+                Some(("שלי", "")),
+                When::default(),
+                Language::English,
+                None
+            )
+            .title,
             "שלי"
         );
     }
 
     #[test]
     fn a_naming_with_no_address_is_the_sefer_itself() {
-        let naming = Naming::named(&id("user/x", &[]), None, When::default(), Language::Hebrew, None);
+        let naming = Naming::named(
+            &id("user/x", &[]),
+            None,
+            When::default(),
+            Language::Hebrew,
+            None,
+        );
         assert_eq!(naming.said(), "user/x");
     }
 
@@ -293,7 +311,9 @@ mod tests {
             &id("user/x", &["1"]),
             None,
             When::default(),
-            Language::Hebrew, None);
+            Language::Hebrew,
+            None,
+        );
         assert_eq!(naming.dated(), "user/x 1  [no date]");
     }
 
