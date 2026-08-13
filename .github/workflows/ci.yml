@@ -167,6 +167,25 @@ jobs:
       - run: npm test
         working-directory: Girsa/app
 
+      # And the one check in this repository that has ever seen a pixel.
+      #
+      # `eyes.mjs` was written after two defects that no string search can
+      # express — a mefaresh's comment drawn at `opacity: 0`, and a pane title
+      # measured at 0px in a three-way split — and its own header said *"CI that
+      # wants it enforced can set the variable."* No job ever set it, so on a
+      # machine with no browser it printed one line and returned success: a check
+      # that passes because it could not find its input, which is the exact shape
+      # BUILDER.md forbids for tests by name.
+      #
+      # `EYES_REQUIRED` makes a missing browser a failure. The runner image ships
+      # Chrome, which is not the engine the window runs on — WebView2 is — so
+      # this is a second rendering engine's opinion rather than the same one
+      # twice, which spec.md asks for anyway.
+      - run: npm run eyes
+        working-directory: Girsa/app
+        env:
+          EYES_REQUIRED: "1"
+
       # `app/dist`, which the crate below embeds and cannot compile without.
       - run: npm run build
         working-directory: Girsa/app

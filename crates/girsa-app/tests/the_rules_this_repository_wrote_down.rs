@@ -1218,3 +1218,96 @@ fn the_four_rules_this_file_was_asked_for_are_all_here() {
         );
     }
 }
+
+/// The gate is written down once, and `tools/verify.mjs` is where.
+///
+/// Rule 4 said *the four verify commands*, and then grew a fifth and a sixth for
+/// the Tauri shell — which `default-members` excludes — and then two more for
+/// the window, and then `npm run eyes`. Nine commands in three directories, most
+/// of them below the fold of the rule that lists them.
+///
+/// What happens to a nine-command gate happened here: `cargo fmt -- --check`,
+/// the fourth of the four and the first one named, was found failing on eleven
+/// files across both trees, some of them unformatted for weeks. Nobody skipped
+/// it on purpose. It is the one that never fails when you are in a hurry, so it
+/// is the one that stops being run.
+///
+/// So the rule points at a runner and the runner is the list. This asserts that
+/// they have not become two lists again — the failure mode being that somebody
+/// adds a step to the runner and rule 4 still promises four commands, or writes
+/// a command into rule 4 that the runner never runs.
+///
+/// The forbidden prefixes are **derived from the runner**, not typed here: a
+/// tenth step gets this protection without anybody remembering to add it. What
+/// is deliberately still allowed is `cargo run -p girsa-app --example
+/// dev-fixtures`, because that is a suggestion about how to look at your work
+/// and not a thing the gate runs.
+///
+/// It is blunt on purpose, and the first thing it caught was the rewritten rule
+/// 4's own account of *why* — a sentence naming the formatter check as history
+/// rather than as an instruction. That is the right trade: a reader skimming a
+/// numbered rule cannot tell a quoted command from a required one, and prose
+/// that has to say *the formatting check* instead of quoting it loses nothing.
+#[test]
+fn the_gate_is_written_down_once_and_the_rule_points_at_it() {
+    let root = repo();
+    let runner = std::fs::read_to_string(root.join("tools/verify.mjs"))
+        .unwrap_or_else(|e| panic!("tools/verify.mjs reads: {e}"));
+    let builder = std::fs::read_to_string(root.join("BUILDER.md"))
+        .unwrap_or_else(|e| panic!("BUILDER.md reads: {e}"));
+
+    // Rule 4, on its own, from the numbered list.
+    let rule = builder
+        .split_once("4. **Verify.**")
+        .and_then(|(_, rest)| rest.split_once("5. **Commit per work order**"))
+        .map(|(rule, _)| rule)
+        .unwrap_or_else(|| panic!("BUILDER.md still has a rule 4 and a rule 5"));
+
+    assert!(
+        rule.contains("node tools/verify.mjs"),
+        "rule 4 does not name the runner. The gate is one command; the rule has \
+         to say which one.\n{rule}"
+    );
+
+    // And the README, which had the same list a third time. Only that it names
+    // the runner, not that it never says `cargo build` — the README explains how
+    // to compile the shell by hand a few hundred lines further down, and that is
+    // a different question from what the gate is.
+    let readme = std::fs::read_to_string(root.join("README.md"))
+        .unwrap_or_else(|e| panic!("README.md reads: {e}"));
+    assert!(
+        readme.contains("node tools/verify.mjs"),
+        "the README describes how this repository is checked and does not name \
+         the runner. Three copies of the gate is two copies that drift."
+    );
+
+    // Every command the runner runs, cut to the two words that identify it.
+    let mut named = std::collections::BTreeSet::new();
+    for chunk in runner.split("run: [").skip(1) {
+        let Some((inside, _)) = chunk.split_once(']') else {
+            continue;
+        };
+        let words: Vec<String> = inside
+            .split(',')
+            .map(|w| w.trim().trim_matches('"').to_string())
+            .filter(|w| !w.is_empty())
+            .collect();
+        if words.len() >= 2 {
+            named.insert(format!("{} {}", words[0], words[1]));
+        }
+    }
+    assert!(
+        named.len() >= 5,
+        "the runner's gate was not read — `run: [...]` changed shape: {named:?}"
+    );
+
+    let listed: Vec<&String> = named.iter().filter(|c| rule.contains(c.as_str())).collect();
+    assert!(
+        listed.is_empty(),
+        "rule 4 spells out {} gate command(s) that `tools/verify.mjs` already \
+         runs:\n{:?}\n\nTwo lists is one list that drifts. Rule 4 explains why \
+         the gate is what it is; the runner says what it is.",
+        listed.len(),
+        listed,
+    );
+}

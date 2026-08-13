@@ -33,8 +33,15 @@
 // Headless Edge is used because this is a WebView2 application and Edge is the
 // engine the window is already running — the same layout, not an approximation
 // of it. `EYES_BROWSER` overrides the path. Where no browser is found this says
-// so and exits 0: a developer without one is not a failing build, and CI that
-// wants it enforced can set the variable.
+// so and exits 0: a developer without one is not a failing build.
+//
+// `EYES_REQUIRED=1` makes that a failure instead, and CI sets it. The original
+// line here said *"CI that wants it enforced can set the variable"* and no CI
+// job ever did — so on a machine with no browser this printed one sentence and
+// returned success, which is the same shape as a test that passes because it
+// could not find its input. BUILDER.md forbids that for tests by name; there is
+// no reason it should be allowed for the only check in this repository that has
+// ever seen a pixel.
 
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -45,17 +52,26 @@ import { APP } from "./paths.mjs";
 
 /** Where Edge is, on a machine that has it. */
 const EDGES = [
-  process.env.EYES_BROWSER,
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
   "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
   "/usr/bin/microsoft-edge",
   "/usr/bin/google-chrome",
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-].filter(Boolean);
+];
 
+/**
+ * `EYES_BROWSER` **instead of** the list, not in front of it.
+ *
+ * It used to be the first candidate, under a header saying it *overrides* the
+ * path — so a variable pointing at a browser that had moved fell through to
+ * whatever else happened to be installed, and reported on an engine nobody had
+ * asked for. That is the same defect `roots.rs` documents about `GIRSA_CORPUS`
+ * pointing at an empty directory: *somebody said so* is not a hint.
+ */
 async function findBrowser() {
   const { access } = await import("node:fs/promises");
-  for (const candidate of EDGES) {
+  const said = process.env.EYES_BROWSER;
+  for (const candidate of said ? [said] : EDGES) {
     try {
       await access(candidate);
       return candidate;
@@ -130,10 +146,36 @@ const HEADER_EN = `
   </header>
 </div>`;
 
+/**
+ * The shelf's two-column body, in a box whose width the test drives.
+ *
+ * `.shelf-tree` is 320px and `--dock` is 380px, four hundred lines apart in the
+ * stylesheet, and what that left for the seforim was about seventy. The fix is
+ * `@container shelf (width < 640px)`, and a container query is exactly the kind
+ * of rule that silently does nothing — misname the container, forget
+ * `container-type`, put the query on the wrong element, and the sheet still
+ * parses and every selector still matches. `styles.test.mjs` reads the text and
+ * can prove the names line up. Only a browser can prove the layout changed.
+ *
+ * The width goes on the **sheet**, which is the container, and not on a wrapper
+ * around it: `.shelf-sheet` carries its own `width: min(1080px, 94vw)` and would
+ * have sat at 1278px inside a 380px box, which is a specimen that measures
+ * nothing. Where the sheet gets its width from — `is-docked`, the viewport, or
+ * this line — is precisely what the query does not care about, and that is the
+ * argument the stylesheet makes for asking about width instead of about a class.
+ */
+const SHELF = `
+<div class="shelf-sheet" id="shelf-box" style="height: 300px">
+  <div class="shelf-body" id="shelf-body">
+    <div class="shelf-tree" id="shelf-tree"><p class="shelf-row">תלמוד בבלי</p></div>
+    <div class="shelf-column" id="shelf-column"><p class="shelf-work">ברכות</p></div>
+  </div>
+</div>`;
+
 const PAGE = (sheet) => `<!doctype html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8">
 <link rel="stylesheet" href="${sheet}"></head>
-<body style="margin:0">${COMMENT}${HEADER}${HEADER_EN}</body></html>`;
+<body style="margin:0">${COMMENT}${HEADER}${HEADER_EN}${SHELF}</body></html>`;
 
 // -------------------------------------------------------------------- the eye
 
@@ -205,11 +247,45 @@ async function pageOf(port) {
   throw new Error("the browser never opened a page");
 }
 
+/**
+ * Wait until the page is the page — `readyState` complete and the sheet
+ * applied.
+ *
+ * `pageOf` returns as soon as the browser has a page *target*, which is before
+ * it has finished navigating to one, so the first `Runtime.evaluate` could land
+ * on a document that was still loading. This run went red once with
+ * `overflow-y was visible` and green on the retry, which is the worst possible
+ * outcome: a flaky guard is one a person learns to re-run rather than read, and
+ * the next time it means it nobody will believe it.
+ *
+ * The guard itself is not what changed. It was right, and it was doing exactly
+ * its job — refusing to measure unstyled HTML rather than passing sixteen
+ * assertions against it. What it lacked was the patience to let the thing it is
+ * asking about happen. Four seconds, in tenths, and then it reports whatever it
+ * found: a timeout is still a failure and still says what it saw.
+ */
+async function settled(eye) {
+  for (let tries = 0; tries < 40; tries += 1) {
+    const found = await eye.look(`(() => {
+      if (document.readyState !== 'complete') return 'loading';
+      const body = document.querySelector('.pane-body');
+      return body ? getComputedStyle(body).overflowY : 'no .pane-body yet';
+    })()`);
+    if (found === "auto") return found;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  // Whatever it last saw, so the failure names the state rather than the wait.
+  return eye.look(`(() => {
+    const body = document.querySelector('.pane-body');
+    return body ? getComputedStyle(body).overflowY : 'no .pane-body after 4s';
+  })()`);
+}
+
 async function main() {
   const browser = await findBrowser();
   if (!browser) {
     console.log("no browser found — set EYES_BROWSER to one. Nothing looked at.");
-    return 0;
+    return process.env.EYES_REQUIRED ? 1 : 0;
   }
 
   const room = await mkdtemp(path.join(tmpdir(), "girsa-eyes-"));
@@ -246,9 +322,7 @@ async function main() {
 
     // The stylesheet has to have arrived, or every measurement below is a
     // measurement of unstyled HTML and all of them pass.
-    const styled = await eye.look(
-      `getComputedStyle(document.querySelector('.pane-body')).overflowY`,
-    );
+    const styled = await settled(eye);
     seen("the stylesheet loaded", styled === "auto", `overflow-y was ${styled}`);
 
     // ------------------------------------------ who is holding the reader's place
@@ -362,6 +436,46 @@ async function main() {
         `the last button measured ${seenAt.lastButton}px around its own label`,
       );
     }
+
+    // ------------------------------------------- the shelf when it is narrow
+    //
+    // Measured, not read. The assertion is about the **seforim**, which is what
+    // the panel is for: at 380px — the docked width — the column holding them
+    // must be most of the sheet rather than the seventy pixels 320 + 380 leaves.
+    const shelf = await eye.look(`(() => {
+      const measure = (px) => {
+        const box = document.getElementById('shelf-box');
+        box.style.width = px + 'px';
+        const body = document.getElementById('shelf-body');
+        const tree = document.getElementById('shelf-tree');
+        const column = document.getElementById('shelf-column');
+        return {
+          direction: getComputedStyle(body).flexDirection,
+          tree: Math.round(tree.getBoundingClientRect().width),
+          column: Math.round(column.getBoundingClientRect().width),
+        };
+      };
+      const out = { docked: measure(380), narrow: measure(560), wide: measure(1000) };
+      document.getElementById('shelf-box').style.width = '1000px';
+      return out;
+    })()`);
+
+    seen(
+      "a narrow shelf stacks the tree over the seforim",
+      shelf.docked.direction === "column" && shelf.narrow.direction === "column",
+      `at 380px it was ${shelf.docked.direction}, at 560px ${shelf.narrow.direction} ` +
+        `— the container query did not fire`,
+    );
+    seen(
+      "and the seforim get the width",
+      shelf.docked.column > shelf.docked.tree * 0.9,
+      `the tree took ${shelf.docked.tree}px and left the seforim ${shelf.docked.column}px`,
+    );
+    seen(
+      "a wide shelf still puts them side by side",
+      shelf.wide.direction === "row" && shelf.wide.tree > 200,
+      `at 1000px it was ${shelf.wide.direction} with a ${shelf.wide.tree}px tree`,
+    );
 
     // The English header overflowed the other way and cut the leftmost button
     // to `se`.

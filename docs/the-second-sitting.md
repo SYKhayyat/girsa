@@ -806,6 +806,51 @@ this audit's top five findings are single assertions in a headless window:
 after a language switch. **The gate needs a browser in it, not another source
 sweep.**
 
+**Done, and the harder half was the word *gate*.** `eyes.mjs` existed by the end
+of the audit (section 25) and was not in anything: the rule that lists the gate
+listed nine commands in three directories, and `npm run eyes` was the ninth. On
+13 August the *fourth* of the original four was found failing on eleven files,
+several of them unformatted for weeks. A nine-command gate is not a gate, it is
+a reading-comprehension exercise you take before every commit, and what survives
+it is whichever commands failed last.
+
+So there is one command — `node tools/verify.mjs` — and it is the only place the
+steps are written down. BUILDER.md rule 4 points at it and explains *why* the
+gate is what it is, which is the half a runner cannot carry.
+`the_rules_this_repository_wrote_down.rs` derives the forbidden command prefixes
+**from the runner** and fails if rule 4 spells any of them out again, so a tenth
+step is protected without anybody remembering to protect it. The first thing
+that guard caught was the rewritten rule 4's own account of the fmt failure,
+which had quoted the command it was describing.
+
+Three things about the eye itself, all of them the same shape as the findings it
+was built for:
+
+* **It raced the page it was measuring.** `pageOf` returns as soon as the
+  browser has a page *target*, which is before it has navigated to one, so the
+  first evaluation could land on a document still loading. It went red once with
+  `overflow-y was visible` and green on the retry — the worst outcome available,
+  because a flaky guard is one a person learns to re-run rather than read. The
+  guard was right and had no patience; it waits for `readyState` and the applied
+  sheet now, four seconds in tenths, and a timeout still reports what it saw.
+* **It passed when it could not run.** With no browser it printed one line and
+  returned 0, under a header saying *"CI that wants it enforced can set the
+  variable"* — and no CI job ever set it. That is a check passing because it
+  could not find its input, which BUILDER.md forbids for tests by name and had
+  never been applied to the one check with eyes. `EYES_REQUIRED=1` makes it a
+  failure, and CI's shell job sets it. On the way, `EYES_BROWSER` became a real
+  override rather than a first candidate: pointing it at a browser that had
+  moved used to fall through to whatever else was installed and report on an
+  engine nobody asked for.
+* **It grew the assertion nothing else could make.** The docked shelf (finding
+  15) is fixed by `@container shelf (width < 640px)`, and a container query is
+  precisely the rule that silently does nothing — misname the container, forget
+  `container-type`, put the query on the wrong element, and the sheet still
+  parses and every selector still matches. `styles.test.mjs` can prove the names
+  line up. Only a browser can prove the layout changed, and it now measures the
+  sheet at 380px, 560px and 1000px. Checked against the bug, its failure line is
+  the audit's own arithmetic: `the tree took 320px and left the seforim 58px`.
+
 ### Lesson 2 · The bespoke guard fits the bug that was, not the bug that is
 
 `styles.test.mjs` exists because an undefined custom property made a panel
@@ -1323,10 +1368,11 @@ because it anchored its selector match on the closing brace of the previous rule
 and `.said` at line 1768 sits directly under a comment. Worth recording: a guard
 written to catch a silent failure failed silently on its first outing.
 
-**`app/tools/eyes.mjs`** — `npm run eyes`. Headless Edge, the same engine the
-window runs on, over the real `src/styles.css`, measuring the markup the modules
-build. Seven assertions. Pointed at the original bug it reproduces the live
-numbers exactly:
+**`app/tools/eyes.mjs`** — `npm run eyes`, and step 9 of `node tools/verify.mjs`
+since lesson 1 was answered. Headless Edge, the same engine the window runs on,
+over the real `src/styles.css`, measuring the markup the modules build. Seven
+assertions when it was written; twenty now. Pointed at the original bug it
+reproduces the live numbers exactly:
 
 ```
 FAIL a mefaresh's comment is in the flow, not fixed to the window

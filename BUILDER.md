@@ -28,33 +28,45 @@ silently corrupt ten thousand commentary links is the actual project.
    siblings you checked **including the ones you cleared, and why**.
 3. **No legacy.** When a thing is replaced, the old thing is deleted in the same
    change — config keys, docs, tests and migrations included.
-4. **Verify.** `cargo build --all-targets` → `cargo test` → `cargo clippy
-   --all-targets --all-features -- -D warnings` → `cargo fmt -- --check`.
-   Unverified is not done.
+4. **Verify.**
 
-   **And then the same again from `app/src-tauri`.** Those four run against
-   `default-members`, which excludes the Tauri shell for a good reason (it cannot
-   build before `app/dist` exists) — so they compile everything in this
-   repository *except the 4,424 lines that own all the interop*.
+   ```sh
+   node tools/verify.mjs
+   ```
 
-   CI has a `shell` job and does catch it; the point of running it here is the
-   three minutes and the push. It has caught it twice, and the second time is the
-   one worth reading: on **9 August** the shell called
+   Unverified is not done. The runner is the gate — nine steps across the
+   workspace, the Tauri shell and the window — and it is deliberately the only
+   place they are written down. `--from <n>` picks up where a failure stopped it;
+   `--list` prints the steps without running them.
+
+   **This rule used to be the list**, and it is worth saying what that cost.
+   It began as four commands, grew a fifth and a sixth for `app/src-tauri` and
+   two more for the window, then `npm run eyes` — nine, in three directories,
+   most of them below the fold of the rule naming them. On **13 August** the
+   fourth of the original four — the formatting check, the one named last and
+   run least — was found failing on eleven files across both trees, several of
+   them unformatted for weeks. Nobody skipped it
+   on purpose. It is the one that never fails when you are in a hurry, so it is
+   the one that stops being run, and a gate that lives in prose quietly became
+   eight commands and then seven.
+
+   Two things the runner does not change, and both are why the shell's steps are
+   in there at all. The first four run against `default-members`, which excludes
+   the Tauri shell for a good reason — it cannot build before `app/dist` exists
+   — so they compile everything in this repository *except the 4,424 lines that
+   own all the interop*. CI has a `shell` job and does catch it; the point of
+   running it here is the three minutes and the push. It has caught it twice, and
+   the second time is the one worth reading: on **9 August** the shell called
    `girsa_desk::refreshed_reporting`, which existed in `refreshing.rs` and was
    not in the `pub use` line of its own `lib.rs`. Red in CI from that commit
    onward, green on every local gate, and the fix sat uncommitted in a working
    tree for three days. A job nobody looks at is a job that reports to nobody.
 
-   ```sh
-   cd app/src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt -- --check
-   ```
-
-   And the window: `cd app && npx tsc --noEmit && node test/run.mjs`.
-
-   The browser build is the cheapest way to look at what you changed —
+   The browser build is the cheapest way to **look** at what you changed —
    `cargo run -p girsa-app --example dev-fixtures -- corpus app/public/dev` then
-   `npm run dev`. It found four defects in ten minutes that all of the above had
-   passed over, three of them in code committed an hour earlier.
+   `npm run dev`. It is not in the runner because it is not a check, it is a
+   window; it found four defects in ten minutes that all nine steps had passed
+   over, three of them in code committed an hour earlier.
 5. **Commit per work order**, with a message saying what changed and what it does
    *not* yet do.
 6. **Never guess at a citation, a link, or a ref.** Ambiguity is surfaced to the

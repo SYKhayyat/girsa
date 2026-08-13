@@ -217,14 +217,15 @@ last commit this repository pinned.
 ## Build
 
 ```sh
-cargo build --all-targets
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
-cargo fmt -- --check
-
-cd app && npm test                  # 238 assertions over the window
-cd app && npm run eyes              # headless Edge, measuring what the sheet does
+node tools/verify.mjs               # the gate: nine steps, three directories
+node tools/verify.mjs --list        # what they are, without running them
+node tools/verify.mjs --from 4      # pick up where a failure stopped it
 ```
+
+It was this list, written out here and again in BUILDER.md rule 4, and it grew
+from four commands to nine. A gate that lives in prose is a gate whose last two
+steps stop being run — see `docs/the-second-sitting.md`, lesson 1. The runner is
+the list now, and a test fails if rule 4 starts repeating it.
 
 ### Building the window
 
@@ -356,7 +357,7 @@ invariants exist, beautifully argued, next to callers that break them:
 
 Writing it down was mistaken for enforcing it. So
 `crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs` is
-**23**<!--=rules--> checks that read this repository's own source and fail when
+**24**<!--=rules--> checks that read this repository's own source and fail when
 a rule stated in a doc comment stops being true — a slug worked out twice, a
 query prepared twice, a chip family read with a silent fallback, Ksav markup
 composed outside the desk, a refusal Rust can send that the window has no
