@@ -357,9 +357,10 @@ impl<'a> Beside<'a> {
                 };
                 if found.is_empty() {
                     // Declared, and the addresses have nothing here. An edge is
-                    // still a fact somebody recorded, so it is used before
-                    // giving up.
-                    return self.by_edge(at);
+                    // still a fact somebody recorded — but only the ones the
+                    // addresses can also live with, and this is the whole of
+                    // finding 4. See [`Beside::by_agreeing_edge`].
+                    return self.by_agreeing_edge(at, follower_is_commentary);
                 }
                 Place::At(found)
             }
@@ -375,6 +376,92 @@ impl<'a> Beside<'a> {
             _ => Place::NoPlace,
         }
     }
+
+    /// The edges from this line that the two seforim's **addresses** can also
+    /// live with.
+    ///
+    /// # The Ramban fifteen chapters away, saying it was following
+    ///
+    /// The fallback above it used to be [`Beside::by_edge`] — any edge joining
+    /// the two works at this segment, scrolled to `ids[0]`. Sefaria's graph
+    /// includes *this Rashi elsewhere quotes that pasuk*, which is a fact and is
+    /// not this reader's question:
+    ///
+    /// ```text
+    /// base at Bereishis 12:12  → Rashi column told to go to rashi-on-genesis/35:18:2
+    /// base at Bereishis 12:5   → Ramban column told to go to ramban-on-genesis/2:3:1
+    ///                            (the answer had three ids; the first one was wrong)
+    /// ```
+    ///
+    /// Live, that is a reader in Lech Lecha with a chavrusa's Ramban open at
+    /// Vayishlach and a header saying `גלילה עם בראשית` under it. Which is the
+    /// exact failure this module's own header says [`Place::NoPlace`] exists to
+    /// prevent — *a guess presented as a place*, BUILDER.md rule 6 — arriving
+    /// through the fallback rather than through the lookup.
+    ///
+    /// # What agreeing means, and why it is not a distance
+    ///
+    /// A declared commentary's address **extends** its base's: `Rashi on
+    /// Berakhot 2a:1:3` is the third comment on `Berakhot 2a:1`. So the shorter
+    /// of the two addresses has to be a prefix of the longer one, and the longer
+    /// one has to be the commentary's. `[12,12]` against `[35,18,2]` compares
+    /// `[12,12]` with `[35,18]` and they are not the same perek.
+    ///
+    /// **And when the length is the wrong way round, there is nothing to
+    /// disagree about.** A mefaresh Sefaria never described — the 978
+    /// Otzaria-only works, numbered `1..N` against a Gemara addressed `2a:3` —
+    /// is not addressed in its base's scheme at all, and comparing the two would
+    /// be comparing a comment number with a daf. Those still place by edge,
+    /// which is the only fact there is about them. This is why the test is the
+    /// shape of the two addresses rather than a distance between them: a
+    /// distance would need the two to be in one vocabulary to mean anything, and
+    /// half of these pairs are not.
+    fn by_agreeing_edge(&self, at: &SegmentId, follower_is_commentary: bool) -> Place {
+        let How::Text { edges, .. } = &self.joined.how else {
+            return Place::Unrelated;
+        };
+        let Some(ids) = edges.get(at) else {
+            return Place::NoPlace;
+        };
+        let here = address_of(at);
+        // Filtered rather than taken or dropped whole: the Ramban answer above
+        // had three ids and the wrong one was first, so an edge that does place
+        // this line is still worth having when it arrives beside two that do
+        // not.
+        let kept: Vec<SegmentId> = ids
+            .iter()
+            .filter(|id| addresses_agree(&here, &address_of(id), follower_is_commentary))
+            .cloned()
+            .collect();
+        if kept.is_empty() {
+            Place::NoPlace
+        } else {
+            Place::At(kept)
+        }
+    }
+}
+
+/// Whether a commentary's address and its base's can be the same place.
+///
+/// The shorter address must be a prefix of the longer one, and the longer one
+/// must be the commentary's — which is what *the commentary's address extends
+/// its base's* means, written down. When the lengths run the other way the two
+/// are not addressed in one scheme and this says so by agreeing: see
+/// [`Beside::by_agreeing_edge`].
+fn addresses_agree(
+    leader: &girsa_ref::Address,
+    follower: &girsa_ref::Address,
+    follower_is_commentary: bool,
+) -> bool {
+    let (deeper, shallower) = if follower_is_commentary {
+        (follower.levels(), leader.levels())
+    } else {
+        (leader.levels(), follower.levels())
+    };
+    if deeper.len() < shallower.len() {
+        return true;
+    }
+    deeper.iter().zip(shallower).all(|(a, b)| a == b)
 }
 
 /// Every edge joining the two works, in both directions, as leader → follower.
@@ -593,5 +680,160 @@ mod tests {
             Place::NoPlace
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── finding 4 · a column that jumped fifteen chapters and said it was
+    //    following ───────────────────────────────────────────────────────────
+
+    /// Bereishis, two perakim apart, and a Rashi that has nothing on 12:12.
+    fn chumash() -> (Open, Open) {
+        let base = open(
+            "genesis",
+            &[&["12", "5"], &["12", "12"], &["35", "18"], &["1", "1"]],
+        );
+        let mut rashi = open(
+            "rashi-on-genesis",
+            &[&["1", "1", "1"], &["35", "18", "2"], &["12", "5", "1"]],
+        );
+        rashi.work.commentary_on = vec![BaseText {
+            slug: "genesis".into(),
+            mapping: Mapping::ManyToOne,
+        }];
+        (base, rashi)
+    }
+
+    /// An edge from one work to another, written into a fresh shard directory.
+    fn shard_with(dir: &Path, edges: &[(&str, &str)]) {
+        let _ = std::fs::remove_dir_all(dir);
+        let mut writer = store::Writer::default();
+        for (from, to) in edges {
+            writer.push(&girsa_link::Edge {
+                from: girsa_link::Anchor::point(from.parse().expect("a segment id")),
+                to: girsa_link::Anchor::point(to.parse().expect("a segment id")),
+                edge_type: girsa_link::EdgeType::Quotes,
+                method: girsa_link::Method::OtzariaSeed,
+                direction: girsa_link::Direction::NotRecorded,
+                source_label: "quotation".into(),
+            });
+        }
+        writer.flush(dir).expect("writes");
+    }
+
+    #[test]
+    fn an_edge_from_another_perek_does_not_place_a_declared_commentary() {
+        // Sefaria's graph includes *this Rashi elsewhere quotes that pasuk*.
+        // Read as a place, it puts the chavrusa's column in Vayishlach while
+        // the reader is in Lech Lecha, with the header saying it is following.
+        //
+        // Before the fix this asserts `At([rashi-on-genesis/35:18:2])`.
+        let dir = std::env::temp_dir().join("girsa-app-beside-far-edge");
+        shard_with(
+            &dir,
+            &[(
+                "girsa:rashi-on-genesis/35:18:2#2",
+                "girsa:genesis/12:12#2",
+            )],
+        );
+
+        let (base, rashi) = chumash();
+        let beside = Beside::between(&base, &rashi, &dir);
+        assert_eq!(
+            beside.relation(),
+            Relation::Declared {
+                follower_is_commentary: true
+            }
+        );
+        assert_eq!(
+            place(&beside, "girsa:genesis/12:12#2"),
+            Place::NoPlace,
+            "Rashi wrote nothing on 12:12, and an edge from perek 35 is not this line"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn three_edges_in_three_other_perakim_are_three_wrong_answers() {
+        // The Ramban answer measured in the audit had three ids and the wrong
+        // one was first, which is why `ids[0]` was the shape of the bug rather
+        // than its cause: the whole list was mentions. They are filtered rather
+        // than taken or dropped whole — one real placement arriving beside two
+        // that are not should survive the company it came in — and here none of
+        // the three is a placement, so the honest answer is `אין כאן`.
+        let dir = std::env::temp_dir().join("girsa-app-beside-mixed-edges");
+        let base = open("genesis", &[&["12", "5"], &["12", "12"], &["35", "18"]]);
+        let mut ramban = open(
+            "ramban-on-genesis",
+            &[&["2", "3", "1"], &["27", "41", "1"], &["35", "18", "1"]],
+        );
+        ramban.work.commentary_on = vec![BaseText {
+            slug: "genesis".into(),
+            mapping: Mapping::ManyToOne,
+        }];
+        shard_with(
+            &dir,
+            &[
+                ("girsa:ramban-on-genesis/2:3:1#1", "girsa:genesis/12:5#1"),
+                ("girsa:ramban-on-genesis/27:41:1#2", "girsa:genesis/12:5#1"),
+                ("girsa:ramban-on-genesis/35:18:1#3", "girsa:genesis/12:5#1"),
+            ],
+        );
+
+        let beside = Beside::between(&base, &ramban, &dir);
+        assert_eq!(
+            place(&beside, "girsa:genesis/12:5#1"),
+            Place::NoPlace,
+            "the Ramban wrote nothing on 12:5, and perakim 2, 27 and 35 are not it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_mefaresh_not_addressed_in_its_bases_scheme_still_places_by_edge() {
+        // The 978 Otzaria-only works are numbered `1..N` against a Gemara
+        // addressed `2a:3`. Comparing those two would be comparing a comment
+        // number with a daf, so there is nothing for the addresses to disagree
+        // about and the edge is the only fact there is. Declared here — a
+        // commentary shelf with enough edges settles as `Stands::On` — so it
+        // takes the same path as Rashi and must not be cut by it.
+        let dir = std::env::temp_dir().join("girsa-app-beside-flat-mefaresh");
+        shard_with(&dir, &[("girsa:korban-netanel/7#7", "girsa:bavli/berakhot/2a:3#3")]);
+
+        let gemara = gemara();
+        let mut flat = open("korban-netanel", &[&["6"], &["7"], &["8"]]);
+        flat.work.commentary_on = vec![BaseText {
+            slug: "bavli/berakhot".into(),
+            mapping: Mapping::ManyToOne,
+        }];
+        let beside = Beside::between(&gemara, &flat, &dir);
+        assert_eq!(
+            beside.relation(),
+            Relation::Declared {
+                follower_is_commentary: true
+            }
+        );
+        assert_eq!(
+            place(&beside, "girsa:bavli/berakhot/2a:3#3"),
+            Place::At(vec!["girsa:korban-netanel/7#7".parse().unwrap()]),
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_agreement_rule_is_a_shape_and_not_a_distance() {
+        use girsa_ref::Address;
+        let a = |raw: &str| Address::parse(raw).expect("an address");
+
+        // The commentary extends its base: `12:12` → `12:12:1`.
+        assert!(addresses_agree(&a("12:12"), &a("12:12:1"), true));
+        // …and a different perek does not, however near it looks.
+        assert!(!addresses_agree(&a("12:12"), &a("12:13:1"), true));
+        assert!(!addresses_agree(&a("12:12"), &a("35:18:2"), true));
+        // Followed the other way — reading the commentary, the base moves.
+        assert!(addresses_agree(&a("12:12:1"), &a("12:12"), false));
+        assert!(!addresses_agree(&a("12:12:1"), &a("35:18"), false));
+        // The length the wrong way round: not one scheme, nothing to disagree
+        // about, and the edge stands.
+        assert!(addresses_agree(&a("2a:3"), &a("7"), true));
+        assert!(addresses_agree(&a("7"), &a("2a:3"), false));
     }
 }

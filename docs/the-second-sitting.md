@@ -225,7 +225,7 @@ The guard is the class rather than the shape (lesson 2): `panel.test.mjs` sweeps
 one of them is registered `"all"` or `"inside"` in `PANELS`. The pre-fix tree
 fails it on three panels.
 
-### 4 · A commentary column can jump fifteen chapters and still say it is following
+### 4 · A commentary column can jump fifteen chapters and still say it is following — **fixed**
 
 `beside.rs:306` places a follower by address, which is exact and right. When the
 address has nothing — Rashi wrote nothing on Bereishis 12:12 — it falls through
@@ -250,6 +250,23 @@ Lecha is worse than landing nowhere — and *nowhere* is already implemented
 
 *Fix:* only use an edge whose own address is near the leader's, or do not use it
 at all for a declared commentary.
+
+**Done, and it is a shape rather than a distance.** A distance would need the
+two addresses to be in one vocabulary to mean anything, and half of these pairs
+are not: the 978 Otzaria-only mefarshim are numbered `1..N` against a Gemara
+addressed `2a:3`, and comparing those is comparing a comment number with a daf.
+
+What is true of every declared commentary is that **its address extends its
+base's** — `Rashi on Berakhot 2a:1:3` is the third comment on `Berakhot 2a:1`.
+So the shorter address has to be a prefix of the longer one and the longer one
+has to be the commentary's. `[12,12]` against `[35,18,2]` compares `[12,12]`
+with `[35,18]` and they are not the same perek. And when the lengths run the
+other way the two are not in one scheme at all, there is nothing to disagree
+about, and the edge stands — which is what keeps the Otzaria works placeable.
+
+The ids are filtered rather than the answer taken or dropped whole, because the
+Ramban answer measured above had three of them and the wrong one was merely
+first.
 
 ### 5 · A column in a three-way split has no name
 
@@ -626,8 +643,10 @@ grade more than anything else on the list.
    the localStorage cache or write it before the panels are built.~~ **Done** —
    the second of the two: the cache is written before the reload that rebuilds
    the panels, and the write and the reload are one function.
-4. **Stop the follower jumping on an unrelated edge** (finding 4) — an edge is
-   only a place if its address is near the leader's.
+4. ~~**Stop the follower jumping on an unrelated edge** (finding 4) — an edge is
+   only a place if its address is near the leader's.~~ **Done** — near turned
+   out to be the wrong test; the right one is whether the commentary's address
+   extends its base's.
 5. **Let the pane title win the header** (finding 5).
 6. **Give shelves an order the way works got one** (finding 6), and translate
    the categories from the corpus rather than from a list of thirty.
