@@ -76,6 +76,20 @@ pub enum Code {
     NoDesk,
     /// A scan has no page there.
     NoPage,
+    /// There is no clipboard to write to — no window server, no session.
+    NoClipboard,
+    /// The clipboard was there and would not take it.
+    ClipboardRefused,
+    /// A Source Packet would not turn into JSON.
+    WillNotSerialize,
+    /// The reader has not chosen the thing the command needs — nothing
+    /// highlighted, no folder picked. Not a failure: a step not taken.
+    NothingChosen,
+    /// A widening from the ladder was applied, and here is how to go back. Not
+    /// a refusal at all — a **note** — and it is in this table because the
+    /// window says it, and everything the window says has to come from one
+    /// place.
+    RungApplied,
 }
 
 girsa_corpus::spelled!(Code {
@@ -90,6 +104,11 @@ girsa_corpus::spelled!(Code {
     NoLane => "no-lane",
     NoDesk => "no-desk",
     NoPage => "no-page",
+    NoClipboard => "no-clipboard",
+    ClipboardRefused => "clipboard-refused",
+    WillNotSerialize => "will-not-serialize",
+    NothingChosen => "nothing-chosen",
+    RungApplied => "rung-applied",
 });
 
 /// What separates the name from the prose.

@@ -23,6 +23,7 @@
 
 use clipboard_rs::{Clipboard, ClipboardContent, ClipboardContext};
 use girsa_app::sending::Sent;
+use girsa_app::trouble::{refuse, Code};
 use girsa_source::CLIPBOARD_MIME;
 use serde::Serialize;
 
@@ -40,7 +41,17 @@ pub struct Put {
     pub html: bool,
     /// `application/x-girsa-source+json` — Ksav.
     pub packet: bool,
-    /// Why something is missing, in words the window can show.
+    /// Why something is missing — **coded**, so the window says it in the
+    /// reader's language rather than showing this.
+    ///
+    /// These three were the last user-facing sentences this crate composed in
+    /// English, and one of them reached a Hebrew right-to-left toast as
+    /// `the clipboard refused it: Empty clipboard error, code = OSError(1418):
+    /// Thread does not have a clipboard open.` — a raw Windows error number, in
+    /// English, as the reader's whole explanation. `girsa_app::trouble::refuse`
+    /// puts a name in front of the machine's words; `app/src/trouble.ts` turns
+    /// the name into a sentence and keeps the machine's words on the hover,
+    /// which is where they belong.
     pub trouble: Option<String>,
 }
 
@@ -50,7 +61,7 @@ pub fn put(sent: &Sent) -> Put {
         Ok(json) => json,
         Err(e) => {
             return Put {
-                trouble: Some(format!("the source packet would not serialize: {e}")),
+                trouble: Some(refuse(Code::WillNotSerialize, e)),
                 ..Put::default()
             }
         }
@@ -60,7 +71,7 @@ pub fn put(sent: &Sent) -> Put {
         Ok(context) => context,
         Err(e) => {
             return Put {
-                trouble: Some(format!("no clipboard here: {e}")),
+                trouble: Some(refuse(Code::NoClipboard, e)),
                 ..Put::default()
             }
         }
@@ -79,7 +90,7 @@ pub fn put(sent: &Sent) -> Put {
             trouble: None,
         },
         Err(e) => Put {
-            trouble: Some(format!("the clipboard refused it: {e}")),
+            trouble: Some(refuse(Code::ClipboardRefused, e)),
             ..Put::default()
         },
     }

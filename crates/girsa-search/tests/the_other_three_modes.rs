@@ -465,7 +465,7 @@ fn the_chip_row_says_what_the_search_will_do_before_it_runs() {
     );
     assert!(
         row.iter()
-            .all(|chip| chip.choices.len() > 1 || chip.name == "where"),
+            .all(|chip| chip.choices.len() > 1 || chip.key == "where"),
         "every chip offers its alternatives"
     );
 }

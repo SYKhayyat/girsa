@@ -40,6 +40,7 @@
 import {
   api,
   type Chip,
+  type Choice,
   type Dimension,
   type FacetRow,
   type Found,
@@ -50,8 +51,9 @@ import { LaneColumn } from "./laneview.ts";
 import { announces, button, field, glyph, region } from "./controls.ts";
 import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
-import { say } from "./say.ts";
+import { say, type Word } from "./say.ts";
 import { ScopePanel } from "./scopeview.ts";
+import { sayTrouble, trouble } from "./trouble.ts";
 
 /** Open a sefer at a segment — or, with no id, at wherever it was left.
  *
@@ -343,9 +345,24 @@ export class SearchView {
           // The browser build **does** refuse, and the refusal used to be
           // thrown away here — so the panel opened as a full-height empty box
           // and said nothing until something was typed.
-          this.head.textContent = empty.refused;
+          //
+          // Through `trouble()`, because a refusal carries a name and not a
+          // sentence. The shell no longer refuses an *empty* query at all —
+          // that was `nothing to search for`, in red, above a row of English
+          // chips, before the reader had typed anything, which is a panel that
+          // opens by telling you off.
+          sayTrouble(this.head, empty.refused, "general");
         } else {
           this.head.replaceChildren();
+          if (this.answering === null) {
+            // Nothing asked yet, and nothing wrong. One line saying what the
+            // box is for — including the thing nothing on screen used to teach:
+            // that a mareh makom typed into it goes there.
+            const hint = document.createElement("p");
+            hint.className = "find-said is-hint";
+            hint.textContent = say("searchNothingAsked");
+            this.head.append(hint);
+          }
           if (this.answering !== null) {
             // What is on screen, and whose question it answers. This is the
             // whole of *"it goes to the last searched item without telling
@@ -413,8 +430,8 @@ export class SearchView {
     const face = document.createElement("button");
     face.type = "button";
     face.className = "find-chip-face";
-    face.textContent = `${shown?.label ?? chip.name} ▾`;
-    face.title = chip.name;
+    face.textContent = `${shown ? chipSaid(chip.key, shown) : chipName(chip.key)} ▾`;
+    face.title = chipName(chip.key);
     const menu = document.createElement("div");
     menu.className = "find-chip-menu";
     menu.hidden = true;
@@ -422,7 +439,7 @@ export class SearchView {
     // The scope chip is a doorway, not a setting: it reports where the search is
     // looking and opens the panel that changes it. It used to open a menu whose
     // one item was *back to the whole shelf* — a doorway that only led out.
-    if (chip.name === "where") {
+    if (chip.key === "where") {
       face.classList.add("is-doorway");
       face.title = say("scopeWhy");
       face.addEventListener("click", () => this.scope.toggle());
@@ -434,7 +451,7 @@ export class SearchView {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "find-chip-item" + (choice.chosen ? " is-chosen" : "");
-      item.textContent = choice.label;
+      item.textContent = chipSaid(chip.key, choice);
       if (choice.sigil) {
         const sigil = document.createElement("span");
         sigil.className = "find-sigil";
@@ -446,7 +463,7 @@ export class SearchView {
       }
       item.addEventListener("click", async () => {
         menu.hidden = true;
-        await api.findChip(chip.name, choice.key);
+        await api.findChip(chip.key, choice.key);
         this.page = 1;
         this.rung = null;
         await this.run();
@@ -465,12 +482,21 @@ export class SearchView {
     this.head.replaceChildren();
     this.head.classList.toggle("is-trouble", Boolean(found.refused));
     if (found.refused) {
-      this.head.textContent = found.refused;
+      // Through `trouble()`, not raw. A refusal this codebase makes carries a
+      // **name** in front of the colon, and printing the whole thing put
+      // `no-index: there is no shelf to search` on the first line of a Hebrew
+      // panel — the code and the developer's sentence both.
+      sayTrouble(this.head, found.refused, "general");
       return;
     }
     const said = document.createElement("p");
     said.className = "find-said";
-    said.textContent = found.header;
+    // Composed here, from the chip row that actually ran and from what the
+    // reader actually typed. It used to be composed in Rust, in English, and it
+    // echoed the query back with its final letters folded — `מאימתי קורינ את
+    // שמע` — which reads as a typo the reader did not make. The box has what
+    // they wrote; the chips have what it meant.
+    said.textContent = this.whatWasAsked(found);
     const count = document.createElement("p");
     count.className = "find-count";
     count.textContent =
@@ -478,6 +504,19 @@ export class SearchView {
         ? `${found.total} · ${say("page")} ${found.page} ${say("pageOf")} ${found.pages}`
         : `${found.total}`;
     this.head.append(said, count);
+    // A zero used to be a bare `0` over an entirely blank panel — no sentence,
+    // no suggestion, nothing to do next. The ladder below offers the widenings
+    // that would have hits; this says what happened, for the case where it
+    // offers none.
+    if (found.total === 0) {
+      const nothing = document.createElement("p");
+      nothing.className = "find-said is-nothing";
+      nothing.textContent = say("foundNothing");
+      const how = document.createElement("p");
+      how.className = "find-note";
+      how.textContent = say("foundNothingWhy");
+      this.head.append(nothing, how);
+    }
     // What this search could not see (spec.md §9.7, W26). Drawn on every
     // result page, above the note and the offers, because it is a statement
     // about the answer and not a suggestion about the query.
@@ -485,7 +524,10 @@ export class SearchView {
     if (found.note) {
       const note = document.createElement("p");
       note.className = "find-note";
-      note.textContent = found.note;
+      // The note is coded like every other sentence the shell sends: it used to
+      // be a Hebrew string written out in `lib.rs`, which an English window
+      // would have shown in Hebrew.
+      note.textContent = trouble(found.note).said;
       this.head.append(note);
     }
     // One click back to the literal query (spec.md §9.6 — reversibly).
@@ -506,7 +548,10 @@ export class SearchView {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "find-offer";
-      chip.textContent = `${offer.label} — ${offer.count}`;
+      // The offers were the one thing on a zero-hit panel that was not blank,
+      // and they were in English. `offer.rung` is the name the ladder travels
+      // under; the words are in `say.ts`.
+      chip.textContent = `${rungSaid(offer)} — ${offer.count}`;
       chip.addEventListener("click", async () => {
         // The click. Until here nothing has been applied — the count beside the
         // offer was worked out from this very query, before it was asked for.
@@ -516,6 +561,32 @@ export class SearchView {
       });
       this.head.append(chip);
     }
+  }
+
+  /**
+   * What was asked, in words, out of the chips and the box.
+   *
+   * Three facts and no more: what was typed, what counts as a word, and how the
+   * words had to stand. Rust's own `header` is kept on the wire and is used only
+   * where the window cannot compose one — a mode whose chips do not describe it,
+   * which is Smart announcing a widening.
+   */
+  private whatWasAsked(found: Found): string {
+    const typed = this.box.value.trim();
+    const set = (chip: string): string | null => {
+      const row = found.chips.find((c) => c.key === chip);
+      const chosen = row?.choices.find((c) => c.chosen);
+      return chosen ? chipSaid(chip, chosen) : null;
+    };
+    const mode = found.chips.find((c) => c.key === "mode")?.choices.find((c) => c.chosen)?.key;
+    // Smart says what it *widened to*, which is a fact about the search that ran
+    // and not about the chips it ran under. Regex, Citation and Instruments
+    // describe themselves in the query itself.
+    if (mode !== "ToratEmet") return found.header || `${say("askedFor")} ${typed}`;
+    const how = set("match");
+    const where = set("together");
+    const parts = [typed, how, where].filter(Boolean);
+    return `${say("askedFor")}: ${parts.join(" · ")}`;
   }
 
   /**
@@ -697,11 +768,16 @@ export class SearchView {
     line.className = "find-facet-row";
     line.style.paddingInlineStart = `${row.depth * 0.75}rem`;
 
+    // A row with no label is an **absence**, and what to call an absence is the
+    // window's question. The era facet's largest row used to be the sentence
+    // `no era recorded`, composed in Rust, in English, in a Hebrew panel.
+    const label = row.label || nameOfNothing(dimension);
+
     const narrow = document.createElement("button");
     narrow.type = "button";
     narrow.className = "find-facet-narrow";
-    narrow.textContent = row.label;
-    narrow.title = `${say("narrowTo")}${row.label}`;
+    narrow.textContent = label;
+    narrow.title = `${say("narrowTo")}${label}`;
     narrow.addEventListener("click", async () => {
       await api.findNarrow(dimension, row, false);
       this.page = 1;
@@ -713,7 +789,7 @@ export class SearchView {
     count.textContent = String(row.count);
 
     // `−` is not a name. What it does is, and it says which row it does it to.
-    const out = glyph("−", `${say("takeOut")} ${row.label}`, () => {
+    const out = glyph("−", `${say("takeOut")} ${label}`, () => {
       void (async () => {
         await api.findNarrow(dimension, row, true);
         this.page = 1;
@@ -726,6 +802,108 @@ export class SearchView {
     return line;
   }
 }
+
+// ─── the chips, in the reader's language (finding 7) ────────────────────────
+//
+// The engine sends a **key** per chip and a key per choice, plus the wire's own
+// English `label`. The keys are the protocol and the labels are a fallback; what
+// a reader sees is decided here, out of `say.ts`, like every other word in this
+// window.
+//
+// It used to be one field. `Chip.name` was both what was drawn and what
+// `find_chip` was called back with, so a fully Hebrew window opened Ctrl+F on
+// `torat emet ▾ | whole shelf ▾ | the word ▾ | anywhere in a segment ▾` and
+// there was no way to translate it that did not change the protocol.
+
+/** What a chip is called. */
+function chipName(key: string): string {
+  switch (key) {
+    case "mode":
+      return say("chipMode");
+    case "where":
+      return say("scope");
+    case "match":
+      return say("chipMatch");
+    case "together":
+      return say("chipTogether");
+    case "instrument":
+      return say("chipInstrument");
+    default:
+      // A chip this window has not been taught. Its own key is a worse label
+      // than a translation and a better one than nothing, and it cannot be
+      // silently blank.
+      return key;
+  }
+}
+
+/**
+ * What one choice on one chip says.
+ *
+ * Falls back to the wire's `label` — which is right for the scope chip, whose
+ * label is the **names of shelves and seforim**, the corpus's own words in
+ * whatever language the corpus wrote them. Those must not be translated, and
+ * they are the only labels here that are data rather than interface.
+ */
+function chipSaid(chip: string, choice: Choice): string {
+  if (chip === "where") return choice.label || say("wholeShelf");
+  const word = CHOICE_WORDS[`${chip}/${choice.key}`];
+  if (word) return say(word);
+  // `Near5`, `Near12`, `Near17` — the distance the reader set, which is a
+  // number in a sentence rather than a row in a table.
+  const near = /^Near(\d+)$/u.exec(choice.key);
+  if (chip === "together" && near) {
+    return say("togetherNear").replace("{words}", near[1] ?? "");
+  }
+  return choice.label;
+}
+
+/**
+ * What a facet row with no label is called.
+ *
+ * Only the era facet has one — the seforim whose era nobody wrote down, which
+ * is the largest row of that facet on the real shelf. Named per dimension
+ * because *no era recorded* and *no author recorded* are not the same sentence,
+ * and the day a second dimension grows an empty row it needs its own.
+ */
+function nameOfNothing(dimension: Dimension): string {
+  return dimension === "era" ? say("noEraRecorded") : say("nothingHere");
+}
+
+/** What one rung of the relaxation ladder is called (spec.md §9.6). */
+function rungSaid(offer: { rung: string; label: string }): string {
+  const word = RUNG_WORDS[offer.rung];
+  return word ? say(word) : offer.label;
+}
+
+/** `Rung::name()` → the word for it. */
+const RUNG_WORDS: Record<string, Word> = {
+  nikud: "rungNikud",
+  prefixes: "rungPrefixes",
+  spellings: "rungSpellings",
+  gershayim: "rungGershayim",
+  abbreviations: "rungAbbreviations",
+  root: "rungRoot",
+  proximity: "rungProximity",
+};
+
+/** Chip key and choice key → the word for it. The keys are Rust's `as_str`. */
+const CHOICE_WORDS: Record<string, Word> = {
+  "mode/ToratEmet": "modeToratEmet",
+  "mode/Smart": "modeSmart",
+  "mode/Regex": "modeRegex",
+  "mode/Citation": "modeCitation",
+  "mode/Instruments": "modeInstruments",
+  "match/Word": "matchWord",
+  "match/Contains": "matchContains",
+  "match/Letters": "matchLetters",
+  "together/Anywhere": "togetherAnywhere",
+  "together/Phrase": "togetherPhrase",
+  "instrument/Gematria": "instrumentGematria",
+  "instrument/Rashei": "instrumentRashei",
+  "instrument/Sofei": "instrumentSofei",
+  "instrument/Atbash": "instrumentAtbash",
+  "instrument/Dilug": "instrumentDilug",
+};
 
 /** The runs of a segment, as elements — corpus text is never put in as markup. */
 function runs(list: Run[]): Node[] {

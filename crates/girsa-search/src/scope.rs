@@ -244,9 +244,19 @@ impl Scope {
 
     /// What the chip says.
     ///
-    /// The names of what was clicked, in the order it was clicked, and *whole
-    /// shelf* when nothing has been. A scope whose narrowing a reader cannot
-    /// read off the chip is a result count nobody can account for.
+    /// The names of what was clicked, in the order it was clicked, and **an
+    /// empty string** when nothing has been. A scope whose narrowing a reader
+    /// cannot read off the chip is a result count nobody can account for.
+    ///
+    /// # Why an exclusion is `−` and not `not`
+    ///
+    /// The names in here are seforim and shelves — the corpus's words, in
+    /// whatever language the corpus wrote them. The only thing this function
+    /// contributed of its own was the English `not`, and `whole shelf` for the
+    /// empty case, which put two English words in a Hebrew panel that has no
+    /// other. `−` is the glyph the scope panel's own *take out* button already
+    /// carries, it needs no language, and the empty case is left to the window
+    /// to name — which is where every other word on that panel comes from.
     #[must_use]
     pub fn describe(&self) -> String {
         let mut named: Vec<String> = self
@@ -254,17 +264,14 @@ impl Scope {
             .iter()
             .map(|step| {
                 if step.exclude {
-                    format!("not {}", step.label)
+                    format!("−{}", step.label)
                 } else {
                     step.label.clone()
                 }
             })
             .collect();
         named.extend(self.linked.iter().map(|k| k.as_str().to_string()));
-        named.extend(self.unlinked.iter().map(|k| format!("not {}", k.as_str())));
-        if named.is_empty() {
-            return "whole shelf".to_string();
-        }
+        named.extend(self.unlinked.iter().map(|k| format!("−{}", k.as_str())));
         named.join(" · ")
     }
 }
@@ -275,8 +282,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_chip_says_whole_shelf_until_something_narrows_it() {
-        assert_eq!(Scope::everything().describe(), "whole shelf");
+    fn the_chip_says_nothing_until_something_narrows_it() {
+        // Empty, and the **window** says `כל המדף` over it. This used to return
+        // the English words `whole shelf`, which is two of the four English
+        // strings a Hebrew search panel opened on.
+        assert_eq!(Scope::everything().describe(), "");
         assert!(Scope::everything().is_everything());
     }
 
@@ -285,7 +295,9 @@ mod tests {
         let scope = Scope::everything()
             .only(["bavli/berakhot".to_string()], "תלמוד/בבלי")
             .without(["mishnah-berurah".to_string()], "משנה ברורה");
-        assert_eq!(scope.describe(), "תלמוד/בבלי · not משנה ברורה");
+        // `−`, not `not`: the names are the corpus's words and the glyph needs
+        // no language. It is the one the scope panel's *take out* button carries.
+        assert_eq!(scope.describe(), "תלמוד/בבלי · −משנה ברורה");
         assert!(!scope.is_everything());
     }
 
@@ -316,10 +328,10 @@ mod tests {
             .only(["b".to_string()], "ראשונים")
             .without(["c".to_string()], "משנה ברורה");
         assert_eq!(scope.steps().len(), 3);
-        assert_eq!(scope.describe(), "תלמוד · ראשונים · not משנה ברורה");
+        assert_eq!(scope.describe(), "תלמוד · ראשונים · −משנה ברורה");
 
         scope.drop_step(1);
-        assert_eq!(scope.describe(), "תלמוד · not משנה ברורה");
+        assert_eq!(scope.describe(), "תלמוד · −משנה ברורה");
         assert_eq!(
             scope.works().into_iter().collect::<Vec<_>>(),
             ["a"],

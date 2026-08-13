@@ -123,6 +123,25 @@ const CODED: Record<string, (doing: string) => string> = {
   "no-desk": () => `${KSAV} אינו מחובר`,
   "no-page": () => say("codeNoSuchPage"),
 
+  // The three the shell used to compose itself, in English, in Rust. One of
+  // them reached a Hebrew right-to-left toast as `the clipboard refused it:
+  // Empty clipboard error, code = OSError(1418): Thread does not have a
+  // clipboard open.` The underlying failure was real; the sentence around it
+  // was the defect, and the machine's words are on the hover now.
+  "no-clipboard": () => say("codeNoClipboard"),
+  "clipboard-refused": () => say("codeClipboardRefused"),
+  "will-not-serialize": () => say("codeWillNotSerialize"),
+
+  // Not a failure: a step the reader has not taken. Saying *something went
+  // wrong* to somebody who pressed Ctrl+C with nothing highlighted is a lie
+  // about their own machine.
+  "nothing-chosen": () => say("codeNothingChosen"),
+  // Not a refusal either — the ladder announcing what it applied. It is in this
+  // table because the window says it, and everything the window says comes from
+  // one place. It used to be a Hebrew sentence written out in `lib.rs`, which
+  // an English window would have shown in Hebrew.
+  "rung-applied": () => say("codeRungApplied"),
+
   // `girsa_post::PostError::code()`. The three below used to be matched by
   // their English words, here *and* in Ksav's `diagnostics.ts`, with four
   // character-identical regexes across two repositories — which made every word

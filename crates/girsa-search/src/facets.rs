@@ -30,9 +30,13 @@
 //! Two rows exist that a tidier facet column would leave out, and both would
 //! otherwise be silent gaps:
 //!
-//! - **`no era recorded`** — 2,377 of the 7,189 works on this shelf have no
-//!   era in either corpus. A facet that listed only the five real eras would
-//!   quietly hide a third of the library.
+//! - **the era nobody recorded** — 2,377 of the 7,189 works on this shelf have
+//!   no era in either corpus. A facet that listed only the five real eras would
+//!   quietly hide a third of the library. The row carries an empty key and an
+//!   empty label: *which* absence is the key's business, and what to *call* it
+//!   is the window's, in the window's language. It used to be the English
+//!   sentence `no era recorded`, composed here, and it is the largest row of
+//!   that facet on the real shelf.
 //! - **[`Links::NotBuilt`]** — the link column is filled from a cache
 //!   (`girsa-link-types`), and an index built without it has no link types at
 //!   all. *Nothing here is commented on* and *nobody worked out what is
@@ -519,8 +523,13 @@ pub fn exclude(scope: &Scope, catalogue: &Catalogue, dimension: Dimension, row: 
 /// cannot check.
 #[must_use]
 pub fn era_label(code: &str) -> String {
+    // **Empty, not `no era recorded`.** The largest row of the era facet in a
+    // Hebrew panel was an English sentence composed here — the row has no label
+    // because there is no era, and what to *call* an absence is the window's
+    // question, in the window's language. The row still carries its empty key,
+    // which is what says which absence this is.
     if code.is_empty() {
-        return "no era recorded".to_string();
+        return String::new();
     }
     girsa_corpus::era::Era::from_code(code)
         .map_or_else(|| code.to_string(), |era| era.he().to_string())
@@ -619,13 +628,18 @@ mod tests {
 
     #[test]
     fn a_work_with_no_era_is_a_row_and_not_a_silence() {
+        // The row is there, and it is **unnamed**: what to call an absence is
+        // the window's question, in the window's language. This used to be the
+        // English sentence `no era recorded`, and on the real shelf it is the
+        // largest row of the era facet.
         // 2,377 of the 7,189 works on the real shelf have no era. Dropping them
         // from the column would hide a third of the library behind a facet that
         // looked complete.
         let facets = Facets::of(&counts(&[("unnamed", 5)], &[], false), &shelf());
         assert_eq!(facets.era.len(), 1);
         assert_eq!(facets.era[0].key, NO_ERA);
-        assert_eq!(facets.era[0].label, "no era recorded");
+        assert_eq!(facets.era[0].label, "", "unnamed here; the window names it");
+        assert_eq!(facets.era[0].key, NO_ERA, "and the key is what says which absence");
         assert_eq!(facets.era[0].count, 5);
     }
 

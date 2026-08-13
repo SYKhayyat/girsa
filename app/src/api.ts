@@ -1230,7 +1230,11 @@ export interface Choice {
 }
 
 export interface Chip {
-  name: string;
+  /** **The protocol, not the label** — `find_chip` is called back with it. What
+   * the reader sees is `chipName` in `search.ts`, out of `say.ts`. The two used
+   * to be one field, which is why a Hebrew window opened on
+   * `torat emet ▾ | whole shelf ▾ | the word ▾`. */
+  key: string;
   choices: Choice[];
 }
 

@@ -117,21 +117,33 @@ pub struct Choice {
     pub chosen: bool,
 }
 
-/// One chip: a name, and what it can be set to.
+/// One chip: what it is, and what it can be set to.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Chip {
-    pub name: &'static str,
+    /// **The protocol, not the label.** `Chips::choose` is called back with
+    /// this, so it is a stable key and never a sentence.
+    ///
+    /// It used to be `name`, and it used to be what the reader saw — which is
+    /// finding 7: opening the search in a fully Hebrew window greeted them with
+    /// `torat emet ▾ | whole shelf ▾ | the word ▾ | anywhere in a segment ▾`,
+    /// and the chip could not be translated without changing the protocol
+    /// because the two were one field. They are two now. `label` on each choice
+    /// stays English on the wire, as a self-describing fallback and for the
+    /// tests; what a reader sees comes from `say.ts`, which is where every other
+    /// word in this window comes from.
+    pub key: &'static str,
     pub choices: Vec<Choice>,
 }
 
 impl Chip {
-    /// What the chip reads as when it is shut.
+    /// What the chip is set to, in the wire's own English. The **window** draws
+    /// the reader's language from `key` and the chosen choice's `key`.
     #[must_use]
     pub fn shown(&self) -> &str {
         self.choices
             .iter()
             .find(|c| c.chosen)
-            .map_or(self.name, |c| c.label.as_str())
+            .map_or(self.key, |c| c.label.as_str())
     }
 }
 
@@ -184,7 +196,7 @@ impl Chips {
     pub fn row(&self) -> Vec<Chip> {
         let mut out = vec![
             Chip {
-                name: "mode",
+                key: "mode",
                 choices: MODES
                     .iter()
                     .map(|(mode, label, sigil)| Choice {
@@ -196,7 +208,7 @@ impl Chips {
                     .collect(),
             },
             Chip {
-                name: "where",
+                key: DOORWAY,
                 choices: vec![Choice {
                     key: "scope".to_string(),
                     label: self.scope.describe(),
@@ -211,7 +223,7 @@ impl Chips {
         // be showing a control that does nothing.
         if matches!(self.mode, Mode::ToratEmet | Mode::Smart) {
             out.push(Chip {
-                name: "the word",
+                key: "match",
                 choices: vec![
                     self.matching_choice(Match::Word, "the word", None),
                     self.matching_choice(Match::Contains, "contains these letters", Some("*…*")),
@@ -244,13 +256,13 @@ impl Chips {
                 ));
             }
             out.push(Chip {
-                name: "together",
+                key: "together",
                 choices,
             });
         }
         if self.mode == Mode::Instruments {
             out.push(Chip {
-                name: "instrument",
+                key: "instrument",
                 choices: Sounding::ALL
                     .iter()
                     .map(|sounding| Choice {
@@ -395,7 +407,7 @@ impl Chips {
         };
         match chip {
             "mode" => self.mode = Mode::named(key).ok_or_else(missing)?,
-            "the word" => self.matching = Match::named(key).ok_or_else(missing)?,
+            "match" => self.matching = Match::named(key).ok_or_else(missing)?,
             "together" => self.together = Together::named(key).ok_or_else(missing)?,
             "instrument" => self.sounding = Sounding::named(key).ok_or_else(missing)?,
             // A chip whose one choice is a doorway rather than a setting: it
@@ -419,10 +431,10 @@ impl Chips {
     pub fn settable(&self) -> Vec<(String, Vec<String>)> {
         self.row()
             .into_iter()
-            .filter(|chip| chip.name != DOORWAY)
+            .filter(|chip| chip.key != DOORWAY)
             .map(|chip| {
                 (
-                    chip.name.to_string(),
+                    chip.key.to_string(),
                     chip.choices.into_iter().map(|c| c.key).collect(),
                 )
             })
@@ -473,7 +485,7 @@ mod tests {
         let mut chips = Chips::default();
         assert!(chips.choose("mode", "Smrat").is_err());
         assert_eq!(chips.mode, Mode::default(), "and it changed nothing");
-        assert!(chips.choose("the word", "Contians").is_err());
+        assert!(chips.choose("match", "Contians").is_err());
         assert!(chips.choose("instrument", "Gemtria").is_err());
         assert!(matches!(
             chips.choose("colour", "blue"),
@@ -491,7 +503,7 @@ mod tests {
             chips.choose(DOORWAY, "scope"),
             Err(ChipError::NotASetting(_))
         ));
-        assert!(chips.row().iter().any(|chip| chip.name == DOORWAY));
+        assert!(chips.row().iter().any(|chip| chip.key == DOORWAY));
     }
 
     #[test]
@@ -544,7 +556,9 @@ mod tests {
             shown,
             [
                 "torat emet",
-                "whole shelf",
+                // The scope chip says nothing while nothing is narrowed; the
+                // window draws `כל המדף` over it.
+                "",
                 "the word",
                 "within 5 words of each other"
             ]
@@ -560,7 +574,7 @@ mod tests {
         let row = chips.row();
         let together = row
             .iter()
-            .find(|chip| chip.name == "together")
+            .find(|chip| chip.key == "together")
             .expect("the together chip");
         let labels: Vec<&str> = together.choices.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(
@@ -590,7 +604,7 @@ mod tests {
         let row = chips.row();
         let together = row
             .iter()
-            .find(|chip| chip.name == "together")
+            .find(|chip| chip.key == "together")
             .expect("the together chip");
         assert_eq!(together.shown(), "within 17 words of each other");
         assert!(together
@@ -618,7 +632,7 @@ mod tests {
         };
         let row = chips.row();
         let instrument = row.last().expect("an instrument chip");
-        assert_eq!(instrument.name, "instrument");
+        assert_eq!(instrument.key, "instrument");
         assert_eq!(instrument.shown(), "atbash");
         assert_eq!(instrument.choices.len(), 5, "all five are on the chip");
     }

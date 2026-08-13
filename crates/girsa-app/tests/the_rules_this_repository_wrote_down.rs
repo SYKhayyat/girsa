@@ -829,6 +829,68 @@ fn no_chip_family_is_read_with_a_silent_fallback() {
 }
 
 #[test]
+fn the_shell_does_not_write_sentences_for_the_reader() {
+    // Finding 20. `app/src-tauri/`, whose README says it decides nothing,
+    // composed **five sentences that reached the screen without passing through
+    // `say.ts`** — and one of them arrived in a Hebrew right-to-left toast as:
+    //
+    // ```
+    // the clipboard refused it: Empty clipboard error, code = OSError(1418):
+    // Thread does not have a clipboard open.
+    // ```
+    //
+    // A raw Windows error number, in English, as the reader's whole
+    // explanation. Against exactly one sentence in that crate written in
+    // Hebrew — which is the same defect pointing the other way, because an
+    // English window would have shown that one in Hebrew.
+    //
+    // The sweep found eighteen more the audit had not surfaced. Every one of
+    // them is `refuse(Code::…, …)` now: the **name** crosses the wire, the
+    // window says the sentence in the reader's language, and the machine's own
+    // words go on the hover where they belong.
+    //
+    // This asserts the rule rather than the eighteen: a string handed to the
+    // window from this crate is a code, not prose. `Err(format!(…))` and
+    // `Err("…".to_string())` are the two shapes that were there; both are now
+    // wrapped, and `refuse` is what makes the difference visible.
+    let root = repo();
+    let shell = root.join("app/src-tauri/src");
+    let mut prose = Vec::new();
+    for entry in std::fs::read_dir(&shell).unwrap_or_else(|e| panic!("the shell reads: {e}")) {
+        let path = entry.unwrap_or_else(|e| panic!("a shell entry reads: {e}")).path();
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let body = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        for (at, line) in body.lines().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            // A message being built out of words, rather than named.
+            let composing = trimmed.contains("Err(format!(\"")
+                || trimmed.contains("trouble: Some(format!(\"")
+                || trimmed.contains("refused: Some(format!(\"")
+                || (trimmed.starts_with("return Err(\"") && trimmed.contains("\".to_string()"))
+                || (trimmed.starts_with("Err(\"") && trimmed.contains("\".to_string()"));
+            if composing {
+                prose.push(format!("{name}:{}: {}", at + 1, trimmed));
+            }
+        }
+    }
+    assert!(
+        prose.is_empty(),
+        "the shell writes {} sentence(s) for the reader instead of naming a \
+         refusal:\n{}\n\nWrap them in `girsa_app::trouble::refuse(Code::…, …)`. \
+         The name crosses the wire and `app/src/trouble.ts` says it in the \
+         reader's language; the machine's words go on the hover.",
+        prose.len(),
+        prose.join("\n"),
+    );
+}
+
+#[test]
 fn every_refusal_this_codebase_names_has_a_sentence_in_the_window() {
     // `app/src/trouble.ts` turned an error into a Hebrew sentence by matching
     // **twenty-one regular expressions against the English prose of Rust's

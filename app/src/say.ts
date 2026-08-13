@@ -255,6 +255,99 @@ const WORDS = {
   nameTheQuery: ["איך לקרוא לשאילתה?", "What should this question be called?"] as Both,
   nothingToKeep: ["אין מה לשמור — תיבת החיפוש ריקה", "nothing to keep — the search box is empty"] as Both,
 
+  // --- the chips (spec.md §9.5, finding 7) ---------------------------------
+  //
+  // Every one of these used to be an English string literal in
+  // `girsa-search/src/chips.rs`, because the chip's *name* was also its API key
+  // and could not be translated without changing the protocol. It is two fields
+  // now — `Chip.key` is the wire, `Choice.label` is the wire's own English, and
+  // what a reader sees comes from here like every other word in this window.
+  //
+  // A fully Hebrew window used to open Ctrl+F on:
+  //
+  //     torat emet ▾   whole shelf ▾   the word ▾   anywhere in a segment ▾
+  //     nothing to search for
+  chipMode: ["איך לחפש", "How to search"] as Both,
+  chipMatch: ["מה נחשב מילה", "What counts as the word"] as Both,
+  chipTogether: ["איך המילים עומדות", "How the words stand"] as Both,
+  chipInstrument: ["איזה כלי", "Which instrument"] as Both,
+  modeToratEmet: ["כלשונו", "as written"] as Both,
+  modeSmart: ["מרחיב", "widening"] as Both,
+  modeRegex: ["תבנית", "pattern"] as Both,
+  modeCitation: ["מראה מקום", "a mareh makom"] as Both,
+  // *Instruments* is opaque in either language, and it is not one thing: it is
+  // gematria, rashei tevos, sofei tevos, atbash and dilug. Named after what a
+  // reader is doing with them.
+  modeInstruments: ["חשבונות ורמזים", "gematria and remazim"] as Both,
+  matchWord: ["המילה עצמה", "the word itself"] as Both,
+  matchContains: ["מילה שיש בה האותיות", "a word containing these letters"] as Both,
+  matchLetters: ["האותיות האלה, לפי הסדר", "these letters, in this order"] as Both,
+  togetherAnywhere: ["בכל מקום בקטע", "anywhere in a segment"] as Both,
+  togetherPhrase: ["זו אחר זו", "one after the other"] as Both,
+  /** `{words}` is filled in with the distance the chip is set to. */
+  togetherNear: [
+    "בתוך {words} מילים זו מזו",
+    "within {words} words of each other",
+  ] as Both,
+  instrumentGematria: ["גימטריא", "gematria"] as Both,
+  instrumentRashei: ["ראשי תיבות", "rashei tevot"] as Both,
+  instrumentSofei: ["סופי תיבות", "sofei tevot"] as Both,
+  instrumentAtbash: ["אתב״ש", "atbash"] as Both,
+  instrumentDilug: ["דילוג", "dilug"] as Both,
+  /** The era facet's largest row: the seforim whose era nobody recorded. */
+  noEraRecorded: ["לא נרשמה תקופה", "no era recorded"] as Both,
+
+  // --- what the header says, and what a zero says --------------------------
+  //
+  // The header was composed in Rust, in English, and echoed the query back with
+  // its **final letters folded** — `מאימתי קורינ את שמע` — which reads as a
+  // typo the reader did not make. It is composed here now, from the chip row
+  // that actually ran and from what the reader actually typed.
+  askedFor: ["חיפשת", "Searched for"] as Both,
+  /** A search with no hits used to be a bare `0` over an entirely blank panel. */
+  foundNothing: ["לא נמצא כלום", "nothing was found"] as Both,
+  foundNothingWhy: [
+    "אפשר להרחיב את החיפוש בשורת הכפתורים שלמעלה, או להוסיף מדפים ב״היכן לחפש״",
+    "widen the search with the chips above, or add shelves under “Where to look”",
+  ] as Both,
+  // The relaxation ladder (spec.md §9.6). Seven rungs, offered on a zero with
+  // their counts worked out before the click and **nothing applied**. Their
+  // names cross the wire; their words are here, because the offers were the one
+  // thing on a zero-hit panel that was not blank and they were in English.
+  rungNikud: ["בלי ניקוד", "drop nikud"] as Both,
+  rungPrefixes: ["בלי אותיות השימוש", "peel the prefixes"] as Both,
+  rungSpellings: ["כתיב מלא וחסר", "full and defective spelling"] as Both,
+  rungGershayim: ["בלי גרשיים", "drop the gershayim"] as Both,
+  rungAbbreviations: ["פתיחת ראשי תיבות", "expand abbreviations"] as Both,
+  rungRoot: ["לפי השורש", "match the root"] as Both,
+  rungProximity: ["בכל הקטע", "widen to the same passage"] as Both,
+
+  /** Before anything has been typed: not a refusal, and not a zero. */
+  searchNothingAsked: [
+    "הקש מה לחפש — או מראה מקום, כדי ללכת לשם",
+    "type what to look for — or a mareh makom, to go there",
+  ] as Both,
+  codeNoClipboard: [
+    "אין לוח העתקה זמין — נסה שוב, ואם זה חוזר סגור ופתח את החלון",
+    "no clipboard is available — try again, and if it keeps happening close and reopen the window",
+  ] as Both,
+  codeClipboardRefused: [
+    "ההעתקה נדחתה על ידי המערכת — יישום אחר מחזיק בלוח. נסה שוב",
+    "the system refused the copy — another application is holding the clipboard. Try again",
+  ] as Both,
+  codeNothingChosen: [
+    "לא נבחר כלום — סמן קודם את מה שאתה מתכוון אליו",
+    "nothing is chosen — highlight what you mean first",
+  ] as Both,
+  codeRungApplied: [
+    "החל — לחזרה, חפש שוב בלי ההצעה",
+    "applied — search again without the offer to go back",
+  ] as Both,
+  codeWillNotSerialize: [
+    "המקור לא נארז כראוי — העתק שוב, ואם זה חוזר דווח על השורה",
+    "the source would not pack — copy again, and if it keeps happening report the line",
+  ] as Both,
+
   linked: ["מקושר", "linked"] as Both,
 
   // --- the links panel -----------------------------------------------------

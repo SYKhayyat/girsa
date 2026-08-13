@@ -519,6 +519,18 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
     // address and its dates. See `girsa_app::Naming` — four surfaces used to
     // work this out separately and disagreed about all three.
     let names = state.names();
+    // **An empty box is not a refusal.** The panel calls this with `""` on open,
+    // deliberately, to draw the chip row without running a search — and the
+    // engine answered `nothing to search for`, which the window then printed in
+    // red, in English, above a row of English chips, before the reader had typed
+    // anything. Opening by telling somebody off.
+    //
+    // Nothing has been asked, so nothing is refused: the chips come back and the
+    // header is empty. The engine keeps its refusal, which is the right answer
+    // to a *command line* that was given no words.
+    if query.trim().is_empty() {
+        return Ok(FoundPage::nothing_asked(&chips));
+    }
     let Some(bar) = state.bar.as_ref() else {
         let why = state.no_search();
         return Ok(FoundPage::refused(&chips, why));
@@ -610,6 +622,24 @@ impl FoundPage {
             landing: None,
         }
     }
+
+    /// The chip row, and no question asked. Not a refusal and not a zero — the
+    /// panel opening, which is what `find("")` is for.
+    fn nothing_asked(chips: &Chips) -> Self {
+        Self {
+            header: String::new(),
+            note: None,
+            hits: Vec::new(),
+            total: 0,
+            page: 1,
+            pages: 0,
+            facets: None,
+            chips: chips.row(),
+            offers: Vec::new(),
+            refused: None,
+            landing: None,
+        }
+    }
 }
 
 fn near_said(near: &girsa_search::citation::NearMiss) -> String {
@@ -643,7 +673,7 @@ fn find_rung(
     state.chips = chips.clone();
     let pointing = state.session.pointing;
     let Some(rung) = girsa_search::ladder::Rung::named(&rung) else {
-        return Err(format!("no such rung: {rung}"));
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("no such rung: {rung}")));
     };
     let Some(bar) = state.bar.as_ref() else {
         let why = state.no_search();
@@ -674,7 +704,15 @@ fn find_rung(
     let names = state.names();
     Ok(FoundPage {
         header,
-        note: Some("החל — לחזרה, חפש שוב בלי הצעה".to_string()),
+        // The rung that was applied, and how to go back — **coded**, not
+        // written out. A Hebrew sentence composed in the shell is the same
+        // defect as an English one: an English window would have shown it in
+        // Hebrew. `app/src/trouble.ts` says it in whichever language the reader
+        // is in.
+        note: Some(girsa_app::trouble::refuse(
+            girsa_app::trouble::Code::RungApplied,
+            "a rung was applied — search again without it to go back",
+        )),
         hits: found
             .hits
             .iter()
@@ -850,14 +888,26 @@ fn read_lexicon(corpus: &std::path::Path) -> Option<girsa_ref::Lexicon> {
 /// of those two it is rather than returning nothing.
 fn open_bar_for(shelf: &Option<Shelf>) -> (Option<Bar>, Option<String>) {
     let Some(shelf) = shelf.as_ref() else {
-        return (None, Some("there is no shelf to search".to_string()));
+        return (None, Some(no_shelf_to_search()));
     };
     open_bar(shelf.root(), Some(shelf))
 }
 
+/// **Coded, not composed.** This crate's README says it decides nothing, and
+/// this sentence reached the first screen of a Hebrew application in English —
+/// twice, from two functions, because it was written out twice. The name goes
+/// over the wire and `app/src/trouble.ts` says it in the reader's language, the
+/// way every other refusal in this repository already worked.
+fn no_shelf_to_search() -> String {
+    girsa_app::trouble::refuse(
+        girsa_app::trouble::Code::NoShelf,
+        "there is no shelf to search",
+    )
+}
+
 fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Option<String>) {
     let Some(shelf) = shelf else {
-        return (None, Some("there is no shelf to search".to_string()));
+        return (None, Some(no_shelf_to_search()));
     };
     // `girsa_app::find_index`, not a second one here.
     //
@@ -1312,7 +1362,7 @@ fn scan_read_page(
         state.shelf.as_ref().ok_or("there is no shelf here")?;
     }
     if width <= 0.0 || height <= 0.0 {
-        return Err("a page with no size on it".to_string());
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoPage, "a page with no size on it"));
     }
     // Pixels in, fractions of the page out, converted here and once: a
     // rectangle in pixels is a fact about the size somebody rendered at, and a
@@ -1709,7 +1759,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
         .unfix(&girsa_fix::PatchId::from(patch))
         .map_err(|e| e.to_string())?;
     if !gone {
-        return Err("there is no such correction".to_string());
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, "there is no such correction"));
     }
     state.reread(&slug);
 
@@ -1869,7 +1919,7 @@ fn link_pin(
 ) -> Result<(), String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     if from_char >= to_char {
-        return Err("nothing is selected".to_string());
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NothingChosen, "nothing is selected"));
     }
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
@@ -1934,7 +1984,7 @@ fn link_repair(
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         }
-        other => return Err(format!("no such repair: {other}")),
+        other => return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("no such repair: {other}"))),
     }
     .map_err(|e| e.to_string())
 }
@@ -1956,7 +2006,7 @@ fn link_reanchor(
     let (from_anchor, to_anchor) = match end.as_str() {
         "from" => (girsa_link::Anchor::point(to), to_anchor),
         "to" => (from_anchor, girsa_link::Anchor::point(to)),
-        other => return Err(format!("no such end: {other}")),
+        other => return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("no such end: {other}"))),
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
@@ -2186,7 +2236,7 @@ fn suspect_decide(
     let decision = match decision.as_str() {
         "dismissed" => girsa_fix::suspect::Decision::Dismissed,
         "fixed" => girsa_fix::suspect::Decision::Fixed,
-        other => return Err(format!("no such decision: {other}")),
+        other => return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("no such decision: {other}"))),
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let personal = state
@@ -2204,7 +2254,7 @@ fn suspect_decide(
     if known {
         Ok(())
     } else {
-        Err("there is no such candidate".to_string())
+        Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, "there is no such candidate"))
     }
 }
 
@@ -2323,11 +2373,11 @@ fn buffer_write_to(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let folder = PathBuf::from(into.trim());
     if folder.as_os_str().is_empty() {
-        return Err("no folder was chosen".to_string());
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NothingChosen, "no folder was chosen"));
     }
     let named = name.trim();
     if named.is_empty() || named.contains(['/', '\\']) {
-        return Err(format!("`{name}` is not a name for a document"));
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("`{name}` is not a name for a document")));
     }
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let path = folder.join(format!("{named}.ksav"));
@@ -2623,7 +2673,7 @@ fn set_pointing(shared: tauri::State<'_, Shared>, pointing: String) -> Result<()
         // this project does not write has a wiring bug, and silently drawing
         // the sefer with everything on is how it would never be found —
         // `girsa_search::chips::choose` says the same thing at more length.
-        return Err(format!("no such pointing: {pointing}"));
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("no such pointing: {pointing}")));
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.pointing = pointing;
@@ -2705,7 +2755,7 @@ fn bind_key(
         // one combination.
         state.session.keys.insert(action, press.said());
     } else {
-        return Err(format!("{to} is not a key combination"));
+        return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("{to} is not a key combination")));
     }
     state.save();
     let bound = girsa_app::keys::Bound::of(&state.session.keys);
@@ -3031,7 +3081,7 @@ fn lane_choose(
                     .to_string(),
             );
         } else if !chosen.without_work(&slug) {
-            return Err(format!("{slug} was not in the lane"));
+            return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("{slug} was not in the lane")));
         }
     }
     lane.choose(chosen, shelf).map_err(|e| e.to_string())?;
@@ -3644,12 +3694,12 @@ fn note_edit(
         }
         "set" => {
             if !held.set(&paragraph(&value)?, words()) {
-                return Err("that paragraph is not in this note".to_string());
+                return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, "that paragraph is not in this note"));
             }
         }
         "remove" => {
             if !held.remove(&paragraph(&value)?) {
-                return Err("that paragraph is not in this note".to_string());
+                return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, "that paragraph is not in this note"));
             }
         }
         "title" => held.title = words(),
@@ -3665,7 +3715,7 @@ fn note_edit(
         "unanchor" => {
             held.unanchor(&paragraph(&value)?);
         }
-        other => return Err(format!("no such edit: {other}")),
+        other => return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("no such edit: {other}"))),
     }
     let written = shelf.write_note(held).map_err(|e| e.to_string())?;
     Ok(written
@@ -3839,8 +3889,8 @@ fn query_keep(
         if let Some(chosen) = chip.choices.iter().find(|choice| choice.chosen) {
             // The scope chip's key is not an option among others — it is the
             // whole scope — so it is saved as the slugs below instead.
-            if chip.name != girsa_search::chips::DOORWAY {
-                kept = kept.with_chip(chip.name, chosen.key.clone());
+            if chip.key != girsa_search::chips::DOORWAY {
+                kept = kept.with_chip(chip.key, chosen.key.clone());
             }
         }
     }
@@ -3989,7 +4039,7 @@ fn folder_edit(
         "take-out" => {
             folder.take_out(&member);
         }
-        other => return Err(format!("no such edit: {other}")),
+        other => return Err(girsa_app::trouble::refuse(girsa_app::trouble::Code::NoSuch, format!("no such edit: {other}"))),
     }
     let held = folder.members.len();
     shelf

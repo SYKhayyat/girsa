@@ -372,7 +372,7 @@ reader's own rename still wins over all of it.
 And the two Otzaria README files stand on `אחר / על אוצריא` rather than among
 the seforim nobody has filed yet.
 
-### 7 · The search panel greets a Hebrew reader in English
+### 7 · The search panel greets a Hebrew reader in English — **fixed**
 
 Open Ctrl+F in a fully Hebrew window and the whole control surface is English,
 because the chip labels are English string literals in Rust
@@ -394,6 +394,19 @@ opens by telling you off. Then:
 * a search with no hits shows the header, a bare `0`, and an entirely blank
   panel — no sentence, no suggestion;
 * `instruments` is offered as a search mode, which is opaque in either language.
+
+**Done, all six.** The chip's *name* was also its API key, which is why it could
+not be translated — `Chip` has a `key` and the window has the words now, and
+`Choice.label` stays English on the wire as the self-describing fallback. An
+empty box is no longer a **refusal**: the panel opens on one line saying what
+the box is for, including the thing nothing on screen used to teach — that a
+mareh makom typed into it goes there. A zero says so and says what to try. The
+era facet's largest row carries an empty label and the window names the absence.
+The header is composed from the chip row that actually ran and from **what the
+reader typed**, so the query is no longer echoed back with its final letters
+folded. `instruments` is `חשבונות ורמזים`. And the seven rungs of the
+relaxation ladder — the one thing on a zero-hit panel that was not blank — are
+in Hebrew too.
 
 ### 8 · Typing a mareh makom searches for it instead of going there
 
@@ -834,7 +847,7 @@ no-index: there is no shelf to search
 
 Every chip in English, and an error carrying its own raw code as a prefix.
 
-### 20 · The shell writes user-facing sentences in English, in Rust
+### 20 · The shell writes user-facing sentences in English, in Rust — **fixed**
 
 Finding 7 said the search chips were English. The cause is wider than the chips.
 `app/src-tauri/`, whose README says it decides nothing, composes five sentences
@@ -859,6 +872,20 @@ A raw Windows error number, in English, as the reader's whole explanation. The
 underlying `OSError(1418)` is an artefact of the automated session and not a
 defect. The sentence around it is the defect. Credit where it is due: the window
 reported a failure rather than claiming a success it had not had.
+
+**Done, and the sweep found eighteen more.** The five above were the ones that
+surfaced; `app/src-tauri` was composing twenty-three sentences for the reader in
+all, including one in **Hebrew**, which is the same defect pointing the other
+way — an English window would have shown that one in Hebrew. Every one of them
+carries a `girsa_app::trouble::Code` now: the name crosses the wire,
+`app/src/trouble.ts` says it in the reader's language, and the machine's own
+words go on the hover, which is where this codebase already puts them.
+
+Three codes were added for the clipboard, two for the two that are not failures
+at all — *nothing is chosen* and *a rung was applied* — and the existing guard
+that every code has a sentence in the window caught the second pair the moment
+they were written. A new rule holds the class: **the shell may not build a
+message out of words.** `Err(format!("…"))` in `app/src-tauri` is a red test.
 
 ### 21 · A tab is named in Hebrew until you restart, then it is a slug
 

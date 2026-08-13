@@ -35,7 +35,7 @@ silently corrupt ten thousand commentary links is the actual project.
    **And then the same again from `app/src-tauri`.** Those four run against
    `default-members`, which excludes the Tauri shell for a good reason (it cannot
    build before `app/dist` exists) — so they compile everything in this
-   repository *except the 4,054 lines that own all the interop*.
+   repository *except the 4,104 lines that own all the interop*.
 
    CI has a `shell` job and does catch it; the point of running it here is the
    three minutes and the push. It has caught it twice, and the second time is the

@@ -90,7 +90,7 @@ is **27**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That sentence used to say *supposed to be*, and it was measured: of the
-shell's **4,054**<!--=shell-lines--> lines, about 150 — 23 commands — were
+shell's **4,104**<!--=shell-lines--> lines, about 150 — 23 commands — were
 genuine pass-through, and the rest decided cache policy, sort orders,
 truncation lengths, patch provenance, which fonts a Hebrew reader is offered,
 what makes a directory a corpus, and what to do with a chip key it did not
@@ -356,7 +356,7 @@ invariants exist, beautifully argued, next to callers that break them:
 
 Writing it down was mistaken for enforcing it. So
 `crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs` is
-**22**<!--=rules--> checks that read this repository's own source and fail when
+**23**<!--=rules--> checks that read this repository's own source and fail when
 a rule stated in a doc comment stops being true — a slug worked out twice, a
 query prepared twice, a chip family read with a silent fallback, Ksav markup
 composed outside the desk, a refusal Rust can send that the window has no
