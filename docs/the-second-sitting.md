@@ -1777,9 +1777,19 @@ fixed port in a test tool is a claim that only one of it will ever run on a
 machine, and nothing makes that true — not two terminals, not a gate beside a
 developer, not two CI jobs on one runner.
 
-`--remote-debugging-port=0` and read `DevToolsActivePort` out of the profile
-directory, which is what Chrome writes there for exactly this. Three concurrent
-runs are clean now, where the second used to take the first one's browser.
+The first fix asked the browser: `--remote-debugging-port=0`, then read
+`DevToolsActivePort` out of the profile directory, which is what Chrome
+documents and what worked on the machine it was written on. **On the Linux CI
+runner that file never appeared**, and thirty seconds later the run failed
+saying so — a fix for a portability bug that was itself not portable, caught by
+the only reader this repository has that is not me.
+
+So the port is ours to choose instead: bind to 0, ask the operating system what
+we got, release it, hand the number to the browser. The gap between releasing
+and binding is a real race and a vanishingly small one, against a constant that
+was a certainty the moment two copies ran. Nothing is asked of the browser, so
+nothing about headless mode or sandbox flags or profile paths can withhold it.
+Four concurrent runs are clean.
 
 That is the fourth time in this part that the tool was the problem and not the
 product, and the third that I found it by doing something slightly unusual with

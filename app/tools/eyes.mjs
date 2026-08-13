@@ -233,33 +233,31 @@ class Eye {
 }
 
 /**
- * Which port the browser actually took.
+ * A port nobody is using, chosen by the operating system.
  *
- * Started with `--remote-debugging-port=0`, Chrome binds a free one and writes
- * it to `DevToolsActivePort` in its profile directory — first line the port,
- * second the browser's own websocket path. Reading it is the difference between
- * *a port nobody else is using* and *a number we hope nobody else is using*.
+ * Bind to 0, ask what we got, let it go, hand the number to the browser. The
+ * gap between releasing it and the browser binding it is a real race and a
+ * vanishingly small one; the alternative it replaces was a **constant**, which
+ * is not a race but a certainty as soon as two copies run.
  *
- * Same two exits as `pageOf`: stop the moment the browser dies, and say what it
- * said. A profile that never grows the file is a browser that never opened a
- * socket, which is a different failure from one that opened no page.
+ * The first attempt at this asked the browser instead — `--remote-debugging-port=0`
+ * and read `DevToolsActivePort` out of the profile directory, which is what
+ * Chrome documents and what works on the machine this was written on. On a
+ * Linux CI runner the file never appeared, and thirty seconds later the run
+ * failed saying so. Rather than find out which of headless mode, the sandbox
+ * flags and the profile path was responsible, the port is ours to choose: this
+ * needs no cooperation from the browser and behaves the same everywhere.
  */
-async function portOf(profile, said = () => "", alive = () => true) {
-  const { readFile } = await import("node:fs/promises");
-  const where = path.join(profile, "DevToolsActivePort");
-  for (let tries = 0; tries < 300; tries += 1) {
-    try {
-      const port = Number((await readFile(where, "utf8")).split("\n")[0]);
-      if (port > 0) return port;
-    } catch {
-      // Not written yet.
-    }
-    if (!alive()) break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  const why = said().trim();
-  const what = alive() ? "never said which port it took" : "started and then exited";
-  throw new Error(why ? `the browser ${what}. It said:\n${why}` : `the browser ${what}`);
+async function freePort() {
+  const { createServer } = await import("node:net");
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
 }
 
 /**
@@ -375,11 +373,12 @@ async function main() {
   // it actually took into `DevToolsActivePort` in its profile directory, which
   // is the answer rather than a guess at a free number.
   const profile = path.join(room, "profile");
+  const port = await freePort();
   const child = spawn(
     browser,
     [
       "--headless=new",
-      "--remote-debugging-port=0",
+      `--remote-debugging-port=${port}`,
       `--user-data-dir=${profile}`,
       "--no-first-run",
       "--disable-gpu",
@@ -411,7 +410,6 @@ async function main() {
 
   try {
     const alive = () => child.exitCode === null && child.signalCode === null;
-    const port = await portOf(profile, () => complained, alive);
     const target = await pageOf(port, () => complained, alive);
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
