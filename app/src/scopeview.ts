@@ -138,16 +138,24 @@ export class ScopePanel {
     });
 
     this.tree.replaceChildren();
-    for (const branch of this.branches) this.branch(this.tree, branch, 0);
+    for (const branch of this.branches) this.branch(this.tree, branch);
   }
 
-  private branch(into: HTMLElement, branch: Branch, depth: number): void {
+  /**
+   * One shelf to narrow to, and its children under it.
+   *
+   * This carried `row.style.paddingInlineStart = 8 + depth * 14` — the same
+   * line, the same numbers, as `shelf.ts`, which is what happens when the shape
+   * of a tree is arithmetic in a view instead of structure. Both draw their
+   * children into a `.tree-kids` now, and the indent and the guide rule are the
+   * stylesheet's, once.
+   */
+  private branch(into: HTMLElement, branch: Branch): void {
     // The gathered-seforim child carries its parent's key (W42), so offering it
     // as a second row would narrow to the same shelf twice under two names.
     if (branch.loose) return;
     const row = document.createElement("div");
     row.className = "scope-row";
-    row.style.paddingInlineStart = `${8 + depth * 14}px`;
 
     const twist = document.createElement("button");
     twist.type = "button";
@@ -162,7 +170,7 @@ export class ScopePanel {
       if (this.openShelves.has(branch.key)) this.openShelves.delete(branch.key);
       else this.openShelves.add(branch.key);
       this.tree.replaceChildren();
-      for (const top of this.branches) this.branch(this.tree, top, 0);
+      for (const top of this.branches) this.branch(this.tree, top);
     });
 
     const name = document.createElement("span");
@@ -175,8 +183,11 @@ export class ScopePanel {
 
     row.append(twist, name, count, ...this.twoButtons("shelf", branch.key, branch.title));
     into.append(row);
-    if (this.openShelves.has(branch.key)) {
-      for (const child of branch.children) this.branch(into, child, depth + 1);
+    if (this.openShelves.has(branch.key) && branch.children.some((child) => !child.loose)) {
+      const kids = document.createElement("div");
+      kids.className = "tree-kids";
+      for (const child of branch.children) this.branch(kids, child);
+      into.append(kids);
     }
   }
 

@@ -183,6 +183,32 @@ const WORDS = {
   shelfEmpty: ["אין ספרים במדף הזה", "nothing stands on this shelf"] as Both,
   shelfBelow: ["הספרים כאן יושבים במדפים שתחתיו", "the seforim here are on the shelves under it"] as Both,
   shelfOf: ["מתוך", "of"] as Both,
+  /**
+   * What the number beside a shelf's name counts — three claims, three
+   * sentences.
+   *
+   * > *"`תנ״ך · 66` is a parent whose children are indented 14 px; it reads as
+   * > a category with 66 seforim and nothing under it."*
+   *
+   * The number was always the total under the shelf, and the row never said so.
+   * On תנ״ך that total is 66 and the shelf itself holds nothing, so the row
+   * promised a list of sixty-six and clicking it produced an empty column. Same
+   * number, three different things it can mean; `countedOn` in `shelf.ts`
+   * decides which, and these are what it says.
+   */
+  shelfCountHere: ["ספרים על המדף הזה", "seforim on this shelf"] as Both,
+  shelfCountUnder: [
+    "ספרים במדפים שתחתיו — על המדף הזה עצמו אין ספרים",
+    "seforim on the shelves under it — nothing stands on this shelf itself",
+  ] as Both,
+  shelfCountBoth: [
+    "ספרים על המדף הזה ועל המדפים שתחתיו",
+    "seforim on this shelf and on the shelves under it",
+  ] as Both,
+  /** The heading over a shelf whose seforim all stand on the shelves under it,
+   * and the heading over the list of those shelves. */
+  shelfUnderCount: ["במדפים שתחתיו", "on the shelves under it"] as Both,
+  shelfUnderHeading: ["המדפים שתחתיו", "The shelves under it"] as Both,
   mine: ["שלי", "mine"] as Both,
   pinToTop: ["העלה לראש הרשימה", "move to the top of the list"] as Both,
   looseSeforim: ["הספרים שעומדים על המדף הזה עצמו", "the seforim standing on this shelf itself"] as Both,

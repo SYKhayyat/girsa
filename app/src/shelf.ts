@@ -28,6 +28,44 @@ interface Held {
   from: string;
 }
 
+/** What the number beside a shelf's name counts. See [`countedOn`]. */
+export interface Counted {
+  /** The number itself, in the reader's digits. */
+  said: string;
+  /** What it counts, in words, for the hover. */
+  why: string;
+  /** Some or all of it stands on shelves under this one — so clicking this
+   * shelf will **not** produce a list of `said` seforim. */
+  below: boolean;
+}
+
+/**
+ * What the number beside a shelf's name counts.
+ *
+ * > *"`תנ״ך · 66` is a parent whose children are indented 14 px; it reads as a
+ * > category with 66 seforim and nothing under it."*
+ *
+ * Two faults in one row, and the number is the one nobody would have called a
+ * bug. `Branch` carries **two** counts — `here`, the seforim standing on this
+ * shelf, and `count`, those and everything beneath — and the row drew `count`
+ * with nothing saying which. On תנ״ך `here` is 0 and `count` is 66, so the row
+ * promised sixty-six seforim and clicking it produced an empty column. The
+ * number was never wrong; it just never said what it was a number of.
+ *
+ * It is the same fault as the mefarshim door promising 67 over a list of 76, and
+ * it takes the same answer: the face keeps the number a reader wants — *how much
+ * is in here* — and says what it counts rather than being quietly reinterpreted.
+ * `below` is what the drawing hangs off, because a count you cannot click
+ * through to is a different kind of claim from one you can.
+ */
+export function countedOn(branch: Branch): Counted {
+  const said = branch.count.toLocaleString("he-IL");
+  const shelves = branch.children.filter((child) => !child.loose);
+  if (shelves.length === 0) return { said, why: `${said} ${say("shelfCountHere")}`, below: false };
+  if (branch.here === 0) return { said, why: `${said} ${say("shelfCountUnder")}`, below: true };
+  return { said, why: `${said} ${say("shelfCountBoth")}`, below: true };
+}
+
 export class ShelfView {
   readonly element: HTMLElement;
   private readonly tree: HTMLElement;
@@ -186,14 +224,31 @@ export class ShelfView {
     // otherwise a shelf dragged out of a shelf has nowhere to go.
     rows.className = "shelf-rows";
     this.receives(rows, "");
-    for (const branch of this.branches) this.row(rows, branch, 0, "");
+    for (const branch of this.branches) this.row(rows, branch, "");
     this.tree.replaceChildren(rows);
   }
 
-  private row(into: HTMLElement, branch: Branch, depth: number, parent: string): void {
+  /**
+   * One shelf, and — if it is open — its children **inside a container of their
+   * own**.
+   *
+   * The depth used to be a number here, written onto every row as
+   * `paddingInlineStart = 8 + depth * 14`, and 14px is less than the width of
+   * one Hebrew letter at this size. A reader could not see that anything hung
+   * under anything, which is half of why `תנ״ך · 66` read as a shelf with
+   * sixty-six seforim on it rather than as the top of a branch (`countedOn` is
+   * the other half). `scopeview.ts` had the identical line — the same
+   * arithmetic, the same 14 — because a number in two files is how one decision
+   * ends up being made twice.
+   *
+   * So the nesting *is* the nesting: children go in a `.tree-kids`, which is
+   * where the indent and the guide rule live, and neither this file nor
+   * `scopeview.ts` knows a pixel. A level cannot be drawn at the wrong depth
+   * because nothing computes a depth.
+   */
+  private row(into: HTMLElement, branch: Branch, parent: string): void {
     const row = document.createElement("div");
     row.className = "shelf-row" + (branch.key === this.chosen ? " is-chosen" : "");
-    row.style.paddingInlineStart = `${8 + depth * 14}px`;
     row.draggable = isShell();
 
     const twist = document.createElement("button");
@@ -212,9 +267,11 @@ export class ShelfView {
     if (branch.mine) name.classList.add("is-mine");
     if (branch.edited) name.title = say("editedShelf");
 
+    const counted = countedOn(branch);
     const count = document.createElement("span");
-    count.className = "shelf-count";
-    count.textContent = branch.count.toLocaleString("he-IL");
+    count.className = "shelf-count" + (counted.below ? " is-below" : "");
+    count.textContent = counted.said;
+    count.title = counted.why;
 
     const pin = document.createElement("button");
     pin.className = "shelf-pin";
@@ -251,8 +308,11 @@ export class ShelfView {
     this.receives(row, branch.key);
 
     into.append(row);
-    if (this.open.has(branch.key)) {
-      for (const child of branch.children) this.row(into, child, depth + 1, branch.key);
+    if (this.open.has(branch.key) && branch.children.length > 0) {
+      const kids = document.createElement("div");
+      kids.className = "tree-kids";
+      for (const child of branch.children) this.row(kids, child, branch.key);
+      into.append(kids);
     }
   }
 
@@ -304,24 +364,69 @@ export class ShelfView {
 
   private async drawList(): Promise<void> {
     const branch = find(this.branches, this.chosen);
-    this.heading.textContent = branch
-      ? `${branch.title} · ${branch.here.toLocaleString("he-IL")} ${say("shelfOf")} ${branch.count.toLocaleString("he-IL")}`
-      : "";
+    this.heading.textContent = branch ? heading(branch) : "";
 
     const asked = this.chosen;
     await this.draws.run(
       () => (asked ? api.shelfWorks(asked) : Promise.resolve([] as Card[])),
       (works) => {
         if (works.length === 0) {
-          const none = document.createElement("p");
-          none.className = "shelf-empty";
-          none.textContent = branch?.count ? say("shelfBelow") : say("shelfEmpty");
-          this.list.replaceChildren(none);
+          this.list.replaceChildren(...this.nothingStandsHere(branch));
           return;
         }
         this.list.replaceChildren(...works.map((card) => this.card(card)));
       },
     );
+  }
+
+  /**
+   * What the column shows when no sefer stands on the chosen shelf.
+   *
+   * It used to be one grey sentence — *the seforim here are on the shelves under
+   * it* — under a heading reading `תנ״ך · 0 מתוך 66`, which is a column that
+   * says *there is something, elsewhere, and I will not tell you where*. The
+   * shelves under it are right there in the branch we already have, so they are
+   * the list: each with its own count, each a click away. Sixty-six becomes
+   * five and twenty-one and thirteen, and the number on the tree row is
+   * something a reader can follow rather than something they have to trust.
+   */
+  private nothingStandsHere(branch: Branch | null): HTMLElement[] {
+    // Never the gathered-seforim child (W42): it carries its parent's key, so
+    // offering it here would be a row that navigates to the shelf you are on.
+    const shelves = (branch?.children ?? []).filter((child) => !child.loose);
+    if (shelves.length === 0) {
+      const none = document.createElement("p");
+      none.className = "shelf-empty";
+      none.textContent = branch?.count ? say("shelfBelow") : say("shelfEmpty");
+      return [none];
+    }
+    const title = document.createElement("p");
+    title.className = "shelf-under-title";
+    title.textContent = say("shelfUnderHeading");
+    return [title, ...shelves.map((child) => this.under(child))];
+  }
+
+  /** One shelf, offered from the column rather than the tree. */
+  private under(branch: Branch): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "shelf-under";
+    const name = document.createElement("span");
+    name.className = "shelf-under-name";
+    name.textContent = branch.title;
+    if (branch.loose) name.classList.add("is-loose");
+    const counted = countedOn(branch);
+    const count = document.createElement("span");
+    count.className = "shelf-count" + (counted.below ? " is-below" : "");
+    count.textContent = counted.said;
+    count.title = counted.why;
+    row.append(name, count);
+    row.addEventListener("click", () => {
+      this.chosen = branch.key;
+      this.open.add(branch.key);
+      this.drawTree();
+      void this.drawList();
+    });
+    return row;
   }
 
   private card(card: Card): HTMLElement {
@@ -399,6 +504,22 @@ export class ShelfView {
     this.note.textContent = message;
     this.note.classList.toggle("is-trouble", trouble);
   }
+}
+
+/**
+ * What the column's heading says about the shelf you chose.
+ *
+ * `X מתוך Y` is the right sentence for a shelf that holds some of its own
+ * seforim and has more below. For a shelf that holds none it read `0 מתוך 66`,
+ * which is a heading whose first number is the reason the column looked broken.
+ * A pure parent says what it is: sixty-six, on the shelves under it.
+ */
+function heading(branch: Branch): string {
+  const count = branch.count.toLocaleString("he-IL");
+  if (branch.here === 0 && branch.children.some((child) => !child.loose)) {
+    return `${branch.title} · ${count} ${say("shelfUnderCount")}`;
+  }
+  return `${branch.title} · ${branch.here.toLocaleString("he-IL")} ${say("shelfOf")} ${count}`;
 }
 
 function find(branches: Branch[], key: string): Branch | null {

@@ -50,7 +50,7 @@ is to run a command nobody in this repository had run.
 | The search engine | A− | Fast, honest, badges its guesses, facets with counts, real scope control |
 | The search *window* | C− | Opens on an English error message; chips are English; a zero is a blank screen |
 | Mefarshim — the flagship | D | The data is right and the display is invisible. Also jumps to the wrong perek |
-| Browsing the shelf | B− | Works are in true order at last; the folders are still sorted by size |
+| Browsing the shelf | ~~B−~~ **A** | Fixed: folders take their order from the corpus like the seforim did (finding 6), the tree reads as a tree and its numbers say what they count, a parent shelf lists the shelves under it instead of an empty column, and a docked shelf lays out for the width it has (finding 15) |
 | Settings | B | Real, complete, rebindable. Two traps in it |
 | Two languages | ~~D~~ **A** | Fixed: the switch writes the cache before it reloads (finding 2), and the 42 Hebrew sentences the guard could not see are in the table (lesson 2) |
 | Keyboard | C− | Every shortcut dies the moment a search or the shelf is docked |
@@ -71,7 +71,7 @@ than against the report.
 
 | # | The complaint | Now |
 |---|---|---|
-| 1 | Seforim sorted by name, not true order | **Half.** Bereishis→Devarim and Yehoshua→Malachi are right. The *folders* are still sorted by size — see finding 6 |
+| 1 | Seforim sorted by name, not true order | **Fixed.** Bereishis→Devarim and Yehoshua→Malachi were right at the first sitting; the *folders* were still sorted by size, and take the corpus's order too now — finding 6 |
 | 2 | Gap on one side, shelf over the text | **Fixed.** Docks on the reading's leading edge, minimises to a strip, the strip reopens it |
 | 3 | No way to put the interface in English | **Half, and broken in a new way** — see finding 2 |
 | 4 | הגדרות opens nothing; the size buttons do nothing | **Fixed.** Real panel; 90% → 140% moves the text from 17.1 px to 26.6 px |
@@ -625,8 +625,31 @@ shelf already holds.
   מקושרים*. The `מפרש`/`פירוש` pair is gone with it — the link-only rows say
   `לפי הקישורים`, which is what the claim rests on rather than a near-synonym
   of the claim beside it.
-* **A heading that looks empty.** `תנ״ך · 66` is a parent whose children are
-  indented 14 px; it reads as a category with 66 seforim and nothing under it.
+* ~~**A heading that looks empty.** `תנ״ך · 66` is a parent whose children are
+  indented 14 px; it reads as a category with 66 seforim and nothing under it.~~
+  **Fixed**, in three places, because it was three faults wearing one row.
+
+  The number was the one nobody would have filed. `Branch` carries **two**
+  counts — `here`, the seforim standing on the shelf, and `count`, those and
+  everything beneath — and the row drew `count` with nothing saying which. On
+  תנ״ך that is 0 and 66, so the row promised sixty-six and clicking it produced
+  an empty column. Same fault as the mefarshim door promising 67 over a list of
+  76, same answer: `countedOn` keeps the number a reader wants — *how much is in
+  here* — and says what it counts, in the reader's accent when the answer is
+  *not on this shelf*.
+
+  The indent was arithmetic. `shelf.ts` and `scopeview.ts` each carried
+  `paddingInlineStart = 8 + depth * 14` — the identical line, in two files,
+  because a number in two places is how one decision gets made twice. 14 px is
+  narrower than one Hebrew letter at that size. Now the nesting **is** nesting:
+  children go inside a `.tree-kids`, which is the only thing in the window that
+  knows a measurement, and the guide rule down its leading edge says the part
+  whitespace never could — not *further in*, but *further in **than that row***.
+
+  And the empty column is not empty. A shelf whose seforim all stand below it
+  lists the shelves they stand on, each with its own count, each a click away.
+  Sixty-six becomes five and twenty-one and thirteen, and the number on the row
+  is something a reader can follow instead of something they have to trust.
 * ~~**Rabbeinu Chananel appears twice** (`רבינו חננאל על בראשית`, `ר חננאל על
   בראשית`) — one from each corpus, undeduplicated, in the same list.~~
   **Fixed, and deliberately not by merging them.** Two catalogue entries are
@@ -642,8 +665,23 @@ shelf already holds.
   356 of 400 drawn lines of Shabbos. The `◆` was designed so that marking
   everything would say nothing, and for the most obvious mefarshim it marks
   everything.
-* **The docked shelf squeezes the seforim to a 70 px column**, one word per
-  line, with the era clipped to a single letter.
+* ~~**The docked shelf squeezes the seforim to a 70 px column**, one word per
+  line, with the era clipped to a single letter.~~ **Fixed.** `.shelf-tree` is
+  `width: 320px` and `--dock` is `380px`. Both numbers were in the stylesheet,
+  four hundred lines apart, and their sum never was — so what was left for the
+  seforim, the thing the panel exists to show, was seventy pixels.
+
+  The search had the identical two-column body and had been given
+  `.find.is-docked .find-body { flex-direction: column }`: the right layout keyed
+  to the wrong question. It fixed the docked search and would have done nothing
+  for a floating one on a narrow screen, where `min(1180px, 95vw)` produces the
+  same squeeze by another route. Both sheets are `@container`s now and both
+  bodies ask **how wide am I**, which is the only question with an answer that
+  cannot go stale. `styles.test.mjs` holds the class in two rules: a dockable
+  panel's two-column body must have somewhere to go when it is narrow, and every
+  `@container <name>` must name a container some element establishes — because a
+  query on a container nobody declared never matches, and CSS says nothing,
+  which is the same silence as `var(--paper)` one level up.
 * **`cargo build --release -p girsa-shell` silently ships a stale frontend.**
   My first run showed a UI two commits old with buttons the source no longer
   has; the binary had not been relinked after `npm run build`. Only touching a

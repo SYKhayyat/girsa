@@ -229,16 +229,11 @@ body {
 }
 
 /* The facets sit beside the results at full width and under them in a column
- * 380px wide, or neither would be readable. */
-.find.is-docked .find-body {
-  flex-direction: column;
-}
-
-.find.is-docked .find-rail {
-  border-inline-start: none;
-  border-top: 1px solid var(--rule);
-  width: auto;
-}
+ * 380px wide, or neither would be readable. That used to be keyed off
+ * `.find.is-docked` — the class that *happened to* make it narrow — and lives
+ * at the end of the search's own section now, as a question about the width.
+ * The shelf had the identical two-column body and no such rule at all, which is
+ * how its seforim ended up in a 70px strip. */
 
 /* --- tabs and tools ---------------------------------------------------- */
 
@@ -1294,6 +1289,31 @@ body {
   display: none;
 }
 
+/* --- a tree, anywhere one is drawn --------------------------------------- */
+/*
+ * # The indent was arithmetic in two views, and it was too small in both
+ *
+ * > *"`תנ״ך · 66` is a parent whose children are indented 14 px; it reads as a
+ * > category with 66 seforim and nothing under it."*
+ *
+ * `shelf.ts` and `scopeview.ts` each carried `paddingInlineStart = 8 + depth *
+ * 14`. Two files, one decision, made twice — and 14px is narrower than one
+ * Hebrew letter at the size these rows are set in, so a child sat almost
+ * exactly under its parent and the whole tree read as a flat list of shelves
+ * with numbers beside them.
+ *
+ * Now the nesting is nesting: children go inside a `.tree-kids`, which is the
+ * only thing that knows a measurement. The guide is a rule down the leading
+ * edge — the indent alone says *these are further in*, and the line says *they
+ * are further in **than that row***, which is the part a reader needs and the
+ * part 14px of whitespace could never carry.
+ */
+.tree-kids {
+  padding-inline-start: 18px;
+  margin-inline-start: 10px;
+  border-inline-start: 1px solid var(--rule);
+}
+
 /* --- the shelf (W10) ---------------------------------------------------- */
 /*
  * A place rather than an overlay: it takes the window, because browsing a
@@ -1325,6 +1345,9 @@ body {
   border-radius: 10px;
   box-shadow: 0 18px 50px rgb(0 0 0 / 45%);
   overflow: hidden;
+  /* So the body below can ask **how wide am I** rather than *which class put me
+   * here*. See the `@container` at the end of this section. */
+  container: shelf / inline-size;
 }
 
 .shelf-bar {
@@ -1361,6 +1384,7 @@ body {
 .shelf-column {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -1403,12 +1427,16 @@ body {
   min-height: 100%;
 }
 
+/* The one mark saying a row has anything under it, previously set at 10px in a
+ * 14px box — which is to say, not saying it. */
 .shelf-twist {
-  width: 14px;
+  width: 18px;
+  flex: none;
   border: none;
   background: none;
   color: var(--ink-quiet);
-  font-size: 10px;
+  font-size: 13px;
+  line-height: 1;
   padding: 0;
   cursor: pointer;
 }
@@ -1434,6 +1462,13 @@ body {
   font-size: 11px;
   color: var(--ink-quiet);
   font-variant-numeric: tabular-nums;
+}
+
+/* A total of what is **under** this shelf rather than a list you will get by
+ * clicking it. Set in the reader's own accent so that the two kinds of number
+ * are not one grey number in two meanings; the hover says which. */
+.shelf-count.is-below {
+  color: var(--mark-quiet);
 }
 
 .shelf-pin {
@@ -1493,6 +1528,40 @@ body {
   font-family: var(--hebrew);
 }
 
+/* A shelf whose seforim all stand on the shelves under it lists those shelves,
+ * rather than one grey sentence saying they are somewhere else. Drawn as a list
+ * of places to go, not as seforim — no title font, no era, just a name and what
+ * is behind it. */
+.shelf-under-title {
+  margin: 0;
+  padding: 12px 14px 4px;
+  font-family: var(--hebrew);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.shelf-under {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.shelf-under:hover {
+  background: color-mix(in srgb, var(--mark) 10%, transparent);
+}
+
+.shelf-under-name {
+  font-family: var(--hebrew);
+  font-size: 16px;
+}
+
+.shelf-under-name.is-loose {
+  color: var(--ink-quiet);
+  font-style: italic;
+}
+
 .shelf-note {
   margin: 0;
   padding: 8px 12px;
@@ -1504,6 +1573,47 @@ body {
 
 .shelf-note.is-trouble {
   color: var(--mark);
+}
+
+/* # Two columns need the width of two columns
+ *
+ * > *"The docked shelf squeezes the seforim to a 70 px column, one word per
+ * > line, with the era clipped to a single letter."*
+ *
+ * `--dock` is 380px and `.shelf-tree` is 320 of it, so what was left for the
+ * seforim — the thing the panel is *for* — was about seventy. The arithmetic
+ * was in the stylesheet the whole time, in two rules nobody read together.
+ *
+ * The condition is the width, not the class. Keying this off `.is-docked`, the
+ * way `.find-body` does, would fix the docked shelf and leave the floating one
+ * broken on a narrow window, where `min(1080px, 94vw)` produces exactly the
+ * same squeeze for a completely different reason. A container query asks the
+ * only question that matters — *is there room for two columns* — so the answer
+ * cannot go stale when a new way of making the sheet narrow turns up. */
+@container shelf (width < 640px) {
+  .shelf-body {
+    flex-direction: column;
+  }
+
+  .shelf-tree {
+    width: auto;
+    flex: 0 0 auto;
+    max-height: 40%;
+    border-inline-start: none;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* Author and era on their own line: side by side they are what got clipped to
+   * a single letter, and a sefer's name is not the thing to shorten. */
+  .shelf-work {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1px;
+  }
+
+  .shelf-work-aside {
+    margin-inline-start: 0;
+  }
 }
 
 /* The search (W14).
@@ -1539,6 +1649,8 @@ body {
   border-radius: 10px;
   box-shadow: 0 18px 50px rgb(0 0 0 / 45%);
   overflow: hidden;
+  /* As the shelf's sheet: the body asks how wide it is, not what put it there. */
+  container: find / inline-size;
 }
 
 .find-bar {
@@ -1754,6 +1866,24 @@ body {
   border-inline-start: 1px solid var(--rule);
   overflow-y: auto;
   padding: 8px 10px;
+}
+
+/* 300px of facets out of a 380px column leaves eighty for the results. The
+ * facets go under them instead — the same answer the shelf gives, asked the
+ * same way, so that a sheet made narrow by something nobody has invented yet
+ * still lays itself out. */
+@container find (width < 660px) {
+  .find-body {
+    flex-direction: column;
+  }
+
+  .find-rail {
+    width: auto;
+    flex: 0 0 auto;
+    max-height: 40%;
+    border-inline-start: none;
+    border-top: 1px solid var(--rule);
+  }
 }
 
 .find-facet {
