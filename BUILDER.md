@@ -35,9 +35,15 @@ silently corrupt ten thousand commentary links is the actual project.
    **And then the same again from `app/src-tauri`.** Those four run against
    `default-members`, which excludes the Tauri shell for a good reason (it cannot
    build before `app/dist` exists) — so they compile everything in this
-   repository *except the 4,054 lines that own all the interop*. The shell went
-   two hours broken behind a green gate on 12 August: a renamed session field in
-   `post.rs`, a changed signature in `lib.rs`, and four passing commands.
+   repository *except the 4,054 lines that own all the interop*.
+
+   CI has a `shell` job and does catch it; the point of running it here is the
+   three minutes and the push. It has caught it twice, and the second time is the
+   one worth reading: on **9 August** the shell called
+   `girsa_desk::refreshed_reporting`, which existed in `refreshing.rs` and was
+   not in the `pub use` line of its own `lib.rs`. Red in CI from that commit
+   onward, green on every local gate, and the fix sat uncommitted in a working
+   tree for three days. A job nobody looks at is a job that reports to nobody.
 
    ```sh
    cd app/src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt -- --check

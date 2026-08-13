@@ -130,13 +130,24 @@ body {
  */
 :root {
   --dock: 380px;
+  /* What each drawer takes when it is open. Named here because `dock.ts` has to
+   * know the same numbers to make the reading room for them, and two places
+   * holding one width is how a panel ends up half over the text. `dock.ts` reads
+   * these off the document rather than restating them. */
+  --links-wide: min(620px, 50vw);
+  --suspects-wide: min(560px, 46vw);
+  --yours-wide: min(680px, 55vw);
+  --lane-wide: min(560px, 46vw);
   /* What is left of a docked panel when it is minimised: a strip wide enough to
    * carry its name, and to be clicked. */
   --dock-small: 34px;
 }
 
 :root.is-docked .app {
-  margin-inline-start: var(--dock);
+  /* How wide is `dock.ts`'s answer, because it depends on which panels are
+   * standing and they are not one width — the bookcase is a column, your own
+   * layer is 680. The fallback is for the frame before any panel has said. */
+  margin-inline-start: var(--dock-now, var(--dock));
 }
 
 :root.is-docked-small .app {
@@ -646,7 +657,7 @@ body {
 }
 
 .links.is-open {
-  width: min(620px, 50vw);
+  width: var(--links-wide);
 }
 
 .links-head {
@@ -860,7 +871,7 @@ body {
 }
 
 .suspects.is-open {
-  width: min(560px, 46vw);
+  width: var(--suspects-wide);
 }
 
 .suspects-head {
@@ -2051,7 +2062,7 @@ body {
 }
 
 .yours.is-open {
-  width: min(680px, 55vw);
+  width: var(--yours-wide);
 }
 
 .yours-head {
@@ -2350,14 +2361,24 @@ body {
 /* The panel where the lane is turned on, pointed at a model, and told what to
  * embed. A sheet like the search box, because it is a decision and not a
  * drawer. */
+/* > *"i opened halashon smucha and it is weirdly over the text, so i cant see it
+ * > or the text."*
+ *
+ * It was a scrim over the whole window with a sheet floating in the middle of
+ * it. Docking answered exactly this complaint for the bookcase and the search
+ * and left the lane behind, which is how the one panel the reader named by name
+ * stayed the way they found it. It is a column on the reading's leading edge
+ * now, like the others, and the reading is made narrower rather than covered. */
 .lane-panel {
   position: fixed;
-  inset: 0;
-  background: rgb(0 0 0 / 35%);
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: var(--lane-wide);
+  background: var(--page-raised);
+  border-inline-end: 1px solid var(--rule);
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 8vh;
+  flex-direction: column;
+  overflow-y: auto;
   z-index: 40;
 }
 
@@ -2366,17 +2387,17 @@ body {
 }
 
 .lane-sheet {
-  width: min(560px, 92vw);
-  max-height: 78vh;
+  width: 100%;
   overflow-y: auto;
   /* `--page-raised`, not `--paper`. `--paper` was never defined anywhere, so
      this panel had **no background at all** — the reading behind it showed
      through a 560px sheet of results. Two more uses of it and one of
      `--reading`, all three undefined; see the check in `app/test/`. */
   background: var(--page-raised);
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  box-shadow: 0 18px 48px rgb(0 0 0 / 28%);
+  /* No border, no radius, no shadow: it is a column of the window now rather
+   * than a card floating over one, and the panels beside it are drawn the same
+   * way. */
+  border: 0;
 }
 
 .lane-bar {

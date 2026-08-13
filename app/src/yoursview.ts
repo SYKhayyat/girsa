@@ -20,6 +20,7 @@ import {
 import { sayTrouble } from "./trouble.ts";
 import { area, glyph } from "./controls.ts";
 import { say } from "./say.ts";
+import { dock, undock, wideAs } from "./dock.ts";
 
 type Panel = "notes" | "marks" | "queries" | "folders" | "tags";
 
@@ -113,13 +114,19 @@ export class YoursView {
       return;
     }
     if (panel) this.panel = panel;
+  // Docked, not laid over the reading. The reading is made **narrower** and this
+  // stands beside it — the same answer the bookcase and the search already give,
+  // and the reader's complaint that produced it was about a panel exactly like
+  // this one: *"it is weirdly over the text, so i cant see it or the text."*
     this.element.classList.add("is-open");
+    dock("yours", wideAs("--yours-wide"));
     await this.draw();
   }
 
   close(): void {
     this.element.classList.remove("is-open");
     this.editing = null;
+    undock("yours");
   }
 
   /** Redraw, because something of yours changed elsewhere in the window. */

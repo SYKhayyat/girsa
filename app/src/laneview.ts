@@ -34,6 +34,7 @@ import {
 import { field } from "./controls.ts";
 import { trouble } from "./trouble.ts";
 import { say } from "./say.ts";
+import { dock, undock, wideAs } from "./dock.ts";
 
 /** Open a sefer at a segment — the same handler the search list is given. */
 type Opened = (slug: string, id: string | null, marked?: string[]) => void;
@@ -241,12 +242,18 @@ export class LanePanel {
   async show(): Promise<void> {
     this.open = true;
     this.element.hidden = false;
+    // Docked, not laid over the reading. This is **the** panel the reader named:
+    // *"i opened halashon smucha and it is weirdly over the text, so i cant see
+    // it or the text."* Docking answered that complaint for the bookcase and the
+    // search and left this one a scrim with a card floating in the middle of it.
+    dock("lane", wideAs("--lane-wide"));
     await this.refresh();
   }
 
   close(): void {
     this.open = false;
     this.element.hidden = true;
+    undock("lane");
   }
 
   async toggle(): Promise<void> {

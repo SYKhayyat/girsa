@@ -32,6 +32,7 @@ import { sayTrouble } from "./trouble.ts";
 import { button, choice } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { say } from "./say.ts";
+import { dock, undock, wideAs } from "./dock.ts";
 
 export class LinksView {
   readonly element: HTMLElement;
@@ -102,7 +103,12 @@ export class LinksView {
     if (!at) return;
     this.at = at;
     this.span = span ?? null;
+  // Docked, not laid over the reading. The reading is made **narrower** and this
+  // stands beside it — the same answer the bookcase and the search already give,
+  // and the reader's complaint that produced it was about a panel exactly like
+  // this one: *"it is weirdly over the text, so i cant see it or the text."*
     this.element.classList.add("is-open");
+    dock("links", wideAs("--links-wide"));
     this.note.textContent = say("linksReading");
     this.list.replaceChildren();
     await this.draw();
@@ -110,6 +116,7 @@ export class LinksView {
 
   close(): void {
     this.element.classList.remove("is-open");
+    undock("links");
   }
 
   private async draw(): Promise<void> {

@@ -13,6 +13,7 @@
 
 import { api, type SuspectRow } from "./api.ts";
 import { say } from "./say.ts";
+import { dock, undock, wideAs } from "./dock.ts";
 
 /** How many to ask for. More than fits on a screen, few enough to draw. */
 const PAGE = 60;
@@ -66,7 +67,12 @@ export class SuspectsView {
   }
 
   async show(): Promise<void> {
+  // Docked, not laid over the reading. The reading is made **narrower** and this
+  // stands beside it — the same answer the bookcase and the search already give,
+  // and the reader's complaint that produced it was about a panel exactly like
+  // this one: *"it is weirdly over the text, so i cant see it or the text."*
     this.element.classList.add("is-open");
+    dock("suspects", wideAs("--suspects-wide"));
     this.note.textContent = say("linksReading");
     this.rows = await api.suspects(PAGE);
     this.draw();
@@ -74,6 +80,7 @@ export class SuspectsView {
 
   close(): void {
     this.element.classList.remove("is-open");
+    undock("suspects");
   }
 
   private draw(): void {

@@ -248,9 +248,17 @@ no preview.
 
 And one hole the gate itself had: `cargo build --all-targets` at the root builds
 `default-members`, which excludes the Tauri shell — so the four verify commands
-compiled everything **except the 4,054 lines that own all the interop**, and the
-shell sat broken behind a green gate for two hours. BUILDER.md rule 4 has the
-fifth command now.
+compiled everything **except the 4,054 lines that own all the interop**.
+
+CI does have a `shell` job, and it had been red since **9 August**: the shell
+called `girsa_desk::refreshed_reporting`, which existed in `refreshing.rs` and
+was missing from the `pub use` line of its own `lib.rs`. The fix was sitting
+uncommitted in a working tree the whole time, which is why every local build
+passed and every CI run did not. It went out with the first commit of this pass
+and the job has been green since.
+
+BUILDER.md rule 4 has the fifth command now, so the next one is found in thirty
+seconds rather than three minutes and a push.
 
 ## How fast it is, in numbers
 
