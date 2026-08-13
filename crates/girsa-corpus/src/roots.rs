@@ -15,14 +15,29 @@
 //! # Why the order is the order
 //!
 //! 1. `GIRSA_CORPUS` — because somebody said so, and nothing outranks that.
-//! 2. `corpus/` beside the executable — how an installed copy finds its own.
-//! 3. `corpus/` in the working directory, then two levels up — how it is found
+//! 2. The folder the reader chose in the window, if they have chosen one. Also
+//!    *somebody said so*, and it outranks every default; it does not outrank
+//!    the variable, because a variable is set for one launch on purpose and a
+//!    remembered choice is set once and forgotten about.
+//! 3. `corpus/` beside the executable — how an installed copy finds its own.
+//! 4. `corpus/` in the working directory, then two levels up — how it is found
 //!    when run out of the source tree, from the workspace root or from inside
 //!    a crate.
 //!
 //! Every candidate that failed is reported. *No shelf found* with no list is a
-//! message that cannot be acted on, and the usual cause is the third case
+//! message that cannot be acted on, and the usual cause is the fourth case
 //! looking one directory away from where the reader is standing.
+//!
+//! # And the list is not the message
+//!
+//! It was. With no corpus the window showed [`Looked::said`] and nothing else:
+//! four lines of Latin paths across the top of a right-to-left window, the
+//! trailing `../../corpus.` reversed into `.corpus./../..` by the bidi
+//! algorithm, and no way forward but a command line. Every word of it is true
+//! and useful *to somebody debugging an installation*, which is why it is still
+//! exactly this string — on a hover, behind a Hebrew sentence, beside a button
+//! that opens a folder picker. Naming candidate 2 above is what lets that
+//! button mean anything after the window is closed.
 
 use std::path::{Path, PathBuf};
 
@@ -60,14 +75,31 @@ pub const CORPUS: &str = "GIRSA_CORPUS";
 /// The variable that names your own layer.
 pub const PERSONAL: &str = "GIRSA_PERSONAL";
 
-/// Find the shelf.
+/// Find the shelf, with the folder the reader chose in the window ranked where
+/// the module header says it goes.
+///
+/// `None` from the sixteen command-line tools, which have no window and no
+/// session to remember one in. It is an argument rather than a second function
+/// so that there is one door: a `corpus()` beside a `corpus_chosen()` is two
+/// orders to keep in step, and the one nobody edits is the one that drifts.
 ///
 /// # Errors
 ///
 /// If none of the candidates holds a [`MARKER`]. The error names all of them.
-pub fn corpus() -> Result<PathBuf, String> {
-    let looked = look(&candidates(), |p| p.join(MARKER).is_file());
+pub fn corpus(chosen: Option<&Path>) -> Result<PathBuf, String> {
+    let looked = look(&candidates(chosen), |p| p.join(MARKER).is_file());
     looked.found.clone().ok_or_else(|| looked.said())
+}
+
+/// Whether a directory the reader picked is a corpus at all.
+///
+/// The same one question [`corpus`] asks of every candidate, asked of one — so
+/// that a reader who points the window at their Downloads folder is told *there
+/// are no seforim in that folder* rather than being handed the whole search
+/// order over again.
+#[must_use]
+pub fn is_corpus(at: &Path) -> bool {
+    at.join(MARKER).is_file()
 }
 
 /// Where your own layer is: the arrangement, the seforim you added, your notes.
@@ -81,10 +113,13 @@ pub fn personal(data: &Path) -> PathBuf {
 
 /// The places a corpus is looked for, in order.
 #[must_use]
-pub fn candidates() -> Vec<PathBuf> {
+pub fn candidates(chosen: Option<&Path>) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(said) = std::env::var(CORPUS) {
         out.push(PathBuf::from(said));
+    }
+    if let Some(chosen) = chosen {
+        out.push(chosen.to_path_buf());
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
@@ -161,7 +196,7 @@ mod tests {
         // Asserted as a list rather than as prose, because the prose was in
         // the shell and the list was in the shell and only one of them was
         // ever read again.
-        let candidates = candidates();
+        let candidates = candidates(None);
         let last_two: Vec<String> = candidates
             .iter()
             .rev()
@@ -172,6 +207,65 @@ mod tests {
             last_two.iter().any(|p| p.contains("..")),
             "the source tree is looked for: {last_two:?}"
         );
+    }
+
+    #[test]
+    fn the_folder_the_reader_chose_outranks_every_default() {
+        // The point of remembering it. A reader who pointed the window at a
+        // corpus and then reopened the window must land on the same seforim,
+        // and not on whatever happens to be sitting beside the executable.
+        let chosen = PathBuf::from("/where/the/reader/pointed");
+        let with = candidates(Some(&chosen));
+        let without = candidates(None);
+        let at = with
+            .iter()
+            .position(|p| *p == chosen)
+            .unwrap_or_else(|| panic!("the chosen folder is a candidate: {with:?}"));
+        assert_eq!(
+            with.len(),
+            without.len() + 1,
+            "one candidate was added, not several: {with:?}"
+        );
+        // Every default is behind it. The variable is not a default and has its
+        // own test below.
+        let variable = std::env::var(CORPUS).ok().map(PathBuf::from);
+        for default in &without {
+            if Some(default) == variable.as_ref() {
+                continue;
+            }
+            let now = with
+                .iter()
+                .position(|p| p == default)
+                .unwrap_or_else(|| panic!("{default:?} left the list: {with:?}"));
+            assert!(now > at, "{default:?} outranked the reader: {with:?}");
+        }
+    }
+
+    #[test]
+    fn a_variable_set_for_this_launch_outranks_the_remembered_choice() {
+        // Two ways of saying *somebody said so*, and they are not equal. A
+        // variable is set on purpose for one run — usually to look at a second
+        // corpus — and losing that to a choice made months ago and forgotten
+        // about is the whole reason the order is written down.
+        let candidates = candidates(Some(Path::new("/chosen")));
+        if let Ok(said) = std::env::var(CORPUS) {
+            assert_eq!(
+                candidates.first(),
+                Some(&PathBuf::from(said)),
+                "{candidates:?}"
+            );
+        } else {
+            assert_eq!(candidates.first(), Some(&PathBuf::from("/chosen")));
+        }
+    }
+
+    #[test]
+    fn a_folder_with_no_index_in_it_is_not_a_corpus() {
+        // What the window asks before it remembers a reader's answer. The same
+        // one file `look` asks about, so *this folder will not do* and *this
+        // folder was skipped* can never disagree.
+        let empty = std::path::Path::new("/definitely/not/a/corpus/anywhere");
+        assert!(!is_corpus(empty));
     }
 
     #[test]

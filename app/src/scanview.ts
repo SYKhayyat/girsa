@@ -345,7 +345,11 @@ export class ScanView {
     // Two different sentences, and only one of them is a chore the reader can
     // do something about.
     if (this.open.trouble) {
-      this.note.textContent = this.open.trouble;
+      // Read, not printed. It arrives as `ShelfError`'s English `Display` —
+      // the same shape as the wall of paths in finding 19, on a smaller
+      // surface: a sentence composed for a log, put in front of a reader
+      // because the field happened to be a string.
+      sayTrouble(this.note, this.open.trouble, "read_page");
     } else if (this.open.paged) {
       this.note.textContent = say("scanNoDafHere");
       this.note.title = say("scanNothingPrinted");

@@ -73,6 +73,14 @@ pub(crate) struct State {
     chips: Chips,
     /// Why the shelf is not there, if it is not. Shown in the window.
     trouble: Option<String>,
+    /// The reader's own layer, which is beside the session file and **not**
+    /// under the corpus.
+    ///
+    /// Held rather than asked of the shelf, because the one moment it is needed
+    /// most is the one moment there is no shelf to ask: a window that opened on
+    /// nothing and is being pointed at a folder has to know where the notes go
+    /// before it has anywhere to put them.
+    personal: PathBuf,
     pub(crate) session: Session,
     session_path: PathBuf,
     /// The loopback desk (W16). Held because dropping it withdraws the endpoint
@@ -202,6 +210,28 @@ impl State {
             Code::NoShelf,
             self.trouble.as_deref().unwrap_or("there is no shelf here"),
         )
+    }
+
+    /// The same trouble, for the window's first screen — named when there is a
+    /// name to give it.
+    ///
+    /// This used to be the bare field, and it is the whole of finding 19: with
+    /// no corpus, the top of a right-to-left Hebrew window carried four lines of
+    /// Latin paths from `Looked::said` and nothing else, because `Opening`
+    /// forwarded the developer's prose while every command in this file was
+    /// carefully wrapping the same sentence in a code the window can read.
+    ///
+    /// Only the no-shelf case gets a name. A shelf that opened with a complaint
+    /// about the personal layer is a different fact, it has no code yet, and
+    /// giving it this one would tell a reader with 7,189 seforim on the screen
+    /// that they have no seforim.
+    fn said_trouble(&self) -> Option<String> {
+        let prose = self.trouble.as_ref()?;
+        Some(if self.shelf.is_none() {
+            refuse(Code::NoShelf, prose)
+        } else {
+            prose.clone()
+        })
     }
 
     fn no_search(&self) -> String {
@@ -341,7 +371,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
         text_size: state.session.text_size,
         positions: state.session.positions.clone(),
         works: state.shelf.as_ref().map_or(0, |s| s.works().len()),
-        trouble: state.trouble.clone(),
+        trouble: state.said_trouble(),
         cite: state.session.cite,
         language: state.session.language,
         interface: state.session.interface,
@@ -361,6 +391,70 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
             .as_ref()
             .map_or(0, girsa_fix::suspect::Queue::waiting),
     })
+}
+
+/// Point the window at a folder of seforim (finding 19).
+///
+/// > *"With no corpus, the window is a wall of English file paths. No Hebrew.
+/// > No button — although `tauri-plugin-dialog` is already in the build."*
+///
+/// The wall was the honest half of the answer: `Looked::said` names every
+/// directory it tried, in order, because the usual cause is looking one
+/// directory away from where the reader is standing. What it could not do is
+/// end the problem, and *run girsa-fetch and girsa-import, or set
+/// `GIRSA_CORPUS`* is an instruction to somebody who has a terminal open. A
+/// reader who already downloaded a corpus needed to be able to say where it is.
+///
+/// Three decisions worth naming:
+///
+/// * **The folder is checked before it is remembered**, by the same one-file
+///   question `roots::look` asks of every candidate — so *this folder will not
+///   do* and *this folder was skipped* can never disagree. The refusal is
+///   [`Code::NotACorpus`] and not `NoShelf`: telling somebody who picked their
+///   Downloads folder that the import has not run sends them somewhere they do
+///   not need to go.
+/// * **It opens the folder that was picked**, rather than re-running the search
+///   order with it added. See [`open_corpus`].
+/// * **Nothing about the old corpus survives.** The seforim in memory, the
+///   mefarshim marks, the joins between panes and the OCR queue are all answers
+///   about a corpus that is no longer the one being read, and a stale answer
+///   about a sefer that still exists in the new corpus is worse than no answer:
+///   it looks right.
+#[tauri::command]
+fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), String> {
+    let at = PathBuf::from(&path);
+    if !girsa_corpus::roots::is_corpus(&at) {
+        return Err(refuse(
+            Code::NotACorpus,
+            format!("{path} has no {} in it", girsa_corpus::roots::MARKER),
+        ));
+    }
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let personal = state.personal.clone();
+    let opened = open_corpus(Ok(at.clone()), &personal, state.session.showing);
+    // A directory can hold the marker file and still refuse to open — an
+    // unreadable catalogue, a half-written import. Remembering that one would
+    // put the reader in front of it again on every launch, with the folder they
+    // meant forgotten.
+    let Some(shelf) = opened.shelf else {
+        return Err(refuse(Code::NotACorpus, opened.trouble.unwrap_or(path)));
+    };
+    state.session.corpus = Some(at);
+    state.shelf = Some(shelf);
+    state.trouble = opened.trouble;
+    state.timeline = opened.timeline;
+    state.bar = opened.bar;
+    state.no_search = opened.no_search;
+    state.lexicon = opened.lexicon;
+    state.lane = opened.lane;
+    state.open = girsa_app::held::Held::default();
+    state.marks.clear();
+    state.joined.clear();
+    state.words.clear();
+    state.documents = None;
+    state.queue = None;
+    state.save();
+    Ok(())
 }
 
 #[tauri::command]
@@ -924,6 +1018,82 @@ fn read_lexicon(corpus: &std::path::Path) -> Option<girsa_ref::Lexicon> {
         body.push_str(&more);
     }
     Some(girsa_ref::Lexicon::from_tsv(&body))
+}
+
+/// Everything that comes out of a corpus, opened once.
+///
+/// This was fourteen lines inside `setup`, which was the right shape while
+/// opening a corpus happened exactly once in the life of the process. It
+/// happens twice now — at startup, and when a reader points the window at a
+/// folder (finding 19) — and the second one has to produce a state
+/// indistinguishable from the first. Written as two call sites it would produce
+/// a window with a shelf and no timeline, or a shelf and a dead lane, and both
+/// of those look like corpus bugs rather than like a missing line.
+struct Opened {
+    shelf: Option<Shelf>,
+    trouble: Option<String>,
+    timeline: Option<girsa_corpus::era::Timeline>,
+    bar: Option<Bar>,
+    no_search: Option<String>,
+    lexicon: Option<girsa_ref::Lexicon>,
+    lane: Option<girsa_nearby::Adjacency>,
+}
+
+/// Open everything that hangs off a corpus root.
+///
+/// **Where the root came from is the caller's business**, and the two callers
+/// answer that differently on purpose. At startup nobody has said which corpus,
+/// so `roots::corpus` searches in the documented order. When a reader picks a
+/// folder they *have* said which, and being told is not a search — running the
+/// order there would let a `GIRSA_CORPUS` set for this launch quietly open some
+/// other corpus in answer to a folder the reader chose by hand.
+fn open_corpus(
+    root: Result<PathBuf, String>,
+    personal: &std::path::Path,
+    showing: girsa_fix::Showing,
+) -> Opened {
+    let (shelf, trouble) = match root {
+        Ok(root) => match Shelf::open(&root, personal) {
+            // An unreadable arrangement is the shelf's own trouble to report,
+            // and it is not a reason to open no shelf.
+            Ok(mut shelf) => {
+                let trouble = shelf.trouble().map(ToString::to_string);
+                // How much of the correction layer to apply, as it was left
+                // last time (W20).
+                shelf.set_showing(showing);
+                (Some(shelf), trouble)
+            }
+            Err(e) => (None, Some(e.to_string())),
+        },
+        Err(e) => (None, Some(e)),
+    };
+    // Beside the shelf, from the same catalogue file the shelf read. A window
+    // that cannot date a work draws `no date`, which is honest; a window that
+    // never asked drew a blank, which is not.
+    let timeline = shelf
+        .as_ref()
+        .and_then(|shelf| girsa_corpus::era::Timeline::of(shelf.root()).ok());
+    let (bar, no_search) = open_bar_for(&shelf);
+    let lexicon = shelf.as_ref().and_then(|shelf| read_lexicon(shelf.root()));
+    // The lane, once. With it off — the default — this opens nothing and reads
+    // nothing; with it on it loads the side-loaded model, which is why it
+    // happens here and not on the first query.
+    let lane = shelf.as_ref().map(|shelf| {
+        let (lane, trouble) = girsa_nearby::Adjacency::open(shelf.root(), personal, shelf);
+        for line in trouble {
+            eprintln!("the semantic lane: {line}");
+        }
+        lane
+    });
+    Opened {
+        shelf,
+        trouble,
+        timeline,
+        bar,
+        no_search,
+        lexicon,
+        lane,
+    }
 }
 
 /// Open the index and put a bar over it.
@@ -1638,9 +1808,13 @@ fn view_of(shelf: &Shelf, sefer: &Open, scan: &girsa_scan::Scan, at: usize) -> S
                 at: a.at.as_ref().map(ToString::to_string),
             })
             .collect(),
+        // Coded, like every other refusal that crosses. `naming` fails one way
+        // — the sefer this scan says it is a scan of is not on the shelf — and
+        // the window used to print `ShelfError`'s English straight into the
+        // note under the page.
         trouble: girsa_app::scanning::naming(shelf, scan)
             .err()
-            .map(|e| e.to_string()),
+            .map(|e| refuse(Code::NoSefer, e)),
     }
 }
 
@@ -3489,39 +3663,20 @@ pub fn run() {
                 eprintln!("scans will not open: {e}");
             }
 
-            let (shelf, trouble) = match girsa_corpus::roots::corpus() {
-                Ok(root) => match Shelf::open(&root, &personal) {
-                    // An unreadable arrangement is the shelf's own trouble to
-                    // report, and it is not a reason to open no shelf.
-                    Ok(mut shelf) => {
-                        let trouble = shelf.trouble().map(ToString::to_string);
-                        // How much of the correction layer to apply, as it was
-                        // left last time (W20).
-                        shelf.set_showing(session.showing);
-                        (Some(shelf), trouble)
-                    }
-                    Err(e) => (None, Some(e.to_string())),
-                },
-                Err(e) => (None, Some(e)),
-            };
-            // Beside the shelf, from the same catalogue file the shelf read. A
-            // window that cannot date a work draws `no date`, which is honest;
-            // a window that never asked drew a blank, which is not.
-            let timeline = shelf
-                .as_ref()
-                .and_then(|shelf| girsa_corpus::era::Timeline::of(shelf.root()).ok());
-            let (bar, no_search) = open_bar_for(&shelf);
-            let lexicon = shelf.as_ref().and_then(|shelf| read_lexicon(shelf.root()));
-            // The lane, once. With it off — the default — this opens nothing and
-            // reads nothing; with it on it loads the side-loaded model, which is
-            // why it happens here and not on the first query.
-            let lane = shelf.as_ref().map(|shelf| {
-                let (lane, trouble) = girsa_nearby::Adjacency::open(shelf.root(), &personal, shelf);
-                for line in trouble {
-                    eprintln!("the semantic lane: {line}");
-                }
-                lane
-            });
+            let opened = open_corpus(
+                girsa_corpus::roots::corpus(session.corpus.as_deref()),
+                &personal,
+                session.showing,
+            );
+            let Opened {
+                shelf,
+                trouble,
+                timeline,
+                bar,
+                no_search,
+                lexicon,
+                lane,
+            } = opened;
             tauri::Manager::manage(
                 app,
                 Mutex::new(State {
@@ -3532,6 +3687,7 @@ pub fn run() {
                     no_search,
                     chips: Chips::default(),
                     trouble,
+                    personal,
                     session,
                     session_path,
                     desk: None,
@@ -3581,6 +3737,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             state,
+            choose_corpus,
             search,
             recent,
             companions,

@@ -114,6 +114,12 @@ const DOING: Record<Doing, string> = {
 const CODED: Record<string, (doing: string) => string> = {
   "no-index": () => say("codeNoIndex"),
   "no-shelf": () => say("codeNoShelf"),
+  // Not `no-shelf`, and the distinction is the reader's next move: *no shelf*
+  // is the state the window opened in, and *this folder will not do* is an
+  // answer to a folder they just picked. Sending somebody who chose their
+  // Downloads directory to `girsa-import` is a wrong instruction, not a vague
+  // one.
+  "not-a-corpus": () => say("codeNotACorpus"),
   "no-sefer": () => say("codeNoSefer"),
   "will-not-open": () => say("codeWillNotOpen"),
   poisoned: () => say("codePoisoned"),
@@ -163,8 +169,17 @@ const CODED: Record<string, (doing: string) => string> = {
   "post-refused": (doing) => fill("codePostRefused", { doing }),
 };
 
-/** What Rust put in front of the colon, if it put anything. */
-function codeOf(detail: string): string | undefined {
+/**
+ * What Rust put in front of the colon, if it put anything.
+ *
+ * Exported because a name is not only how a refusal is *worded* — it is also
+ * how the window knows which screen to draw. A window with no corpus has to
+ * offer a folder picker and one whose personal layer will not write must not,
+ * and *which refusal is this* is exactly the question the code answers. Reading
+ * it here rather than adding a second boolean to the wire keeps to the rule the
+ * wire already follows: Rust sends names.
+ */
+export function codeOf(detail: string): string | undefined {
   const at = detail.indexOf(": ");
   if (at <= 0) return undefined;
   const name = detail.slice(0, at);

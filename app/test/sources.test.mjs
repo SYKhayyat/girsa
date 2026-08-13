@@ -70,6 +70,45 @@ export async function run() {
   }
   check("no raw caught error is assigned into user-facing text", leaks, []);
 
+  // ---------------------------------------------- and no refusal from the wire
+  //
+  // The same defect from the other side. `RAW_INTO_UI` above catches a caught
+  // *exception* going on the screen unread; this catches a `trouble` **field**,
+  // which is the same sentence arriving by the front door.
+  //
+  // It found three, all of them years old. `main.ts` put `state.trouble` at the
+  // top of the window — four lines of Latin file paths across a right-to-left
+  // Hebrew window, with `../../corpus.` reversed into `.corpus./../..` by the
+  // bidi algorithm, which is finding 19. `scanview.ts` printed `ShelfError`'s
+  // English under a scanned page, and `laneview.ts` printed a download's IO
+  // error where the progress line goes. Nobody would have filed the second and
+  // third; they are the first one on a smaller surface.
+  //
+  // It found a fourth on the toast, which is why the pattern is not only about
+  // `textContent`: `clipboard::put` codes all three of its failures and
+  // `main.ts` handed the coded string straight to `announce`, so a reader whose
+  // clipboard was busy got `no-clipboard: Empty clipboard error, code =
+  // OSError(1418): Thread does not have a clipboard open.` — the exact sentence
+  // quoted at the top of `trouble.ts` as the reason that module exists.
+  //
+  // The rule is not *never touch `.trouble`* — it is that what reaches a reader
+  // goes through `trouble.ts`, which is where a name becomes a sentence and the
+  // developer's string becomes a hover.
+  const SHOWN = [
+    /\.(?:textContent|innerText)\s*=[^;]*\.trouble\b/,
+    /\bannounce\(\s*[\w.]*\.trouble\b/,
+    /\.say\(\s*[\w.]*\.trouble\b/,
+  ];
+  const printed = [];
+  for (const [f, body] of files) {
+    if (f === "trouble.ts" || f === "api.ts") continue;
+    body.split("\n").forEach((line, i) => {
+      if (isComment(line)) return;
+      if (SHOWN.some((re) => re.test(line))) printed.push(`${f}:${i + 1}`);
+    });
+  }
+  check("no refusal from the wire is printed without being read", printed, []);
+
   // ------------------------------------------------------ every control has a name
   //
   // An accessibility snapshot listed 29 controls and **neither text field was among

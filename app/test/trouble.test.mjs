@@ -7,7 +7,7 @@
 // to look. The raw string is kept — on `title` — and is never the message.
 
 import { check, ok, notOk } from "./harness.mjs";
-import { trouble, raw } from "../.tmp-test/trouble.mjs";
+import { codeOf, trouble, raw } from "../.tmp-test/trouble.mjs";
 
 const LATIN = /[A-Za-z]/;
 
@@ -160,4 +160,30 @@ export async function run() {
     trouble("no-shelf: there is no shelf here").detail.startsWith("no-shelf: "),
   );
 
+  // ------------------------------------------- the corpus a reader points at
+  //
+  // Finding 19. With no corpus the window showed `Looked::said` and nothing
+  // else — four lines of Latin file paths across a right-to-left window — and
+  // it now offers a folder picker instead, which means a reader can pick the
+  // wrong folder and has to be told which way is out.
+  const WALL =
+    "no-shelf: no shelf found. Looked in: C:\\Users\\x\\no-corpus-here, " +
+    "C:\\Girsa\\target\\release\\corpus. Run girsa-fetch and girsa-import, or set GIRSA_CORPUS.";
+  notOk("the wall of paths is not what a reader is shown", LATIN.test(trouble(WALL).said));
+  ok("and every path of it survives on the hover", trouble(WALL).detail.includes("no-corpus-here"));
+
+  // Two refusals, two sentences, and they must not be the same one: *there is
+  // no shelf* is the state the window opened in, and *this folder will not do*
+  // is an answer to something the reader just did. Collapsing them would send
+  // somebody who picked their Downloads folder to a command line.
+  const noShelf = trouble("no-shelf: there is no shelf here").said;
+  const notCorpus = trouble("not-a-corpus: C:\\Users\\x\\Downloads has no works/index.jsonl in it").said;
+  notOk("a folder with no seforim in it is not Latin either", LATIN.test(notCorpus));
+  ok("and it is not the same sentence as having no shelf at all", notCorpus !== noShelf);
+
+  // The name is also how the window knows *which screen to draw* — the folder
+  // picker belongs on one of these two and not on the other.
+  check("the code is readable on its own", codeOf(WALL), "no-shelf");
+  check("both of them", codeOf("not-a-corpus: nothing here"), "not-a-corpus");
+  check("and an uncoded error has none", codeOf("expected value at line 1 column 1"), undefined);
 }

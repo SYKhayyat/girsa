@@ -936,6 +936,15 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 
 export const api = {
   state: () => call<AppState>("state"),
+  /**
+   * Point the window at a folder of seforim (finding 19).
+   *
+   * Refuses with `not-a-corpus` if the folder holds no catalogue, and that is
+   * the only way a reader finds out they picked the wrong one — so the caller
+   * has to show what comes back rather than swallowing it. Remembered in the
+   * session on success, so the next launch opens on the same shelf.
+   */
+  chooseCorpus: (path: string) => call<void>("choose_corpus", { path }),
   search: (query: string) => call<Card[]>("search", { query }),
   recent: () => call<Card[]>("recent"),
   companions: (slug: string) => call<Companion[]>("companions", { slug }),
@@ -1473,8 +1482,11 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       showing: "fixed",
       fixes: 0,
       suspects: 0,
+      // Coded, like every refusal Rust sends, so the window says it in Hebrew
+      // and keeps this sentence on the hover — a browser with no fixtures is a
+      // window with no shelf, and the developer's instruction is the detail.
       trouble:
-        "running in a browser with no fixtures — build them with " +
+        "no-shelf: running in a browser with no fixtures — build them with " +
         "`cargo run -p girsa-app --example dev-fixtures`",
     })));
   }

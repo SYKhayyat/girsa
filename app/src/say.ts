@@ -742,6 +742,19 @@ const WORDS = {
     "Ctrl+O — פתח ספר · Ctrl+B — עיין במדף · Ctrl+F — חפש · Ctrl+K — תקן",
     "Ctrl+O — open a sefer · Ctrl+B — browse · Ctrl+F — search · Ctrl+K — correct",
   ] as Both,
+  /** The first screen when there is no corpus at all — finding 19. */
+  noCorpusHint: [
+    "אין כאן ספרים עדיין. אם כבר הורדת אוצר ספרים, אפשר להראות לגרסא איפה הוא.",
+    "There are no seforim here yet. If you have already downloaded a corpus, you can show Girsa where it is.",
+  ] as Both,
+  chooseCorpus: ["בחר תיקיית ספרים", "Choose a folder of seforim"] as Both,
+  chooseCorpusWhy: [
+    "התיקייה שהייבוא כתב אליה — זו שיש בה works/index.jsonl",
+    "the folder the import wrote to — the one with works/index.jsonl in it",
+  ] as Both,
+  /** What the wall of paths becomes: one hover, for whoever is debugging an
+   * installation. */
+  whereItLooked: ["איפה חיפשנו", "where it looked"] as Both,
   addedSeforim: ["נוסף", "added"] as Both,
   refusedSeforim: ["ולא נוסף", "and not added"] as Both,
   nothingAdded: ["לא נוסף כלום", "nothing was added"] as Both,
@@ -861,6 +874,10 @@ const WORDS = {
   doingSomething: ["הפעולה", "the action"] as Both,
   codeNoIndex: ["אין אינדקס חיפוש — יש לבנות אותו: girsa-index build", "there is no search index — build one: girsa-index build"] as Both,
   codeNoShelf: ["אין מדף כאן — ייתכן שהייבוא לא רץ", "there is no shelf here — the import may not have run"] as Both,
+  codeNotACorpus: [
+    "אין ספרים בתיקייה הזאת — יש לבחור את התיקייה שהייבוא כתב אליה",
+    "there are no seforim in that folder — choose the one the import wrote to",
+  ] as Both,
   codeNoSefer: ["אין ספר בשם הזה במדף", "no sefer on the shelf is called that"] as Both,
   codeWillNotOpen: ["הספר רשום במדף ואינו נפתח — פרטים בהצבה על ההודעה", "the sefer is on the shelf and will not open — details on hover"] as Both,
   codePoisoned: ["המצב הפנימי נפגם — יש לפתוח את החלון מחדש", "the internal state is broken — reopen the window"] as Both,

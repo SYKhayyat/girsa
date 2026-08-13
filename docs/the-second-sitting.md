@@ -1026,7 +1026,7 @@ drawn.
 The first screen a new reader sees is the one part of this application that needs
 nothing.
 
-### 19 · With no corpus, the window is a wall of English file paths
+### 19 · With no corpus, the window is a wall of English file paths — **fixed**
 
 `Looked::said()` is careful engineering: it lists every candidate directory it
 tried, in order, so that the usual cause — looking one directory away from where
@@ -1057,6 +1057,66 @@ no-index: there is no shelf to search
 ```
 
 Every chip in English, and an error carrying its own raw code as a prefix.
+
+**Fixed, and the wall was not deleted.** Every word of `Looked::said()` is true
+and useful — *to somebody debugging an installation*, which is the one reader it
+was never shown to, because it was shown to everybody. It is the same four
+directories, in the same order, on the hover of a quiet line reading
+`איפה חיפשנו`. What stands in front of it is a Hebrew sentence and a button.
+
+The four parts, and only the first is the one the finding names:
+
+* **The sentence is read, not printed.** `main.ts` had
+  `where.textContent = state.trouble`, while every command in the shell was
+  carefully wrapping its refusals in a code so `trouble.ts` could say them in
+  Hebrew. The one string the window shows *before the reader has done anything*
+  went round the outside of all of it. `Opening.trouble` is coded now
+  (`State::said_trouble`), and the note goes through `sayTrouble` like the other
+  thirteen.
+* **A button, since `tauri-plugin-dialog` was already in the build.** `בחר
+  תיקיית ספרים` → the shell's own folder picker → `choose_corpus`, which checks
+  the folder with the same one-file question `roots::look` asks of every
+  candidate, remembers it in the session, and reopens the shelf, the timeline,
+  the index, the lexicon and the lane. A folder with no catalogue in it is
+  refused as `not-a-corpus` and **not** as `no-shelf`: telling somebody who
+  picked their Downloads directory that the import has not run sends them to a
+  command line they do not need. The button is offered only in the shell, for
+  the reason the presence chip is — outside it there is no dialog, and an
+  affordance is never offered where it would fail.
+* **The empty screen is shown, and it is a different empty screen.** *Nothing is
+  open* offers the four things a reader can open; *there is nothing to open*
+  must not, because every one of those buttons leads to an empty list. Which of
+  the two it is comes off the code on `trouble`, so the window reads a name
+  rather than being sent a second boolean — the rule the wire already follows.
+* **The body was black because `draw()` threw.** A restored tab whose sefer will
+  not open — the corpus is gone, a re-import renamed the slug — threw out of the
+  middle of the pane loop, after the chrome had been placed and before any pane
+  was built. Every pane after the failing one was never drawn either. A column
+  that will not open says so now, in its own slot, and its neighbours still
+  open.
+
+And then the siblings, which nobody would have filed. `scanview.ts` printed
+`ShelfError`'s English under a scanned page; `laneview.ts` printed a download's
+IO error where the progress line goes. Same defect as finding 19 on a smaller
+surface — a string arriving in a *field* rather than in a `catch`, and put on
+the screen because it happened to be a string.
+
+Writing the guard found a fourth, and it is the worst of them. `clipboard::put`
+codes all three of its failures, and `main.ts` handed the coded string straight
+to `announce`, so a reader whose clipboard was busy got
+
+```
+no-clipboard: Empty clipboard error, code = OSError(1418): Thread does not have a clipboard open.
+```
+
+in a right-to-left window — **the exact sentence quoted at the top of
+`trouble.ts` as the reason that module exists**, still on the screen, one
+function call away from the fix. That is the shape worth taking away from this
+work order: the module was written, the sweep was done, the rule was documented,
+and the four sites it missed were the four where the string arrived as a field
+instead of as an exception. `sources.test.mjs` reads all four surfaces now —
+`textContent`, `innerText`, `announce`, `say` — and was checked against the bug:
+put any of them back and it goes red naming the file and the line.
 
 ### 20 · The shell writes user-facing sentences in English, in Rust — **fixed**
 

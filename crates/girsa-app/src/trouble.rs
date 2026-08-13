@@ -58,6 +58,14 @@ pub enum Code {
     NoIndex,
     /// There is no shelf here at all — the import has probably not run.
     NoShelf,
+    /// The reader pointed the window at a folder with no seforim in it.
+    ///
+    /// Not [`Code::NoShelf`], and the difference is the whole reason it is its
+    /// own name: *no shelf* is a state the window opened in and *this folder
+    /// will not do* is an answer to something the reader just did. Telling
+    /// somebody who has picked their Downloads folder that the import has not
+    /// run sends them to a command line they do not need.
+    NotACorpus,
     /// No sefer of that slug is on this shelf.
     NoSefer,
     /// It is in the catalogue and the file will not read.
@@ -95,6 +103,7 @@ pub enum Code {
 girsa_corpus::spelled!(Code {
     NoIndex => "no-index",
     NoShelf => "no-shelf",
+    NotACorpus => "not-a-corpus",
     NoSefer => "no-sefer",
     WillNotOpen => "will-not-open",
     Poisoned => "poisoned",

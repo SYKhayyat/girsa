@@ -47,7 +47,7 @@ import {
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
-import { trouble } from "./trouble.ts";
+import { codeOf, sayTrouble, trouble } from "./trouble.ts";
 import { whatKey, type Pressed } from "./keys.ts";
 import { announces, ask, button, glyph, region } from "./controls.ts";
 
@@ -369,7 +369,21 @@ async function draw(): Promise<void> {
     // says, because the window has to know before it builds a pane — and
     // because a PDF opened into the reading pane is a sefer of blank lines,
     // which is what this window did until W25.
-    const text = await api.openSefer(pane.slug);
+    //
+    // Caught, because this was the whole of *"the body below the error is black
+    // and empty"*. A restored tab whose sefer will not open — the corpus is
+    // gone, the slug was renamed by a re-import — threw out of the middle of
+    // this loop, after the chrome had been placed and before any pane was
+    // built. The reader got a toolbar over an unlabelled black rectangle, and
+    // every pane after the failing one was never drawn either.
+    let text;
+    try {
+      text = await api.openSefer(pane.slug);
+    } catch (e) {
+      sayTrouble(slot, e, "read_page");
+      slot.classList.add("pane-broken");
+      continue;
+    }
     named.set(pane.slug, text.work);
     // The tab was drawn before the title was known.
     redrawTabs();
@@ -911,8 +925,13 @@ function toolBar(): HTMLElement {
   const where = document.createElement("span");
   where.className = "tools-note";
   if (state?.trouble) {
-    where.textContent = state.trouble;
-    where.classList.add("is-trouble");
+    // Finding 19, at its narrowest: this was `textContent = state.trouble`, and
+    // what landed at the top of a right-to-left Hebrew window was four lines of
+    // Latin file paths with `../../corpus.` reversed into `.corpus./../..` by
+    // the bidi algorithm. Every command in the shell wraps its refusals in a
+    // code so that `trouble.ts` can say them in Hebrew; the one string the
+    // window shows before a reader has done anything went round the outside.
+    sayTrouble(where, state.trouble);
   } else {
     where.textContent = `${state?.works ?? 0} ${say("seforimCount")}`;
     if (!isShell()) where.textContent += ` · ${say("inBrowser")}`;
@@ -1180,6 +1199,17 @@ function nothingOpen(): HTMLElement {
   // both applications' names live so a seventh site cannot spell one a third
   // way. A name is not translated.
   title.textContent = GIRSA;
+  empty.append(title);
+
+  // Two different screens, because they are two different situations and the
+  // audit found only one of them handled: *nothing is open* offers the four
+  // things a reader can open, and **there is nothing to open** must not, since
+  // every one of those buttons leads to an empty list.
+  if (codeOf(state?.trouble ?? "") === "no-shelf") {
+    empty.append(...noCorpus());
+    return empty;
+  }
+
   const hint = document.createElement("p");
   hint.className = "empty-hint";
   hint.textContent = say("emptyHint");
@@ -1189,8 +1219,64 @@ function nothingOpen(): HTMLElement {
   browse.classList.add("empty-button");
   const look = button(say("search"), say("searchWhy"), search);
   look.classList.add("empty-button");
-  empty.append(title, hint, open, browse, look);
+  empty.append(hint, open, browse, look);
   return empty;
+}
+
+/**
+ * The first screen when there is no corpus at all (finding 19).
+ *
+ * > *"Four lines of Latin paths across the top of a right-to-left window … No
+ * > Hebrew. No *there are no seforim here yet*. No button — although
+ * > `tauri-plugin-dialog` is already in the build."*
+ *
+ * The list of directories is not deleted, and deleting it would be the wrong
+ * lesson: it is the one thing that tells whoever is debugging an installation
+ * that the corpus is one directory away from where they are standing. It moves
+ * to a hover, behind a sentence, beside the thing a reader can actually do.
+ *
+ * The button is offered **only in the shell**, for the reason the presence chip
+ * is: outside it there is no folder dialog, so the button would open nothing.
+ * An affordance is never offered where it would fail.
+ */
+function noCorpus(): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const hint = document.createElement("p");
+  hint.className = "empty-hint";
+  hint.textContent = say("noCorpusHint");
+  out.push(hint);
+
+  if (isShell()) {
+    const choose = button(say("chooseCorpus"), say("chooseCorpusWhy"), () => void chooseCorpus());
+    choose.classList.add("empty-button");
+    out.push(choose);
+  }
+
+  // Where it looked, for whoever is debugging an installation — as a hover on a
+  // quiet line rather than as the screen.
+  const where = document.createElement("p");
+  where.className = "empty-detail";
+  where.textContent = say("whereItLooked");
+  where.title = trouble(state?.trouble ?? "").detail;
+  out.push(where);
+  return out;
+}
+
+/** Ask for a folder of seforim, and open it. */
+async function chooseCorpus(): Promise<void> {
+  const at = await pickFolder(say("chooseCorpus"));
+  if (at === null) return;
+  try {
+    await api.chooseCorpus(at);
+  } catch (e) {
+    // The refusal that matters most in this whole flow — a folder with no
+    // catalogue in it — and it is the only way the reader learns they picked
+    // the wrong one. `not-a-corpus` says which folder to pick instead.
+    const t = trouble(e);
+    announce(t.said, true, t.detail);
+    return;
+  }
+  await reload();
 }
 
 function openSomething(): void {
@@ -1480,8 +1566,16 @@ async function copySource(): Promise<void> {
   if (scan) {
     try {
       const cited = await api.scanCopy(scan.slug, scan.here());
-      if (cited.put.trouble) announce(cited.put.trouble, true);
-      else announce(`${say("copied")} — ${cited.display}`, false);
+      // Read, not announced. `clipboard::put` codes all three of its failures
+      // — `will-not-serialize`, `no-clipboard`, `clipboard-refused` — and this
+      // was handing the coded string to a toast, so what a reader got was
+      // `no-clipboard: Empty clipboard error, code = OSError(1418): Thread does
+      // not have a clipboard open.` in a right-to-left window. That exact
+      // sentence is quoted at the top of `trouble.ts` as the reason it exists.
+      if (cited.put.trouble) {
+        const t = trouble(cited.put.trouble, "copy_scan");
+        announce(t.said, true, t.detail);
+      } else announce(`${say("copied")} — ${cited.display}`, false);
     } catch (e) {
       const t = trouble(e, "copy_scan");
       announce(t.said, true, t.detail);
@@ -1503,7 +1597,8 @@ async function copySource(): Promise<void> {
   }
 
   if (copied.put.trouble) {
-    announce(copied.put.trouble, true);
+    const t = trouble(copied.put.trouble, "copy_scan");
+    announce(t.said, true, t.detail);
     return;
   }
   // Named, not "copied": a reader should be able to see from the confirmation

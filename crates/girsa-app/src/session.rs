@@ -32,6 +32,19 @@ use crate::workspace::Workspace;
 pub struct Session {
     #[serde(default)]
     pub workspace: Workspace,
+    /// The folder of seforim the reader pointed the window at, if they did.
+    ///
+    /// The one thing in this file that is about where the *corpus* is rather
+    /// than about what the reader was doing in it, and it is here for the
+    /// reason the corpus cannot hold it: a reader with no corpus has nowhere
+    /// else to write. Ranked by `girsa_corpus::roots::candidates`, which is
+    /// where the order between this and `GIRSA_CORPUS` is argued.
+    ///
+    /// It is not a guarantee. A corpus can be moved or deleted after it was
+    /// chosen, so this is a candidate like every other candidate — the marker
+    /// file decides, never the fact that somebody once said so.
+    #[serde(default)]
+    pub corpus: Option<std::path::PathBuf>,
     /// Sefer → the segment you were last looking at in it.
     #[serde(default)]
     pub positions: BTreeMap<String, SegmentId>,
@@ -418,6 +431,10 @@ impl Default for Session {
     fn default() -> Self {
         Self {
             workspace: Workspace::default(),
+            // Nobody has been asked yet, which is not the same as *there is no
+            // corpus*: the four places `roots` already looks are tried first
+            // and answer for every ordinary installation.
+            corpus: None,
             positions: BTreeMap::new(),
             chosen: BTreeMap::new(),
             pointing: Pointing::default(),

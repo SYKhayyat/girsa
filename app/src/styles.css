@@ -1207,6 +1207,30 @@ body {
   padding: 8px 20px;
 }
 
+/* Where the corpus was looked for (finding 19). The four directories used to be
+ * the whole screen, in Latin, across the top of a right-to-left window. They are
+ * still exactly the same four directories — on the hover of this line, because
+ * they are the answer to a question only somebody debugging an installation is
+ * asking, and the reader beside them is asking a different one. */
+.empty-detail {
+  margin: 0;
+  color: var(--ink-quiet);
+  font-size: 12px;
+  opacity: 0.7;
+  cursor: help;
+  border-bottom: 1px dotted var(--rule);
+}
+
+/* A column whose sefer will not open. It said this by being black and empty. */
+.pane-broken {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+}
+
 /* --- the picker -------------------------------------------------------- */
 
 .picker[hidden] {

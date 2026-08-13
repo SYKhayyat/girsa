@@ -32,7 +32,7 @@ import {
   type LaneState,
 } from "./api.ts";
 import { field } from "./controls.ts";
-import { trouble } from "./trouble.ts";
+import { clearTrouble, sayTrouble, trouble } from "./trouble.ts";
 import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 
@@ -270,7 +270,16 @@ export class LanePanel {
     if (progress.doing === "done") {
       this.working = false;
       this.progress.hidden = false;
-      this.progress.textContent = progress.trouble ?? say("laneDone");
+      // The download's own failure — a network error, a disk error — which is
+      // somebody else's `Display` and belongs on the hover rather than in the
+      // line. Third of the three fields on the wire that were being printed
+      // rather than read; finding 19 was the first.
+      if (progress.trouble) {
+        sayTrouble(this.progress, progress.trouble, "general");
+      } else {
+        clearTrouble(this.progress);
+        this.progress.textContent = say("laneDone");
+      }
       void this.refresh();
       return;
     }
