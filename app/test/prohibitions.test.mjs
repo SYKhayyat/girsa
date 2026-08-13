@@ -162,6 +162,14 @@ const RULES = [
       // A record of the exact line that was on the first screen, asserted to be
       // *absent* from the sentence — which is the opposite of keying on it.
       "app/test/presence.test.mjs",
+      // The word table. `codePostNotRunning`'s English column reads
+      // `{ksav} is not running`, which collides with `PostError`'s prose
+      // because *not running* is what English calls a process that is not
+      // running — and for no other reason. This file is the far end of the
+      // fix: the refusal arrives as the **name** `post-not-running` and is
+      // rendered here, which is the opposite of matching prose. There is no
+      // regular expression in it and nothing here reads an error at all.
+      "app/src/say.ts",
     ],
   },
   {

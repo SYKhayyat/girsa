@@ -21,6 +21,7 @@
 // that is actionable.
 
 import { KSAV } from "./names.ts";
+import { fill } from "./say.ts";
 
 export type Presence =
   | { state: "live"; version: string }
@@ -50,7 +51,7 @@ export function presenceSaid(p: Presence): Said {
     case "not_running":
       // Not a fault. Nothing to hover, nothing to fix.
       return {
-        said: `${KSAV} אינו פועל`,
+        said: fill("codePostNotRunning", { ksav: KSAV }),
         detail: "",
         trouble: false,
         canSend: false,
@@ -61,7 +62,7 @@ export function presenceSaid(p: Presence): Said {
       // sentence says what happened and what it means; `why` — the transport's
       // own English — goes behind the hover.
       return {
-        said: `${KSAV} רשום אך אינו עונה — ייתכן שנסגר שלא כשורה`,
+        said: fill("ksavStale", { ksav: KSAV }),
         detail: p.why,
         trouble: true,
         canSend: false,

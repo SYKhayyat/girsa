@@ -13,10 +13,10 @@
 // documents that differ depending on which end wrote them.
 
 import { api, isShell, pickFolder, type Presence } from "./api.ts";
-import { KSAV, withPrefix } from "./names.ts";
+
 import { clearTrouble, sayTrouble } from "./trouble.ts";
 import { area, button, field } from "./controls.ts";
-import { say } from "./say.ts";
+import { fill, ksavAs, say } from "./say.ts";
 
 /** How long after the last keystroke the buffer is written to disk. */
 const SAVE_AFTER_MS = 900;
@@ -70,8 +70,8 @@ export class WritingView {
     head.append(button(say("saveACopy"), say("saveACopyWhy"), () => void this.saveACopy()));
 
     this.ksavButton = button(
-      `פתח ${withPrefix("ב", KSAV)}`,
-      `פתח את המסמך ${withPrefix("ב", KSAV)} עצמו`,
+      fill("writingOpenInKsav", { ksav: ksavAs("ב") }),
+      fill("writingOpenInKsavWhy", { ksav: ksavAs("ב") }),
       () =>
       void this.handOver(),
     );
@@ -217,7 +217,7 @@ export class WritingView {
     await this.save();
     try {
       await api.bufferToKsav(this.name, this.box.value);
-      this.note.textContent = `נמסר ${withPrefix("ל", KSAV)}`;
+      this.note.textContent = fill("writingHandedOver", { ksav: ksavAs("ל") });
       clearTrouble(this.note);
     } catch (e) {
       sayTrouble(this.note, e, "send_to_ksav");

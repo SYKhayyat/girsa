@@ -26,7 +26,7 @@ import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } f
 import { glyphsOf } from "./glyphs.ts";
 import { sayTrouble } from "./trouble.ts";
 import { area, button, choice, field, toolStrip } from "./controls.ts";
-import { say } from "./say.ts";
+import { fill, say } from "./say.ts";
 
 /**
  * pdf.js, loaded the first time a scan is opened and not before.
@@ -288,7 +288,7 @@ export class ScanView {
     const page = await api.scanPageOf(this.slug, asked);
     if (page === null) {
       // Never the nearest page it does have — see `girsa_scan::Paging`.
-      this.note.textContent = `${asked} אינו בסריקה הזאת`;
+      this.note.textContent = fill("scanNotInThis", { asked });
       this.note.classList.add("is-empty");
       return;
     }
@@ -331,7 +331,7 @@ export class ScanView {
   private paint(): void {
     if (!this.open) return;
     this.pageBox.value = String(this.page);
-    this.pageBox.title = `עמוד ${this.page} מתוך ${this.open.pages} בקובץ`;
+    this.pageBox.title = fill("scanPageOfFile", { page: this.page, pages: this.open.pages });
     this.note.className = "pane-note";
 
     if (this.said?.display) {
@@ -340,7 +340,7 @@ export class ScanView {
       this.note.textContent = "";
       return;
     }
-    this.where.textContent = `עמוד ${this.page} בקובץ`;
+    this.where.textContent = fill("scanPageNumbered", { page: this.page });
     this.where.title = this.said?.id ?? "";
     // Two different sentences, and only one of them is a chore the reader can
     // do something about.
@@ -532,7 +532,7 @@ export class ScanView {
     // installed the job stops here and says so, rather than marking the page
     // read and leaving a hole nothing will ever come back to.
     if (!hasEngine) {
-      this.reading.textContent = `עמוד ${page} — אין בו טקסט, ואין מנוע OCR מותקן`;
+      this.reading.textContent = fill("scanNoTextNoEngine", { page });
       return false;
     }
     const png = await this.rasterize(page);
@@ -569,11 +569,13 @@ export class ScanView {
 
   private sayReading(where: Reading): void {
     if (where.read >= where.pages) {
-      this.reading.textContent = where.by.length ? `נקרא — ${where.by.join(", ")}` : "";
+      this.reading.textContent = where.by.length
+        ? fill("scanReadBy", { by: where.by.join(", ") })
+        : "";
       this.reading.classList.remove("is-empty");
       return;
     }
-    this.reading.textContent = `${where.read} מתוך ${where.pages} עמודים נקראו`;
+    this.reading.textContent = fill("scanPagesRead", { read: where.read, pages: where.pages });
     this.reading.classList.add("is-empty");
   }
 
@@ -639,7 +641,7 @@ export class ScanView {
         const [page, at] = splitOnce(text, "=");
         const n = Number(page);
         if (!Number.isFinite(n)) {
-          said.textContent = `${text}: עוגן נכתב עמוד=דף`;
+          said.textContent = fill("scanAnchorShape", { text });
           return;
         }
         rows.push(at.trim() === "-" ? { page: n } : { page: n, at: at.trim() });

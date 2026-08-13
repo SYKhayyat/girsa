@@ -42,8 +42,29 @@ const SRC = path.resolve(HERE, "..", "src");
  */
 const NOT_INTERFACE_TEXT = new Set(["say.ts", "names.ts"]);
 
-/** Markup keywords and other Hebrew that is data rather than words. */
-const NOT_A_SENTENCE = [/#[֐-׿_0-9]+\[/, /^"[֐-׿]"$/];
+/**
+ * Hebrew that is data rather than words, taken **off the line** before it is
+ * looked at.
+ *
+ * Subtraction and not a list of allowed lines, because an allowed line is a
+ * line where a real sentence can hide next to a legitimate one. What is left
+ * after these three is either interface text or nothing.
+ */
+function withoutData(line) {
+  return (
+    line
+      // A Ksav markup keyword. `#כותרת1[…]` is a tag in a document format;
+      // translating it produces a document Ksav cannot compile.
+      .replace(/#[֐-׿_0-9]+\[/g, "")
+      // A one-letter prefix — `ksavAs("ל")`. Hebrew glues *to* and *in* onto
+      // the front of a word; the letter is grammar, not a sentence.
+      .replace(/"[֐-׿]"/g, "")
+      // A Unicode range in a regular expression's character class. `api.ts`
+      // strips nikud with `/[֑-ׇ]/` written out as the letters
+      // themselves, and a range of code points is not words in any language.
+      .replace(/\/\[[^\]]*\]\/[a-z]*/g, "")
+  );
+}
 
 /** A comment is not something a reader sees; these files discuss the bug. */
 function isComment(line) {
@@ -131,22 +152,56 @@ export async function run() {
   }
   check("only the module that owns the cache reloads the window", reloaders, []);
 
+  // ------------------------------------------------------------- the holes
+  //
+  // A row with a `{name}` in it is a sentence with a number, a filename or the
+  // sibling's name in the middle, filled by `fill`. The two columns are allowed
+  // to put the hole in different places — that is the point, because *3 of 8
+  // pages read* and *3 מתוך 8 עמודים נקראו* do not order them the same way —
+  // but they must be the **same holes**. A translation that dropped `{count}`
+  // would print a sentence with a number missing out of the middle of it, and
+  // nothing else in this codebase would notice.
+
+  const holes = (said) => [...said.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+  const mismatched = [];
+  let filled = 0;
+  for (const word of words) {
+    const he = holes(sayIn(word, "hebrew"));
+    const en = holes(sayIn(word, "english"));
+    if (he.length > 0 || en.length > 0) filled += 1;
+    if (he.join(",") !== en.join(",")) {
+      mismatched.push(`${word}: hebrew has {${he.join("} {")}}, english has {${en.join("} {")}}`);
+    }
+  }
+  ok("there are sentences with holes in them", filled > 20);
+  check("both columns of a row have the same holes in them", mismatched, []);
+
   // ------------------------------------------------- and nothing outside it
 
   const names = (await readdir(SRC)).filter((f) => f.endsWith(".ts"));
   ok("there is source to check", names.length > 10);
 
+  // **Any Hebrew letter on a line a reader could see, not a Hebrew letter
+  // between double quotes.**
+  //
+  // This read `/"[^"]*[֐-׿][^"]*"/` for as long as it existed, and passed over
+  // a window with `${notes.length} הערות` in it five times over, because a
+  // template literal is not a double-quoted string. The guard fitted the bug
+  // that was — twenty modules of `"הגדרות"` — and the bug that is arrived in
+  // backticks, which is the whole of the second sitting's second lesson.
+  //
+  // So the assertion is the **class**: outside the table and outside a
+  // comment, this source is not written in Hebrew. Nothing has to be said
+  // about how a string is quoted, spliced, or continued onto a second line,
+  // and the next way to smuggle one in is caught before it is invented.
   const literals = [];
   for (const file of names) {
     if (NOT_INTERFACE_TEXT.has(file)) continue;
     const body = await readFile(path.join(SRC, file), "utf8");
     body.split("\n").forEach((line, i) => {
       if (isComment(line)) return;
-      // A double-quoted string with a Hebrew letter in it, outside a comment.
-      for (const found of line.matchAll(/"[^"]*[֐-׿][^"]*"/g)) {
-        if (NOT_A_SENTENCE.some((allowed) => allowed.test(found[0]))) continue;
-        literals.push(`${file}:${i + 1} ${found[0]}`);
-      }
+      if (!/[֐-׿]/.test(withoutData(line))) return;
+      literals.push(`${file}:${i + 1} ${line.trim()}`);
     });
   }
   check(

@@ -27,7 +27,7 @@
 // The keys read as what the thing *is*, not as its Hebrew, so that a row can be
 // reworded in either language without the call site moving.
 
-import type { Language } from "./names.ts";
+import { KSAV, withPrefix, type Language } from "./names.ts";
 
 /** One string, in both languages. */
 type Both = readonly [he: string, en: string];
@@ -448,6 +448,126 @@ const WORDS = {
   chooseFolder: ["בחר תיקייה", "Choose a folder"] as Both,
   wrote: ["נכתב", "written"] as Both,
 
+  // --- sentences with a hole in them ---------------------------------------
+  //
+  // Every row below was a template literal typed into a module, and every one
+  // of them printed Hebrew into an English window. They were written outside
+  // the table because the table held strings and these are sentences with a
+  // number, a name or a filename in the middle — see `fill`, which is what
+  // makes a hole a thing the table can hold.
+  //
+  // The word order is deliberately not the same in the two columns. *3 of 8
+  // pages read* and *3 מתוך 8 עמודים נקראו* do not put the numbers in the same
+  // places, which is exactly what a sentence spliced together at a call site
+  // can never do.
+
+  /** What was being attempted, for `trouble.ts`'s `DOING` table. */
+  doingReachKsav: ["הקשר עם {ksav}", "reaching {ksav}"] as Both,
+  doingSendToKsav: ["השליחה {ksav}", "sending to {ksav}"] as Both,
+
+  /** Refusals whose sentence has to name what was being attempted. The rest
+   * of `Code` needs no hole and sits with `codeNoIndex` above. */
+  codeNoSuch: [
+    "{doing} נכשלה — נתבקש דבר שאינו קיים",
+    "{doing} failed — something that does not exist was asked for",
+  ] as Both,
+  codeReadOnly: [
+    "{doing} נכשלה — אין אפשרות לכתוב לשכבה האישית",
+    "{doing} failed — the personal layer will not take a write",
+  ] as Both,
+  codeNoDesk: ["{ksav} אינו מחובר", "{ksav} is not connected"] as Both,
+  codePostNotRunning: ["{ksav} אינו פועל", "{ksav} is not running"] as Both,
+  codePostUnreachable: [
+    "{doing} לא נענתה בזמן — ייתכן שהיישום נסגר שלא כשורה",
+    "{doing} was not answered in time — the application may have closed badly",
+  ] as Both,
+  codePostRefused: [
+    "{doing} נדחתה על ידי היישום שמעבר",
+    "{doing} was refused by the application on the other side",
+  ] as Both,
+
+  /** The failures nobody in this product owns, matched by their own words. */
+  familyRefused: [
+    "{doing} נדחתה — אין מי שמאזין בצד השני",
+    "{doing} was refused — nothing is listening on the other side",
+  ] as Both,
+  familyNoPermission: [
+    "{doing} נמנעה — אין הרשאה לקובץ",
+    "{doing} was prevented — there is no permission for the file",
+  ] as Both,
+  familyNoFile: [
+    "{doing} נכשלה — הקובץ אינו נמצא במקום שנרשם",
+    "{doing} failed — the file is not where it was recorded",
+  ] as Both,
+  familyBadAnswer: [
+    "{doing} נכשלה — התשובה לא נקראה כראוי",
+    "{doing} failed — the answer did not read properly",
+  ] as Both,
+  /** Unrecognised: name what was being done, and point at the one place to
+   * look. Never the machine's string on its own. */
+  troubleUnknown: [
+    "{doing} נכשלה · פרטים בהצבה על ההודעה",
+    "{doing} failed · details on hovering the message",
+  ] as Both,
+  ksavStale: [
+    "{ksav} רשום אך אינו עונה — ייתכן שנסגר שלא כשורה",
+    "{ksav} is registered but not answering — it may have closed badly",
+  ] as Both,
+
+  /** The writing drawer and the send, which name the sibling. */
+  writingOpenInKsav: ["פתח {ksav}", "Open in {ksav}"] as Both,
+  writingOpenInKsavWhy: [
+    "פתח את המסמך {ksav} עצמו",
+    "open the document in {ksav} itself",
+  ] as Both,
+  writingHandedOver: ["נמסר {ksav}", "handed to {ksav}"] as Both,
+  sendToKsavNamed: ["שלח {ksav}", "Send to {ksav}"] as Both,
+  sentToKsavNamed: ["נשלח {ksav} — {what}", "sent to {ksav} — {what}"] as Both,
+
+  /** The scan pane, which counts pages in two different orders. */
+  scanNotInThis: ["{asked} אינו בסריקה הזאת", "{asked} is not in this scan"] as Both,
+  scanPageOfFile: [
+    "עמוד {page} מתוך {pages} בקובץ",
+    "page {page} of {pages} in the file",
+  ] as Both,
+  scanPageNumbered: ["עמוד {page} בקובץ", "page {page} in the file"] as Both,
+  scanNoTextNoEngine: [
+    "עמוד {page} — אין בו טקסט, ואין מנוע OCR מותקן",
+    "page {page} — no text on it, and no OCR engine installed",
+  ] as Both,
+  scanReadBy: ["נקרא — {by}", "read — {by}"] as Both,
+  scanPagesRead: [
+    "{read} מתוך {pages} עמודים נקראו",
+    "{read} of {pages} pages read",
+  ] as Both,
+  scanAnchorShape: [
+    "{text}: עוגן נכתב עמוד=דף",
+    "{text}: an anchor is written page=daf",
+  ] as Both,
+
+  /** The adjacent lane, bringing a model down and choosing what it covers. */
+  laneProgress: ["{what} · {done}", "{what} · {done}"] as Both,
+  laneProgressOf: ["{what} · {done} מתוך {of}", "{what} · {done} of {of}"] as Both,
+  laneBringOne: ["הבא את {name}", "Bring {name}"] as Both,
+  laneTakeOut: ["הוצא {title}", "Take out {title}"] as Both,
+  lanePutIn: ["הכנס {title}", "Put in {title}"] as Both,
+  laneAndMore: ["ועוד {count}", "and {count} more"] as Both,
+  laneOtherModel: [
+    "{slug} — הווקטורים נעשו במודל אחר ואינם נקראים",
+    "{slug} — the vectors were made with a different model and are not read",
+  ] as Both,
+
+  /** The scanning-error queue, and the corrections overlay. */
+  suspectsInQueue: ["{count} הבאים בתור", "{count} next in the queue"] as Both,
+  yoursNoteAbout: [
+    "{paragraphs} פסקאות · {places} מקומות",
+    "{paragraphs} paragraphs · {places} places",
+  ] as Both,
+  yoursForgetNoteWhy: [
+    "הקובץ, הספר והשורה בקטלוג",
+    "the file, the sefer and the catalogue line",
+  ] as Both,
+
   // --- settings ------------------------------------------------------------
   settingsReading: ["הקריאה", "Reading"] as Both,
   settingsTheme: ["ערכת צבעים", "Colours"] as Both,
@@ -808,6 +928,65 @@ export function say(word: Word): string {
 export function sayIn(word: Word, language: Language): string {
   const both = WORDS[word];
   return language === "hebrew" ? both[0] : both[1];
+}
+
+/**
+ * The sibling's name, ready to drop into a `{ksav}` hole.
+ *
+ * **The name itself is not translated.** `names.ts` argues that at length: the
+ * application is `כְּתָב`, that is what it calls itself in its own README and
+ * its wordmark, and a name is a name in either window. What *is* language is
+ * the preposition. Hebrew glues *to* and *in* onto the front of a word, with a
+ * maqaf so the name stays legible; English puts it in front as its own word,
+ * which means the English sentence in the table already says `to {ksav}` and
+ * this must not hand it a name with a `ל` on the front.
+ *
+ * So one hole, filled two ways, and every row keeps the same holes in both
+ * columns — which is the invariant `say.test.mjs` holds.
+ */
+export function ksavAs(prefix: string): string {
+  return speaking === "hebrew" ? withPrefix(prefix, KSAV) : KSAV;
+}
+
+/**
+ * A sentence with a number or a name in it, filled.
+ *
+ * **Why this exists at all.** Forty-two sentences in this window were written
+ * as `` `${notes.length} הערות` `` — a template literal, so the table could not
+ * hold them and the guard, which matched double-quoted strings, could not see
+ * them. An English window counted `12 הערות` and said `עמוד 4 מתוך 380 בקובץ`
+ * over the photograph of a page. Every one of them was a sentence with a hole
+ * in it, and the hole is why they were written outside the table.
+ *
+ * So the table takes holes. `{name}` in **both** columns, filled here — which
+ * means the word order can differ between the languages, and it has to: *3 of
+ * 8 pages read* and *3 מתוך 8 עמודים נקראו* do not put the numbers in the same
+ * places, and a sentence spliced together at the call site can only ever have
+ * one order.
+ *
+ * `say.test.mjs` checks that both columns of a row carry the same holes, so a
+ * translation that dropped `{count}` is a failing build rather than a sentence
+ * with a number missing out of the middle of it.
+ */
+export function fill(word: Word, holes: Record<string, string | number>): string {
+  let said = say(word);
+  for (const [name, value] of Object.entries(holes)) {
+    said = said.split(`{${name}}`).join(String(value));
+  }
+  return said;
+}
+
+/** The same, in a language given rather than the one set — for a test. */
+export function fillIn(
+  word: Word,
+  language: Language,
+  holes: Record<string, string | number>,
+): string {
+  let said = sayIn(word, language);
+  for (const [name, value] of Object.entries(holes)) {
+    said = said.split(`{${name}}`).join(String(value));
+  }
+  return said;
 }
 
 /** Every key, for the guard that checks neither column has a hole in it. */

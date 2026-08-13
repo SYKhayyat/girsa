@@ -52,7 +52,7 @@ is to run a command nobody in this repository had run.
 | Mefarshim — the flagship | D | The data is right and the display is invisible. Also jumps to the wrong perek |
 | Browsing the shelf | B− | Works are in true order at last; the folders are still sorted by size |
 | Settings | B | Real, complete, rebindable. Two traps in it |
-| Two languages | D | Every switch leaves the window half-translated until you restart |
+| Two languages | ~~D~~ **A** | Fixed: the switch writes the cache before it reloads (finding 2), and the 42 Hebrew sentences the guard could not see are in the table (lesson 2) |
 | Keyboard | C− | Every shortcut dies the moment a search or the shelf is docked |
 | Finish | C− | Raw slugs, raw ids, browser dialogs, an unlabelled black void |
 | Does it lie to you? | C | Not on purpose. But a column can say *scrolling with Bereishis* while sitting fifteen chapters away |
@@ -673,6 +673,30 @@ that table swallow the keyboard while docked.
 Each fix hardens the shape of the failure instead of the *class*: **a thing the
 reader was supposed to see and did not**. One assertion of the class is worth
 five of the shapes.
+
+**And the sharpest instance of it was in `say.test.mjs` itself.** The guard that
+exists so that no module outside the table carries a Hebrew string a reader will
+see matched `/"[^"]*[֐-׿][^"]*"/` — a **double-quoted** string. Every sentence
+written as a template literal walked straight past it, and there were **42**:
+`${notes.length} הערות` in your own layer, `עמוד 4 מתוך 380 בקובץ` over the
+photograph of a page, thirteen refusal sentences in `trouble.ts`, six in the
+adjacent lane. The guard fitted the bug that was — twenty modules of
+`"הגדרות"` — and the bug that is arrived in backticks.
+
+The reason they were outside the table is worth naming, because it is not
+laziness: **each one is a sentence with a hole in it**, and the table held
+strings. So the table takes holes now — `{count}`, `{page}`, `{ksav}`, filled by
+`say.ts`'s `fill` — and it earns its keep immediately, because *3 of 8 pages
+read* and *3 מתוך 8 עמודים נקראו* do not put the numbers in the same places. A
+sentence spliced together at a call site can only ever have one word order. A
+second guard checks that both columns of a row carry the same holes, so a
+translation that dropped `{count}` is a failing build rather than a sentence
+with a number missing out of the middle of it.
+
+The guard now asserts the class: **outside the table and outside a comment, this
+source is not written in Hebrew.** Nothing is said about how a string is quoted,
+spliced or continued onto a second line, and the next way to smuggle one in is
+caught before it is invented.
 
 ### Lesson 3 · A comment defending a behaviour is not the same as having watched it
 

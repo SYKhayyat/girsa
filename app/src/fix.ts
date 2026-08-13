@@ -96,7 +96,7 @@ export class FixBox {
     if (what.printed) {
       const was = document.createElement("p");
       was.className = "fixbox-was";
-      was.textContent = `כפי שנדפס: ${what.printed}`;
+      was.textContent = `${say("fixAsPrinted")}: ${what.printed}`;
       this.element.append(was);
     }
 

@@ -20,7 +20,7 @@ import {
 } from "./api.ts";
 import { sayTrouble } from "./trouble.ts";
 import { area, glyph } from "./controls.ts";
-import { say } from "./say.ts";
+import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 
 type Panel = "notes" | "marks" | "queries" | "folders" | "tags" | "fixes";
@@ -191,7 +191,10 @@ export class YoursView {
 
     const about = document.createElement("span");
     about.className = "yours-about";
-    about.textContent = `${note.paragraphs} פסקאות · ${note.on.length} מקומות`;
+    about.textContent = fill("yoursNoteAbout", {
+      paragraphs: note.paragraphs,
+      places: note.on.length,
+    });
 
     const edit = document.createElement("button");
     edit.className = "tool";
@@ -204,7 +207,7 @@ export class YoursView {
     const forget = document.createElement("button");
     forget.className = "tool";
     forget.textContent = say("yoursDelete");
-    forget.title = "the file, the sefer and the catalogue line";
+    forget.title = say("yoursForgetNoteWhy");
     forget.addEventListener("click", () => {
       void (async () => {
         await api.noteForget(note.name);

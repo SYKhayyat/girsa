@@ -37,8 +37,8 @@ import { SettingsView, applyLook } from "./settingsview.ts";
 import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
-import { GIRSA, KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
-import { say, speakInterface, switchInterfaceTo } from "./say.ts";
+import { GIRSA, type Named, sefer, speak } from "./names.ts";
+import { fill, ksavAs, say, speakInterface, switchInterfaceTo } from "./say.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
@@ -922,7 +922,7 @@ function toolBar(): HTMLElement {
     const said = presenceSaid(ksav);
     if (said.canSend) {
       const send = button(
-        `${say("sendToKsav")} ${withPrefix("ל", KSAV)}`,
+        fill("sendToKsavNamed", { ksav: ksavAs("ל") }),
         say("sendToKsavWhy"),
         () => void sendToKsav(),
       );
@@ -1542,7 +1542,7 @@ async function sendToKsav(): Promise<void> {
     const sent = chosen
       ? await api.sendToKsav(chosen.from, chosen.to, chosen.fromChar, chosen.toChar)
       : await api.sendToKsav(here!, here!, 0, null);
-    announce(`${say("sent")} ${withPrefix("ל", KSAV)} — ${sent.display}`, false);
+    announce(fill("sentToKsavNamed", { ksav: ksavAs("ל"), what: sent.display }), false);
   } catch (e) {
     // "Ksav is not running" and "Ksav refused it" *are* different things to a
     // reader — and that was the argument for showing `String(e)` as it came,

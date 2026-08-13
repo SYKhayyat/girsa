@@ -729,7 +729,9 @@ function fixMark(line: Line): HTMLElement {
       return `${claim}${state}: ${f.was} ← ${f.now}${who}`;
     })
     .join("\n");
-  mark.title = line.printed ? `${said}\nכפי שנדפס: ${line.printed}` : said;
+  mark.title = line.printed
+    ? `${said}\n${say("fixAsPrinted")}: ${line.printed}`
+    : said;
   return mark;
 }
 

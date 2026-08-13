@@ -27,8 +27,8 @@
 // details affordance this codebase already uses for raw compiler output. It is
 // never the message.
 
-import { KSAV, withPrefix } from "./names.ts";
-import { say } from "./say.ts";
+import { KSAV } from "./names.ts";
+import { fill, ksavAs, say } from "./say.ts";
 
 /**
  * What was being attempted. Needed because "what failed in the reader's words"
@@ -61,7 +61,8 @@ export type Doing =
   | "general";
 
 export interface Trouble {
-  /** The Hebrew sentence. Always present, always about what the reader can do. */
+  /** The reader's sentence, in the window's language. Always present, always
+   * about what the reader can do. */
   said: string;
   /** The developer's string, for the details affordance. Never the message. */
   detail: string;
@@ -69,8 +70,8 @@ export interface Trouble {
 
 /** What each attempt is called, when a sentence has to name it. */
 const DOING: Record<Doing, string> = {
-  reach_ksav: `הקשר עם ${KSAV}`,
-  send_to_ksav: `השליחה ${withPrefix("ל", KSAV)}`,
+  reach_ksav: fill("doingReachKsav", { ksav: KSAV }),
+  send_to_ksav: fill("doingSendToKsav", { ksav: ksavAs("ל") }),
   open_pdf: say("doingOpenFile"),
   read_page: say("doingReadPage"),
   read_links: say("doingReadLinks"),
@@ -116,11 +117,11 @@ const CODED: Record<string, (doing: string) => string> = {
   "no-sefer": () => say("codeNoSefer"),
   "will-not-open": () => say("codeWillNotOpen"),
   poisoned: () => say("codePoisoned"),
-  "no-such": (doing) => `${doing} נכשלה — נתבקש דבר שאינו קיים`,
+  "no-such": (doing) => fill("codeNoSuch", { doing }),
   cycle: () => say("codeShelfLoop"),
-  "read-only": (doing) => `${doing} נכשלה — אין אפשרות לכתוב לשכבה האישית`,
+  "read-only": (doing) => fill("codeReadOnly", { doing }),
   "no-lane": () => say("codeLaneOff"),
-  "no-desk": () => `${KSAV} אינו מחובר`,
+  "no-desk": () => fill("codeNoDesk", { ksav: KSAV }),
   "no-page": () => say("codeNoSuchPage"),
 
   // The three the shell used to compose itself, in English, in Rust. One of
@@ -157,9 +158,9 @@ const CODED: Record<string, (doing: string) => string> = {
   // reader needs — permission against not-found — lives only in their own
   // words. Those fall through to `FAMILIES` below, where matching somebody
   // else's prose is honest because there is nothing else to match.
-  "post-not-running": () => `${KSAV} אינו פועל`,
-  "post-unreachable": (doing) => `${doing} לא נענתה בזמן — ייתכן שהיישום נסגר שלא כשורה`,
-  "post-refused": (doing) => `${doing} נדחתה על ידי היישום שמעבר`,
+  "post-not-running": () => fill("codePostNotRunning", { ksav: KSAV }),
+  "post-unreachable": (doing) => fill("codePostUnreachable", { doing }),
+  "post-refused": (doing) => fill("codePostRefused", { doing }),
 };
 
 /** What Rust put in front of the colon, if it put anything. */
@@ -186,19 +187,19 @@ function codeOf(detail: string): string | undefined {
 const FAMILIES: { match: RegExp; said: (doing: string) => string }[] = [
   {
     match: /connection refused|actively refused/i,
-    said: (doing) => `${doing} נדחתה — אין מי שמאזין בצד השני`,
+    said: (doing) => fill("familyRefused", { doing }),
   },
   {
     match: /permission denied|access is denied|os error 5\b/i,
-    said: (doing) => `${doing} נמנעה — אין הרשאה לקובץ`,
+    said: (doing) => fill("familyNoPermission", { doing }),
   },
   {
     match: /no such file|not found|os error 2\b/i,
-    said: (doing) => `${doing} נכשלה — הקובץ אינו נמצא במקום שנרשם`,
+    said: (doing) => fill("familyNoFile", { doing }),
   },
   {
     match: /expected value|trailing characters|EOF while parsing/i,
-    said: (doing) => `${doing} נכשלה — התשובה לא נקראה כראוי`,
+    said: (doing) => fill("familyBadAnswer", { doing }),
   },
 
   // The fourteen refusals this codebase makes on purpose used to be matched
@@ -218,7 +219,7 @@ export function trouble(e: unknown, doing: Doing = "general"): Trouble {
   }
   // Unrecognised. Name what was being done, say the machine had more to say, and
   // point at the one place to look. Never `String(e)` on its own.
-  return { said: `${what} נכשלה · פרטים בהצבה על ההודעה`, detail };
+  return { said: fill("troubleUnknown", { doing: what }), detail };
 }
 
 /** The developer's string, however the error arrived. */

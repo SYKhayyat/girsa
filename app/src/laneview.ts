@@ -33,7 +33,7 @@ import {
 } from "./api.ts";
 import { field } from "./controls.ts";
 import { trouble } from "./trouble.ts";
-import { say } from "./say.ts";
+import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 
 /** Open a sefer at a segment — the same handler the search list is given. */
@@ -276,11 +276,20 @@ export class LanePanel {
     }
     this.working = true;
     this.progress.hidden = false;
-    const of = progress.of > 0 ? ` מתוך ${progress.of}` : "";
+    // Megabytes while a model is coming down, a plain count while it is being
+    // read. Two rows in the table rather than one with a fragment spliced on
+    // the end, because *3 of 8* and *3 מתוך 8* do not put the numbers in the
+    // same places, and a trailing ` מתוך {of}` can only ever suit one of them.
+    const bringing = progress.doing === "bring";
+    const done = bringing ? megabytes(progress.done) : String(progress.done);
     this.progress.textContent =
-      progress.doing === "bring"
-        ? `${progress.what} · ${megabytes(progress.done)}${progress.of > 0 ? ` מתוך ${megabytes(progress.of)}` : ""}`
-        : `${progress.what} · ${progress.done}${of}`;
+      progress.of > 0
+        ? fill("laneProgressOf", {
+            what: progress.what,
+            done,
+            of: bringing ? megabytes(progress.of) : progress.of,
+          })
+        : fill("laneProgress", { what: progress.what, done });
   }
 
   private draw(): void {
@@ -401,7 +410,7 @@ export class LanePanel {
 
       const bring = document.createElement("button");
       bring.className = "tool lane-bring";
-      bring.textContent = `הבא את ${offer.name}`;
+      bring.textContent = fill("laneBringOne", { name: offer.name });
       bring.disabled = this.working;
       bring.addEventListener("click", async () => {
         bring.disabled = true;
@@ -434,7 +443,9 @@ export class LanePanel {
       const inside = state.chosen.some((c) => c.slug === here.slug);
       const one = document.createElement("button");
       one.className = "tool";
-      one.textContent = inside ? `הוצא ${here.title}` : `הכנס ${here.title}`;
+      one.textContent = inside
+        ? fill("laneTakeOut", { title: here.title })
+        : fill("lanePutIn", { title: here.title });
       one.addEventListener("click", async () => {
         const next = await api.laneChoose(here.slug, !inside).catch((e) => {
           this.trouble(e);
@@ -464,13 +475,13 @@ export class LanePanel {
     if (state.chosen.length > 12) {
       const more = document.createElement("p");
       more.className = "lane-covered";
-      more.textContent = `ועוד ${state.chosen.length - 12}`;
+      more.textContent = fill("laneAndMore", { count: state.chosen.length - 12 });
       this.body.append(more);
     }
     for (const slug of state.other_model) {
       const row = document.createElement("p");
       row.className = "lane-adrift";
-      row.textContent = `${slug} — הווקטורים נעשו במודל אחר ואינם נקראים`;
+      row.textContent = fill("laneOtherModel", { slug });
       this.body.append(row);
     }
 

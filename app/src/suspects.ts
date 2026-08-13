@@ -12,7 +12,7 @@
 // goes through the same path a correction made while reading does.
 
 import { api, type SuspectRow } from "./api.ts";
-import { say } from "./say.ts";
+import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 
 /** How many to ask for. More than fits on a screen, few enough to draw. */
@@ -96,7 +96,7 @@ export class SuspectsView {
       this.list.append(empty);
       return;
     }
-    this.note.textContent = `${this.rows.length} הבאים בתור`;
+    this.note.textContent = fill("suspectsInQueue", { count: this.rows.length });
     for (const row of this.rows) this.list.append(this.rowElement(row));
   }
 
@@ -158,7 +158,7 @@ export class SuspectsView {
     await api.suspectDecide(row.id, "dismissed");
     this.rows = this.rows.filter((other) => other.id !== row.id);
     line.remove();
-    this.note.textContent = `${this.rows.length} הבאים בתור`;
+    this.note.textContent = fill("suspectsInQueue", { count: this.rows.length });
   }
 
   /** A row was corrected. Take it off the list without re-reading the queue —
@@ -168,7 +168,7 @@ export class SuspectsView {
     for (const line of this.list.querySelectorAll<HTMLElement>(".suspect")) {
       if (line.dataset.id === id) line.remove();
     }
-    this.note.textContent = `${this.rows.length} הבאים בתור`;
+    this.note.textContent = fill("suspectsInQueue", { count: this.rows.length });
   }
 }
 
