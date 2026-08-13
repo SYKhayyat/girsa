@@ -1,5 +1,9 @@
 // Controls that carry their own name.
 //
+// The one import is `say.ts`, and it arrived with `ask()` at the bottom: a
+// question the reader has to answer needs an OK and a Cancel, and those are
+// words. Everything above it is still furniture with no vocabulary of its own.
+//
 // # Why this module exists
 //
 // An accessibility snapshot of the window listed 29 controls and **neither text
@@ -32,6 +36,8 @@
 // built by hand, bypassing this, is a test failure.
 
 /** A button with a visible label. The label is the name. */
+import { say } from "./say.ts";
+
 export function button(label: string, title: string, click: () => void): HTMLButtonElement {
   const out = document.createElement("button");
   out.type = "button";
@@ -165,4 +171,134 @@ export function announces(element: HTMLElement, name: string): void {
   element.setAttribute("role", "status");
   element.setAttribute("aria-live", "polite");
   element.setAttribute("aria-label", name);
+}
+
+/**
+ * Ask the reader a question, in this window's own furniture.
+ *
+ * # What was here instead
+ *
+ * `window.prompt`. Four of them: *write a note on this line* — which is on the
+ * shortcut card as one of the eleven things Girsa does — naming a saved query,
+ * making a shelf, and resetting the arrangement. In the shell that renders as
+ * the webview's own modal, captioned with the origin:
+ *
+ * ```
+ * localhost:5174 says
+ * מה אתה אומר על השורה?
+ * [OK] [Cancel]
+ * ```
+ *
+ * A packaged build says `tauri.localhost says` instead, which is not better. It
+ * is the browser talking, in the browser's box, in the browser's language, with
+ * the browser's buttons — in an application whose entire argument is that a
+ * Hebrew reader deserves furniture that was built for them. `window.prompt`
+ * also cannot be styled, cannot be sized, cannot hold more than one line, and
+ * blocks the whole webview while it is open.
+ *
+ * # Modal means modal
+ *
+ * While a question is open, **no other key in this window does anything**. The
+ * listener is on `document` in the capture phase and stops propagation for
+ * everything, which is one rule stated once — cheaper and harder to get wrong
+ * than an entry in `panel.ts`'s table for a panel that exists for four seconds.
+ * Focus goes back where it came from when the question closes, because a reader
+ * who cancels should be where they were.
+ */
+export interface Asked {
+  /** What is in the box when it opens. */
+  value?: string;
+  /** A note under the question — what the answer is for, when that is not
+   * obvious from the question itself. */
+  hint?: string;
+  /** Prose rather than a name, so Enter makes a new line and Ctrl+Enter
+   * answers. A note on a line is prose; a shelf's title is not. */
+  prose?: boolean;
+  /** What the affirmative button says. Defaults to *OK*. */
+  ok?: string;
+}
+
+/** Ask for a line (or a paragraph) of text. `null` if the reader backed out. */
+export function ask(question: string, asked: Asked = {}): Promise<string | null> {
+  const box = asked.prose
+    ? area(question, { className: "ask-box is-prose", value: asked.value ?? "" })
+    : field(question, { className: "ask-box", value: asked.value ?? "" });
+  return sheet(question, asked, box).then((yes) => (yes ? box.value : null));
+}
+
+/** Ask a yes-or-no. */
+export function confirmThat(question: string, asked: Asked = {}): Promise<boolean> {
+  return sheet(question, asked, null);
+}
+
+function sheet(
+  question: string,
+  asked: Asked,
+  box: HTMLInputElement | HTMLTextAreaElement | null,
+): Promise<boolean> {
+  return new Promise((settle) => {
+    const was = document.activeElement;
+    const over = document.createElement("div");
+    over.className = "ask";
+
+    const card = region("dialog", question, "ask-sheet");
+    const said = document.createElement("p");
+    said.className = "ask-question";
+    said.textContent = question;
+    card.append(said);
+    if (asked.hint) {
+      const hint = document.createElement("p");
+      hint.className = "ask-hint";
+      hint.textContent = asked.hint;
+      card.append(hint);
+    }
+    if (box) card.append(box);
+
+    const done = (answered: boolean): void => {
+      document.removeEventListener("keydown", key, true);
+      over.remove();
+      if (was instanceof HTMLElement) was.focus();
+      settle(answered);
+    };
+
+    const row = document.createElement("div");
+    row.className = "ask-buttons";
+    const affirm = asked.ok ?? say("askOk");
+    const yes = button(affirm, affirm, () => done(true));
+    yes.classList.add("is-primary");
+    row.append(yes, button(say("askCancel"), say("askCancel"), () => done(false)));
+    card.append(row);
+
+    over.append(card);
+    over.addEventListener("pointerdown", (event) => {
+      if (event.target === over) done(false);
+    });
+
+    // Everything, in capture, so nothing else in the window sees a key while a
+    // question is open — including the pane under it, which would otherwise
+    // turn its page when the reader typed a `d`.
+    const key = (event: KeyboardEvent): void => {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        done(false);
+        return;
+      }
+      if (event.key !== "Enter") return;
+      // In prose, Enter is a new line and Ctrl+Enter answers. Anywhere else,
+      // Enter answers — a shelf's title is one line and always will be.
+      if (asked.prose && !event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      done(true);
+    };
+    document.addEventListener("keydown", key, true);
+
+    document.body.append(over);
+    if (box) {
+      box.focus();
+      box.select();
+    } else {
+      yes.focus();
+    }
+  });
 }

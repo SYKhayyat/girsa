@@ -492,7 +492,7 @@ wants writing: that the buttons overhead put markup into it.
 The grey absolute path went too. It was the drawer's only status line, on load
 and after every save; it says `נשמר` now and the path is on the hover.
 
-### 11 · Notes are taken in a browser dialog
+### 11 · Notes are taken in a browser dialog — **fixed**
 
 Ctrl+N — *write a note on this line*, one of the eleven things on the shortcut
 card — is `window.prompt` (`main.ts:1511`). In the shell that renders as the
@@ -505,6 +505,25 @@ webview's own modal, captioned:
 Naming a saved query does the same (`main.ts:1555`), as do *new shelf* and
 *reset the shelf* (`shelf.ts:356, 367`). A packaged build says
 `tauri.localhost says` instead, which is not better.
+
+Done: `controls.ask` and `controls.confirmThat`, in this window's own
+furniture. All four call sites go through them, and a prohibition in
+`prohibitions.test.mjs` fails the build over a fifth — the class being *the
+window never asks a question in somebody else's box*, which covers `confirm`
+and `alert` as well as `prompt`.
+
+Two things the browser's box could not do, and they are the reason this is
+worth more than a coat of paint. **A note is prose**: the dialog takes a
+textarea, Enter makes a new line and Ctrl+Enter keeps it, where `window.prompt`
+holds one line and turns a note on a sugya into something you write elsewhere
+and paste in. And **the affirmative button says what it will do** — *reset the
+arrangement*, not *OK* — which is the same rule finding 12 is about, applied to
+the one destructive thing the shelf panel offers.
+
+Modal means modal: the key listener is on `document` in the capture phase and
+stops everything, so the pane underneath does not turn its page while a reader
+types a `d` into the box. Focus goes back where it came from when the question
+closes.
 
 ### 12 · Two buttons side by side, two opposite conventions
 

@@ -44,7 +44,7 @@ import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
 import { trouble } from "./trouble.ts";
 import { whatKey, type Pressed } from "./keys.ts";
-import { announces, button, glyph, region } from "./controls.ts";
+import { announces, ask, button, glyph, region } from "./controls.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
@@ -1603,7 +1603,10 @@ async function noteHere(): Promise<void> {
     announce(say("noLineHere"), true);
     return;
   }
-  const text = window.prompt(say("whatDoYouSay"), "");
+  // Prose, so Enter is a new line and Ctrl+Enter keeps it. A note on a sugya
+  // is not a filename, and the browser dialog this replaced could hold one
+  // line — which is a note you write somewhere else and paste in.
+  const text = await ask(say("whatDoYouSay"), { prose: true, hint: say("askNoteHint") });
   if (text === null || text.trim() === "") return;
   try {
     const note = await api.noteWrite(at, text);
@@ -1647,7 +1650,7 @@ async function keepQuery(typed: string): Promise<void> {
     announce(say("nothingToKeep"), true);
     return;
   }
-  const name = window.prompt(say("nameTheQuery"), typed);
+  const name = await ask(say("nameTheQuery"), { value: typed });
   if (name === null || name.trim() === "") return;
   try {
     const kept = await api.queryKeep(name.trim(), typed);

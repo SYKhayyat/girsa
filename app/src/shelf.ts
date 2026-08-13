@@ -13,7 +13,7 @@
 
 import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
-import { button, field } from "./controls.ts";
+import { ask, button, confirmThat, field } from "./controls.ts";
 import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
@@ -360,7 +360,7 @@ export class ShelfView {
   private async make(): Promise<void> {
     if (!isShell()) return;
     const under = find(this.branches, this.chosen);
-    const title = window.prompt(say("newShelfNamed"), say("newShelfDefault"));
+    const title = await ask(say("newShelfNamed"), { value: say("newShelfDefault") });
     if (!title?.trim()) return;
     await this.edit(async () => {
       const key = await api.shelfMake(under ? under.key : "", title);
@@ -371,7 +371,10 @@ export class ShelfView {
 
   private async reset(): Promise<void> {
     if (!isShell()) return;
-    if (!window.confirm(say("resetAsk"))) return;
+    // The one destructive thing this panel does, so it asks — in this
+    // window's own furniture, and with the affirmative button saying what it
+    // will do rather than `OK`.
+    if (!(await confirmThat(say("resetAsk"), { ok: say("resetShelf") }))) return;
     await this.edit(() => api.shelfReset());
   }
 

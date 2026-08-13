@@ -149,6 +149,20 @@ const RULES = [
     ],
   },
   {
+    // Finding 11. The class: **the window never asks a question in somebody
+    // else's box.** `window.prompt` renders as the webview's own modal,
+    // captioned with the origin — `localhost:5174 says`, or `tauri.localhost
+    // says` in a packaged build — with the browser's buttons, in the browser's
+    // language, in an application whose whole argument is that a Hebrew reader
+    // deserves furniture built for them. `confirm` and `alert` are the same
+    // thing with fewer fields. `controls.ask` and `controls.confirmThat` are
+    // the window's own, and this is what stops a fifth from appearing.
+    what: "nothing asks the reader a question in a browser dialog",
+    where: /^app\/src\/.*\.ts$/u,
+    contains: ["window.prompt(", "window.confirm(", "window.alert("],
+    allow: [],
+  },
+  {
     // §1 #15 — the class: **keying on another crate's English `Display`.**
     // `girsa_post::PostError` is the one error type that crosses the seam, and
     // both frontends matched its prose with four character-identical regexes.

@@ -151,6 +151,14 @@ const WORDS = {
   resetShelf: ["החזר לסדר המקורי", "Back to how it shipped"] as Both,
   resetShelfWhy: ["בטל את כל השינויים בסידור", "undo every change to the arrangement"] as Both,
   close: ["סגור", "Close"] as Both,
+  /** The two buttons on a question. See `controls.ask` — these arrived when
+   * the four `window.prompt` calls did not. */
+  askOk: ["אישור", "OK"] as Both,
+  askCancel: ["ביטול", "Cancel"] as Both,
+  askNoteHint: [
+    "Ctrl+Enter כדי לשמור",
+    "Ctrl+Enter to keep it",
+  ] as Both,
   esc: ["Esc", "Esc"] as Both,
   minimize: ["צמצם", "Minimise"] as Both,
   minimizeWhy: [

@@ -2942,3 +2942,81 @@ body {
 :root.is-english-ui .tabs {
   font-family: var(--plain);
 }
+
+/* A question, in this window's own furniture (finding 11).
+ *
+ * Four `window.prompt` calls used to do this, drawn by the webview with its own
+ * caption — `localhost:5174 says` — its own buttons and its own language. Above
+ * everything, because a question is modal: while one is open, nothing else in
+ * the window takes a key. */
+.ask {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.ask-sheet {
+  width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  background: var(--page-raised);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+}
+
+.ask-question {
+  font-family: var(--hebrew);
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.ask-hint {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+  margin-top: -6px;
+}
+
+.ask-box {
+  font-family: var(--hebrew);
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 7px 10px;
+  width: 100%;
+}
+
+.ask-box.is-prose {
+  min-height: 7.5em;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.ask-box:focus {
+  outline: none;
+  border-color: var(--mark);
+}
+
+.ask-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* The one that answers, told apart from the one that backs out. Everything else
+   in this window is a quiet `.tool`, which is right for a toolbar and wrong for
+   the button a reader is looking for at the end of a question. */
+.ask-buttons .is-primary {
+  color: var(--page);
+  background: var(--mark);
+  border-color: var(--mark);
+}
