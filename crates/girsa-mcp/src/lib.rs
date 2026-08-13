@@ -144,6 +144,7 @@ impl Server {
             &self.shelf,
             Some(&self.timeline),
             girsa_app::session::Language::Hebrew,
+            girsa_app::CiteStyle::HebrewFull,
         )
     }
 

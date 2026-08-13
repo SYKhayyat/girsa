@@ -408,7 +408,7 @@ folded. `instruments` is `חשבונות ורמזים`. And the seven rungs of t
 relaxation ladder — the one thing on a zero-hit panel that was not blank — are
 in Hebrew too.
 
-### 8 · Typing a mareh makom searches for it instead of going there
+### 8 · Typing a mareh makom searches for it instead of going there — **fixed**
 
 The resolver is excellent and nearly unreachable. In the default mode:
 
@@ -442,7 +442,18 @@ The window already knows how to say this properly — Ctrl+C on the same line
 produces `הועתק — שבת דף לא. שורה א'`. Two formatters; the reading surface got
 the wrong one.
 
-### 9 · The reading pane says `31a:1`, the citation says `שבת דף לא.`
+**Done, both halves.** The resolver is asked on every ordinary search now, and
+where the words also name a place that is really there, the place is put
+**above** the hits as an offer. The words search still ran and its count is
+honest — switching the mode for the reader would be the one thing spec.md §9 and
+BUILDER.md rule 6 forbid. Only a landing, never a near miss: *did you mean* over
+a perfectly good word search would be the resolver interrupting somebody looking
+for a phrase. And the panel's opening line now says a mareh makom is a thing you
+can type, which is what nothing on any screen did.
+
+The ids are gone with it — see finding 9.
+
+### 9 · The reading pane says `31a:1`, the citation says `שבת דף לא.` — **fixed**
 
 Every line of Gemara is addressed in the margin in English daf notation —
 `30b:11`, `31a:4` — inside a Hebrew window, next to Hebrew text, while
@@ -451,6 +462,14 @@ Every line of Gemara is addressed in the margin in English daf notation —
 exists in the session (`Session::cite`), a command exists to change it
 (`set_cite_style`), `api.setCiteStyle` exists in the window — and **nothing
 calls it**. A documented preference with no control anywhere.
+
+**Done.** There is one formatter, `sending::printed_address`, and everything
+that shows a reader where they are goes through it: the margin of every line,
+the commentary block's header, every search result's row, and the resolver's
+landing. It is `girsa_cite::cite` with the title left off, so the margin and the
+citation cannot come to disagree about what daf you are on — which is what
+having two of them meant. It reads the reader's own `Session::cite`, which is
+the setting finding 23 gives a control.
 
 ### 10 · The writing drawer opens as a black void
 
@@ -505,7 +524,7 @@ click "Ctrl+O" row → close panel with × → press "g"
 No confirmation, no message, and the only way back is `↺` in a panel you now
 cannot open with its shortcut if you happened to rebind that one.
 
-### 14 · The tab strip shows internal slugs after a restart
+### 14 · The tab strip shows internal slugs after a restart — **fixed**
 
 On startup the strip read:
 
@@ -516,6 +535,10 @@ genesis +2 | mishnah-berurah | שבת ×
 `titleOf()` falls back to the slug and `named` is filled only when a pane is
 drawn, so every tab except the active one is labelled with its English internal
 id until you visit it. First thing on screen, every launch.
+
+**Done.** The window asks the catalogue what every open sefer is called before
+it draws anything — one call, no sefer opened, one row per slug out of a map the
+shelf already holds.
 
 ### 15 · Smaller things worth a line each
 
@@ -717,8 +740,10 @@ grade more than anything else on the list.
    the categories from the corpus rather than from a list of thirty.~~ **Done** —
    both. 272 of the 376 English categories are named by the seforim standing on
    them; none is left in the bookcase.
-7. **Make a mareh makom the default reading of a query** (finding 8), and print
-   places as places, never as ids (findings 8, 9, 14).
+7. ~~**Make a mareh makom the default reading of a query** (finding 8), and print
+   places as places, never as ids (findings 8, 9, 14).~~ **Done** — offered
+   above the hits rather than switching the mode, and one formatter for every
+   surface that shows a reader where they are.
 8. ~~**Put a browser in the gate.**~~ **Started** — `npm run eyes` is a headless
    Edge over the real stylesheet, and `collision.test.mjs` is in the default
    suite. Between them they hold findings 1 and 5. Findings 2, 3, 10 and 14 need
@@ -887,7 +912,7 @@ that every code has a sentence in the window caught the second pair the moment
 they were written. A new rule holds the class: **the shell may not build a
 message out of words.** `Err(format!("…"))` in `app/src-tauri` is a red test.
 
-### 21 · A tab is named in Hebrew until you restart, then it is a slug
+### 21 · A tab is named in Hebrew until you restart, then it is a slug — **fixed**
 
 Finding 14 said the tab strip shows internal slugs after a restart. The release
 build shows exactly why. In one sitting the tabs read:
@@ -909,6 +934,13 @@ asks the catalogue what that slug is called.
 There is a second wart on the same strip: the tab is named after the **focused
 column**, so a reader learning Berakhos with Tosafos beside it has a tab called
 *תוספות על ברכות +1* and the masechta is the `+1`.
+
+**Both done.** The focused-pane rule was right about the case it was written for
+— two unrelated seforim side by side — and wrong about the one this application
+is for. A commentary column *follows* its base, so the pane something else
+follows is the one the arrangement is built around, and where nothing follows
+anything the focused pane is the label again. No shelf lookup: the window
+already holds the answer.
 
 ### 22 · A long sitting: it holds, and the pane never gives anything back
 

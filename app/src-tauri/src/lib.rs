@@ -255,6 +255,9 @@ impl State {
             self.shelf.as_ref()?,
             self.timeline.as_ref(),
             self.session.language,
+            // The reader's own citation style, so a row label and the citation
+            // they copy off the same line agree.
+            self.session.cite,
         ))
     }
 
@@ -514,6 +517,8 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
     let (chips, _) = state.chips.read(&query);
     state.chips = chips;
     let pointing = state.session.pointing;
+    // How a place is printed, from the reader's own setting.
+    let style = state.session.cite;
     let chips = state.chips.clone();
     // What to call each place, in the window's language (W41), with its
     // address and its dates. See `girsa_app::Naming` — four surfaces used to
@@ -547,6 +552,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
             results,
             offers,
             note,
+            landing,
         } => {
             let pages = results.total.div_ceil(size.max(1));
             FoundPage {
@@ -572,7 +578,10 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                     })
                     .collect(),
                 refused: None,
-                landing: None,
+                // The place the words also name, offered above the hits and
+                // taken by nothing — the resolver was the best thing in this
+                // engine and it was behind a sigil nothing taught.
+                landing: landing.map(|landing| landing_row(&landing, state.shelf.as_ref(), style)),
             }
         }
         Answer::Cited(landing) => FoundPage {
@@ -586,19 +595,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
             chips: chips.row(),
             offers: Vec::new(),
             refused: None,
-            landing: Some(LandingRow {
-                said: landing.describe(),
-                places: landing
-                    .places
-                    .iter()
-                    .map(|place| PlaceRow {
-                        reference: place.reference.to_string(),
-                        id: place.run.first.to_string(),
-                        work: place.run.first.work().to_string(),
-                    })
-                    .collect(),
-                near: landing.near.iter().map(near_said).collect(),
-            }),
+            landing: Some(landing_row(&landing, state.shelf.as_ref(), style)),
         },
         Answer::Refused(why) => FoundPage::refused(&chips, why),
     })
@@ -639,6 +636,51 @@ impl FoundPage {
             refused: None,
             landing: None,
         }
+    }
+}
+
+/// One landing, as the window draws it.
+///
+/// One function, because it is built in two places now — the Citation mode's
+/// whole answer, and the offer that sits above an ordinary word search — and two
+/// copies would be two ideas of what a place looks like.
+fn landing_row(
+    landing: &girsa_search::citation::Landing,
+    shelf: Option<&Shelf>,
+    style: girsa_cite::CiteStyle,
+) -> LandingRow {
+    // **A place, not an id.** The panel printed `girsa:bavli/shabbat/31a` three
+    // times over — once as the sentence and once per candidate — while Ctrl+C
+    // on the very same line produced `הועתק — שבת דף לא. שורה א'`. Two
+    // formatters, and the landing got the wrong one.
+    let said_of = |place: &girsa_search::citation::Place| {
+        shelf
+            .and_then(|shelf| shelf.work(place.run.first.work()))
+            .map_or_else(
+                || place.reference.to_string(),
+                |work| girsa_app::sending::cite_of(work, &place.run.first, style),
+            )
+    };
+    let places: Vec<PlaceRow> = landing
+        .places
+        .iter()
+        .map(|place| PlaceRow {
+            said: said_of(place),
+            reference: place.reference.to_string(),
+            id: place.run.first.to_string(),
+            work: place.run.first.work().to_string(),
+        })
+        .collect();
+    LandingRow {
+        // With one candidate the sentence *is* the place, and `Landing::describe`
+        // hands back the ref's own spelling of it. With several it is a count,
+        // which is a sentence about the answer and stays where it is.
+        said: match places.as_slice() {
+            [only] => only.said.clone(),
+            _ => landing.describe(),
+        },
+        places,
+        near: landing.near.iter().map(near_said).collect(),
     }
 }
 
@@ -963,6 +1005,34 @@ fn shelf_works(shared: tauri::State<'_, Shared>, key: String) -> Result<Vec<Card
     Ok(shelf.works_on(&key).into_iter().map(Card::of).collect())
 }
 
+/// What these seforim are called, straight off the catalogue.
+///
+/// # The tab strip that read `bavli/tosafot-on-berakhot` every launch
+///
+/// A tab knew its Hebrew name only while the pane that made it was in memory.
+/// `titleOf()` falls back to the slug and the window filled its name map when a
+/// pane was **drawn** — so every tab but the active one was labelled with its
+/// English internal id until you visited it. First thing on screen, every
+/// launch:
+///
+/// ```text
+/// genesis +2 | mishnah-berurah | שבת ×
+/// ```
+///
+/// The catalogue knows all of them and costs nothing to ask: no segments are
+/// read, no sefer is opened, and the answer is one row per slug out of a map
+/// the shelf already holds.
+#[tauri::command]
+fn titles(shared: tauri::State<'_, Shared>, slugs: Vec<String>) -> Result<Vec<Card>, String> {
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    Ok(slugs
+        .iter()
+        .filter_map(|slug| shelf.work(slug))
+        .map(Card::of)
+        .collect())
+}
+
 /// Put a sefer on a shelf.
 #[tauri::command]
 fn shelf_put_work(
@@ -1148,6 +1218,9 @@ fn mefarshim_at(
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    // How a place is printed, from the reader's own setting — one formatter
+    // for the margin and for the citation. See `sending::printed_address`.
+    let style = state.session.cite;
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
 
     let marks = state.marks(&slug)?;
@@ -1178,14 +1251,20 @@ fn mefarshim_at(
                 .map_or(first, |to| to.max(first));
             sefer.segments[first..=last]
                 .iter()
-                .map(|s| Line::of(sefer, s, pointing))
+                .map(|s| Line::of(sefer, s, pointing, style))
                 .collect()
         };
         let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
         said.push(Said {
             he_title: named.map_or_else(|| one.work.clone(), |w| w.he_title.clone()),
             en_title: named.map_or_else(|| one.work.clone(), |w| w.en_title.clone()),
-            address: one.at.address(),
+            // `רש״י על ברכות 2a:8:1` was the header on the release build. The
+            // address a mefaresh's block carries is the same kind of thing as
+            // the one in the margin, and it goes through the same formatter.
+            address: named.map_or_else(
+                || one.at.address(),
+                |w| girsa_app::sending::printed_address(w, &one.at, style),
+            ),
             work: one.work,
             lines,
         });
@@ -1213,6 +1292,9 @@ const A_WINDOW: usize = 600;
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    // How a place is printed, from the reader's own setting — one formatter
+    // for the margin and for the citation. See `sending::printed_address`.
+    let style = state.session.cite;
     // Where the reader was, so the window opens around it rather than at the
     // top and then jumping. `where_i_was` is the same memory `Session` keeps for
     // every sefer ever opened (W9).
@@ -1231,7 +1313,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         work: Card::of(&sefer.work),
         lines: sefer.segments[from..to]
             .iter()
-            .map(|s| Line::of(sefer, s, pointing))
+            .map(|s| Line::of(sefer, s, pointing, style))
             .collect(),
         from,
         total,
@@ -1253,12 +1335,15 @@ fn sefer_lines(
 ) -> Result<Vec<Line>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    // How a place is printed, from the reader's own setting — one formatter
+    // for the margin and for the citation. See `sending::printed_address`.
+    let style = state.session.cite;
     let sefer = state.sefer(&slug)?;
     let from = from.min(sefer.segments.len());
     let to = from.saturating_add(count).min(sefer.segments.len());
     Ok(sefer.segments[from..to]
         .iter()
-        .map(|s| Line::of(sefer, s, pointing))
+        .map(|s| Line::of(sefer, s, pointing, style))
         .collect())
 }
 
@@ -1705,6 +1790,9 @@ fn fix(
     let kind = girsa_fix::Kind::named(&kind).ok_or_else(|| format!("no such kind: {kind}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    // How a place is printed, from the reader's own setting — one formatter
+    // for the margin and for the citation. See `sending::printed_address`.
+    let style = state.session.cite;
     let slug = at.work().to_string();
 
     let patch = {
@@ -1740,7 +1828,7 @@ fn fix(
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, pointing),
+        line: Line::of(sefer, segment, pointing, style),
         said: format!("{was} → {now}"),
     })
 }
@@ -1751,6 +1839,9 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    // How a place is printed, from the reader's own setting — one formatter
+    // for the margin and for the citation. See `sending::printed_address`.
+    let style = state.session.cite;
     let slug = at.work().to_string();
 
     let trouble = state.trouble();
@@ -1772,7 +1863,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, pointing),
+        line: Line::of(sefer, segment, pointing, style),
         said: "הוחזר כפי שנדפס".to_string(),
     })
 }
@@ -2905,7 +2996,12 @@ fn lane_ask(
     let scoped: Vec<String> = state.chips.scope.works().into_iter().collect();
     // The same `Names` the search column uses, so the two columns beside each
     // other cannot call one sefer by two names.
-    let names = girsa_app::Names::new(shelf, state.timeline.as_ref(), state.session.language);
+    let names = girsa_app::Names::new(
+        shelf,
+        state.timeline.as_ref(),
+        state.session.language,
+        state.session.cite,
+    );
     let answer = lane.ask(&names, &text, &scoped, limit.unwrap_or(girsa_lane::MOST));
     Ok(LaneAnswer {
         label: answer.label,
@@ -3483,6 +3579,7 @@ pub fn run() {
             moved,
             shelf_tree,
             shelf_works,
+            titles,
             shelf_put_work,
             shelf_put_shelf,
             shelf_rename,

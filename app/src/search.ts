@@ -632,8 +632,17 @@ export class SearchView {
   private drawHits(found: Found): void {
     this.list.replaceChildren();
     if (found.landing) {
+      // **Above the hits, not instead of them.** In Citation mode there are no
+      // hits and this is the whole answer. In every other mode the words were
+      // searched for, the count in the header is honest, and this is an offer:
+      // *what you typed also reads as a place — here it is.*
+      //
+      // `שבת לא.` used to be 92,384 word hits and no way at all to reach the
+      // daf, because the one control that could was behind an `@` that nothing
+      // on any screen taught. Switching the mode for the reader would be the
+      // one thing spec.md §9 forbids; putting the place in front of them is
+      // not.
       this.list.append(this.landing(found));
-      return;
     }
     for (const hit of found.hits) {
       const row = document.createElement("button");
@@ -692,7 +701,8 @@ export class SearchView {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "find-hit";
-      row.textContent = place.reference;
+      row.textContent = place.said;
+      row.title = place.reference;
       row.addEventListener("click", () => {
         this.dock();
         this.opened(place.work, place.id);

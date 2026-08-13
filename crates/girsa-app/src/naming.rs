@@ -63,7 +63,10 @@ pub struct Naming {
     /// Falls back to the slug, never to the empty string: a row with no name on
     /// it is a row a reader cannot act on, and the slug is at least a name.
     pub title: String,
-    /// `58:1`. See [`SegmentId::address`].
+    /// `סימן נ״ח סעיף א׳` — the address as a person says it, through
+    /// [`crate::sending::printed_address`], which is the one formatter in this
+    /// application. It used to be [`SegmentId::address`], the **id's** own
+    /// spelling, so a Hebrew search result read `שבת 31a`.
     pub address: String,
     /// `1565`, or `1488–1575` where the corpus gives a span.
     pub written: Option<String>,
@@ -83,6 +86,11 @@ impl Naming {
         titles: Option<(&str, &str)>,
         when: When,
         language: Language,
+        // `address` is how this work's addresses are printed, from
+        // `crate::sending::printed_address`. `None` for a sefer the shelf does
+        // not have: nobody knows what its levels are called, and the id's own
+        // spelling is all there is.
+        address: Option<String>,
     ) -> Self {
         let slug = id.work();
         let title = titles.map_or_else(String::new, |(he, en)| {
@@ -95,7 +103,7 @@ impl Naming {
             } else {
                 title
             },
-            address: id.address(),
+            address: address.unwrap_or_else(|| id.address()),
             written: when.written(),
             era: when.era.map(|era| era.he().to_string()),
             id: id.clone(),
@@ -154,15 +162,24 @@ pub struct Names<'a> {
     /// catalogue — the date column then reads *no date*, which is true.
     pub timeline: Option<&'a Timeline>,
     pub language: Language,
+    /// How a place is printed. The reader's setting, so a row label and the
+    /// citation they copy off the same line agree.
+    pub style: girsa_cite::CiteStyle,
 }
 
 impl<'a> Names<'a> {
     #[must_use]
-    pub const fn new(shelf: &'a Shelf, timeline: Option<&'a Timeline>, language: Language) -> Self {
+    pub const fn new(
+        shelf: &'a Shelf,
+        timeline: Option<&'a Timeline>,
+        language: Language,
+        style: girsa_cite::CiteStyle,
+    ) -> Self {
         Self {
             shelf,
             timeline,
             language,
+            style,
         }
     }
 
@@ -172,17 +189,15 @@ impl<'a> Names<'a> {
     /// surface drawing a blank date column is a surface that asked for one.
     #[must_use]
     pub const fn on(shelf: &'a Shelf) -> Self {
-        Self::new(shelf, None, Language::Hebrew)
+        Self::new(shelf, None, Language::Hebrew, girsa_cite::CiteStyle::HebrewFull)
     }
 
     /// Name a place.
     #[must_use]
     pub fn of(&self, id: &SegmentId) -> Naming {
         let slug = id.work();
-        let titles = self
-            .shelf
-            .work(slug)
-            .map(|work| (work.he_title.clone(), work.en_title.clone()));
+        let work = self.shelf.work(slug);
+        let titles = work.map(|work| (work.he_title.clone(), work.en_title.clone()));
         let when = self
             .timeline
             .map(|timeline| timeline.when(slug))
@@ -192,6 +207,7 @@ impl<'a> Names<'a> {
             titles.as_ref().map(|(he, en)| (&**he, &**en)),
             when,
             self.language,
+            work.map(|work| crate::sending::printed_address(work, id, self.style)),
         )
     }
 }
@@ -228,7 +244,7 @@ mod tests {
         // sefer the catalogue had not caught up with drew a row with no name on
         // it at all — and a row with no name is a row a reader cannot act on.
         let at = id("user/משהו", &["3"]);
-        let naming = Naming::named(&at, None, When::default(), Language::Hebrew);
+        let naming = Naming::named(&at, None, When::default(), Language::Hebrew, None);
         assert_eq!(naming.title, "user/משהו");
         assert_eq!(naming.said(), "user/משהו 3");
     }
@@ -241,11 +257,11 @@ mod tests {
         let at = id("sefaria/berakhot", &["2", "1"]);
         let titles = Some(("ברכות", "Berakhot"));
         assert_eq!(
-            Naming::named(&at, titles, When::default(), Language::English).said(),
+            Naming::named(&at, titles, When::default(), Language::English, None).said(),
             "Berakhot 2:1"
         );
         assert_eq!(
-            Naming::named(&at, titles, When::default(), Language::Hebrew).said(),
+            Naming::named(&at, titles, When::default(), Language::Hebrew, None).said(),
             "ברכות 2:1"
         );
     }
@@ -257,14 +273,14 @@ mod tests {
         // window has one.
         let at = id("user/שלי", &["1"]);
         assert_eq!(
-            Naming::named(&at, Some(("שלי", "")), When::default(), Language::English).title,
+            Naming::named(&at, Some(("שלי", "")), When::default(), Language::English, None).title,
             "שלי"
         );
     }
 
     #[test]
     fn a_naming_with_no_address_is_the_sefer_itself() {
-        let naming = Naming::named(&id("user/x", &[]), None, When::default(), Language::Hebrew);
+        let naming = Naming::named(&id("user/x", &[]), None, When::default(), Language::Hebrew, None);
         assert_eq!(naming.said(), "user/x");
     }
 
@@ -277,8 +293,7 @@ mod tests {
             &id("user/x", &["1"]),
             None,
             When::default(),
-            Language::Hebrew,
-        );
+            Language::Hebrew, None);
         assert_eq!(naming.dated(), "user/x 1  [no date]");
     }
 
@@ -290,7 +305,7 @@ mod tests {
             years: Some((1488, 1575)),
         };
         assert_eq!(
-            Naming::named(&at, None, span, Language::Hebrew).dated(),
+            Naming::named(&at, None, span, Language::Hebrew, None).dated(),
             "sefaria/x 1  [1488\u{2013}1575]"
         );
         let one = When {
@@ -298,7 +313,7 @@ mod tests {
             years: Some((1565, 1565)),
         };
         assert_eq!(
-            Naming::named(&at, None, one, Language::Hebrew).dated(),
+            Naming::named(&at, None, one, Language::Hebrew, None).dated(),
             "sefaria/x 1  [1565]"
         );
         // Years beat the era where both are known: `[1565]` says more than
@@ -308,7 +323,7 @@ mod tests {
             years: Some((1565, 1565)),
         };
         assert_eq!(
-            Naming::named(&at, None, both, Language::Hebrew).dated(),
+            Naming::named(&at, None, both, Language::Hebrew, None).dated(),
             "sefaria/x 1  [1565]"
         );
     }

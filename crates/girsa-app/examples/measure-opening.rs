@@ -83,7 +83,7 @@ fn main() {
         let lines: Vec<Line> = sefer
             .segments
             .iter()
-            .map(|s| Line::of(&sefer, s, Pointing::Full))
+            .map(|s| Line::of(&sefer, s, Pointing::Full, girsa_cite::CiteStyle::HebrewShort))
             .collect();
         let drawn = began.elapsed();
 
@@ -98,7 +98,7 @@ fn main() {
         let began = Instant::now();
         let only: Vec<Line> = sefer.segments[..window]
             .iter()
-            .map(|s| Line::of(&sefer, s, Pointing::Full))
+            .map(|s| Line::of(&sefer, s, Pointing::Full, girsa_cite::CiteStyle::HebrewShort))
             .collect();
         let sent = serde_json::to_string(&only).expect("a window serializes");
         let windowed = began.elapsed();

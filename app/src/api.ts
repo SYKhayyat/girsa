@@ -984,6 +984,9 @@ export const api = {
   // a dump. The works of one shelf are asked for when that shelf is opened.
   shelfTree: () => call<Branch[]>("shelf_tree"),
   shelfWorks: (key: string) => call<Card[]>("shelf_works", { key }),
+  /** What these seforim are called, off the catalogue — no sefer is opened.
+   * What the tab strip asks at boot so it stops printing internal slugs. */
+  titles: (slugs: string[]) => call<Card[]>("titles", { slugs }),
   shelfPutWork: (slug: string, shelf: string) => call<void>("shelf_put_work", { slug, shelf }),
   shelfPutShelf: (key: string, parent: string) => call<void>("shelf_put_shelf", { key, parent }),
   shelfRename: (key: string, title: string) => call<void>("shelf_rename", { key, title }),
@@ -1321,6 +1324,11 @@ export interface Landing {
 
 /** One place a citation landed on. */
 export interface PlaceRow {
+  /** The place as a **person** says it — `שבת דף לא.`. What the row shows. */
+  said: string;
+  /** The ref as the machine spells it — `girsa:bavli/shabbat/31a`. For the
+   * hover, and never the label: the panel used to print this at a reader three
+   * times over while Ctrl+C on the same line said it properly. */
   reference: string;
   id: string;
   work: string;

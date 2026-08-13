@@ -384,6 +384,10 @@ fn search(server: &Server, args: &Value) -> Result<Value, String> {
             results,
             offers,
             note,
+            // The place these words also name. An agent asking this tool is
+            // asking for hits; the offer is the window's affordance and there
+            // is nothing here to click.
+            landing: _,
         } => {
             let hits: Vec<Value> = results
                 .hits

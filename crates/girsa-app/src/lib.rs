@@ -67,6 +67,10 @@ pub use links::{touching, Link, Touching};
 // The name to stamp on what you write, re-exported: the window used to have
 // its own, and it disagreed with the one the command-line tools use.
 pub use girsa_personal::who;
+// How a place is printed. Re-exported because `Names` now carries one — a row
+// label and the citation a reader copies off the same line have to agree — and
+// two crates that build a `Names` do not otherwise depend on `girsa-cite`.
+pub use girsa_cite::CiteStyle;
 pub use naming::{Names, Naming};
 pub use notes::{collect, note_here, yours, Marked, Wrote, Yours};
 pub use reading::{gap, gap_over, readings, Gap, Scanned};

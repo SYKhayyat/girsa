@@ -880,10 +880,18 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
             results,
             offers,
             note,
+            landing,
         } => {
             println!("searched for: {}", results.header);
             if let Some(note) = note {
                 println!("{note}");
+            }
+            // The words also name a place. Offered above the hits, the same way
+            // the window offers it, and taken by nothing — a reader who wanted
+            // the place types `@` and gets Citation mode.
+            if let Some(landing) = landing {
+                println!("…and this also reads as a place:");
+                cited(&bar, &landing);
             }
             show(&bar, &results, paging);
             if !offers.is_empty() {

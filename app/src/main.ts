@@ -275,7 +275,35 @@ async function reload(): Promise<void> {
   // How the reading looks (B13): theme, the two fonts, leading and measure. On the
   // document as custom properties, so `styles.css` keeps owning the appearance.
   applyLook(state.look);
+  // **What every open sefer is called, before anything is drawn.**
+  //
+  // `named` used to be filled only when a pane was *drawn*, so after a restart
+  // every tab but the active one was labelled with its English internal id —
+  // `bavli/tosafot-on-berakhot +1 | mishnah-berurah | bavli/shabbat` — as the
+  // first thing on screen, every launch. A tab knew its Hebrew name only while
+  // the pane that made it was in memory; a restored tab is drawn from the
+  // session file, which stores the slug, and nothing asked the catalogue what
+  // that slug is called.
+  //
+  // It costs one call and no sefer is opened.
+  await nameTheOpenSeforim();
   await draw();
+}
+
+/** Fill `named` for every slug in every tab, from the catalogue. */
+async function nameTheOpenSeforim(): Promise<void> {
+  const wanted = [
+    ...new Set(
+      (state?.workspace.tabs ?? []).flatMap((open) => open.panes.map((pane) => pane.slug)),
+    ),
+  ].filter((slug) => !named.has(slug));
+  if (wanted.length === 0) return;
+  try {
+    for (const card of await api.titles(wanted)) named.set(card.slug, card);
+  } catch {
+    // The catalogue is not there — a window with no corpus. `titleOf` falls
+    // back to the slug, which is what it did before and is at least a name.
+  }
 }
 
 function tab(): Tab | null {
@@ -706,8 +734,21 @@ function redrawTabs(): void {
  * had three labels that could not tell them apart.
  */
 function tabLabel(open: Tab): string {
+  // …and there is one arrangement where the focused pane is the wrong answer:
+  // **the one this application is for.** A reader learning Berakhos with
+  // Tosafos beside it, scroll linked, puts the cursor in the Tosafos to read it
+  // — and the tab became `תוספות על ברכות +1`, with the masechta demoted to the
+  // `+1`. The tab is the arrangement, and the arrangement is *Berakhos, with a
+  // mefaresh*.
+  //
+  // The window already knows which is which without asking the shelf: a
+  // commentary column **follows** its base, so the pane something else follows
+  // is the one the arrangement is built around. Where nothing follows anything
+  // — two unrelated seforim side by side — there is no such pane, and the
+  // focused one is the right label again.
+  const led = open.panes.find((p) => open.panes.some((other) => other.follows === p.id));
   const focused = open.panes.find((p) => p.id === open.focused) ?? open.panes[0];
-  const named = titleOf(focused?.slug ?? "—");
+  const named = titleOf((led ?? focused)?.slug ?? "—");
   // A split says so, because the label is now about one pane out of several.
   return open.panes.length > 1 ? `${named} +${open.panes.length - 1}` : named;
 }

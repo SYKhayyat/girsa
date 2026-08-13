@@ -109,6 +109,22 @@ pub enum Answer {
         /// What the mode did, where it did something worth announcing: Smart's
         /// widening, or the words a gematria added up.
         note: Option<String>,
+        /// A place the words also read as, **offered and not taken**.
+        ///
+        /// # The best thing in this engine was behind a sigil
+        ///
+        /// The resolver lands `שבת לא.` on the daf and `משנה ברורה סימן ש` on
+        /// siman 300 of a 17,418-segment sefer — and it could only be reached by
+        /// typing `@`, which nothing on any screen taught. What a reader who
+        /// typed those got instead was 92,384 and 12 word hits, and there is no
+        /// other *go to a place* control in the application.
+        ///
+        /// Switching the mode for them would be the one thing spec.md §9 and
+        /// BUILDER.md rule 6 forbid: changing what was asked without saying so.
+        /// So the words search runs, its count is honest, and the place is put
+        /// **above** the hits as an offer — the same shape as the relaxation
+        /// ladder, which is priced before the click and applied only by one.
+        landing: Option<Box<Landing>>,
     },
     /// A mareh makom: a jump, or a choice, or neither.
     Cited(Box<Landing>),
@@ -204,9 +220,40 @@ impl Bar {
             Mode::Instruments => self.by_instrument(&text, &chips, paging),
         };
         match result {
+            Ok(Answer::Segments {
+                results,
+                offers,
+                note,
+                landing: _,
+            }) => Answer::Segments {
+                results,
+                offers,
+                note,
+                // The words were searched for and the count is honest. If they
+                // also read as a place, that is put in front of the reader as
+                // an **offer** — see the field's note. `Regex` is left out
+                // because a pattern is not a mareh makom in any reading of it.
+                landing: (chips.mode != Mode::Regex)
+                    .then(|| self.also_a_place(&text, context))
+                    .flatten(),
+            },
             Ok(answer) => answer,
             Err(why) => Answer::Refused(why),
         }
+    }
+
+    /// The place these words also name, when they name one that is really there.
+    ///
+    /// **Only a landing, never a near miss.** `look_up` reports what it could
+    /// not rule out as well as what it found, which is right for Citation mode
+    /// — a reader who typed `@` asked a question and is owed the whole answer,
+    /// including *this sefer is here and has no such daf*. Here nobody asked:
+    /// these are words that happen to parse. Offering *did you mean* over a
+    /// perfectly good word search would be the resolver interrupting somebody
+    /// looking for a phrase.
+    fn also_a_place(&self, text: &str, context: &Context) -> Option<Box<Landing>> {
+        let landing = self.citations()?.look_up(text, context);
+        (!landing.places.is_empty()).then(|| Box::new(landing))
     }
 
     /// Torat Emet: what you typed is what was searched for.
@@ -237,6 +284,7 @@ impl Bar {
             results: Box::new(results),
             offers,
             note: None,
+            landing: None,
         })
     }
 
@@ -262,6 +310,7 @@ impl Bar {
             results: Box::new(results),
             offers: Offers::default(),
             note: Some(answered.announcement()),
+            landing: None,
         })
     }
 
@@ -283,6 +332,7 @@ impl Bar {
             )?),
             offers: Offers::default(),
             note: None,
+            landing: None,
         })
     }
 
@@ -383,6 +433,7 @@ impl Bar {
             )?),
             offers: Offers::default(),
             note,
+            landing: None,
         })
     }
 
@@ -451,6 +502,7 @@ impl Bar {
                 seforim.len(),
                 if seforim.len() == 1 { "" } else { "im" }
             )),
+            landing: None,
         })
     }
 

@@ -222,7 +222,12 @@ impl<'a> Printer<'a> {
     /// as *earlier than the row above*. That argument won, and it is now in
     /// `girsa_app::Naming::dated`, which every surface can reach.
     fn said(&self, at: &Anchor) -> String {
-        Names::new(self.shelf, Some(self.timeline), Language::Hebrew)
+        Names::new(
+            self.shelf,
+            Some(self.timeline),
+            Language::Hebrew,
+            girsa_cite::CiteStyle::HebrewFull,
+        )
             .of(&at.from)
             .dated()
     }

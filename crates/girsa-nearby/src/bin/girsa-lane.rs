@@ -82,7 +82,12 @@ fn main() -> std::process::ExitCode {
             // one — the column existed in two of the four composers and this
             // was one of the two that did without it.
             let timeline = girsa_corpus::era::Timeline::of(&root).ok();
-            let names = Names::new(&shelf, timeline.as_ref(), Language::Hebrew);
+            let names = Names::new(
+                &shelf,
+                timeline.as_ref(),
+                Language::Hebrew,
+                girsa_app::CiteStyle::HebrewFull,
+            );
             ask(&lane, &names, text)
         }
         _ => return argv::refuse(&usage()),

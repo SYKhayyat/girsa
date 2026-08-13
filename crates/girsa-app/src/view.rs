@@ -299,7 +299,8 @@ pub struct Refusal {
 #[derive(Serialize)]
 pub struct Line {
     pub id: String,
-    /// `2a:1` — what the address says, for the margin.
+    /// `דף ב.` — the address, printed the way a citation prints it. See
+    /// [`crate::sending::printed_address`], which is the one formatter.
     pub address: String,
     /// **Absent for an ordinary line of prose**, which nearly every line is —
     /// the same measurement `display::Run::style` records. `pane.ts` reads a
@@ -1108,6 +1109,12 @@ pub struct LandingRow {
 
 #[derive(Serialize)]
 pub struct PlaceRow {
+    /// The place as a **person** says it — `שבת דף לא.`. Through
+    /// [`crate::sending::cite_of`], the same formatter Ctrl+C uses, because the
+    /// panel used to print `girsa:bavli/shabbat/31a` at a reader three times
+    /// over while the copy of the same line said it properly.
+    pub said: String,
+    /// The ref, as the machine spells it. For the hover, and never the label.
     pub reference: String,
     pub id: String,
     pub work: String,
@@ -1203,11 +1210,18 @@ impl Line {
         sefer: &crate::Open,
         segment: &girsa_corpus::import::Segment,
         pointing: crate::session::Pointing,
+        style: girsa_cite::CiteStyle,
     ) -> Self {
         let corrected = sefer.correction(&segment.id);
         Self {
             id: segment.id.to_string(),
-            address: segment.id.address(),
+            // **The margin says what a citation would say.** It used to be
+            // `SegmentId::address` — the id's own spelling of where it is,
+            // never meant to be read by a person — so a Hebrew daf carried
+            // `30b:11` and `31a:4` down its side while `girsa_cite` one call
+            // away rendered the same place as `שבת דף לא. שורה א'`. One
+            // formatter now: `crate::sending::printed_address`.
+            address: crate::sending::printed_address(&sefer.work, &segment.id, style),
             kind: segment.kind.as_str(),
             runs: display::runs(&display::pointed(&segment.text, pointing)),
             fixed: corrected.map_or_else(Vec::new, |c| {

@@ -143,6 +143,67 @@ pub fn about(work: &Work) -> Sefer {
     Sefer::new(work.he_title.trim(), work.en_title.trim()).with_sections(work.he_sections.clone())
 }
 
+/// **One address, printed the way a citation prints it.**
+///
+/// # Finding 9, and it is one function's worth of distance
+///
+/// Every line of Gemara was addressed in the margin in English daf notation —
+/// `30b:11`, `31a:4` — down the side of a Hebrew daf, next to Hebrew text, while
+/// `girsa_cite` sitting one call away renders the same place as
+/// `שבת דף לא. שורה א'`. Two formatters, and the reading surface got the wrong
+/// one: [`girsa_corpus::segment::SegmentId::address`], which is the **id's** own
+/// spelling of where it is and was never meant to be read by a person. The
+/// commentary header had it too — `רש״י על ברכות 2a:8:1` — and so did every
+/// search result's row.
+///
+/// There is one formatter now, and this is the door to it. The margin and the
+/// citation are the same call with the title left off, so they cannot come to
+/// disagree about what daf you are on.
+///
+/// # Why the title is left off by giving an empty one
+///
+/// `girsa_cite` exports `cite`, which prints *title then address*, and no
+/// address-only entry point. `Sefer::new("", "")` is not a trick around that —
+/// it is the honest way to ask for the second half, because the section words
+/// (`סימן`, `סעיף`, `דף`) live on the `Sefer` and have to come with it. Asking
+/// any other way would mean a second implementation of exactly the thing this
+/// exists to have only one of.
+#[must_use]
+pub fn printed_address(work: &Work, id: &SegmentId, style: CiteStyle) -> String {
+    let Some(address) = girsa_ref::Address::parse(&id.address()) else {
+        // An id whose address will not parse. Its own spelling is the only
+        // thing anybody knows about where it is, and a blank margin is worse
+        // than a machine-shaped one.
+        return id.address();
+    };
+    let bare = Sefer::new("", "").with_sections(work.he_sections.clone());
+    let path: Vec<String> = work.slug.split('/').map(str::to_string).collect();
+    let said = cite(&bare, &girsa_ref::Ref::point(path, address), style);
+    let said = said.trim();
+    if said.is_empty() {
+        id.address()
+    } else {
+        said.to_string()
+    }
+}
+
+/// The whole citation — title and address — for a segment of a known work.
+///
+/// What the resolver's landing shows, and what a tab is called. The same call as
+/// [`printed_address`] with the sefer's name left on.
+#[must_use]
+pub fn cite_of(work: &Work, id: &SegmentId, style: CiteStyle) -> String {
+    let Some(address) = girsa_ref::Address::parse(&id.address()) else {
+        return id.to_string();
+    };
+    let path: Vec<String> = work.slug.split('/').map(str::to_string).collect();
+    cite(
+        &about(work),
+        &girsa_ref::Ref::point(path, address),
+        style,
+    )
+}
+
 /// Build the three flavours for a selection.
 ///
 /// # Errors
