@@ -227,16 +227,38 @@ from four commands to nine. A gate that lives in prose is a gate whose last two
 steps stop being run — see `docs/the-second-sitting.md`, lesson 1. The runner is
 the list now, and a test fails if rule 4 starts repeating it.
 
+### Getting it
+
+An installer is attached to every `v*` tag: the `bundle` job in
+`.github/workflows/ci.yml` runs the real build on Windows and uploads the NSIS
+`.exe` and the MSI to the release. `workflow_dispatch` runs the same job without
+a tag and leaves the installers as artifacts. It is deliberately not on every
+push — a release build of tantivy and candle on a Windows runner is tens of
+minutes, and what has to be true on every push is that the code compiles, which
+the other two jobs already say.
+
+Girsa needs a corpus, which is not in the installer and is not downloaded for
+you: run `girsa-fetch` and `girsa-import`, or point the window at a folder you
+already have. With no corpus it opens on a screen that says so and offers a
+folder picker (`docs/the-second-sitting.md`, finding 19).
+
 ### Building the window
 
 ```sh
-cd app && npx tauri build --no-bundle   # or drop the flag for an installer
+cd app && npx tauri build              # with an installer
+cd app && npx tauri build --no-bundle  # just the executable
 ```
 
-**Not `cargo build -p girsa-shell`.** That produces a binary which embeds no
-frontend and navigates to the Vite dev server, so it opens a Chromium
-*this site can't be reached* page on any machine that is not running
-`npm run dev`. It is the only build this repository had ever produced;
+**Not `cargo build --release -p girsa-shell`, and it will now refuse.** That
+command produced a binary which embeds no frontend and navigates to the Vite dev
+server, so it opened a Chromium *this site can't be reached* page in a window
+titled `גִּרְסָא · Girsa` on any machine not running `npm run dev`. It was the
+only build this repository had ever produced, and it survived because the wrong
+command **succeeded** — it printed `Finished`, wrote an executable, and the
+executable looked like the product until you unplugged the thing it was leaning
+on. `app/src-tauri/build.rs` panics on it now, naming the command that works.
+Debug builds are untouched, because `cargo check`, `cargo clippy` and
+`tauri dev` all want exactly that binary. `GIRSA_DEV_RELEASE=1` builds it anyway.
 `docs/the-second-sitting.md` finding 16 is the whole story.
 
 ### Every command reads its command line the same way

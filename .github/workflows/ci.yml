@@ -3,6 +3,9 @@ name: ci
 on:
   push:
   pull_request:
+  # So the installer can be built without cutting a tag — see the `bundle` job,
+  # which is the only thing that reads this.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -211,3 +214,71 @@ jobs:
         working-directory: Girsa/app/src-tauri
       - run: cargo fmt -- --check
         working-directory: Girsa/app/src-tauri
+
+  # An application somebody can obtain.
+  #
+  # `docs/the-second-sitting.md` finding 16: `target/release/bundle/` did not
+  # exist, no installer had ever been produced, and every fact anybody in this
+  # repository knew about how the window behaves had been learned from a
+  # development server. `cargo build --release -p girsa-shell` succeeds and
+  # produces a window that navigates to `http://localhost:5174` — which is why
+  # `app/src-tauri/build.rs` now refuses that build rather than writing a
+  # convincing executable with no application in it.
+  #
+  # This is the other half: the build that *is* real, run by a machine, with the
+  # installer attached to the tag. Windows because that is the platform this ships
+  # to first — the shell registers a `girsa://` URL scheme in HKCU, WebView2 is
+  # the engine every measurement was taken on, and the audit's binary is
+  # `girsa-shell.exe`.
+  #
+  # Not on every push: a release build of tantivy and candle on a Windows runner
+  # is tens of minutes, and the thing that has to be true on every push is that
+  # the code compiles — which the two jobs above already say. What has to be true
+  # on every *tag* is that a reader can download something, and that is this.
+  bundle:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # The only build that embeds the frontend. `beforeBuildCommand` runs
+      # `npm run build` — `tsc --noEmit && vite build` — into `app/dist`, and the
+      # CLI turns on `custom-protocol`, which is the one bit that decides whether
+      # the window serves itself or asks a dev server for a page.
+      - run: npx tauri build
+        working-directory: app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: girsa-windows
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi
+            target/release/girsa-shell.exe
+          if-no-files-found: error
+
+      # And on a tag, where a reader can actually reach it.
+      - name: Attach the installers to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME" || true
+          gh release upload "$GITHUB_REF_NAME" \
+            target/release/bundle/nsis/*.exe \
+            target/release/bundle/msi/*.msi \
+            --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
