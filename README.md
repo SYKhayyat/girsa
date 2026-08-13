@@ -90,7 +90,7 @@ is **29**<!--=window-modules--> TypeScript modules and one stylesheet of
 and no fossils.
 
 That sentence used to say *supposed to be*, and it was measured: of the
-shell's **4,424**<!--=shell-lines--> lines, about 150 — 23 commands — were
+shell's **4,455**<!--=shell-lines--> lines, about 150 — 23 commands — were
 genuine pass-through, and the rest decided cache policy, sort orders,
 truncation lengths, patch provenance, which fonts a Hebrew reader is offered,
 what makes a directory a corpus, and what to do with a chip key it did not

@@ -390,6 +390,16 @@ export interface Shortcut {
  * declares both rather than pretending one of them away — the field was
  * `cite: string`, which is how the asymmetry went eleven months unremarked.
  */
+/**
+ * Which palette the window draws in — `girsa_app::session::Theme`.
+ *
+ * Named here rather than spelled out at each site, which it was: twice in this
+ * file and again as a list of three in `settingsview.ts`. Three copies of a
+ * closed set is two that can fall behind, and this one has a toolbar control and
+ * a settings row that have to agree about what `בהיר` means.
+ */
+export type Theme = "system" | "light" | "dark";
+
 export type CiteStyle = "hebrew_full" | "hebrew_short" | "english";
 
 /** The spelling the setter takes. See [`CiteStyle`]. */
@@ -405,7 +415,7 @@ export interface Settings {
   interface: Language;
   cite: CiteStyle;
   showing: Showing;
-  theme: "system" | "light" | "dark";
+  theme: Theme;
   hebrew_font: string;
   latin_font: string;
   /** In hundredths of a line, so a session compares equal after a round trip. */
@@ -540,7 +550,7 @@ export interface AppState {
    * to swallow the key. */
   keys: Record<string, string>;
   look: {
-    theme: "system" | "light" | "dark";
+    theme: Theme;
     hebrew_font: string;
     latin_font: string;
     line_height: number;

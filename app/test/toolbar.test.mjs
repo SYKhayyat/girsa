@@ -30,6 +30,8 @@ import {
   pointingSaid,
   SHOWING_ROUND,
   showingSaid,
+  THEME_ROUND,
+  themeSaid,
 } from "../.tmp-test/toolbar.mjs";
 import { speakInterface } from "../.tmp-test/say.mjs";
 
@@ -37,6 +39,12 @@ import { speakInterface } from "../.tmp-test/say.mjs";
 const ROUNDS = [
   { what: "pointing", round: POINTING_ROUND, said: pointingSaid },
   { what: "showing", round: SHOWING_ROUND, said: showingSaid },
+  // The theme joined them after a reader said the window was *stuck in dark
+  // mode*. It was not stuck — it was a `<select>` in a panel, with the default
+  // *follow the system*, so a dark Windows gave a dark daf and the reading
+  // screen said nothing about it. A control that rounds has to keep the same
+  // promise as the two beside it, and this is where that is held.
+  { what: "theme", round: THEME_ROUND, said: themeSaid },
 ];
 
 export function run() {

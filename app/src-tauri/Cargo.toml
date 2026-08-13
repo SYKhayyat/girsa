@@ -79,6 +79,7 @@ girsa-post = { workspace = true }
 girsa-ksav = { workspace = true }
 clipboard-rs = { version = "0.3.5", default-features = false }
 tauri-plugin-deep-link = "2.4.9"
+
 # One native dialog: *choose the directory your model is in* (W30). It is here
 # rather than a text field because the default way to use the semantic lane is to
 # point it at weights you already have, and asking a reader to type an absolute
@@ -96,3 +97,21 @@ tauri-plugin-dialog = "2"
 # every byte of the interop. A panic here takes the reader's window with it.
 [lints]
 workspace = true
+
+# The half of the deep link that was missing, and the half a reader meets.
+#
+# Measured on the release build with Girsa already open: firing
+# `girsa:bavli/shabbat/12b:3#242` started a **second copy of the application**
+# and left the open window exactly where it was. So the reverse direction of the
+# Ksav loop — click a citation in your Word document, land on the daf — opens a
+# duplicate instead, and two instances then write the same `session.json`, which
+# is last-writer-wins on the reader's whole workspace.
+#
+# On Windows and Linux the deep-link plugin only reaches a *cold* start on its
+# own; delivering a URL to a running process is this plugin's job, and its
+# `deep-link` feature hands the argv straight to the listener already wired in
+# `run()`. It is documented as deep-link's companion on these platforms and was
+# simply never added. macOS routes URLs through the app delegate and needs
+# neither, which is why this is a targeted dependency.
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

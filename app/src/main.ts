@@ -43,6 +43,8 @@ import {
   pointingSaid,
   SHOWING_ROUND,
   showingSaid,
+  THEME_ROUND,
+  themeSaid,
 } from "./toolbar.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Caret, type Held, type Panel } from "./panel.ts";
@@ -919,6 +921,32 @@ function toolBar(): HTMLElement {
   showing.classList.add("tool-wide");
   if ((state?.fixes ?? 0) === 0) showing.classList.add("is-quiet");
 
+  // The theme, one click from the daf (the reader: *"i dont want it stuck in
+  // dark mode"*).
+  //
+  // There has always been a light one, it has always worked, and it was an
+  // `<option>` in a `<select>` in a panel — with the default *follow the
+  // system*, so a machine whose Windows is dark gives a dark daf and nothing on
+  // the reading screen suggests otherwise. The settings row stays: that is where
+  // you go to *set up* a window. This is where you go to change your mind about
+  // the light in the room, which happens at dusk, not at setup.
+  //
+  // Same convention as its two neighbours — the label is the state clicking gets
+  // you, which is finding 12 — and the same round the settings row now reads.
+  const nextTheme = nextIn(THEME_ROUND, state?.look.theme ?? "system");
+  const theme = button(themeSaid(nextTheme), say("themeWhy"), () => {
+    void (async () => {
+      const look = state?.look;
+      if (!look) return;
+      // The whole record, because `set_look` takes the whole record — and
+      // `Look::sane` clamps what it is given, so sending four fields as
+      // defaults would quietly reset the reader's line height on a theme click.
+      await api.setLook({ ...look, theme: nextTheme });
+      await reload();
+    })();
+  });
+  theme.classList.add("tool-wide");
+
   const smaller = button(say("smaller"), say("smallerWhy"), () => resize(-10));
   const bigger = button(say("bigger"), say("biggerWhy"), () => resize(10));
 
@@ -942,7 +970,7 @@ function toolBar(): HTMLElement {
   // settings rather than gestures, and a toolbar that carried one of the two
   // taught a reader that the other did not exist.
   const setup = button(say("settings"), say("settingsWhy"), () => void settingsview.toggle());
-  bar.append(nikud, showing, smaller, bigger, setup, where);
+  bar.append(theme, nikud, showing, smaller, bigger, setup, where);
 
   // Presence (spec.md §10.6): the affordance is never offered when it would
   // fail. Live, it is a button; not live, it is a word saying which of the two

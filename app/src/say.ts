@@ -713,6 +713,10 @@ const WORDS = {
     "press the key you want, or ↺ to put it back",
   ] as Both,
   settingsClose: ["סגור את ההגדרות", "close the settings"] as Both,
+  themeWhy: [
+    "ערכת הצבעים של החלון — כמו המערכת, בהיר או כהה. הכפתור אומר מה תקבל בלחיצה",
+    "the window's colours — follow the system, light, or dark. The button says what clicking gets you",
+  ] as Both,
   themeSystem: ["כמו המערכת", "Follow the system"] as Both,
   themeLight: ["בהיר", "Light"] as Both,
   themeDark: ["כהה", "Dark"] as Both,

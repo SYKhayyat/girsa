@@ -3633,7 +3633,38 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
 /// which is now denied here rather than merely avoided (see `Cargo.toml`).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let built = tauri::Builder::default()
+    let built = tauri::Builder::default();
+
+    // **First**, before every other plugin, because it decides whether this
+    // process is going to be an application at all.
+    //
+    // Measured on the release build with Girsa already open: firing
+    // `girsa:bavli/shabbat/12b:3#242` opened a *second copy* and left the
+    // running window exactly where it was. The forward half of the Ksav loop
+    // worked and the return half — click a citation in your document, land on
+    // the daf — delivered the reader a duplicate application with its own
+    // workspace, both halves then writing one `session.json`.
+    //
+    // The deep-link listener below was never wrong; on Windows and Linux it
+    // only ever hears a *cold* start, and handing a URL to a process that is
+    // already running is this plugin's job. With the `deep-link` feature it
+    // forwards the argv into that same listener, so there is nothing here to
+    // keep in step with it.
+    #[cfg(any(windows, target_os = "linux"))]
+    let built = built.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // The URL routes itself. What is left is the part a reader notices: the
+        // window they already had is behind their document, and a citation that
+        // silently scrolled a hidden window would look exactly like a citation
+        // that did nothing.
+        use tauri::Manager as _;
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
+    let built = built
         // `girsa://…` — and a ref, which is already a `girsa:` URI, so the
         // citation a Word document or a compiled PDF has been carrying all
         // along is a link that lands on the page it names (spec.md §10.6).

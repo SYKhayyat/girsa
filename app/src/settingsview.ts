@@ -38,13 +38,18 @@ import { OneKey } from "./capture.ts";
 import { said } from "./keys.ts";
 import type { Language } from "./names.ts";
 import { interfaceLanguage, say } from "./say.ts";
+import { THEME_ROUND, themeSaid } from "./toolbar.ts";
 
-/** What a theme row offers. Three, said out loud — see `session::Theme`. */
-const THEMES: { value: string; label: () => string }[] = [
-  { value: "system", label: () => say("themeSystem") },
-  { value: "light", label: () => say("themeLight") },
-  { value: "dark", label: () => say("themeDark") },
-];
+/**
+ * What a theme row offers — the same round the toolbar button turns, and the
+ * same words.
+ *
+ * It was a third list of the three values, beside two spellings of the type in
+ * `api.ts`. The panel and the button are the two places a reader can change this
+ * from, and a panel that offers `בהיר` while the button calls it something else
+ * is one control lying about the other.
+ */
+const THEMES = THEME_ROUND.map((value) => ({ value, label: () => themeSaid(value) }));
 
 /** The three pointing settings, in the order the control rounds them —
  * `girsa_app::session::Pointing::ALL`. */

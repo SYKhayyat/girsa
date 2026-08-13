@@ -30,7 +30,7 @@
 // The second is the reader-visible one. A round of three states where two of
 // them print the same word is a button that appears not to have worked.
 
-import type { Pointing, Showing } from "./api.ts";
+import type { Pointing, Showing, Theme } from "./api.ts";
 import { say } from "./say.ts";
 
 /**
@@ -58,6 +58,39 @@ export const SHOWING_ROUND: readonly Showing[] = [
 export function nextIn<T>(round: readonly T[], now: T): T {
   const at = round.indexOf(now);
   return round[(at + 1) % round.length] as T;
+}
+
+/**
+ * The three themes, in rounding order.
+ *
+ * > *"i dont want it stuck in dark mode — there should also be a light mode."*
+ *
+ * There was one, and it worked: `ערכת צבעים` in the reading settings, three
+ * options, and choosing `בהיר` turns the page cream and writes `theme: light`
+ * into the session file. Measured on the running release build before anything
+ * here changed — the palette, the control, and the persistence were all correct.
+ *
+ * It was an `<option>` inside a `<select>` inside a panel behind a button, and
+ * the default is *follow the system*. So on a machine whose Windows is dark,
+ * Girsa is dark, and **nothing on the reading screen says it could be
+ * otherwise**. A feature nobody can find is the same as a feature that is not
+ * there — which is finding 1's lesson (a mefaresh's comment at `opacity: 0`)
+ * and the old `לצד` button's (a complete feature behind a preposition), arriving
+ * a third time in the one place a reader looks at for hours.
+ *
+ * So it joins the round it always belonged in. `system` first because it is the
+ * default and a round has to start where the reader starts, then the two
+ * explicit answers.
+ */
+export const THEME_ROUND: readonly Theme[] = ["system", "light", "dark"];
+
+/** What each theme is called. The same three words the settings row uses —
+ * `settingsview.ts` reads this list, so the panel and the button cannot come to
+ * disagree about what `בהיר` means. */
+export function themeSaid(theme: Theme): string {
+  if (theme === "light") return say("themeLight");
+  if (theme === "dark") return say("themeDark");
+  return say("themeSystem");
 }
 
 /** What each pointing setting is called. */
