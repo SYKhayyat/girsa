@@ -517,3 +517,77 @@ fn every_documented_command_names_the_crate_that_has_it() {
         "the scan found only {checked} documented commands, which is fewer than the tree has"
     );
 }
+
+/// The version is stated in four places, and they have to agree.
+///
+/// `Cargo.toml`'s `[workspace.package]`, the shell crate's own `version`,
+/// `tauri.conf.json`, and `app/package.json`. Three of them decide something a
+/// reader sees — the bundle's filename, what Add/Remove Programs reports, what
+/// the update check would compare against — and nothing has ever checked that
+/// they say the same thing.
+///
+/// That is the same shape as the README stating numbers nothing measured, which
+/// this repository already guards. A release cut with `tauri.conf.json` at
+/// 0.1.1 and the crate at 0.1.0 produces `Girsa_0.1.1_x64-setup.exe` containing
+/// a binary that reports 0.1.0, and the only way anybody finds out is by
+/// noticing.
+#[test]
+fn the_version_is_the_same_number_everywhere() {
+    let root = repo();
+    let read = |at: &str| {
+        std::fs::read_to_string(root.join(at)).unwrap_or_else(|e| panic!("{at} reads: {e}"))
+    };
+
+    // `[workspace.package] version`, which every crate inherits.
+    let workspace = read("Cargo.toml");
+    let after = workspace
+        .split_once("[workspace.package]")
+        .unwrap_or_else(|| panic!("Cargo.toml has a [workspace.package] table"))
+        .1;
+    let said = |body: &str, key: &str| -> String {
+        body.lines()
+            .find_map(|line| {
+                let line = line.trim();
+                let rest = line.strip_prefix(key)?;
+                // `=` in TOML, `:` in JSON — the same question asked of two
+                // file formats, and not worth two readers.
+                let rest = rest.trim_start();
+                let rest = rest.strip_prefix('=').or_else(|| rest.strip_prefix(':'))?;
+                Some(
+                    rest.trim()
+                        .trim_matches(|c| c == '"' || c == ',')
+                        .to_string(),
+                )
+            })
+            .unwrap_or_else(|| panic!("no {key} found"))
+    };
+    let found = [
+        ("Cargo.toml [workspace.package]", said(after, "version")),
+        (
+            "app/src-tauri/Cargo.toml",
+            said(&read("app/src-tauri/Cargo.toml"), "version"),
+        ),
+        (
+            "app/src-tauri/tauri.conf.json",
+            said(&read("app/src-tauri/tauri.conf.json"), "\"version\""),
+        ),
+        (
+            "app/package.json",
+            said(&read("app/package.json"), "\"version\""),
+        ),
+    ];
+
+    let first = &found[0].1;
+    let disagree: Vec<String> = found
+        .iter()
+        .filter(|(_, v)| v != first)
+        .map(|(where_, v)| format!("  {where_}: {v}"))
+        .collect();
+    assert!(
+        disagree.is_empty(),
+        "the version is {first} in Cargo.toml and something else elsewhere:\n{}\n\nA bundle \
+         named for one version containing a binary that reports another is found by noticing, \
+         which is not a way of being found.",
+        disagree.join("\n"),
+    );
+}

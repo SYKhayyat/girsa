@@ -233,31 +233,30 @@ class Eye {
 }
 
 /**
- * A port nobody is using, chosen by the operating system.
+ * A port this process can have to itself.
  *
- * Bind to 0, ask what we got, let it go, hand the number to the browser. The
- * gap between releasing it and the browser binding it is a real race and a
- * vanishingly small one; the alternative it replaces was a **constant**, which
- * is not a race but a certainty as soon as two copies run.
+ * Third attempt, and the first two are worth the paragraph because CI killed
+ * both. It began as `const port = 9333` — no race, and a certainty of collision
+ * the moment two copies run, which is how the gate went red while six runs
+ * tested a different fix. Then `--remote-debugging-port=0` and read
+ * `DevToolsActivePort`, which Chrome documents: the file never appeared on the
+ * Linux runner. Then a port taken from the operating system by binding zero and
+ * letting go: on the same runner Chrome then served no page on it at all.
  *
- * The first attempt at this asked the browser instead — `--remote-debugging-port=0`
- * and read `DevToolsActivePort` out of the profile directory, which is what
- * Chrome documents and what works on the machine this was written on. On a
- * Linux CI runner the file never appeared, and thirty seconds later the run
- * failed saying so. Rather than find out which of headless mode, the sandbox
- * flags and the profile path was responsible, the port is ours to choose: this
- * needs no cooperation from the browser and behaves the same everywhere.
+ * What CI has *shown* to work on Linux is an explicit port that Chrome binds
+ * itself — that is the configuration the green runs used. So the fix is that
+ * configuration with the collision removed, and nothing more clever than
+ * arithmetic: the pid, which the operating system has already guaranteed is
+ * unique among live processes.
+ *
+ * A thousand is comfortably more than the number of copies of this that will
+ * ever run at once, and two runs collide only if their pids are exactly a
+ * thousand apart *and* both are alive. That is not zero. It is small enough to
+ * be worth having, in a tool whose two cleverer answers were both wrong on a
+ * machine I cannot reach.
  */
-async function freePort() {
-  const { createServer } = await import("node:net");
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
+function ownPort() {
+  return 9333 + (process.pid % 1000);
 }
 
 /**
@@ -373,7 +372,7 @@ async function main() {
   // it actually took into `DevToolsActivePort` in its profile directory, which
   // is the answer rather than a guess at a free number.
   const profile = path.join(room, "profile");
-  const port = await freePort();
+  const port = ownPort();
   const child = spawn(
     browser,
     [

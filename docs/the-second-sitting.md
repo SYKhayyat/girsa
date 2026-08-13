@@ -1777,19 +1777,32 @@ fixed port in a test tool is a claim that only one of it will ever run on a
 machine, and nothing makes that true — not two terminals, not a gate beside a
 developer, not two CI jobs on one runner.
 
-The first fix asked the browser: `--remote-debugging-port=0`, then read
-`DevToolsActivePort` out of the profile directory, which is what Chrome
-documents and what worked on the machine it was written on. **On the Linux CI
-runner that file never appeared**, and thirty seconds later the run failed
-saying so — a fix for a portability bug that was itself not portable, caught by
-the only reader this repository has that is not me.
+**It took three tries, and CI killed the first two.**
 
-So the port is ours to choose instead: bind to 0, ask the operating system what
-we got, release it, hand the number to the browser. The gap between releasing
-and binding is a real race and a vanishingly small one, against a constant that
-was a certainty the moment two copies ran. Nothing is asked of the browser, so
-nothing about headless mode or sandbox flags or profile paths can withhold it.
-Four concurrent runs are clean.
+*Ask the browser.* `--remote-debugging-port=0` and read `DevToolsActivePort`
+out of the profile directory, which is what Chrome documents and what works on
+the machine it was written on. On the Linux runner the file never appeared and
+the run failed thirty seconds later — a fix for a portability bug that was
+itself not portable.
+
+*Take a port from the operating system.* Bind zero, read what we got, let go,
+hand the number over. Clean on Windows, four copies at once. On the same Linux
+runner Chrome then served no page on that port at all.
+
+*Arithmetic.* What CI had actually **shown** to work on Linux was an explicit
+port Chrome binds itself — that is what the green runs used. So: that
+configuration, with the collision removed, and nothing cleverer than the pid,
+which the operating system has already made unique among live processes. Two
+runs collide only if their pids are exactly a thousand apart and both alive.
+That is not zero, and it is smaller than being wrong twice more on a machine I
+cannot reach.
+
+The lesson is not about ports. Both discarded answers were *better designs* than
+the one that shipped, and both were better in ways that depended on the
+environment behaving as documented. The one that shipped depends on almost
+nothing. In a tool whose entire job is to be the thing that does not assume,
+that is the correct trade — and I did not reach for it until the machine had
+refused the other two.
 
 That is the fourth time in this part that the tool was the problem and not the
 product, and the third that I found it by doing something slightly unusual with
