@@ -232,8 +232,15 @@ class Eye {
   }
 }
 
-/** The browser's page target, once it has one. */
-async function pageOf(port) {
+/**
+ * The browser's page target, once it has one.
+ *
+ * `said` hands back whatever the browser has written to stderr, so that a
+ * failure here names the reason rather than the symptom. Without it this threw
+ * *the browser never opened a page* and left the browser's own sentence —
+ * `Failed to move to new namespace`, or whatever it was — discarded.
+ */
+async function pageOf(port, said = () => "") {
   for (let tries = 0; tries < 60; tries += 1) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -244,7 +251,10 @@ async function pageOf(port) {
     }
     await new Promise((r) => setTimeout(r, 250));
   }
-  throw new Error("the browser never opened a page");
+  const why = said().trim();
+  throw new Error(
+    why ? `the browser never opened a page. It said:\n${why}` : "the browser never opened a page",
+  );
 }
 
 /**
@@ -304,13 +314,32 @@ async function main() {
       "--disable-gpu",
       "--window-size=1360,900",
       "--allow-file-access-from-files",
+      // What a CI runner needs, and what a desktop does not mind.
+      //
+      // The first time this ran on a machine other than the author's it found
+      // `/usr/bin/google-chrome`, started it, and got *the browser never opened
+      // a page* — because Chrome's own sandbox will not initialise under the
+      // runner's user namespaces, and `/dev/shm` there is 64 MB. Both are the
+      // standard headless-in-CI pair. The sandbox is worth exactly nothing here
+      // anyway: this browser opens one local file written by this script, and
+      // then it is killed.
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
       pathToFileURL(page).href,
     ],
-    { stdio: "ignore" },
+    // **Not `ignore`.** It was, and so the browser's own explanation of why it
+    // would not start went to nowhere and this reported a generic *never opened
+    // a page* — a tool that cannot say what went wrong, which is the fault this
+    // whole file exists to catch on other people's behalf.
+    { stdio: ["ignore", "ignore", "pipe"] },
   );
+  let complained = "";
+  child.stderr?.on("data", (chunk) => {
+    complained += String(chunk);
+  });
 
   try {
-    const target = await pageOf(port);
+    const target = await pageOf(port, () => complained);
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.addEventListener("open", resolve);
