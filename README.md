@@ -221,7 +221,22 @@ cargo build --all-targets
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt -- --check
+
+cd app && npm test                  # 238 assertions over the window
+cd app && npm run eyes              # headless Edge, measuring what the sheet does
 ```
+
+### Building the window
+
+```sh
+cd app && npx tauri build --no-bundle   # or drop the flag for an installer
+```
+
+**Not `cargo build -p girsa-shell`.** That produces a binary which embeds no
+frontend and navigates to the Vite dev server, so it opens a Chromium
+*this site can't be reached* page on any machine that is not running
+`npm run dev`. It is the only build this repository had ever produced;
+`docs/the-second-sitting.md` finding 16 is the whole story.
 
 ### Every command reads its command line the same way
 

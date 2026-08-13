@@ -296,7 +296,11 @@ export class PaneView {
       box.append(none);
     }
     for (const one of said) {
-      const block = el("div", "said");
+      // `said-one`, not `said`. `.said` is the toast at the foot of the window
+      // — `position: fixed; opacity: 0` until `announce` raises it — and a
+      // comment block given that class was drawn at zero opacity, off the flow,
+      // from the day both were written. `collision.test.mjs` is the guard.
+      const block = el("div", "said-one");
       const who = el("p", "said-who");
       const named = sefer(one);
       who.textContent = one.address ? `${named} ${one.address}` : named;

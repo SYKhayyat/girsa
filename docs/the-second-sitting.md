@@ -18,6 +18,15 @@ down inside ten minutes, and one of them means **the feature the whole
 tick-a-mefaresh model rests on has never once been visible on a screen**, in any
 build, since the day it was written.
 
+**Part 6 was added after a second pass over the paths the first pass had not
+touched** — a cold profile, a missing corpus, a long sitting, small screens — and
+the first thing it found was larger than anything above it: **no build of this
+application had ever been produced.** Every measurement in Parts 2 to 5, and
+every fact anybody in this repository knows about how the window behaves, was
+taken from a development server. The release binary was built, the worst finding
+was re-measured on it and is identical to the pixel, and everything from finding
+16 onwards is the real thing.
+
 ---
 
 ## The grade
@@ -25,6 +34,14 @@ build, since the day it was written.
 | | |
 |---|---|
 | **Overall** | **C+** — up from an F, and a long way from shippable |
+| **Getting it at all** | **F** — no build of this application has ever been produced. See finding 16 |
+
+The overall grade is for the product and it does not move for Part 6: nothing
+found in the second round is a new kind of defect, and finding 1 was re-measured
+on a real release binary and is identical to the pixel. The second row is a
+separate fact and deserves its own line — a reader cannot obtain this
+application, and until Part 6 nobody had noticed, because the way you find out
+is to run a command nobody in this repository had run.
 
 | Area | Grade | Why |
 |---|---|---|
@@ -562,8 +579,13 @@ architecture. They were reading the screen.
 In this order. The first four are a day's work between them and they change the
 grade more than anything else on the list.
 
-1. **Rename the commentary block class** (finding 1). One line. It turns the
-   flagship interaction from dead to working.
+0. **Produce a build** (finding 16). `npx tauri build` — 58 seconds, works first
+   try, and nobody had run it. Everything below is invisible until somebody can
+   hold the application in their hands.
+1. ~~**Rename the commentary block class** (finding 1).~~ **Done** — `pane.ts`
+   builds `said-one` and `styles.css` styles it, guarded by
+   `collision.test.mjs`. Two lines. It turned the flagship interaction from dead
+   to working.
 2. **Let a docked panel give the keyboard back** (finding 3). It restores every
    shortcut in the application, including the send to Ksav that the whole
    project is about.
@@ -576,8 +598,287 @@ grade more than anything else on the list.
    the categories from the corpus rather than from a list of thirty.
 7. **Make a mareh makom the default reading of a query** (finding 8), and print
    places as places, never as ids (findings 8, 9, 14).
-8. **Put a browser in the gate.** Ten assertions against the running window
-   would have caught findings 1, 2, 3, 5, 10 and 14 before any of them shipped.
+8. ~~**Put a browser in the gate.**~~ **Started** — `npm run eyes` is a headless
+   Edge over the real stylesheet, and `collision.test.mjs` is in the default
+   suite. Between them they hold findings 1 and 5. Findings 2, 3, 10 and 14 need
+   the running window, which is the next step and is now possible, because there
+   is a build.
+
+---
+
+## Part 6 · The paths I had not tested, and one I should have
+
+Everything above was measured against a window that was already open, on this
+machine, with this reader's profile: an existing session, an existing set of
+preferences, a warm cache and the corpus where it has always been. Seven paths
+were left untested and are named as such at the foot of this section's list. This
+part is what happened when they were tested.
+
+The first one moved the grade.
+
+### 16 · Nobody had ever built the application
+
+`cargo build --release -p girsa-shell` — the command this document's own appendix
+recommended, and the command used for every measurement in Part 2 — does not
+produce a window that contains Girsa. It produces a window that **navigates to
+`http://localhost:5174`**, the Vite dev server, because `tauri-build` leaves
+`cfg(dev)` set for any build that does not go through the Tauri CLI. With the dev
+server up you cannot tell. With it down, the application is this:
+
+```
+url: "chrome-error://chromewebdata/"
+title: "localhost"
+```
+
+A Chromium *this site can't be reached* page, in a window called
+`גִּרְסָא · Girsa`.
+
+The evidence that nobody had ever gone further:
+
+* `target/release/bundle/` does not exist. No installer, no MSI, no NSIS, no
+  portable exe has ever been produced by this repository.
+* `README.md:367` gives one way to run the window — ``npm --prefix app run tauri
+  dev`` — and no page anywhere says how to build one.
+* The entire first sitting, and the first three hours of this one, were conducted
+  against the dev server. The *"stale embedded frontend"* that cost twenty
+  minutes and became finding 15 was not a stale embed. There was no embed.
+
+`npm run tauri build --no-bundle` works, first try, in **58 seconds** — the
+frontend transforms 41 modules in 1.4 s and only the shell crate recompiles. So
+this is not a broken build. It is a build nobody had run, which is a different
+and more interesting problem: every fact anybody knows about how this application
+behaves was learned from a development server, including every fact in Part 2.
+
+**Everything below was re-measured against the real thing** —
+`http://tauri.localhost/`, frontend embedded, strict CSP, no dev server anywhere.
+
+### 17 · What the real build changed, and what it did not
+
+Finding 1 survives exactly, to the pixel. On the release binary, Rashi on Berakhos
+2a:8 — real text, `אקרא קאי – ושם למד חובת הקריאה:` — renders as:
+
+| | |
+|---|---|
+| the container | **16px** tall |
+| the comment inside it | 66 × 242, `position: fixed`, `opacity: 0`, `pointer-events: none` |
+
+The same numbers the dev server gave. The commentary has never been visible in
+any build that has ever existed.
+
+The stylesheet holds the whole story in two rules 1,168 lines apart:
+
+```css
+/* line 600 — written for stacked comment blocks */
+.said + .said { margin-top: 0.7em; padding-top: 0.7em; border-top: 1px solid var(--rule); }
+
+/* line 1768 — the toast at the foot of the window */
+.said { position: fixed; bottom: 14px; opacity: 0; pointer-events: none; }
+```
+
+Both meanings are in the sheet. The later one wins.
+
+Also unchanged on the release build: the Latin line addresses (`2a:1` … `2b:1`
+down the side of a Hebrew daf, and `רש״י על ברכות 2a:8:1` inside the commentary
+header), and the untranslated group heading `Rif · 4` in the mefarshim chooser,
+between `ראשונים · 13` and `מפרשים · 3`.
+
+### 18 · The cold start is the best screen in the application
+
+With no session file and a fresh profile — a genuinely new origin, so no stored
+preferences at all — the window opens in Hebrew, right-to-left, on a centred
+`גִּרְסָא`, the four shortcuts spelled out in words, three buttons, and
+`7189 ספרים`. It is calm and it is correct. Typing `ברכות` into the picker offers
+eight sensible works in under a second, and Enter lands on 2a with 400 lines
+drawn.
+
+The first screen a new reader sees is the one part of this application that needs
+nothing.
+
+### 19 · With no corpus, the window is a wall of English file paths
+
+`Looked::said()` is careful engineering: it lists every candidate directory it
+tried, in order, so that the usual cause — looking one directory away from where
+the reader is standing — can be seen rather than guessed at. It is also the only
+thing on the screen:
+
+```
+no shelf found. Looked in: C:\Users\…\no-corpus-here,
+C:\Users\Administrator\Videos\Girsa\target\release\corpus,
+C:\Users\…\no-corpus-here\corpus, C:\Users\…\no-corpus-here\../../corpus.
+Run girsa-fetch and girsa-import, or set GIRSA_CORPUS.
+```
+
+Four lines of Latin paths across the top of a right-to-left window, with the
+trailing `../../corpus.` reversed into `.corpus./../..` by the bidi algorithm.
+No Hebrew. No *there are no seforim here yet*. No button — although
+`tauri-plugin-dialog` is already in the build for the model picker, and *"export
+and send cannot choose a folder"* was complaint 12 of the original eighteen. And
+the handsome empty screen from finding 18 is not shown; the body below the error
+is black and empty.
+
+The toolbar still works, which is the right decision: `חפש` opens with the caret
+in the box, `מדף` and `הגדרות` open. Searching then produces the other half:
+
+```
+torat emet ▾ | whole shelf ▾ | the word ▾ | anywhere in a segment ▾
+no-index: there is no shelf to search
+```
+
+Every chip in English, and an error carrying its own raw code as a prefix.
+
+### 20 · The shell writes user-facing sentences in English, in Rust
+
+Finding 7 said the search chips were English. The cause is wider than the chips.
+`app/src-tauri/`, whose README says it decides nothing, composes five sentences
+that reach the screen without passing through `say.ts`:
+
+| Where | What the reader sees |
+|---|---|
+| `clipboard.rs:53` | `the source packet would not serialize: …` |
+| `clipboard.rs:63` | `no clipboard here: …` |
+| `clipboard.rs:82` | `the clipboard refused it: …` |
+| `lib.rs:853`, `lib.rs:860` | `there is no shelf to search` |
+
+Against exactly one that is written in Hebrew, at `lib.rs:677`. Pressing `Ctrl+C`
+in the release window produced, in a Hebrew right-to-left toast:
+
+```
+the clipboard refused it: Empty clipboard error, code = OSError(1418):
+Thread does not have a clipboard open.
+```
+
+A raw Windows error number, in English, as the reader's whole explanation. The
+underlying `OSError(1418)` is an artefact of the automated session and not a
+defect. The sentence around it is the defect. Credit where it is due: the window
+reported a failure rather than claiming a success it had not had.
+
+### 21 · A tab is named in Hebrew until you restart, then it is a slug
+
+Finding 14 said the tab strip shows internal slugs after a restart. The release
+build shows exactly why. In one sitting the tabs read:
+
+```
+תוספות על ברכות +1    משנה ברורה    שבת
+```
+
+After a restart, the same three tabs read:
+
+```
+bavli/tosafot-on-berakhot +1    mishnah-berurah    bavli/shabbat
+```
+
+A tab knows its Hebrew name only while the pane that made it is in memory. A
+restored tab is drawn from the session file, which stores the slug, and nothing
+asks the catalogue what that slug is called.
+
+There is a second wart on the same strip: the tab is named after the **focused
+column**, so a reader learning Berakhos with Tosafos beside it has a tab called
+*תוספות על ברכות +1* and the masechta is the `+1`.
+
+### 22 · A long sitting: it holds, and the pane never gives anything back
+
+Mishnah Berurah, 17,418 segments, scrolled to its end in rounds of sixty jumps:
+
+| | lines in the document | nodes | JS heap |
+|---|---|---|---|
+| on opening | 400 | 2,903 | 2.4 MB |
+| after 60 jumps | 6,100 | — | — |
+| after 240 jumps | **17,418** | **52,618** | **19.6 MB** |
+
+Two readings, and both are fair. The engine holds up: once nothing more is being
+fetched, sixty scroll events cost 1,237 ms, which is the 20 ms delay between them
+and essentially no work of its own. Nineteen megabytes for the largest sefer in
+the corpus is nothing.
+
+But `pane.ts` bounds only the *first* render. `WINDOW = 400` is applied by
+`render()`; `extend()` appends and prepends and **nothing ever removes a line**.
+The header says the window *"grows when they reach an edge"*, which is true; it
+does not claim it shrinks, and it does not. A reader who works through Mishnah
+Berurah front to back is carrying all 17,418 lines by the end of it.
+
+### 23 · There is no citation-style control anywhere in the window
+
+`start-here.md` promises that changing the citation style *"reformats every
+citation"*. The settings panel has three sections — `הקריאה`, `שפה`, `מקשים` —
+holding a theme picker, two font boxes, three numbers, a nikud selector, two
+language selectors and twenty-one rebindable keys. There is no citation style in
+it, and no other panel offers one. `api.ts` exports `setCiteStyle`; no view calls
+it. The promise cannot be kept by any sequence of clicks.
+
+### 24 · What is still untested, and why
+
+Three things on my list were not settled, and saying so is more useful than
+implying they were:
+
+* **Ksav → Girsa.** The `girsa` URL scheme *is* registered
+  (`HKCU\SOFTWARE\Classes\girsa` → `URL:org.girsa.app protocol`, pointing at
+  `target\release\girsa-shell.exe`), and both listeners are wired at
+  `main.ts:161–162`. The live end-to-end fire — a loopback `POST /open` and a
+  protocol launch — was refused by the guardrails on the automated session, so
+  the reverse direction is **wired and unproven**. Note also that the registered
+  command points into a build tree, which is what happens when there is no
+  installer (finding 16).
+* **Copy fidelity.** The clipboard is not reachable from the automated session at
+  all, in either direction. What reaches the clipboard on a real machine is
+  unverified; what happens when it fails is finding 20.
+* **Real typing.** Text was inserted through the automation channel rather than
+  through a Hebrew keyboard layout. Hebrew went in correctly and searched
+  correctly; the IME path is untested.
+
+Three others were tested and are findings 18, 19 and 22 above. The seventh —
+display scaling — held: at 1366 × 768, 1280 × 720 and 1024 × 768 the single-pane
+window keeps its title, its toolbar and its reading column with no horizontal
+scroll and nothing off the edge. The machine these numbers were taken on runs at
+125%, so the scaling path was exercised throughout.
+
+### 25 · The eye, built and pointed at the two worst findings
+
+Lesson 1 said nothing in this project has eyes. It has two now, and they are in
+the tree:
+
+**`app/test/collision.test.mjs`** — static, no dependencies, in the default `npm
+test`. A class whose own bare rule hides it — `position: fixed`, `opacity: 0`,
+`visibility: hidden`, `display: none` — may be constructed by **one module
+only**. `.said` was built by `main.ts` (the toast) and `pane.ts` (the comment
+block); that is the entire bug, and it is now an assertion.
+
+The first version of this guard passed while the bug was still in the tree,
+because it anchored its selector match on the closing brace of the previous rule
+and `.said` at line 1768 sits directly under a comment. Worth recording: a guard
+written to catch a silent failure failed silently on its first outing.
+
+**`app/tools/eyes.mjs`** — `npm run eyes`. Headless Edge, the same engine the
+window runs on, over the real `src/styles.css`, measuring the markup the modules
+build. Seven assertions. Pointed at the original bug it reproduces the live
+numbers exactly:
+
+```
+FAIL a mefaresh's comment is in the flow, not fixed to the window
+  position was fixed — the toast rule reached it
+FAIL a mefaresh's comment can be seen
+  opacity was 0
+FAIL the box around the comments is as tall as the comments
+  box 16px around a 66px comment
+```
+
+`box 16px around a 66px comment` is the number taken off the running release
+window, arrived at independently by a specimen in a headless browser. That is the
+check working.
+
+It also reports, without asserting, that the pane header measures its title at
+**0px** in a 240px column. That is finding 5, and it is deliberately not fixed
+here: what should give way first in that header — the name of the sefer or the
+fifth button — is the owner's decision, not an auditor's. The number is there so
+the decision can be made against a measurement.
+
+### One thing was fixed, and it is named here
+
+The class rename from finding 1 — `pane.ts` now builds `said-one`, and
+`styles.css` styles `.said-one + .said-one`. Two lines, plus the comments that
+say why. It is the only change to shipped behaviour in this pass, and it was made
+because a guard that lands red is a guard nobody keeps. **The flagship
+interaction of this application now puts words on the screen for the first
+time.** It has not been read by a person yet; it has been measured.
 
 ---
 
@@ -586,8 +887,7 @@ grade more than anything else on the list.
 The real shell, the real corpus, the real link graph — not the browser fixtures.
 
 ```sh
-cd app && npm run build                       # dist
-cargo build --release -p girsa-shell          # see the note below
+cd app && npx tauri build --no-bundle         # the only build that embeds the frontend
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 \
   target/release/girsa-shell.exe
 ```
@@ -595,16 +895,23 @@ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 \
 With the port set, WebView2 speaks CDP, so the window can be clicked, typed
 into, screenshotted and measured from outside — which is how every number in
 this document was taken. Corpus: 7,189 works, 11 GB, with the 3.6 GB search
-index. Window: 1360 × 900, and 740 × 620 for the narrow test.
+index. Window: 1360 × 900 at 125% scaling; 1366 × 768, 1280 × 720 and
+1024 × 768 for the small-screen tests, and 740 × 620 for the narrow one.
 
-**The build note, which cost me the first twenty minutes:** `cargo build
---release -p girsa-shell` after a frontend change relinks nothing and the
-binary keeps the frontend it was built with. I audited a two-commit-old UI
-before noticing that the toolbar had a button the source did not. Touching
-`src-tauri/src/lib.rs` forces the embed. Either the build script should depend
-on `dist/`, or `docs/tools.md` should say plainly that a release build of the
-window goes through `npm run tauri build` and nothing else.
+**A correction to this appendix, which was wrong for a day.** It used to say that
+`cargo build --release -p girsa-shell` *"relinks nothing and the binary keeps the
+frontend it was built with"*, and prescribed touching `lib.rs` to force the
+embed. That is not what happens. `cargo build` on this crate produces a binary
+that embeds no frontend at all and navigates to the Vite dev server — finding 16.
+Nothing was stale; nothing was embedded. Both sittings measured a development
+server until somebody ran the real build. The wrong note is quoted rather than
+deleted, because *a diagnosis that fits every symptom and is still wrong* is the
+more useful thing to have written down.
 
-Two side effects worth knowing about, both mine: a source was sent into the open
-Ksav document during the presence test, and Rashi is now ticked on Shabbos in
-the session.
+Findings 1–15 were taken on the dev server, 16–25 on the release binary, and
+finding 1 was re-measured on the release binary and is identical to the pixel.
+
+Three side effects worth knowing about, all mine: a source was sent into the open
+Ksav document during the presence test; Rashi and Tosafos are ticked on Berakhos
+in this session; and `target/release/girsa-shell.exe` is now a real release build
+rather than a dev-URL one, which is an improvement and is still a change.

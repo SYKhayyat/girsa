@@ -597,7 +597,12 @@ body {
   border-radius: 3px;
 }
 
-.said + .said {
+/* One mefaresh's saying, inside `.line-said`. The class is `said-one` and not
+ * `said` because `.said` is the toast (line 1768) — fixed to the foot of the
+ * window at zero opacity — and the two were written into the same stylesheet,
+ * 1,168 lines apart, meaning opposite things. The later rule won, so every
+ * comment this window has ever drawn was invisible. */
+.said-one + .said-one {
   margin-top: 0.7em;
   padding-top: 0.7em;
   border-top: 1px solid var(--rule);

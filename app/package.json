@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "node test/run.mjs",
+    "eyes": "node tools/eyes.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
