@@ -1,0 +1,610 @@
+# The second sitting
+
+*An hour with the running window, by somebody who wants to learn from it.*
+
+The first reader opened Girsa, used it for five minutes, wrote down eighteen
+things and said it looked like a toy. Those eighteen were answered, and
+`the-five-minute-report.md` is the answer. This is what happened when the same
+kind of reader came back and sat with it for an hour instead of five minutes.
+
+**The headline: it is no longer a toy. It is a serious engine wearing a coat of
+paint that comes off wherever you touch it.** Nothing I found this time is in
+the corpus, the search, the resolver or the speed — every one of those is better
+than what it is replacing. Everything I found is in the last inch: the place
+where a correct answer has to become something a person can see, read and trust.
+
+Three of the findings are severe enough that a reader would put the application
+down inside ten minutes, and one of them means **the feature the whole
+tick-a-mefaresh model rests on has never once been visible on a screen**, in any
+build, since the day it was written.
+
+---
+
+## The grade
+
+| | |
+|---|---|
+| **Overall** | **C+** — up from an F, and a long way from shippable |
+
+| Area | Grade | Why |
+|---|---|---|
+| Reading a sefer | A− | The daf is beautiful. Fonts, nikud, spacing, dark theme, three columns |
+| Speed | A | 11 ms to open an 18,000-segment sefer, 8–90 ms searches, 12 ms shelf tree |
+| The search engine | A− | Fast, honest, badges its guesses, facets with counts, real scope control |
+| The search *window* | C− | Opens on an English error message; chips are English; a zero is a blank screen |
+| Mefarshim — the flagship | D | The data is right and the display is invisible. Also jumps to the wrong perek |
+| Browsing the shelf | B− | Works are in true order at last; the folders are still sorted by size |
+| Settings | B | Real, complete, rebindable. Two traps in it |
+| Two languages | D | Every switch leaves the window half-translated until you restart |
+| Keyboard | C− | Every shortcut dies the moment a search or the shelf is docked |
+| Finish | C− | Raw slugs, raw ids, browser dialogs, an unlabelled black void |
+| Does it lie to you? | C | Not on purpose. But a column can say *scrolling with Bereishis* while sitting fifteen chapters away |
+
+A C+ is not an insult. Reading, speed, search and the Ksav loop are the hard
+half and they are done. What is missing is the half that a reader actually
+touches, and it is missing in a way that is cheap to fix — most of what follows
+is one line of CSS, one moved statement, or one extra condition.
+
+---
+
+## Part 1 · The eighteen, re-checked
+
+I checked every one of the original complaints against the running window rather
+than against the report.
+
+| # | The complaint | Now |
+|---|---|---|
+| 1 | Seforim sorted by name, not true order | **Half.** Bereishis→Devarim and Yehoshua→Malachi are right. The *folders* are still sorted by size — see finding 6 |
+| 2 | Gap on one side, shelf over the text | **Fixed.** Docks on the reading's leading edge, minimises to a strip, the strip reopens it |
+| 3 | No way to put the interface in English | **Half, and broken in a new way** — see finding 2 |
+| 4 | הגדרות opens nothing; the size buttons do nothing | **Fixed.** Real panel; 90% → 140% moves the text from 17.1 px to 26.6 px |
+| 5 | Nikud toggle backwards, no middle setting | **Fixed.** Three settings, labelled with the one you get. The button beside it still uses the opposite convention — finding 12 |
+| 6 | Midrash Lekach Tov in a category of its own | **Half.** It no longer lands in a `מפרשים` folder, but it still floats alone above every heading in the mefarshim list, and untranslated Sefaria categories produce the same confusion — finding 7 |
+| 7 | Bereishis counted as a peirush on Onkelos | **Fixed, well.** Opening Onkelos now heads the list *הספר שעליו נכתב* and calls Bereishis *הספר עצמו* |
+| 8 | Several mefarshim at once; link/unlink scroll | **Fixed.** `＋` picks several, one button opens them all, each column carries its own scroll link |
+| 9 | Ticking a mefaresh does not arm the line click | **Fixed in the wiring, dead on the screen** — finding 1 |
+| 10 | Nobody knows what `עוקב` does | **Fixed.** `גלילה משותפת` / `גלילה נפרדת`, and it names the column it will tie you to |
+| 11 | Links panel unclear and hard on the eyes | **Better.** Direction in words, lenses, provenance. Title still in the wrong language |
+| 12 | Export and send cannot choose a folder | **Fixed.** A real Windows folder dialog, titled `בחר תיקייה`. Cancel writes nothing |
+| 13 | כתוב does nothing | **Fixed** — the drawer opens. What it opens into is finding 10 |
+| 14–15 | Opening a sefer; tabs and windows | **Fixed.** Tabs are arrangements, the picker leads with what is open, opening an open sefer goes to it |
+| 16 | Search opens on nothing, then on the last thing | **Fixed.** It shows the previous results and says they are previous |
+| 17 | No way to add/subtract from the search; the tree flashes | **Fixed.** A real scope panel: whole tree, `+`/`−` per row, counts |
+| 18 | `within 5 words` not customisable | **Fixed.** 2, 3, 5, 10, 20 |
+
+Twelve fixed, four half-fixed, two fixed in the data and broken in the display.
+That is real work and it shows.
+
+---
+
+## Part 2 · What I found this time
+
+Ordered by how quickly a reader meets it and how badly it hurts.
+
+### 1 · Tick a mefaresh, click a line, and nothing appears
+
+**This is the most serious thing in the audit.** The whole Otzaria-model
+interaction — tick Rashi, click a line, read what he says under it — puts the
+right text in the document and renders it invisible.
+
+`pane.ts:299` builds each commentary block as `el("div", "said")`. The class
+`.said` was already taken: `styles.css:1768` is the toast at the foot of the
+window — `position: fixed; bottom: 14px; opacity: 0`, waiting for `.is-on`.
+Both rules apply, the later one wins, and so every comment is a fixed,
+fully transparent box stacked at the bottom of the window.
+
+Measured, live, on Rashi on Shabbos 31a with Rashi ticked:
+
+```
+box height        16 px          (the container, with nothing in flow)
+blocks inside     3              position: fixed · opacity: 0 · bottom: 14px
+text inside       "רש"י על שבת 31a:1:1 — שהמרו - נתערבו כמו שממרין את היונים…"
+```
+
+What the reader sees is an empty grey strip 16 px tall under the line.
+
+The bitter part: the *failure* case works. When no ticked mefaresh speaks on a
+line, the box holds a `<p class="said-none">` — a different class — and the
+sentence is visible. **A line with nothing to say says so; a line with Rashi on
+it shows a blank bar.**
+
+`.line-said` and `el("div","said")` both arrived in `83c14c3` (W43, 31 July);
+the toast rule was already at line 1330 of the stylesheet on that day. So this
+has never worked, through two audits and the pass that answered the eighteen.
+Nobody ticked a mefaresh and looked.
+
+*Fix:* rename the block class. One line.
+
+### 2 · Every language switch leaves the window half-translated
+
+`say.ts:542` initialises the interface language from **localStorage**, written
+by `speakInterface()` — which runs inside `main()`, after the module-level
+`new ShelfView()`, `new SearchView()`, `new LinksView()`… have already built
+their titles, buttons and placeholders. The cache is therefore always one switch
+behind, in both directions.
+
+Measured immediately after switching to English:
+
+```
+toolbar     nikud, no te'amim · with variants · A− · A+ · Settings
+shelf       המדף · מדף חדש · החזר לסדר המקורי · צמצם · סגור
+```
+
+…and immediately after switching back to Hebrew:
+
+```
+toolbar     ניקוד בלי טעמים · עם גרסאות · א− · א+ · הגדרות
+shelf       The shelf · New shelf · Back to how it shipped · Minimise · Close
+search      Keep · Minimise · Close · placeholder "search the whole shelf…"
+links       Links
+settings    title "Settings" over Hebrew rows
+```
+
+It settles only when the application is restarted. A reader who tries English
+once and goes back gets a permanently mixed window for the rest of that session —
+which looks less like a setting and more like a broken build.
+
+The reload that `settingsview.ts` performs for exactly this reason does not help,
+because the cache is read before the truth arrives and written after.
+
+*Fix:* have the panels ask for their strings when they draw rather than when
+they are constructed, or construct them after `connect()`. Not one line, but not
+large.
+
+### 3 · The keyboard dies after every search — including the send to Ksav
+
+`main.ts:1238-1239` gives the search and the shelf `keyboard: "all"`, which
+`panel.ts:120` reads as *swallow every key that is not Escape or my own toggle,
+wherever the caret is*. That is right for a panel over the reading. But W48 made
+clicking a result **dock** the panel instead of closing it, and the shelf docks
+the same way when you open a sefer from it — so the ordinary path leaves a panel
+open beside the reading, and with it open nothing on the keyboard works.
+
+Measured:
+
+```
+search docked (after clicking a result) → Ctrl+C → nothing. No toast, no message.
+search closed                            → Ctrl+C → "הועתק — שבת דף ל: שורה ז'"
+shelf docked  (after opening a sefer)    → Ctrl+C → nothing.
+```
+
+The same applies to Ctrl+Shift+C, Ctrl+N, Ctrl+D, Ctrl+L, Ctrl+K, Alt+N,
+Ctrl+= and Ctrl+−. **The five-minute story in `start-here.md` is: search, click
+the hit, highlight, Ctrl+Shift+C.** In the shipped build that Ctrl+Shift+C does
+nothing at all, silently, and the docked panel is why.
+
+*Fix:* a docked panel is not an overlay. Give `dock()` a keyboard mode of
+`inside`, or drop to `reading` while `is-docked` is on.
+
+### 4 · A commentary column can jump fifteen chapters and still say it is following
+
+`beside.rs:306` places a follower by address, which is exact and right. When the
+address has nothing — Rashi wrote nothing on Bereishis 12:12 — it falls through
+to `by_edge`, which takes **any** edge joining the two works at that segment and
+scrolls to `ids[0]`. Sefaria's graph includes *this Rashi elsewhere quotes that
+pasuk*, so:
+
+```
+base at Bereishis 12:12  → Rashi column told to go to rashi-on-genesis/35:18:2
+base at Bereishis 12:5   → Ramban column told to go to ramban-on-genesis/2:3:1
+                           (the answer had three ids; the first one was wrong)
+```
+
+Live, after ordinary scrolling, I had Bereishis at 12:1, Rashi at 12:1:1 and the
+Ramban at **27:41:1**, with the header saying *גלילה עם בראשית* under it.
+
+The code comment defends the fallback: *"An edge is still a fact somebody
+recorded, so it is used before giving up."* It is a fact; it is not this
+reader's question. Landing a chavrusa's Ramban in Vayishlach while he is in Lech
+Lecha is worse than landing nowhere — and *nowhere* is already implemented
+(`Place::NoPlace`, which prints `אין כאן`).
+
+*Fix:* only use an edge whose own address is near the leader's, or do not use it
+at all for a declared commentary.
+
+### 5 · A column in a three-way split has no name
+
+At 1360 px with a Gemara and two mefarshim, measured:
+
+```
+pane 1 (בראשית)            title 42 px wide
+pane 2 (רש"י על בראשית)    title  0 px wide     ← invisible
+pane 3 (רמב"ן על בראשית)   title  6 px wide     ← one letter
+                            note "אין כאן" 14 px wide
+```
+
+`.pane-title` has `min-width: 0; overflow: hidden; text-overflow: ellipsis`
+(`styles.css:453`) and the five header buttons never shrink, so the sefer's name
+is the first thing squeezed and it goes all the way to zero. An ellipsis on a
+zero-width box shows nothing. In English the header overflows the other way and
+clips the leftmost **button** to `se`.
+
+So the app's signature arrangement — the daf with three commentaries — gives you
+three columns you cannot tell apart, and the honest *nothing here* note is
+clipped to a smudge. The `.pane-follows` rule three lines above has a comment
+about this exact problem being fixed once already, for a different label.
+
+*Fix:* the title is the last thing to shrink, not the first. Give the buttons an
+overflow menu, or drop them to icons below a width.
+
+### 6 · Shas is filed by folder size, so Berakhos is at the bottom under "Guides"
+
+Complaint 1 was answered for *works* — `Work::order`, read from Sefaria, applied
+through one comparator. **Shelves never got it.** `taxonomy.rs:211` sorts a
+shelf's children by a hand-written rank table of **eight** names
+(`girsa-corpus/src/taxonomy.rs:164`), then by **count descending**. The six
+sedarim are not in the eight. What a reader sees under תלמוד → בבלי:
+
+```
+ראשונים 641 · אחרונים 717 · מחברי זמננו 125 · Commentary on Minor Tractates 48 ·
+גמרא נוחה 36 · מסכתות קטנות 15 · סדר מועד 11 · סדר קדשים 9 · סדר נזיקין 8 ·
+סדר נשים 7 · Guides 5 · סדר זרעים 1 · סדר טהרות 1
+```
+
+Zeraim — which is where ברכות lives, alone — is second from the bottom, below an
+English folder called *Guides*. The sedarim are in size order, not
+זרעים-מועד-נשים-נזיקין-קדשים-טהרות. Inside Seder Moed the masechtos are right,
+which makes the folder order look even more like a mistake.
+
+Related, same table: `TERM` translates **30** Sefaria categories and leaves the
+rest in English, so a Hebrew bookcase carries *Commentary on Minor Tractates*,
+*Guides*, *Chida* and *Mechokekei Yehudah* among its shelves. And `אחר` holds
+two Otzaria README files — *הודעה חשובה* and *עריכת ספר באוצריא* — presented as
+seforim.
+
+*Fix:* shelves need an order the way works got one — from the corpus, not from a
+list of eight.
+
+### 7 · The search panel greets a Hebrew reader in English
+
+Open Ctrl+F in a fully Hebrew window and the whole control surface is English,
+because the chip labels are English string literals in Rust
+(`girsa-search/src/chips.rs:186-252`) and the chip's *name* is also its API key,
+so it cannot be translated without changing the protocol:
+
+```
+torat emet ▾   whole shelf ▾   the word ▾   anywhere in a segment ▾
+nothing to search for
+```
+
+That last line is the header, in red, before you have typed anything — the panel
+opens by telling you off. Then:
+
+* the result header reads `the words מאימתי קורינ את שמע, anywhere in a segment`
+  — English frame, and the query echoed back **with its final letters folded**
+  (`קורינ`), which reads as a typo;
+* the era facet's largest row is `no era recorded` (`facets.rs:523`);
+* a search with no hits shows the header, a bare `0`, and an entirely blank
+  panel — no sentence, no suggestion;
+* `instruments` is offered as a search mode, which is opaque in either language.
+
+### 8 · Typing a mareh makom searches for it instead of going there
+
+The resolver is excellent and nearly unreachable. In the default mode:
+
+```
+"שבת לא."                    → 92,384 word hits
+"ברכות ב."                   → 8,131 word hits
+"משנה ברורה סימן ש"          → 12 word hits
+```
+
+With the `@` sigil — which nothing on screen teaches — every one of them lands
+exactly:
+
+```
+@שבת לא.              → girsa:bavli/shabbat/31a
+@משנה ברורה סימן ש    → girsa:mishnah-berurah/300
+@רש"י על בראשית א:א   → girsa:rashi-on-genesis/1:1
+```
+
+There is no other *go to a place* control in the application, and no other way
+to reach siman 300 of a 17,418-segment sefer than scrolling.
+
+And when it lands, **what the reader is shown is the internal id**. The panel
+prints, three times over:
+
+```
+girsa:bavli/shabbat/31a
+girsa:bavli/shabbat/31a
+```
+
+The window already knows how to say this properly — Ctrl+C on the same line
+produces `הועתק — שבת דף לא. שורה א'`. Two formatters; the reading surface got
+the wrong one.
+
+### 9 · The reading pane says `31a:1`, the citation says `שבת דף לא.`
+
+Every line of Gemara is addressed in the margin in English daf notation —
+`30b:11`, `31a:4` — inside a Hebrew window, next to Hebrew text, while
+`girsa_cite` sitting one call away renders the same place as `שבת דף לא. שורה
+א'`. `start-here.md` promises the reader a choice of citation style; the setting
+exists in the session (`Session::cite`), a command exists to change it
+(`set_cite_style`), `api.setCiteStyle` exists in the window — and **nothing
+calls it**. A documented preference with no control anywhere.
+
+### 10 · The writing drawer opens as a black void
+
+Ctrl+E takes the bottom 342 px of the window. Measured, the textarea is
+1360 × 306, `background: rgba(0,0,0,0)`, `border: none`, **no placeholder**. On
+a dark theme that is a black rectangle with nothing in it — no frame, no caret
+until you click, no hint that this is where you type. Above it sits a date field
+and a grey absolute path.
+
+Typing works. Nothing tells you that.
+
+### 11 · Notes are taken in a browser dialog
+
+Ctrl+N — *write a note on this line*, one of the eleven things on the shortcut
+card — is `window.prompt` (`main.ts:1511`). In the shell that renders as the
+webview's own modal, captioned:
+
+> **localhost:5174 says**
+> מה אתה אומר על השורה?
+> \[OK\] \[Cancel\]
+
+Naming a saved query does the same (`main.ts:1555`), as do *new shelf* and
+*reset the shelf* (`shelf.ts:356, 367`). A packaged build says
+`tauri.localhost says` instead, which is not better.
+
+### 12 · Two buttons side by side, two opposite conventions
+
+Complaint 5 was *the nikud button is labelled with the state I am already in*.
+The nikud button was fixed and its neighbour was not:
+
+```
+nikud     shows "ניקוד בלי טעמים"  = the state you will get
+showing   shows "עם גרסאות"        = the state you are in
+```
+
+Click *showing* and it becomes `מתוקן`, and the toast also says `מתוקן` — so the
+same word means *what happened* in one place and *what will happen* in the
+other, eight pixels apart. This is the exact sentence the report wrote about the
+first one: *two buttons, two conventions, one toolbar.*
+
+### 13 · Closing the settings leaves a shortcut trap armed
+
+Click a shortcut's key button (it shows `…`), then close the panel with `×`
+instead of pressing a key. The `keydown` listener on `window` stays. The next
+key you press anywhere — a bare letter — is bound. Reproduced:
+
+```
+click "Ctrl+O" row → close panel with × → press "g"
+→ open = G          (Ctrl+O no longer opens anything)
+```
+
+No confirmation, no message, and the only way back is `↺` in a panel you now
+cannot open with its shortcut if you happened to rebind that one.
+
+### 14 · The tab strip shows internal slugs after a restart
+
+On startup the strip read:
+
+```
+genesis +2 | mishnah-berurah | שבת ×
+```
+
+`titleOf()` falls back to the slug and `named` is filled only when a pane is
+drawn, so every tab except the active one is labelled with its English internal
+id until you visit it. First thing on screen, every launch.
+
+### 15 · Smaller things worth a line each
+
+* **The mefarshim door promises 67 and lists 76.** The button counts declared
+  commentaries; the list also carries nine works joined only by links, labelled
+  `מפרש` where the declared ones say `פירוש` — two words a reader reads as
+  synonyms carrying a distinction the reader cannot see.
+* **A heading that looks empty.** `תנ״ך · 66` is a parent whose children are
+  indented 14 px; it reads as a category with 66 seforim and nothing under it.
+* **Rabbeinu Chananel appears twice** (`רבינו חננאל על בראשית`, `ר חננאל על
+  בראשית`) — one from each corpus, undeduplicated, in the same list.
+* **Ticking a targum marks every line.** 1,533 of Bereishis' 1,533; Rashi marks
+  356 of 400 drawn lines of Shabbos. The `◆` was designed so that marking
+  everything would say nothing, and for the most obvious mefarshim it marks
+  everything.
+* **The docked shelf squeezes the seforim to a 70 px column**, one word per
+  line, with the era clipped to a single letter.
+* **`cargo build --release -p girsa-shell` silently ships a stale frontend.**
+  My first run showed a UI two commits old with buttons the source no longer
+  has; the binary had not been relinked after `npm run build`. Only touching a
+  Rust file forced the embed. Anyone testing a release build this way is testing
+  something else.
+* **Five calls wired into `api.ts` that no view ever makes**: `setCiteStyle`,
+  `fixes` (the list of corrections you have made), `linkDraw`, `scanFix`,
+  `yours`. The first is a preference `start-here.md` tells the reader they can
+  choose; the rest are backend features with no door into them. (`linkify` and
+  `who_cites` are absent from `api.ts` on purpose — they belong to Ksav's
+  loopback, not to this window.)
+
+---
+
+## Part 3 · What is genuinely good
+
+This deserves as much space as the faults, because the faults are all in the
+last inch and this is the other ninety-nine.
+
+**The daf.** Hebrew with nikud and te'amim at a comfortable measure, real
+leading, a dark theme that does not glare, the address quiet in the margin. It
+looks like something made by somebody who reads. Three columns side by side with
+a Gemara and two mefarshim is exactly the picture people want and nobody else
+ships offline.
+
+**Speed, everywhere, measured against the real 7,189-work shelf:**
+
+| | |
+|---|---|
+| open Mishnah Berurah, 17,418 segments | **11 ms**, 205 KB on the wire |
+| a 300-line page at an edge | 6 ms |
+| open Bereishis | 6 ms |
+| the whole bookcase tree | 12 ms |
+| mefarshim / companions for Berakhos | 3 ms / 2 ms |
+| search, four real queries | 8, 63, 73, 90 ms |
+| window on screen from a cold start | 0.2–1.0 s |
+
+The 7.7 MB reading path really is 315 KB now. Scrolling a 17,000-segment sefer
+holds ~17 ms frames with two spikes in twenty screens and no gaps or duplicates.
+
+**The search results.** Hits highlighted inside the line with `<mark>`, the
+sefer and address above each, facets with counts and a `−` on every row, a real
+scope panel with the whole tree and `+`/`−`. This is better than the products it
+is replacing.
+
+**The citation resolver.** `@שבת לא.` → the daf, `@משנה ברורה סימן ש` → siman
+300. It is the best thing in the repository and it is hidden behind a sigil.
+
+**The Ksav loop works.** With Ksav running, selecting a passage and pressing
+Ctrl+Shift+C produced `נשלח ל־כְּתָב — שבת דף לא. שורה א'` — the right words with
+the right mareh makom, live, first try. That is the thing the two applications
+exist for and it does what the documentation says.
+
+**The settings panel** is complete and honest: theme, two font families, size,
+leading, measure, three-state nikud, both languages, and every shortcut
+rebindable by pressing the keys. **Escape closes every panel** — I tested all
+eight. **Minimise and restore work.** **The folder dialog is real.** **The
+correction box** is well made: it appears by the words, shows what is there,
+names the two kinds, and tells you the keys.
+
+**At 740 × 620** — the minimum window — nothing overflows and nothing breaks.
+
+**231 window tests pass.** So does the typecheck. Which is the whole problem.
+
+---
+
+## Part 4 · The lessons
+
+The first report named the pattern under its eighteen: *two things that had to
+agree, and nothing that made them.* That pattern is still here — finding 2 is a
+session in Rust and a cache in localStorage; finding 6 is Sefaria's order and a
+list of eight names; finding 12 is two buttons and two conventions. But the
+first report is not wrong and not the whole story any more, because the second
+sitting turned up a different and larger one.
+
+### Lesson 1 · Nothing in this project has eyes
+
+Every guard in the repository reads **source**. `say.test.mjs` sweeps modules
+for Hebrew literals. `panel.test.mjs` sweeps `main.ts` for panels missing from
+the registry. `sources.test.mjs` fails the build over an unlabelled control.
+`styles.test.mjs` — written after an invisible panel was shipped — checks that
+every custom property the stylesheet reads is defined.
+
+Not one of them asks *is it on the screen, and can it be read*. So:
+
+* a comment block renders at `opacity: 0` — 231 tests pass;
+* a pane title computes to 0 px wide — 231 tests pass;
+* a panel's buttons come out in the other language — 231 tests pass;
+* every reading shortcut stops working — 231 tests pass.
+
+The four bugs found by ten minutes in a browser last time were not a lucky
+accident, and the answer to them was not "open a browser once more". Four of
+this audit's top five findings are single assertions in a headless window:
+`getBoundingClientRect().width > 0` on a pane title, `getComputedStyle(comment)
+.opacity === "1"`, a keypress after docking, a screenshot diff of the toolbar
+after a language switch. **The gate needs a browser in it, not another source
+sweep.**
+
+### Lesson 2 · The bespoke guard fits the bug that was, not the bug that is
+
+`styles.test.mjs` exists because an undefined custom property made a panel
+invisible. It checks undefined custom properties. It does not check the class
+that appears twice with contradictory meanings in the same file — which made a
+different panel invisible, in the same way, in the same stylesheet, and was
+already there when the test was written.
+
+`panel.test.mjs` exists because two panels were missing from a keyboard table.
+It checks that panels are in the table. It cannot see that two of the entries in
+that table swallow the keyboard while docked.
+
+Each fix hardens the shape of the failure instead of the *class*: **a thing the
+reader was supposed to see and did not**. One assertion of the class is worth
+five of the shapes.
+
+### Lesson 3 · A comment defending a behaviour is not the same as having watched it
+
+`beside.rs` explains why an edge is used when the address has nothing: *"An edge
+is still a fact somebody recorded, so it is used before giving up."* The
+sentence is reasonable. The behaviour it produces is a Ramban column in
+Vayishlach while the reader is in Lech Lecha. Nobody scrolled a Chumash with a
+Ramban beside it and watched.
+
+This repository's comments are its best feature and its most dangerous one: they
+are so well argued that they read as evidence. They are not evidence. The
+running window is.
+
+### Lesson 4 · Two of the eighteen came back wearing new clothes
+
+Complaint 1 was answered for works and not for shelves, so the reader who
+complained that seforim were in the wrong order will open Shas and find the
+sedarim in the wrong order. Complaint 3 was answered with a second setting whose
+first use leaves the window in two languages. Complaint 5 was answered on one
+button while the button next to it kept the convention that was being fixed.
+
+**A fix is not finished at the site of the complaint.** When the answer is *the
+data already knows the order*, every list gets it. When the answer is *the
+window has a language*, every string in it does. When the answer is *label the
+state you will get*, every toolbar button does.
+
+### Lesson 5 · The last inch is a feature, not a finish
+
+Slugs in the tab strip, `girsa:bavli/shabbat/31a` in the results, `31a:1` in a
+Hebrew margin, `localhost:5174 says` over a note box, a black rectangle for the
+writing drawer, `torat emet` and `no era recorded` in a Hebrew panel — none of
+these is a bug in the ordinary sense. Every one of them is the machine's own
+name for something, shown to a person, because at that one point nobody asked
+what the person should see.
+
+Collect them and they are the entire distance between *this is a serious library*
+and *this looks like a toy written by AI*. The first reader was not reviewing the
+architecture. They were reading the screen.
+
+---
+
+## Part 5 · What I would fix first
+
+In this order. The first four are a day's work between them and they change the
+grade more than anything else on the list.
+
+1. **Rename the commentary block class** (finding 1). One line. It turns the
+   flagship interaction from dead to working.
+2. **Let a docked panel give the keyboard back** (finding 3). It restores every
+   shortcut in the application, including the send to Ksav that the whole
+   project is about.
+3. **Make the panels ask for their strings at draw time** (finding 2), and drop
+   the localStorage cache or write it before the panels are built.
+4. **Stop the follower jumping on an unrelated edge** (finding 4) — an edge is
+   only a place if its address is near the leader's.
+5. **Let the pane title win the header** (finding 5).
+6. **Give shelves an order the way works got one** (finding 6), and translate
+   the categories from the corpus rather than from a list of thirty.
+7. **Make a mareh makom the default reading of a query** (finding 8), and print
+   places as places, never as ids (findings 8, 9, 14).
+8. **Put a browser in the gate.** Ten assertions against the running window
+   would have caught findings 1, 2, 3, 5, 10 and 14 before any of them shipped.
+
+---
+
+## Appendix · How this was tested
+
+The real shell, the real corpus, the real link graph — not the browser fixtures.
+
+```sh
+cd app && npm run build                       # dist
+cargo build --release -p girsa-shell          # see the note below
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 \
+  target/release/girsa-shell.exe
+```
+
+With the port set, WebView2 speaks CDP, so the window can be clicked, typed
+into, screenshotted and measured from outside — which is how every number in
+this document was taken. Corpus: 7,189 works, 11 GB, with the 3.6 GB search
+index. Window: 1360 × 900, and 740 × 620 for the narrow test.
+
+**The build note, which cost me the first twenty minutes:** `cargo build
+--release -p girsa-shell` after a frontend change relinks nothing and the
+binary keeps the frontend it was built with. I audited a two-commit-old UI
+before noticing that the toolbar had a button the source did not. Touching
+`src-tauri/src/lib.rs` forces the embed. Either the build script should depend
+on `dist/`, or `docs/tools.md` should say plainly that a release build of the
+window goes through `npm run tauri build` and nothing else.
+
+Two side effects worth knowing about, both mine: a source was sent into the open
+Ksav document during the presence test, and Rashi is now ticked on Shabbos in
+the session.

@@ -21,6 +21,16 @@ This directory is for somebody **using** it. B36 is the order that asked for it:
 | [`tools.md`](tools.md) | every command this repository can be told to run, and what each is for |
 | [`images/`](images/) | screenshots, and an honest note about why there are none yet |
 
+## What readers said, and what came of it
+
+Two pages here are not instructions. They are what happened when somebody who
+had not built this opened it and used it, written down without softening.
+
+| Page | What it is |
+|---|---|
+| [`the-five-minute-report.md`](the-five-minute-report.md) | five minutes, eighteen complaints, and what each fix was |
+| [`the-second-sitting.md`](the-second-sitting.md) | an hour with the shipped window afterwards: what got fixed, what came back, and a grade |
+
 Ksav's own pages are in the pen's repository, at `Ksav/docs/` — a
 getting-started, a *coming from Word*, and its own generated shortcut card. Not
 a link, because a link out of this repository is a link that is broken for
