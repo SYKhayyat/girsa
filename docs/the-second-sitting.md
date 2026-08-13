@@ -33,8 +33,8 @@ was re-measured on it and is identical to the pixel, and everything from finding
 
 | | |
 |---|---|
-| **Overall** | ~~**C+**~~ **B+** — every finding of the first twenty-five closed at the root; then using the thing found three more, and one of them is that a reader cannot get a sefer |
-| **Getting it at all** | ~~**F**~~ ~~**A**~~ **B** — it installs, registers itself and says what it needs; the tools reach a reader only from the **next** tag. Findings 16, 26, 29 |
+| **Overall** | ~~**C+**~~ ~~**B+**~~ **A−** — every finding closed at the root, including the six that only appeared once the shipped build was used rather than reasoned about; one sitting short of knowing whether it is good |
+| **Getting it at all** | ~~**F**~~ ~~**A**~~ ~~**B**~~ **A** — [v0.1.1](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.1) carries both installers **and the tools**. Findings 16, 26, 29 |
 
 The C+ was for the product and it did not move for Part 6: nothing found in the
 second round was a new kind of defect, and finding 1 was re-measured on a real
@@ -49,9 +49,10 @@ says which change closed which. A machine built
 [v0.1.0](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.0) from the tag in
 15m59s and put both installers on it, and on the strength of that link
 *Getting it at all* was graded **A** — which was wrong, and Part 7 says why at
-length. It installs, it registers `girsa://` to itself, and it states the four
-steps it needs; the tools a reader has to run reach them only from the next tag.
-That is a B.
+length. What earns it now is v0.1.1: it installs, it registers `girsa://` to
+itself, it states the four steps it needs, and every tool those steps name is
+one download away on the same page. Step 2 remains a manual Otzaria download,
+said out loud on the first screen.
 
 *Overall* is not an A either, and **Part 7 is why that number moved back down
 too**. The moment the shipped build was driven rather than reasoned about, it
@@ -80,7 +81,7 @@ things nothing else does.
 | Keyboard | ~~C−~~ **A** | Fixed: a docked panel gives the keyboard back, so the shortcuts survive a search and the shelf (finding 3) |
 | Finish | ~~C−~~ **A** | Fixed: places print as places and never as ids (findings 9, 14, 21), nothing asks a question in a browser dialog (finding 11), the writing drawer looks like somewhere to write (finding 10), one convention on the toolbar (finding 12), and no refusal reaches a reader in English (findings 19, 20) |
 | Does it lie to you? | ~~C~~ **A** | Fixed: a follower says *nothing here* and stays put rather than scrolling to a comment on a different line (finding 4), a tab is named after the sefer the arrangement is built around (finding 21), and every number on a face now says what it counts |
-| **Getting it at all** | ~~F~~ ~~A~~ **B** | The link exists — [v0.1.0](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.0) carries both installers, built by CI in 15m59s from the tag — and the **A was wrong**, graded on the link rather than on what the link gets you. A reader who installs it now gets a window that registers `girsa://` to itself and states the four steps it needs (finding 29) — but the tools are attached from the **next** tag onwards, so on v0.1.0 they are still build-it-yourself. Not an A until a release carries them: findings 26 and 29 |
+| **Getting it at all** | ~~F~~ ~~A~~ **B** | The link exists — [v0.1.0](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.0) carries both installers, built by CI in 15m59s from the tag — and the **A was wrong**, graded on the link rather than on what the link gets you. A reader who installs it gets a window that registers `girsa://` to itself and states the four steps it needs (finding 29), and [v0.1.1](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.1) carries `girsa-tools-windows.zip` beside the installers — the first release from which `girsa-fetch`, `girsa-import` and `girsa-index` are obtainable at all. Step 2 is still Otzaria, which nothing here fetches; the first screen says so rather than pretending. Findings 26 and 29 |
 
 **Where this leaves it.** Every fault the audit filed is closed, and each one was
 closed at the root rather than at the symptom — which is why several of them took
