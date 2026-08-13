@@ -615,14 +615,29 @@ shelf already holds.
 
 ### 15 · Smaller things worth a line each
 
-* **The mefarshim door promises 67 and lists 76.** The button counts declared
-  commentaries; the list also carries nine works joined only by links, labelled
-  `מפרש` where the declared ones say `פירוש` — two words a reader reads as
-  synonyms carrying a distinction the reader cannot see.
+* ~~**The mefarshim door promises 67 and lists 76.**~~ **Fixed**, and not by
+  changing the number. Both numbers were true: the face counts the commentaries
+  the corpus **declares**, and the list also carries the seforim running
+  alongside, the sefer this one comments on, and the ones joined by edges alone
+  — each under a heading saying which it is. Making the face say 76 would claim
+  seventy-six mefarshim over a list whose last nine rows are, in its own words,
+  `ספרים מקושרים`. So the tooltip carries the rest: *67 מפרשים · ועוד 9
+  מקושרים*. The `מפרש`/`פירוש` pair is gone with it — the link-only rows say
+  `לפי הקישורים`, which is what the claim rests on rather than a near-synonym
+  of the claim beside it.
 * **A heading that looks empty.** `תנ״ך · 66` is a parent whose children are
   indented 14 px; it reads as a category with 66 seforim and nothing under it.
-* **Rabbeinu Chananel appears twice** (`רבינו חננאל על בראשית`, `ר חננאל על
-  בראשית`) — one from each corpus, undeduplicated, in the same list.
+* ~~**Rabbeinu Chananel appears twice** (`רבינו חננאל על בראשית`, `ר חננאל על
+  בראשית`) — one from each corpus, undeduplicated, in the same list.~~
+  **Fixed, and deliberately not by merging them.** Two catalogue entries are
+  two seforim until something states otherwise; deciding that two titles name
+  the same work is guessing at identity from a string, and the two files may
+  hold different text, different structure, different completeness. So
+  `names.sameSeferTwice` answers the smaller question — *would a reader read
+  these two rows as one sefer* — and where the answer is yes both rows say
+  which corpus they came from. A duplicate reads as two copies rather than as a
+  bug. A false positive costs a label nobody needed; there is no false negative
+  worth worrying about, because the row is unchanged.
 * **Ticking a targum marks every line.** 1,533 of Bereishis' 1,533; Rashi marks
   356 of 400 drawn lines of Shabbos. The `◆` was designed so that marking
   everything would say nothing, and for the most obvious mefarshim it marks
@@ -928,6 +943,16 @@ Also unchanged on the release build: the Latin line addresses (`2a:1` … `2b:1`
 down the side of a Hebrew daf, and `רש״י על ברכות 2a:8:1` inside the commentary
 header), and the untranslated group heading `Rif · 4` in the mefarshim chooser,
 between `ראשונים · 13` and `מפרשים · 3`.
+
+The addresses went with finding 21. **`Rif · 4` was two places naming the same
+shelves with nothing making them agree** — the bookcase drew that shelf as
+`רי״ף` four inches away. `taxonomy::branch` named a shelf in three steps (what
+the reader renamed it to, the Hebrew name its own seforim give it, the key);
+`mefarshim::folder` used the third alone. They are one function now,
+`taxonomy::shelf_title`, and an ignored corpus test walks the mefarshim folders
+of two hundred seforim looking for a title with no Hebrew letter in it. The bug
+was on a shelf Berakhos does not have, which is exactly why the assertion is
+over the corpus and not over a fixture.
 
 ### 18 · The cold start is the best screen in the application
 

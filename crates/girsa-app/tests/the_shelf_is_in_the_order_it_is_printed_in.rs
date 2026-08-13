@@ -277,7 +277,11 @@ fn bereshis_is_offered_beside_onkelos_and_is_not_called_a_peirush_on_it() {
         Some(Related::Base),
         "it is the sefer Onkelos was written about, not a peirush on Onkelos"
     );
-    assert_eq!(bereshis.stands.map(Related::said), Some("הספר עצמו"));
+    // The **name**, not the word. `Related::said` used to be here, returning
+    // `הספר עצמו` — which an English window drew as `הספר עצמו`. The name goes
+    // over the wire and `say.ts` holds both columns, the same shape refusals
+    // and edge types settled on.
+    assert_eq!(bereshis.stands.map(Related::as_str), Some("base"));
 
     // And the other direction is still what it always was.
     let onkelos = shelf

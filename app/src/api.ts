@@ -19,6 +19,9 @@ import { titleIn, type Language } from "./names.ts";
 
 export type PaneId = number;
 
+/** Which corpus a sefer's text came from — `girsa_corpus::work::Source`. */
+export type Source = "sefaria" | "otzaria" | "mine";
+
 export interface Card {
   slug: string;
   he_title: string;
@@ -26,7 +29,7 @@ export interface Card {
   categories: string[];
   author: string | null;
   era: string | null;
-  source: "sefaria" | "otzaria" | "mine";
+  source: Source;
   /** Whether this sefer is a scan (W25) — which of the two reading modes it
    * opens into, and a thing a shelf row should say. */
   scan: boolean;
@@ -318,12 +321,19 @@ export interface Choice {
   slug: string;
   he_title: string;
   en_title: string;
-  /** How the corpus places this sefer against the one you are reading. */
+  /** Which corpus this sefer's text came from, so two copies of one sefer can
+   * be told apart. See `sameSeferTwice` in `mefarshim.ts`. */
+  source: Source;
+  /**
+   * How the corpus places this sefer against the one you are reading.
+   *
+   * A **name**, and what to call it is `say.ts`'s. There were `said` and `why`
+   * fields beside this one carrying the words themselves — a Hebrew label and
+   * an English hover sentence, composed in Rust — so an English window drew
+   * `פירוש` on every declared commentary and a Hebrew window put *the corpus
+   * declares this a commentary on what you are reading* behind its hover.
+   */
   stands: Related | null;
-  /** What that relationship is called, worded in Rust beside the enum. */
-  said?: string;
-  /** And what the claim rests on, for the hover. */
-  why?: string;
   /** How many edges join the two, where that is all there is. */
   links: number;
   /**

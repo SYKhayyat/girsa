@@ -73,11 +73,47 @@ export function doorLabel(companions: Companion[]): string {
   return n === 0 ? say("beside") : `${say("mefarshimOf")} · ${n}`;
 }
 
-/** Both things the button does, since the label only has room for one. */
+/**
+ * Both things the button does, since the label only has room for one — **and
+ * what its number counts**.
+ *
+ * > *"The mefarshim door promises 67 and lists 76."*
+ *
+ * Both numbers were true. The door counts the commentaries the corpus
+ * **declares**, and the list also carries the seforim running alongside, the
+ * declared ones the graph cannot place on a line, and the ones joined by edges
+ * alone — each under a heading saying which it is. A reader who counts rows
+ * finds nine more than the button promised and has no way to reconcile them.
+ *
+ * Making the button say 76 would be worse, not better: it would claim
+ * seventy-six mefarshim over a list whose last nine rows are, in the list's own
+ * words, `ספרים מקושרים`. So the tooltip says what the number counts and what
+ * else is behind the door. The count on the face stays a claim about
+ * mefarshim, which is what a reader looking for Rashi is asking.
+ */
 export function doorTitle(companions: Companion[]): string {
   const n = mefarshim(companions).length;
   const found = n === 0 ? say("doorNone") : `${n} ${say("doorSome")}`;
-  return `${found} · ${say("doorWhy")}`;
+  const more = alsoBehind(companions);
+  return [found, more, say("doorWhy")].filter(Boolean).join(" · ");
+}
+
+/**
+ * The rows behind the door that the count on its face does not promise.
+ *
+ * Three claims, not one number: a sefer running in this one's order, the sefer
+ * this one comments on, and a sefer joined by edges alone. They are three
+ * headings in the list, so they are three phrases here.
+ */
+function alsoBehind(companions: Companion[]): string {
+  const of = (test: (c: Companion) => boolean) => companions.filter(test).length;
+  const parts = [
+    [of((c) => c.stands === "alongside"), say("doorAlongside")],
+    [of((c) => c.stands === "base"), say("doorBase")],
+    [of((c) => c.stands === null && c.links > 0), say("doorLinked")],
+  ] as [number, string][];
+  const said = parts.filter(([n]) => n > 0).map(([n, word]) => `${n} ${word}`);
+  return said.length === 0 ? "" : `${say("doorAlso")} ${said.join(", ")}`;
 }
 
 // ── The weave moved to Rust (W44) ───────────────────────────────────────────

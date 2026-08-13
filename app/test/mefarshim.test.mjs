@@ -88,6 +88,49 @@ export function run() {
 
   ok("the tooltip carries the shortcut", doorTitle([]).includes("Ctrl+\\"));
 
+  // ------------------------------------------------- and what it does not count
+  //
+  // > *"The mefarshim door promises 67 and lists 76."*
+  //
+  // Both numbers were true. The face counts the commentaries the corpus
+  // **declares**; the list also carries the seforim running alongside, the sefer
+  // this one comments on, and the ones joined by edges alone — each under a
+  // heading saying which it is. A reader who counts rows finds nine more than
+  // the button promised and nothing reconciles them.
+  //
+  // Making the face say 76 would be worse: it would claim seventy-six mefarshim
+  // over a list whose last nine rows are, in the list's own words, merely
+  // linked. So the tooltip carries the rest, and this is what holds it.
+
+  ok(
+    "the tooltip accounts for the rows the count does not promise",
+    doorTitle(ON_BERAKHOT).includes("2 מקושרים"),
+  );
+
+  const MIXED = [
+    companion("bavli/rashi-on-berakhot", "on", 3139),
+    companion("shulchan-arukh", "alongside", 12),
+    companion("mishnah/berakhot", "base", 40),
+    companion("beit-yosef", null, 815),
+  ];
+  const title = doorTitle(MIXED);
+  ok(
+    "each kind behind the door is named and counted separately",
+    title.includes("1 על סדר הספר") &&
+      title.includes("1 הספר שעליו נכתב") &&
+      title.includes("1 מקושרים"),
+  );
+  ok("and the face still counts only the declared", doorLabel(MIXED) === "מפרשים · 1");
+
+  // Nothing extra behind the door, nothing extra in the tooltip: a sentence
+  // that says *also 0 joined by links* is a sentence about nothing.
+  notOk(
+    "with nothing else behind it the tooltip says nothing else",
+    doorTitle([companion("bavli/rashi-on-berakhot", "on", 3139)]).includes(
+      "מקושרים",
+    ),
+  );
+
   // ---------------------------------------------------------------- what is offered first
 
   check(

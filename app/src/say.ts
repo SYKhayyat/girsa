@@ -229,16 +229,63 @@ const WORDS = {
     "אין מפרשים על הספר הזה בגרסה שלך",
     "no mefarshim on this sefer in your copy",
   ] as Both,
+  /** What else is behind the door that its count does not promise — the
+   * seforim running in this one's order, the sefer this one comments on, and
+   * the ones joined by edges alone. Three headings in the list, so three
+   * phrases in the tooltip. */
+  doorAlso: ["ועוד", "also"] as Both,
+  doorAlongside: ["על סדר הספר", "in this sefer's order"] as Both,
+  doorBase: ["הספר שעליו נכתב", "the sefer it comments on"] as Both,
+  doorLinked: ["מקושרים", "joined by links"] as Both,
   mefarshimOn: ["מפרשים על", "mefarshim on"] as Both,
   lines: ["שורות", "lines"] as Both,
   tickedNobody: ["לא סימנת אף אחד", "you have ticked nobody"] as Both,
   tickedN: ["סימנת", "you have ticked"] as Both,
   linksCounted: ["קישורים", "links"] as Both,
-  onlyLinked: ["מפרש", "commentary"] as Both,
-  onlyLinkedWhy: [
-    "הגרף מציב את דברי הספר הזה על שורות של מה שאתה קורא",
-    "the link graph places this sefer's comments on lines of what you are reading",
+  /**
+   * What a row says this sefer **is** to the one you are reading.
+   *
+   * `girsa_app::shelf::Related`'s three names, said here. They used to be
+   * `Related::said()` and `Related::why()` — a Hebrew label and an English
+   * hover sentence, both composed in Rust — so an English window drew `פירוש`
+   * on every declared commentary and a Hebrew window put *the corpus declares
+   * this a commentary on what you are reading* behind the hover. Both
+   * languages wrong, in opposite directions, on the same row. The name crosses
+   * the wire now; the words are here, like every other word.
+   */
+  relatedOn: ["פירוש", "commentary"] as Both,
+  relatedOnWhy: [
+    "הקטלוג מצהיר שזה פירוש על מה שאתה קורא",
+    "the catalogue declares this a commentary on what you are reading",
   ] as Both,
+  relatedBase: ["הספר עצמו", "the sefer itself"] as Both,
+  relatedBaseWhy: [
+    "מה שאתה קורא הוא פירוש על הספר הזה",
+    "what you are reading is a commentary on this sefer",
+  ] as Both,
+  relatedAlongside: ["על סדר הספר", "in this sefer's order"] as Both,
+  relatedAlongsideWhy: [
+    "ספר בפני עצמו, ההולך על סדר מה שאתה קורא",
+    "its own sefer, following the order of what you are reading",
+  ] as Both,
+  /**
+   * The rows the graph found and the catalogue never declared.
+   *
+   * This said `מפרש` where a declared commentary said `פירוש` — two words a
+   * reader takes for synonyms, carrying the one distinction in the list they
+   * cannot see. The label says what the claim **rests on** now, which is the
+   * same move the links panel makes for every row it draws.
+   */
+  onlyLinked: ["לפי הקישורים", "by the links"] as Both,
+  onlyLinkedWhy: [
+    "הגרף מציב את דברי הספר הזה על שורות של מה שאתה קורא — הקטלוג אינו מצהיר כלום",
+    "the link graph places this sefer's comments on lines of what you are reading — the catalogue declares nothing",
+  ] as Both,
+  /** Which corpus a row came from, shown **only** where two rows in the same
+   * list would otherwise read as one sefer. See `picker.ts`. */
+  fromSefaria: ["ספריא", "Sefaria"] as Both,
+  fromOtzaria: ["אוצריא", "Otzaria"] as Both,
+  fromMine: ["שלך", "yours"] as Both,
 
   // --- searching -----------------------------------------------------------
   searchBox: ["חיפוש בכל המדף", "Search the whole shelf"] as Both,

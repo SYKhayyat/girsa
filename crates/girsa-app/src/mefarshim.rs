@@ -40,7 +40,7 @@ use serde::Serialize;
 
 use crate::arrangement::Arrangement;
 use crate::shelf::{Companion, Related};
-use crate::taxonomy::{shelf_key_of, Branch, Shipped};
+use crate::taxonomy::{shelf_key_of, shelf_title, Branch, Shipped};
 
 /// Which works comment on which segment of one sefer.
 #[derive(Debug, Default, Clone)]
@@ -328,7 +328,7 @@ pub fn folders(works: &[Work], arrangement: &Arrangement, shipped: &Shipped) -> 
         .collect();
 
     let mut out = Folders::default();
-    out.tree = group(&here, &[], arrangement, &mut out.of);
+    out.tree = group(&here, &[], arrangement, shipped, &mut out.of);
     out.loose = works.len() - out.of.len();
     out
 }
@@ -342,6 +342,7 @@ fn group(
     works: &[(&str, &[String])],
     prefix: &[String],
     arrangement: &Arrangement,
+    shipped: &Shipped,
     placed: &mut BTreeMap<String, String>,
 ) -> Vec<Branch> {
     let mut buckets: BTreeMap<&str, Vec<(&str, &[String])>> = BTreeMap::new();
@@ -368,13 +369,13 @@ fn group(
         if let Some((name, held)) = buckets.pop_first() {
             let mut deeper = prefix.to_vec();
             deeper.push(name.to_string());
-            return group(&held, &deeper, arrangement, placed);
+            return group(&held, &deeper, arrangement, shipped, placed);
         }
     }
 
     let mut out: Vec<Branch> = buckets
         .into_iter()
-        .filter_map(|(name, held)| folder(name, &held, prefix, arrangement, placed))
+        .filter_map(|(name, held)| folder(name, &held, prefix, arrangement, shipped, placed))
         .collect();
     out.sort_by(|a, b| {
         rank_of(&a.title)
@@ -396,6 +397,7 @@ fn folder(
     held: &[(&str, &[String])],
     prefix: &[String],
     arrangement: &Arrangement,
+    shipped: &Shipped,
     placed: &mut BTreeMap<String, String>,
 ) -> Option<Branch> {
     if held.len() < 2 {
@@ -404,7 +406,7 @@ fn folder(
     let mut path = prefix.to_vec();
     path.push(name.to_string());
     let key = path.join("/");
-    let children = group(held, &path, arrangement, placed);
+    let children = group(held, &path, arrangement, shipped, placed);
     // Whoever the children did not take stands in this folder itself.
     let mut mine = 0;
     for (slug, _) in held {
@@ -414,7 +416,11 @@ fn folder(
         }
     }
     Some(Branch {
-        title: arrangement.title_of(&key),
+        // The same three-step rule the bookcase uses. This was
+        // `arrangement.title_of` alone — step 3 — so the chooser drew `Rif · 4`
+        // between `ראשונים · 13` and `מפרשים · 3` while the bookcase four
+        // inches away drew the same shelf as `רי״ף`.
+        title: shelf_title(&key, arrangement, shipped),
         here: mine,
         count: held.len(),
         mine: arrangement.made.contains(&key),
@@ -439,6 +445,16 @@ pub struct Choice {
     pub slug: String,
     pub he_title: String,
     pub en_title: String,
+    /// Which corpus this sefer's text came from.
+    ///
+    /// On the row so the window can tell two copies apart. Sefaria and Otzaria
+    /// both ship Rabbeinu Chananel on Bereshis, under two slugs and two
+    /// spellings — `רבינו חננאל על בראשית` and `ר חננאל על בראשית` — and the
+    /// list drew both with nothing saying why. It is **not** a merge: two
+    /// catalogue entries are two seforim until something states otherwise, and
+    /// this codebase does not guess at identity from a title. It is a label, so
+    /// that a duplicate reads as two copies rather than as a bug.
+    pub source: girsa_corpus::work::Source,
     /// How the corpus places this sefer against the one you are reading — a
     /// mefaresh on it, the sefer it is a mefaresh **on**, or its own sefer
     /// following the same order. `None` where only edges join them.
@@ -447,13 +463,17 @@ pub struct Choice {
     /// was `declared: bool`, and one bool over three claims is what put Bereshis
     /// in Onkelos's list labelled `פירוש`.
     pub stands: Option<Related>,
-    /// What the row says this relationship is, in the window's Hebrew — worded
-    /// once, in Rust, beside the enum it describes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub said: Option<&'static str>,
-    /// And what the claim rests on, for the hover.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub why: Option<&'static str>,
+    // `said` and `why` were here — the row's Hebrew label and an English
+    // sentence for the hover, both composed in Rust. That was the right move
+    // for the wrong half: it is right that **what the relation is** is decided
+    // beside the enum, and wrong that the *words* were. An English window drew
+    // `פירוש` on every declared commentary and a Hebrew window put `the corpus
+    // declares this a commentary on what you are reading` behind the hover —
+    // both languages wrong, in opposite directions, on the same row.
+    //
+    // `stands` already crosses as a name (`on` / `base` / `alongside`), which
+    // is the shape refusals and edge types settled on: the machine sends what
+    // it means, `say.ts` holds both columns of what to call it.
     /// How many edges join the two, where that is all there is.
     pub links: usize,
     /// Whether ticking it could mark a line — that is, whether the link graph
@@ -544,9 +564,8 @@ pub fn listed(
         Choice {
             he_title: work.map_or_else(|| slug.to_string(), |w| w.he_title.clone()),
             en_title: work.map_or_else(|| slug.to_string(), |w| w.en_title.clone()),
+            source: work.map_or(girsa_corpus::work::Source::Mine, |w| w.source),
             stands,
-            said: stands.map(Related::said),
-            why: stands.map(Related::why),
             links,
             tickable,
             chosen: chosen.iter().any(|c| c == slug),
@@ -1287,6 +1306,76 @@ mod tests {
             on.len(),
             folders.tree.len(),
             titles(&folders.tree)
+        );
+    }
+
+    #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
+    fn every_folder_in_the_chooser_is_named_in_hebrew() {
+        // Finding 17. The chooser drew `Rif · 4` between `ראשונים · 13` and
+        // `מפרשים · 3` — an untranslated Sefaria category name in a Hebrew
+        // list, four inches from a bookcase that drew the same shelf as
+        // `רי״ף`. Two places naming the same shelves, and nothing making them
+        // agree: `folder` here reached for `arrangement.title_of` alone, which
+        // is the last of `taxonomy::shelf_title`'s three steps and the one
+        // that hands back the key.
+        //
+        // Over **many** masechtos rather than over Berakhos, because the bug
+        // was on a shelf Berakhos does not have. That is what makes this a
+        // corpus test: the failing case is somewhere in the download, and
+        // asserting the class is the only way to reach it.
+        let root = real_corpus();
+        let shelf = real_shelf(&root);
+        let all: Vec<girsa_corpus::work::Work> = shelf.works().to_vec();
+        let shipped = Shipped::of(&all);
+
+        fn latin(branches: &[crate::taxonomy::Branch], out: &mut Vec<String>) {
+            for branch in branches {
+                if !branch
+                    .title
+                    .chars()
+                    .any(|c| ('\u{0590}'..='\u{05FF}').contains(&c))
+                {
+                    out.push(format!("{} · {}", branch.title, branch.count));
+                }
+                latin(&branch.children, out);
+            }
+        }
+
+        let mut unnamed = Vec::new();
+        let mut checked = 0;
+        for work in &all {
+            let Ok(marks) = Marks::of(&shelf, &work.slug) else {
+                continue;
+            };
+            let on: Vec<girsa_corpus::work::Work> = marks
+                .commentators()
+                .iter()
+                .filter_map(|slug| shelf.work(slug).cloned())
+                .collect();
+            if on.len() < 2 {
+                continue;
+            }
+            checked += 1;
+            latin(
+                &folders(&on, &Arrangement::default(), &shipped).tree,
+                &mut unnamed,
+            );
+            // Enough to cross every shelf the mefarshim of Shas and Tanach
+            // stand on, and not the whole 7,188-work catalogue: this reads one
+            // marks shard per sefer.
+            if checked >= 200 {
+                break;
+            }
+        }
+        unnamed.sort();
+        unnamed.dedup();
+        println!("{checked} seforim' mefarshim folders checked");
+        assert!(
+            unnamed.is_empty(),
+            "{} folders in the mefarshim chooser have no Hebrew name: {:?}",
+            unnamed.len(),
+            &unnamed[..unnamed.len().min(20)]
         );
     }
 

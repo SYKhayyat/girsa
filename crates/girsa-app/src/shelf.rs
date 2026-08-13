@@ -189,30 +189,13 @@ girsa_corpus::spelled!(Related {
 });
 
 impl Related {
-    /// What a row says it is, in the window's Hebrew.
-    ///
-    /// Here and not in the window: it is **what the relation is**, and a
-    /// vocabulary invented in TypeScript is one no Rust test can hold —
-    /// `girsa_app::links::kinds` made the same move for edge types after a tenth
-    /// edge type printed an English slug into a Hebrew interface.
-    #[must_use]
-    pub const fn said(self) -> &'static str {
-        match self {
-            Self::On => "פירוש",
-            Self::Base => "הספר עצמו",
-            Self::Alongside => "על סדר הספר",
-        }
-    }
-
-    /// The sentence behind the hover, which says what the claim rests on.
-    #[must_use]
-    pub const fn why(self) -> &'static str {
-        match self {
-            Self::On => "the corpus declares this a commentary on what you are reading",
-            Self::Base => "what you are reading is a commentary on this sefer",
-            Self::Alongside => "its own sefer, following the order of what you are reading",
-        }
-    }
+    // `said()` and `why()` were here, returning the row's Hebrew label and an
+    // English hover sentence. The argument for them — that *what the relation
+    // is* belongs beside the enum rather than being invented in TypeScript —
+    // was right, and `spelled!` above already carries it: the name crosses the
+    // wire, and `say.ts` holds `relatedOn`, `relatedBase` and `relatedAlongside`
+    // in both languages. What was here was a Hebrew word an English window drew
+    // and an English sentence a Hebrew window put behind its hover.
 }
 
 impl Shelf {

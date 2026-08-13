@@ -6,7 +6,7 @@
 // that used to be on the toolbar of the first screen must not appear anywhere.
 
 import { check, notOk, ok } from "./harness.mjs";
-import { KSAV, GIRSA, withPrefix, titleIn } from "../.tmp-test/names.mjs";
+import { KSAV, GIRSA, withPrefix, titleIn, sameSeferTwice } from "../.tmp-test/names.mjs";
 
 /** What was on the first screen, and must never be again. */
 const WRONG = "כסב";
@@ -65,4 +65,61 @@ export async function run() {
     titleIn({ he_title: "\n", en_title: "Berakhot" }, "hebrew"),
     "Berakhot",
   );
+
+  // ------------------------------------------------ one sefer, drawn twice
+  //
+  // > *"Rabbeinu Chananel appears twice (`רבינו חננאל על בראשית`, `ר חננאל על
+  // > בראשית`) — one from each corpus, undeduplicated, in the same list."*
+  //
+  // `sameSeferTwice` does not merge them and must not: two catalogue entries
+  // are two seforim until something states otherwise, and deciding that two
+  // titles name the same work is guessing at identity from a string. It
+  // answers the smaller question — *would a reader read these as one sefer* —
+  // so that both rows can say which corpus they came from.
+
+  const row = (slug, title) => ({ slug, title });
+
+  check(
+    "the two spellings of Rabbeinu Chananel are found",
+    [
+      ...sameSeferTwice([
+        row("sefaria/rabbeinu-chananel-on-genesis", "רבינו חננאל על בראשית"),
+        row("otzaria/r-chananel-bereishis", "ר חננאל על בראשית"),
+        row("sefaria/rashi-on-genesis", "רש\"י על בראשית"),
+      ]),
+    ].sort(),
+    ["otzaria/r-chananel-bereishis", "sefaria/rabbeinu-chananel-on-genesis"].sort(),
+  );
+
+  check(
+    "two seforim that are two seforim are left alone",
+    [...sameSeferTwice([row("a", "רש\"י על בראשית"), row("b", "רמב\"ן על בראשית")])],
+    [],
+  );
+
+  // Nikud and gershayim are how the two corpora differ from each other as often
+  // as an honorific is, and neither is a different sefer.
+  check(
+    "pointing and gershayim are not a difference",
+    [...sameSeferTwice([row("a", "רַשִׁ\"י עַל בְּרֵאשִׁית"), row("b", "רשי על בראשית")])].sort(),
+    ["a", "b"],
+  );
+
+  // The comparison is on the title as **drawn** — the caller has already
+  // decided which of a sefer's two names that is — so an English window finds
+  // the same pair through the same function. Which is why the honorifics come
+  // in both scripts.
+  check(
+    "an English window finds the same pair",
+    [...sameSeferTwice([
+      row("a", "Rabbeinu Chananel on Genesis"),
+      row("b", "R Chananel on Genesis"),
+    ])].sort(),
+    ["a", "b"],
+  );
+
+  // A single row is never a duplicate of itself, and an empty list is the
+  // ordinary case — most seforim have no twin anywhere.
+  check("one row is not a pair", [...sameSeferTwice([row("a", "רש\"י")])], []);
+  check("nothing is nothing", [...sameSeferTwice([])], []);
 }

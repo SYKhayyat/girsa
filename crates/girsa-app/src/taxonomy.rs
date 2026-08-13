@@ -350,14 +350,7 @@ fn branch(
 
     Branch {
         key: key.to_string(),
-        // The shelf's own seforim name it when the term table could not — see
-        // `girsa_corpus::taxonomy::hebrew_names`, and finding 6's second half:
-        // a Hebrew bookcase carrying `Chida` and `Mechokekei Yehudah` among its
-        // shelves.
-        title: arrangement
-            .named_title_of(key)
-            .or_else(|| shipped.name_of(key).map(str::to_string))
-            .unwrap_or_else(|| arrangement.title_of(key)),
+        title: shelf_title(key, arrangement, shipped),
         here: here_count,
         count: total,
         mine: arrangement.made.contains(key),
@@ -367,6 +360,33 @@ fn branch(
         commentary: girsa_corpus::taxonomy::is_commentary_shelf(key),
         loose: false,
     }
+}
+
+/// What a shelf is called, **wherever** a shelf is drawn.
+///
+/// Three sources in one order, and the order is the argument:
+///
+/// 1. what the reader renamed it to, which nothing may override;
+/// 2. the Hebrew name its own seforim give it, for the shelves the term table
+///    has no word for — `girsa_corpus::taxonomy::hebrew_names`, and finding 6's
+///    second half: a Hebrew bookcase carrying `Chida` and `Mechokekei Yehudah`
+///    among its shelves;
+/// 3. the last segment of the key, which is a Sefaria category name in English
+///    and is the answer of last resort.
+///
+/// # Why it is a function
+///
+/// Because it was three lines inside `branch`, and the mefarshim list drew its
+/// folders with step 3 alone. So the bookcase said `רי״ף` and the chooser said
+/// `Rif · 4`, between `ראשונים · 13` and `מפרשים · 3`, in the same window — two
+/// places naming the same shelves and nothing making them agree, which is the
+/// pattern this audit's Part 4 names.
+#[must_use]
+pub fn shelf_title(key: &str, arrangement: &Arrangement, shipped: &Shipped) -> String {
+    arrangement
+        .named_title_of(key)
+        .or_else(|| shipped.name_of(key).map(str::to_string))
+        .unwrap_or_else(|| arrangement.title_of(key))
 }
 
 /// What the gathered-seforim child is called.
@@ -665,7 +685,7 @@ mod tests {
             }
         }
         walk(&tree, &mut latin);
-        latin.sort_by(|a, b| b.1.cmp(&a.1));
+        latin.sort_by_key(|shelf| std::cmp::Reverse(shelf.1));
         assert!(
             latin.is_empty(),
             "{} shelves in a Hebrew bookcase have no Hebrew name: {:?}",

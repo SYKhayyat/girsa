@@ -9,10 +9,10 @@
 import { api, type Card, type Mefarshim, type OpenSefer, type Related } from "./api.ts";
 import { field, glyph } from "./controls.ts";
 import { Latest } from "./latest.ts";
-import { sefer } from "./names.ts";
+import { sameSeferTwice, sefer } from "./names.ts";
 import { say } from "./say.ts";
 import { ticked } from "./mefarshim.ts";
-import type { Choice, Listed } from "./api.ts";
+import type { Choice, Listed, Source } from "./api.ts";
 
 type Chosen = (slugs: string[]) => void;
 
@@ -158,7 +158,18 @@ export class Picker {
       // no-sefer-twice rule, in 277 lines of TypeScript beside a Rust module
       // with twenty-five tests about this same list. It is
       // `girsa_app::mefarshim::listed` now; this draws it.
-      this.fill(this.mefarshim.listed.map(listedRow), say("nothingBeside"));
+      // Which rows are one sefer drawn twice, worked out over the **whole**
+      // list before any of it is drawn: a duplicate is a fact about a pair, so
+      // neither row can see it alone.
+      const twice = sameSeferTwice(
+        this.mefarshim.listed.flatMap((e) =>
+          e.kind === "sefer" ? [{ slug: e.choice.slug, title: sefer(e.choice) }] : [],
+        ),
+      );
+      this.fill(
+        this.mefarshim.listed.map((entry) => listedRow(entry, twice)),
+        say("nothingBeside"),
+      );
       // Both groups tick, so both groups count. Reporting only the mefarshim
       // would tell a reader who has ticked the Arukh HaShulchan that they have
       // ticked nobody.
@@ -370,7 +381,7 @@ interface Row {
 }
 
 /** One entry of the grouped list: a heading, or a sefer under one. */
-function listedRow(entry: Listed): Row {
+function listedRow(entry: Listed, twice: Set<string>): Row {
   if (entry.kind === "folder") {
     return {
       slug: "",
@@ -379,7 +390,7 @@ function listedRow(entry: Listed): Row {
       heading: { depth: entry.depth, count: entry.count },
     };
   }
-  return companionRow(entry.choice);
+  return companionRow(entry.choice, twice.has(entry.choice.slug));
 }
 
 /** A heading over a group of rows — not a row you can choose. */
@@ -421,19 +432,55 @@ function cardRow(card: Card): Row {
  * for each of the three are Rust's, beside the enum — `said` and `why` arrive on
  * the row. A count of links is not a relationship and still says so.
  */
-function companionRow(companion: Choice): Row {
-  const counted = `${companion.links} ${say("linksCounted")}`;
+function companionRow(companion: Choice, twice = false): Row {
+  // Where two rows would read as the same sefer, both say which corpus they
+  // came from. Not a merge — see `sameSeferTwice` — a label, so that a
+  // duplicate reads as two copies rather than as a bug.
+  const from = twice ? ` · ${sourceSaid(companion.source)}` : "";
   return {
     slug: companion.slug,
     title: sefer(companion),
-    aside: companion.said ?? (companion.links > 0 ? counted : say("onlyLinked")),
-    why:
-      companion.why ??
-      (companion.links > 0
-        ? `${companion.links} links join the two; nothing declares a commentary`
-        : say("onlyLinkedWhy")),
+    aside: `${relatedSaid(companion)}${from}`,
+    why: relatedWhy(companion),
     tick: companion.tickable ? { on: companion.chosen } : undefined,
   };
+}
+
+/** Which corpus a sefer's text came from. */
+function sourceSaid(source: Source): string {
+  if (source === "sefaria") return say("fromSefaria");
+  if (source === "otzaria") return say("fromOtzaria");
+  return say("fromMine");
+}
+
+/**
+ * What the row says this sefer is, out of the **name** Rust sent.
+ *
+ * `Related::said()` used to compose this in Rust and send the words, which is
+ * why an English window drew `פירוש`. The name crosses now — `on`, `base`,
+ * `alongside`, or nothing at all — and the words are `say.ts`'s, like every
+ * other word in this window.
+ *
+ * Nothing at all is the interesting case: the graph places this sefer's
+ * comments on lines of what you are reading and the catalogue declares no
+ * relationship. That used to read `מפרש` beside a declared commentary's
+ * `פירוש` — two words a reader takes for synonyms, carrying the one
+ * distinction in the list they cannot see. It says what the claim rests on.
+ */
+function relatedSaid(companion: Choice): string {
+  if (companion.stands === "on") return say("relatedOn");
+  if (companion.stands === "base") return say("relatedBase");
+  if (companion.stands === "alongside") return say("relatedAlongside");
+  return companion.links > 0 ? say("onlyLinked") : say("onlyLinked");
+}
+
+function relatedWhy(companion: Choice): string {
+  if (companion.stands === "on") return say("relatedOnWhy");
+  if (companion.stands === "base") return say("relatedBaseWhy");
+  if (companion.stands === "alongside") return say("relatedAlongsideWhy");
+  return companion.links > 0
+    ? `${companion.links} ${say("linksCounted")} · ${say("onlyLinkedWhy")}`
+    : say("onlyLinkedWhy");
 }
 
 /** Re-exported so `main.ts` can name the type without importing the module
