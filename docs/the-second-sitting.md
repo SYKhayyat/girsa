@@ -471,7 +471,7 @@ citation cannot come to disagree about what daf you are on — which is what
 having two of them meant. It reads the reader's own `Session::cite`, which is
 the setting finding 23 gives a control.
 
-### 10 · The writing drawer opens as a black void
+### 10 · The writing drawer opens as a black void — **fixed**
 
 Ctrl+E takes the bottom 342 px of the window. Measured, the textarea is
 1360 × 306, `background: rgba(0,0,0,0)`, `border: none`, **no placeholder**. On
@@ -480,6 +480,17 @@ until you click, no hint that this is where you type. Above it sits a date field
 and a grey absolute path.
 
 Typing works. Nothing tells you that.
+
+Done, and each of the three was an absence rather than a mistake. The box is
+**paper** — `--page` inside a drawer that is `--page-raised`, inset from its
+walls, with a rule of its own, which is the relationship a sheet has to a desk.
+The focus ring that `outline: none` removed is back, drawn on the border so the
+sheet does not jump a pixel when you click into it. And there is a placeholder,
+saying the one thing a reader could not guess even from a box that plainly
+wants writing: that the buttons overhead put markup into it.
+
+The grey absolute path went too. It was the drawer's only status line, on load
+and after every save; it says `נשמר` now and the path is on the hover.
 
 ### 11 · Notes are taken in a browser dialog
 

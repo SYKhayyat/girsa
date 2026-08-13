@@ -439,6 +439,22 @@ const WORDS = {
   insertSource: ["מקור", "Source"] as Both,
   insertSourceWhy: ["הכנס את הבחירה שבספר", "insert what you highlighted in the sefer"] as Both,
   writingBox: ["מה שאתה כותב", "What you are writing"] as Both,
+  /**
+   * What the empty drawer says.
+   *
+   * It said nothing at all, which on a dark theme is a black rectangle with no
+   * frame and no caret until you click it: *"typing works. Nothing tells you
+   * that."* The sentence names the one thing a reader cannot guess — that the
+   * buttons overhead put markup into this box — because a drawer that looked
+   * like somewhere to write would still not say what it is for.
+   */
+  writingHint: [
+    "כתוב כאן. הכפתורים שלמעלה מכניסים סימון — כותרת, ציטוט, הערת עורך, מראה מקום.",
+    "Write here. The buttons above insert markup — a heading, a quotation, an editor's note, a mekor.",
+  ] as Both,
+  /** What the drawer says after a save. The path is on the hover: a reader
+   * wants to know it was written, not where the application keeps its files. */
+  writingSaved: ["נשמר", "saved"] as Both,
   nothingChosen: ["לא נבחר כלום בספר", "nothing is highlighted in the sefer"] as Both,
   saveACopy: ["שמור עותק…", "Save a copy…"] as Both,
   saveACopyWhy: [

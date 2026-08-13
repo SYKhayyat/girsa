@@ -1914,22 +1914,40 @@ body {
 }
 
 /* Monospace on purpose: this is markup, and a bracket that does not line up
-   is the commonest thing to get wrong in it. */
+   is the commonest thing to get wrong in it.
+
+   **Paper, and a rule around it.** This was `background: transparent` with
+   `border: 0` inside a drawer that is itself `--page-raised`, so on a dark
+   theme the writing surface was a black rectangle with no edge — no frame, no
+   placeholder, no caret until you clicked it. Typing worked and nothing said
+   so. It is `--page` now, inset from the drawer's walls, with a rule of its
+   own: the same relationship a sheet has to a desk. */
 .writing-box {
   flex: 1;
   width: 100%;
-  border: 0;
   resize: none;
+  margin: 0 10px 10px;
   padding: 10px 14px;
-  background: transparent;
+  background: var(--page);
   color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
   font-family: "Cascadia Mono", "Consolas", var(--hebrew), monospace;
   font-size: calc(15px * var(--reading-size) / 100);
   line-height: 1.7;
 }
 
+.writing-box::placeholder {
+  color: var(--ink-quiet);
+  opacity: 1;
+}
+
+/* The focus ring the `outline: none` above removed and never replaced, which
+   is half of why the drawer read as inert. Drawn on the border rather than as
+   an outline so it does not jump the sheet a pixel. */
 .writing-box:focus {
   outline: none;
+  border-color: var(--mark);
 }
 
 /* --- scans (spec.md §6.3, W25) -------------------------------------------

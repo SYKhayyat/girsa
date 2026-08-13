@@ -78,7 +78,16 @@ export class WritingView {
     head.append(this.ksavButton);
     head.append(button(say("close"), say("esc"), () => this.close()));
 
-    this.box = area(say("writingBox"), { className: "writing-box", dir: "rtl" });
+    // A placeholder, and a box that looks like a sheet — finding 10. The
+    // drawer opened as 1360 × 306 of `rgba(0,0,0,0)` with no border and no
+    // placeholder, which on a dark theme is a black rectangle: no frame, no
+    // caret until you click, nothing saying this is where you type. The
+    // stylesheet gives it paper and a rule; this gives it the sentence.
+    this.box = area(say("writingBox"), {
+      className: "writing-box",
+      dir: "rtl",
+      placeholder: say("writingHint"),
+    });
     this.box.spellcheck = false;
     this.box.addEventListener("input", () => this.scheduleSave());
 
@@ -141,7 +150,11 @@ export class WritingView {
     this.name = writing.name;
     this.title.value = writing.name;
     this.box.value = writing.text;
-    this.note.textContent = writing.path;
+    // Where the file is, on the hover. It used to be the drawer's only status
+    // line — a grey absolute path, in a panel whose problem was that it told
+    // the reader nothing they wanted to know.
+    this.note.textContent = "";
+    this.note.title = writing.path;
   }
 
   private async rename(): Promise<void> {
@@ -162,7 +175,8 @@ export class WritingView {
   private async save(): Promise<void> {
     if (!this.name || !isShell()) return;
     try {
-      this.note.textContent = await api.bufferSave(this.name, this.box.value);
+      this.note.title = await api.bufferSave(this.name, this.box.value);
+      this.note.textContent = say("writingSaved");
       clearTrouble(this.note);
     } catch (e) {
       // A buffer that will not save has to say so *while you are writing*, not
