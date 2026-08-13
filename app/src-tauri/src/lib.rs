@@ -2117,10 +2117,15 @@ fn link_draw(
     to: String,
     kind: String,
 ) -> Result<(), String> {
-    let from: SegmentId = from.parse().map_err(|e| format!("{e}"))?;
-    let to: SegmentId = to.parse().map_err(|e| format!("{e}"))?;
+    use girsa_app::trouble::{refuse, Code};
+    let from: SegmentId = from
+        .parse()
+        .map_err(|e| refuse(Code::NoSuch, format_args!("{e}")))?;
+    let to: SegmentId = to
+        .parse()
+        .map_err(|e| refuse(Code::NoSuch, format_args!("{e}")))?;
     let edge_type = girsa_link::touching::type_named(&kind)
-        .ok_or_else(|| format!("no such link type: {kind}"))?;
+        .ok_or_else(|| refuse(Code::NoSuch, format_args!("no such link type: {kind}")))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
@@ -2133,7 +2138,7 @@ fn link_draw(
             edge_type,
             &who,
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| refuse(Code::ReadOnly, e))
 }
 
 fn parse_anchor(text: &str) -> Result<girsa_link::Anchor, String> {

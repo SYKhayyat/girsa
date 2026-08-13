@@ -14,6 +14,7 @@ import {
   type FolderRow,
   type MarkRow,
   type NoteRow,
+  type PatchRow,
   type QueryRow,
   type TagRow,
 } from "./api.ts";
@@ -22,7 +23,7 @@ import { area, glyph } from "./controls.ts";
 import { say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 
-type Panel = "notes" | "marks" | "queries" | "folders" | "tags";
+type Panel = "notes" | "marks" | "queries" | "folders" | "tags" | "fixes";
 
 const PANELS: [Panel, string][] = [
   ["notes", say("yoursNotes")],
@@ -30,6 +31,12 @@ const PANELS: [Panel, string][] = [
   ["queries", say("yoursQueries")],
   ["folders", say("yoursFolders")],
   ["tags", say("yoursTags")],
+  // Sixth, and the last of the five things your layer holds to get a list. A
+  // correction *is* yours — it is a patch in your own layer, `unfix` takes it
+  // back — and until this tab the only place one could be seen was the line it
+  // was made on, which means a correction made yesterday in a sefer you have
+  // since closed was findable by remembering where you were.
+  ["fixes", say("yoursFixes")],
 ];
 
 export class YoursView {
@@ -63,13 +70,13 @@ export class YoursView {
     const out = document.createElement("button");
     out.className = "tool";
     out.textContent = say("yoursExport");
-    out.title = "everything, as plain files";
+    out.title = say("yoursExportWhy");
     out.addEventListener("click", () => void this.exportLayer());
 
     const close = document.createElement("button");
     close.className = "tool";
     close.textContent = say("close");
-    close.title = "Esc";
+    close.title = say("esc");
     close.addEventListener("click", () => this.close());
     head.append(title, this.note, out, close);
 
@@ -152,6 +159,8 @@ export class YoursView {
           return await this.drawFolders();
         case "tags":
           return await this.drawTags();
+        case "fixes":
+          return await this.drawFixes();
       }
     } catch (e) {
       sayTrouble(this.note, e);
@@ -160,7 +169,7 @@ export class YoursView {
 
   private async drawNotes(): Promise<void> {
     const notes = await api.notes();
-    this.note.textContent = notes.length === 0 ? say("yoursNothingWritten") : `${notes.length} הערות`;
+    this.note.textContent = notes.length === 0 ? say("yoursNothingWritten") : `${notes.length} ${say("countNotes")}`;
     for (const note of notes) {
       this.list.append(await this.noteRow(note));
     }
@@ -287,7 +296,7 @@ export class YoursView {
   private async drawMarks(): Promise<void> {
     const marks = await api.bookmarks();
     this.note.textContent =
-      marks.length === 0 ? say("yoursNoMarks") : `${marks.length} סימניות`;
+      marks.length === 0 ? say("yoursNoMarks") : `${marks.length} ${say("countMarks")}`;
     for (const mark of marks) this.list.append(this.markRow(mark));
   }
 
@@ -332,7 +341,7 @@ export class YoursView {
   private async drawQueries(): Promise<void> {
     const queries = await api.queries();
     this.note.textContent =
-      queries.length === 0 ? say("yoursNoQueries") : `${queries.length} שאילתות`;
+      queries.length === 0 ? say("yoursNoQueries") : `${queries.length} ${say("countQueries")}`;
     for (const query of queries) this.list.append(this.queryRow(query));
   }
 
@@ -374,7 +383,7 @@ export class YoursView {
 
   private async drawFolders(): Promise<void> {
     const folders = await api.folders();
-    this.note.textContent = folders.length === 0 ? say("yoursNoFolders") : `${folders.length} תיקיות`;
+    this.note.textContent = folders.length === 0 ? say("yoursNoFolders") : `${folders.length} ${say("countFolders")}`;
     for (const folder of folders) this.list.append(this.folderRow(folder));
   }
 
@@ -393,7 +402,7 @@ export class YoursView {
     const forget = document.createElement("button");
     forget.className = "tool";
     forget.textContent = say("yoursDelete");
-    forget.title = "the folder only — what was in it is untouched";
+    forget.title = say("yoursForgetFolderWhy");
     forget.addEventListener("click", () => {
       void (async () => {
         await api.folderForget(folder.name);
@@ -432,7 +441,7 @@ export class YoursView {
 
   private async drawTags(): Promise<void> {
     const tags = await api.tags();
-    this.note.textContent = tags.length === 0 ? say("yoursNoTags") : `${tags.length} תגיות`;
+    this.note.textContent = tags.length === 0 ? say("yoursNoTags") : `${tags.length} ${say("countTags")}`;
     for (const tag of tags) this.list.append(this.tagRow(tag));
   }
 
@@ -454,6 +463,66 @@ export class YoursView {
       .map((carried) => `${carried.count} ${carried.said}`)
       .join(" · ");
     row.append(name, count);
+    return row;
+  }
+
+  /**
+   * The corrections you have made (W20), which had no list until now.
+   *
+   * `api.fixes` was wired to a live `fixes` command and **no view called it**,
+   * which the second sitting flagged as a backend feature with no door. The
+   * door belongs here rather than in a panel of its own: a patch is a file in
+   * your layer, it is undone by `unfix` the way a mark is forgotten by
+   * `markForget`, and `PatchRow` already carries the sefer's title in the
+   * window's language and its address — a shape built to be listed.
+   */
+  private async drawFixes(): Promise<void> {
+    const fixes = await api.fixes();
+    this.note.textContent =
+      fixes.length === 0 ? say("yoursNoFixes") : `${fixes.length} ${say("countFixes")}`;
+    for (const fix of fixes) this.list.append(this.fixRow(fix));
+  }
+
+  private fixRow(fix: PatchRow): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "yours-row";
+
+    const where = document.createElement("button");
+    where.className = "yours-where";
+    // The sefer and the place, in the reader's language — the same two things
+    // a search row and a link row lead with, and for the same reason: nobody
+    // recognises a correction by its segment id.
+    where.textContent = `${fix.title} ${fix.address}`;
+    where.title = fix.segment;
+    where.addEventListener("click", () => void this.goTo?.(fix.work, fix.segment));
+
+    // What it said and what it says. A row that showed only the correction
+    // would be a claim with its evidence left out, which is the thing W20 is
+    // about: a corrected text you cannot see the correction in is a text
+    // somebody has quietly edited.
+    const said = document.createElement("span");
+    said.className = "yours-said";
+    said.textContent = `${fix.was} ← ${fix.now}`;
+    said.title = fix.kind === "ocr" ? say("fixed") : say("variantNoted");
+
+    const forget = document.createElement("button");
+    forget.className = "tool";
+    forget.textContent = say("yoursDelete");
+    forget.addEventListener("click", () => {
+      void (async () => {
+        try {
+          await api.unfix(fix.segment, fix.id);
+          // The panes are showing the corrected text, so they are wrong until
+          // they are redrawn — the same reason forgetting a mark calls this.
+          await this.changed?.();
+          await this.draw();
+        } catch (e) {
+          sayTrouble(this.note, e, "fix");
+        }
+      })();
+    });
+
+    row.append(where, said, forget);
     return row;
   }
 

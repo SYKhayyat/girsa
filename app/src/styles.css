@@ -882,6 +882,26 @@ body {
   gap: 4px;
 }
 
+/* Which of your folders this line is in. Above everything, because it is about
+   the line rather than about any one link on it. */
+.links-folders {
+  font-family: var(--plain);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  padding: 8px 14px 0;
+}
+
+/* Drawing a link of your own: under the lenses, above the links themselves,
+ * because it makes one more of the rows below it and belongs with them rather
+ * than with the panel's chrome. */
+.link-draw {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
 .link-retype {
   font-family: var(--plain);
   font-size: 11px;
@@ -2036,6 +2056,40 @@ body {
 .scan-marks.is-guessed .scan-mark {
   background: none;
   border: 1px dashed var(--mark);
+}
+
+/* Correcting the engine (W21). Every box on the page is drawn and every box is
+   clickable, so the overlay has to stop being transparent to the pointer — the
+   one state in which it is furniture rather than a mark. */
+.scan-marks.is-correcting {
+  pointer-events: auto;
+}
+
+.scan-marks.is-correcting .scan-mark {
+  background: none;
+  border: 1px solid var(--rule);
+  cursor: text;
+}
+
+/* Where the engine says it was unsure. Drawn from its own confidence and not
+   from anything we think about the word — an outline a reader can scan a page
+   for is the whole difference between correcting a page and proofreading it. */
+.scan-marks.is-correcting .scan-mark.is-doubtful {
+  border-color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 16%, transparent);
+}
+
+.scan-fix {
+  position: absolute;
+  z-index: 2;
+  font-family: var(--hebrew);
+  font-size: 15px;
+  min-width: 8ch;
+  padding: 2px 6px;
+  color: var(--ink);
+  background: var(--page-raised);
+  border: 1px solid var(--mark);
+  border-radius: 3px;
 }
 
 .scan-reading {

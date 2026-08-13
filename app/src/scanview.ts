@@ -50,6 +50,11 @@ function pdf(): Promise<typeof import("pdfjs-dist")> {
 /** How wide a page is drawn, in device pixels, before the browser scales it. */
 const RENDER_WIDTH = 1400;
 
+/** Under this, the engine says so itself, and the box is drawn as a doubt.
+ * `girsa-scan` reports Tesseract's per-word confidence as a fraction; 0.8 is
+ * where its own documentation stops calling a word reliable. */
+const DOUBTFUL = 0.8;
+
 /** 300 dpi against a 72-dpi PDF page: what an OCR engine is trained near, and
  * what `girsa-scan/src/engine.rs` measured tesseract at. */
 const OCR_SCALE = 300 / 72;
@@ -85,6 +90,11 @@ export class ScanView {
   private words: PageWords | null = null;
   /** What is marked: the normalized words a search asked for. */
   private marked: string[] = [];
+  /** Set while the reader is correcting the engine's words, which makes every
+   * box on the page clickable rather than only what a search asked for. */
+  private correcting = false;
+  /** The box being typed into, so a second click does not leave two. */
+  private fixing: HTMLInputElement | null = null;
   private readonly marks: HTMLElement;
   private readonly reading: HTMLElement;
   /** Set while the read-the-scan job is running; cleared to stop it. */
@@ -145,7 +155,16 @@ export class ScanView {
     // order they appear on the screen, and `dir="rtl"` on the pane turns it
     // round — so `‹` sits where a reader's hand expects the next daf.
     this.reading = el("span", "scan-reading");
-    bar.append(on, this.pageBox, back, this.goBox, this.mapButton(), this.readButton(), this.reading);
+    bar.append(
+      on,
+      this.pageBox,
+      back,
+      this.goBox,
+      this.mapButton(),
+      this.readButton(),
+      this.correctButton(),
+      this.reading,
+    );
     this.element.append(bar);
 
     this.body = el("div", "pane-body scan-body");
@@ -359,10 +378,15 @@ export class ScanView {
   private drawMarks(): void {
     this.marks.replaceChildren();
     this.marks.classList.toggle("is-guessed", this.words?.guessed === true);
-    if (!this.words || this.marked.length === 0) return;
-    const wanted = new Set(this.marked);
-    for (const word of this.words.words) {
-      if (!wanted.has(bare(word.text))) continue;
+    this.marks.classList.toggle("is-correcting", this.correcting);
+    if (!this.words) return;
+    // Correcting draws **every** word, because the reader is looking for the
+    // one the engine got wrong and cannot ask for it by name — asking for it by
+    // name is the thing they cannot do. Otherwise only what a search asked for.
+    const wanted = this.correcting ? null : new Set(this.marked);
+    if (wanted && wanted.size === 0) return;
+    this.words.words.forEach((word, index) => {
+      if (wanted && !wanted.has(bare(word.text))) return;
       const box = el("div", "scan-mark");
       box.style.insetInlineStart = "";
       box.style.left = `${word.left * 100}%`;
@@ -370,8 +394,84 @@ export class ScanView {
       box.style.width = `${(word.right - word.left) * 100}%`;
       box.style.height = `${(word.bottom - word.top) * 100}%`;
       box.title = word.text;
+      if (this.correcting) {
+        // The engine's own doubt, drawn. A page is a thousand rectangles and a
+        // reader hunting the wrong one is better served by being told where the
+        // machine was least sure than by being left to compare all of them.
+        if (word.confidence < DOUBTFUL) box.classList.add("is-doubtful");
+        box.addEventListener("click", () => this.correct(index, word.text, box));
+      }
       this.marks.append(box);
-    }
+    });
+  }
+
+  /**
+   * Correct one word by its ink (W21), which is the only correction a
+   * photograph can take.
+   *
+   * A reading pane corrects characters of text: `api.fix` takes offsets into
+   * the line, and a reader highlights the word and types. There is no text over
+   * a photograph to highlight, so `scan_fix` takes the word's **index on the
+   * page** instead, and the correction is stored against the box the engine
+   * drew — which is why it survives the page being read again by something
+   * better, where an offset into a re-OCR'd line would not.
+   *
+   * The command has existed since W21 and `api.scanFix` has been wired to it
+   * since; **no view called either**, so a reader looking at a word the engine
+   * plainly got wrong had nothing to click. This is that click.
+   */
+  private correct(index: number, was: string, box: HTMLElement): void {
+    if (this.fixing) this.fixing.remove();
+    // In the overlay, over the word, and not in a `window.prompt` — a browser
+    // dialog is a different application's furniture and it cannot show the ink
+    // the reader is correcting against.
+    const typed = field(say("scanFixWord"), { className: "scan-fix" });
+    typed.value = was;
+    this.fixing = typed;
+    const at = box.getBoundingClientRect();
+    const page = this.marks.getBoundingClientRect();
+    typed.style.left = `${((at.left - page.left) / page.width) * 100}%`;
+    typed.style.top = `${((at.bottom - page.top) / page.height) * 100}%`;
+    typed.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        this.stopCorrecting();
+        return;
+      }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const says = typed.value.trim();
+      if (!says || says === was) {
+        this.stopCorrecting();
+        return;
+      }
+      void (async () => {
+        try {
+          this.words = await api.scanFix(this.slug, this.page, index, says);
+          this.stopCorrecting();
+          this.drawMarks();
+        } catch (e) {
+          sayTrouble(this.note, e, "fix");
+        }
+      })();
+    });
+    this.marks.append(typed);
+    typed.focus();
+    typed.select();
+  }
+
+  private stopCorrecting(): void {
+    this.fixing?.remove();
+    this.fixing = null;
+  }
+
+  /** *Correct a word* — the toggle that makes every box on the page clickable. */
+  private correctButton(): HTMLElement {
+    return button(say("scanFix"), say("scanFixWhy"), () => {
+      this.correcting = !this.correcting;
+      this.stopCorrecting();
+      this.drawMarks();
+    });
   }
 
   /**

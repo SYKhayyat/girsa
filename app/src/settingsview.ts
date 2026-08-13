@@ -25,7 +25,14 @@
 // spelling anybody has to agree with is the one `keys.ts` produces — and that one
 // is cross-checked against Rust's.
 
-import { api, type Pointing, type Settings, type Shortcut } from "./api.ts";
+import {
+  api,
+  type CiteStyle,
+  type CiteStyleName,
+  type Pointing,
+  type Settings,
+  type Shortcut,
+} from "./api.ts";
 import { announces, button, choice as pick, field, glyph, region } from "./controls.ts";
 import { said } from "./keys.ts";
 import type { Language } from "./names.ts";
@@ -44,6 +51,22 @@ const POINTING: { value: Pointing; label: () => string }[] = [
   { value: "full", label: () => say("pointingFull") },
   { value: "nikud", label: () => say("pointingNikud") },
   { value: "plain", label: () => say("pointingPlain") },
+];
+
+/**
+ * The three citation styles, each carrying **both** of its spellings.
+ *
+ * `Settings.cite` comes back `hebrew_full` and `setCiteStyle` takes
+ * `hebrew-full` — a serde rename against a hand-written `name()`, in a pinned
+ * crate this repository does not own. The asymmetry is real and `api.ts`
+ * declares both types rather than pretending one away; this table is the one
+ * place the window crosses between them, so a row selects on `stored` and
+ * sends `takes`.
+ */
+const CITES: { stored: CiteStyle; takes: CiteStyleName; label: () => string }[] = [
+  { stored: "hebrew_full", takes: "hebrew-full", label: () => say("citeHebrewFull") },
+  { stored: "hebrew_short", takes: "hebrew-short", label: () => say("citeHebrewShort") },
+  { stored: "english", takes: "english", label: () => say("citeEnglish") },
 ];
 
 /** The two languages, offered on both language rows. */
@@ -201,6 +224,23 @@ export class SettingsView {
         s.pointing,
         (value) => {
           void api.setPointing(value as Pointing).then(() => this.changed());
+        },
+      ),
+    );
+
+    // The citation style, which `start-here.md` has promised since the first
+    // draft "reformats every citation" — and which no view called, so the
+    // promise could not be kept by any sequence of clicks. `Session::cite`
+    // was already read by the copy path; it now reaches the margin of every
+    // line, the commentary header, every search row and the resolver's
+    // landing, so this row changes visibly more than the sentence claimed.
+    this.body.append(
+      this.choice(
+        say("settingsCite"),
+        CITES.map((c) => ({ value: c.takes, label: c.label() })),
+        CITES.find((c) => c.stored === s.cite)?.takes ?? "hebrew-full",
+        (value) => {
+          void api.setCiteStyle(value as CiteStyleName).then(() => this.changed());
         },
       ),
     );

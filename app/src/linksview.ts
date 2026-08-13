@@ -10,7 +10,7 @@
 // about the texts (`curated`) is answered in Rust, because it is a rule about
 // evidence and not about a stylesheet.
 
-import { api, type LinkKind, type LinkRow, type Links } from "./api.ts";
+import { api, type LinkKind, type LinkRow, type Links, type Yours } from "./api.ts";
 
 /**
  * What a kind of link is called, out of the labelled list Rust sent.
@@ -123,14 +123,32 @@ export class LinksView {
     const at = this.at;
     if (!at) return;
     await this.draws.attempt(
-      () => api.links(at, this.lens ?? undefined, this.span ?? undefined),
-      (found) => this.drawFound(found),
+      async () => ({
+        links: await api.links(at, this.lens ?? undefined, this.span ?? undefined),
+        // Which of **your** folders hold this line, which is the one thing
+        // `yours` knows that nothing else in the window does: its notes come
+        // back from `links` above (that is the argument at the top of
+        // `api.ts`'s own-layer section) and its marks from `marksIn`, which is
+        // what draws them on the page. A chaburah is a sequence of places, and
+        // *is this line in one* had no answer anywhere.
+        //
+        // Swallowed on failure rather than allowed to blank the links: a strip
+        // that could not be drawn is a strip missing, not a panel broken.
+        yours: await api.yours(at).catch(() => null),
+      }),
+      (found) => this.drawFound(found.links, found.yours),
       (e) => sayTrouble(this.note, e, "read_links"),
     );
   }
 
-  private drawFound(found: Links): void {
+  private drawFound(found: Links, yours: Yours | null): void {
     this.list.replaceChildren();
+    if (yours && yours.folders.length > 0) {
+      const strip = document.createElement("p");
+      strip.className = "links-folders";
+      strip.textContent = `${say("linksInFolders")}: ${yours.folders.join(" · ")}`;
+      this.list.append(strip);
+    }
     const shown = found.links.filter((link) => !link.rejected);
     const words = this.span ? ` ${say("linksOnWords")}` : "";
     this.note.textContent =
@@ -153,7 +171,68 @@ export class LinksView {
       warn.textContent = say("linksNoInbound");
       this.list.append(warn);
     }
+    this.list.append(this.drawRow(found.types));
     this.list.append(...found.links.map((link) => this.row(link, found.types)));
+  }
+
+  /**
+   * Draw a link of your own — the one repair this panel could make in Rust and
+   * could not make in the window.
+   *
+   * `link_draw` has been a command since W23 and `api.linkDraw` has been wired
+   * to it since; no view called either, and the comment on `onHere` above said
+   * *"for reanchor to here **and draw from here**"* the whole time. A comment
+   * defending a behaviour is not evidence that the behaviour exists.
+   *
+   * **Two ends and one question.** `from` is the line this panel opened on —
+   * it does not follow the reader, which is what makes the gesture possible —
+   * and `to` is the line they are standing on now. That is the same idiom
+   * `linksMoveHere` uses twenty lines down, and for the same reason: those are
+   * the only two segments the window can name without asking a second
+   * question. Standing where the panel opened means there is no second end, so
+   * the row says to move rather than drawing a link from a line to itself.
+   */
+  private drawRow(types: LinkKind[]): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "link-draw";
+
+    const kind = choice(say("linksKind"), "link-retype");
+    kind.title = say("linksDrawWhy");
+    const pick = document.createElement("option");
+    pick.textContent = say("linksKindPick");
+    pick.value = "";
+    kind.append(pick);
+    for (const type of types) {
+      const option = document.createElement("option");
+      option.value = type.key;
+      option.textContent = type.title;
+      kind.append(option);
+    }
+
+    row.append(
+      kind,
+      button(say("linksDraw"), say("linksDrawWhy"), async () => {
+        const from = this.at;
+        const to = this.here?.();
+        if (!from) return;
+        if (!to || to === from) {
+          this.note.textContent = say("linksDrawFirst");
+          return;
+        }
+        if (!kind.value) {
+          this.note.textContent = say("linksDrawKindFirst");
+          return;
+        }
+        try {
+          await api.linkDraw(from, to, kind.value);
+          await this.draw();
+          this.note.textContent = say("linksDrew");
+        } catch (e) {
+          sayTrouble(this.note, e, "repair_link");
+        }
+      }),
+    );
+    return row;
   }
 
   /** The lenses, as a row of buttons (spec.md §8.5). They are yours: the five

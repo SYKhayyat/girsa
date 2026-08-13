@@ -561,12 +561,16 @@ shelf already holds.
   has; the binary had not been relinked after `npm run build`. Only touching a
   Rust file forced the embed. Anyone testing a release build this way is testing
   something else.
-* **Five calls wired into `api.ts` that no view ever makes**: `setCiteStyle`,
+* ~~**Five calls wired into `api.ts` that no view ever makes**: `setCiteStyle`,
   `fixes` (the list of corrections you have made), `linkDraw`, `scanFix`,
-  `yours`. The first is a preference `start-here.md` tells the reader they can
-  choose; the rest are backend features with no door into them. (`linkify` and
-  `who_cites` are absent from `api.ts` on purpose — they belong to Ksav's
-  loopback, not to this window.)
+  `yours`.~~ **Fixed.** All five have doors now — the citation style is a
+  settings row (finding 23), the corrections are a sixth tab in your own layer,
+  drawing a link is a control in the links panel, correcting a word by its ink
+  is a mode on the scan, and which of your folders hold a line is a strip at the
+  top of the links panel. And a guard in `wire.test.mjs` reads `api.ts` against
+  every other module in `src/`, so the sixth dead wire fails the build rather
+  than waiting for an audit. (`linkify` and `who_cites` are absent from `api.ts`
+  on purpose — they belong to Ksav's loopback, not to this window.)
 
 ---
 
@@ -963,7 +967,7 @@ The header says the window *"grows when they reach an edge"*, which is true; it
 does not claim it shrinks, and it does not. A reader who works through Mishnah
 Berurah front to back is carrying all 17,418 lines by the end of it.
 
-### 23 · There is no citation-style control anywhere in the window
+### 23 · There is no citation-style control anywhere in the window — **fixed**
 
 `start-here.md` promises that changing the citation style *"reformats every
 citation"*. The settings panel has three sections — `הקריאה`, `שפה`, `מקשים` —
@@ -971,6 +975,24 @@ holding a theme picker, two font boxes, three numbers, a nikud selector, two
 language selectors and twenty-one rebindable keys. There is no citation style in
 it, and no other panel offers one. `api.ts` exports `setCiteStyle`; no view calls
 it. The promise cannot be kept by any sequence of clicks.
+
+Done, in the reading section, beside the pointing it most resembles: three
+options, each **shown by an example of itself** — `עברית מלאה — אורח חיים סימן
+א׳ סעיף א׳`, `עברית מקוצרת — אורח חיים א׳, א׳`, `אנגלית — Orach Chayim 1:1`.
+A row reading *full / short / English* would ask the reader to guess what three
+words mean before choosing between them, and the examples are `CiteStyle`'s own
+doc comments, so the label and the formatter cannot drift apart quietly.
+
+The row also crosses the one asymmetry `api.ts` documents and nothing enforced:
+`Settings.cite` comes back `hebrew_full` and `setCiteStyle` takes `hebrew-full`.
+`CITES` in `settingsview.ts` carries both spellings on each option, so the
+crossing happens once, in a table, rather than at a call site.
+
+Worth saying what the setting now reaches. Before finding 21 it changed what was
+copied and nothing else; it now reaches the margin of every line, the commentary
+header, every search row and the resolver's landing — so the promise
+`start-here.md` made is not only keepable, it is a bigger promise than the
+sentence claimed.
 
 ### 24 · What is still untested, and why
 

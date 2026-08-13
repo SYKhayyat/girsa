@@ -29,7 +29,7 @@
 // against. Field *names* are where the drift was: `scan` missing from a card,
 // `notes`/`fixes` missing from a gap, six keys missing from the opening state.
 
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { check, ok } from "./harness.mjs";
 import { dirOf } from "../tools/paths.mjs";
@@ -177,4 +177,64 @@ export async function run() {
     [],
   );
   check("and none of them disagree about which fields those are", differ, []);
+
+  await everyCallHasADoor();
+}
+
+/**
+ * Every call the window declares is a call the window makes.
+ *
+ * The second sitting found five: `setCiteStyle`, `fixes`, `linkDraw`,
+ * `scanFix` and `yours` were wired to live Tauri commands and **no view called
+ * any of them**. One of the five was a documented promise —
+ * `start-here.md` said changing the citation style "reformats every citation",
+ * and the promise could not be kept by any sequence of clicks, because there
+ * was no control to click.
+ *
+ * A dead wire is not a harmless one. It is a feature the repository believes it
+ * has: it is counted in the command tally, it is described in the docs, it is
+ * kept working by the type checker and the wire test above, and it is worked
+ * around by nobody because nobody knows it is missing. The window's own source
+ * is the only place that says whether a door exists.
+ *
+ * Deliberately not the converse — a command Rust exposes that `api.ts` does not
+ * declare is `girsa-mcp`'s business or nobody's, and that is a different
+ * question with a different answer.
+ */
+async function everyCallHasADoor() {
+  const source = await readFile(API, "utf8");
+  // The object, and not the rest of the file: `whenLaneWorks(handler: …)`
+  // below it is a function parameter two spaces in, which reads as a member to
+  // anything that only looks at indentation.
+  const opens = source.indexOf("export const api = {");
+  const rest = source.slice(opens);
+  const object = rest.slice(0, rest.indexOf("\n};"));
+  const declared = [];
+  for (const line of object.split("\n")) {
+    // One level in, a name, a colon and an arrow: how every member of the
+    // object is written. Nested option objects are two levels in and their
+    // keys are not calls.
+    const member = /^ {2}(\w+): (\(|async )/.exec(line);
+    if (member) declared.push(member[1]);
+  }
+  ok("there are calls to check", declared.length > 80);
+
+  const src = path.join(HERE, "..", "src");
+  let callers = "";
+  for (const file of (await readdir(src)).filter((f) => f.endsWith(".ts"))) {
+    if (file === "api.ts") continue;
+    callers += await readFile(path.join(src, file), "utf8");
+  }
+  const called = new Set(
+    // `api\n  .scanGap()` is a call. Whitespace across the dot is how a
+    // `.then` chain gets formatted, and a pattern that did not allow it
+    // reported two live calls as dead ones — which is how a guard like this
+    // gets switched off by the second person to see it fail.
+    [...callers.matchAll(/\bapi\s*\.\s*(\w+)/g)].map((found) => found[1]),
+  );
+  check(
+    "every call api.ts declares is made by some view",
+    declared.filter((name) => !called.has(name)),
+    [],
+  );
 }

@@ -77,6 +77,29 @@ const WORDS = {
   ] as Both,
   seforimIn: ["שמות הספרים", "Sefer names"] as Both,
   windowIn: ["שפת החלון", "Interface"] as Both,
+  /**
+   * The three citation styles, each shown by an example of itself.
+   *
+   * A row reading *full / short / English* asks the reader to guess what
+   * three words mean before they can choose between them; the same row
+   * carrying `אורח חיים סימן א׳ סעיף א׳` shows the answer. The examples are
+   * `girsa_cite::CiteStyle`'s own — the doc comment on each variant — so the
+   * label and the formatter cannot drift apart without somebody noticing.
+   *
+   * The Hebrew examples stay Hebrew in the English column, because that is
+   * what the setting produces: a reader working in an English window still
+   * gets `אורח חיים א׳, א׳` when they copy under `hebrew-short`, and a row
+   * that transliterated the example would be a lie about the output.
+   */
+  citeHebrewFull: [
+    "עברית מלאה — אורח חיים סימן א׳ סעיף א׳",
+    "Hebrew, full — אורח חיים סימן א׳ סעיף א׳",
+  ] as Both,
+  citeHebrewShort: [
+    "עברית מקוצרת — אורח חיים א׳, א׳",
+    "Hebrew, short — אורח חיים א׳, א׳",
+  ] as Both,
+  citeEnglish: ["אנגלית — Orach Chayim 1:1", "English — Orach Chayim 1:1"] as Both,
   hebrew: ["עברית", "Hebrew"] as Both,
   english: ["English", "English"] as Both,
   sendToKsav: ["שלח", "Send"] as Both,
@@ -380,6 +403,22 @@ const WORDS = {
   linksPin: ["על מילים אלו", "On these words"] as Both,
   linksPinWhy: ["קבע שהקישור מדבר על מה שסימנת", "say the link is about the words you highlighted"] as Both,
   linksPinFirst: ["סמן קודם את המילים", "highlight the words first"] as Both,
+  /** Drawing a link of your own, which is the one thing this panel could do in
+   * Rust and could not do in the window. */
+  linksDraw: ["צור קשר לכאן", "Draw a link to here"] as Both,
+  linksDrawWhy: [
+    "צור קשר חדש מן השורה שהחלון נפתח עליה אל השורה שאתה עומד בה",
+    "draw a new link from the line this panel opened on to the line you are standing on",
+  ] as Both,
+  linksDrawFirst: [
+    "עמוד בשורה אחרת, והקשר ייווצר אליה",
+    "stand on a different line, and the link will be drawn to it",
+  ] as Both,
+  linksDrawKindFirst: ["בחר תחילה סוג קשר", "choose a kind of link first"] as Both,
+  linksDrew: ["נוצר קשר", "link drawn"] as Both,
+  /** Which of your chaburah folders hold the line you are on — the one thing
+   * `yours` knows that no other call in this window does. */
+  linksInFolders: ["בתיקיות שלך", "In your folders"] as Both,
   linksUndo: ["בטל", "Undo"] as Both,
   linksUndoWhy: ["בטל את מה שאמרת על הקישור", "undo what you said about this link"] as Both,
   linksOut: ["מכאן אל", "from here to"] as Both,
@@ -418,6 +457,7 @@ const WORDS = {
   settingsLeading: ["רווח בין השורות", "Line spacing"] as Both,
   settingsMeasure: ["רוחב הטור (אותיות, 0 = בלי הגבלה)", "Column width (characters, 0 = no limit)"] as Both,
   settingsPointing: ["ניקוד", "Pointing"] as Both,
+  settingsCite: ["ציון מקורות", "Citations"] as Both,
   settingsLanguage: ["שפה", "Language"] as Both,
   settingsKeys: ["מקשים", "Keys"] as Both,
   settingsKeysHint: [
@@ -520,6 +560,15 @@ const WORDS = {
   scanSayOnce: ["אמור איזה עמוד הוא איזה דף, פעם אחת", "say which page is which daf, once"] as Both,
   scanRead: ["קרא", "Read"] as Both,
   scanReadWhy: ["קרא את המילים שבסריקה — אפשר להפסיק בכל רגע", "read the words in the scan — you can stop at any moment"] as Both,
+  /** Correcting the engine on the photograph itself (W21). `scan_fix` was a
+   * command with no door: a word plainly wrong on the page had nothing to
+   * click. */
+  scanFix: ["תקן מילה", "Correct a word"] as Both,
+  scanFixWhy: [
+    "הראה את כל המילים שהמנוע קרא — לחיצה על אחת מתקנת אותה",
+    "show every word the engine read — click one to correct it",
+  ] as Both,
+  scanFixWord: ["מה כתוב כאן", "what it says here"] as Both,
   scanPages: ["דפים", "Pages"] as Both,
   scanPagesWhy: ["אמור איזה עמוד הוא איזה דף", "say which page is which daf"] as Both,
   scanScheme: ["איך העמודים נקראים", "How the pages are named"] as Both,
@@ -588,6 +637,31 @@ const WORDS = {
   yoursNoFolders: ["אין תיקיות", "no folders"] as Both,
   yoursRemove: ["הסר", "Remove"] as Both,
   yoursNoTags: ["אין תגיות", "no tags"] as Both,
+  /** The corrections you have made, which had no list anywhere in the window
+   * until this tab: `api.fixes` was wired to a live command nothing called, so
+   * a correction made yesterday could not be found again, let alone undone. */
+  yoursFixes: ["תיקונים", "Corrections"] as Both,
+  yoursNoFixes: ["לא תיקנת עדיין כלום", "you have not corrected anything yet"] as Both,
+  yoursExportWhy: ["הכל, כקבצים פשוטים", "everything, as plain files"] as Both,
+  yoursForgetFolderWhy: [
+    "התיקייה בלבד — מה שהיה בתוכה לא נוגעים בו",
+    "the folder only — what was in it is untouched",
+  ] as Both,
+  /**
+   * What each drawer counts, as a plural noun.
+   *
+   * Five of these were Hebrew string literals in `yoursview.ts` —
+   * `${notes.length} הערות` — which is the one thing `say.ts` exists to
+   * prevent, and which the tag row twenty lines below already argued against
+   * in a comment while four of its neighbours did it anyway. An English window
+   * counted `12 הערות`.
+   */
+  countNotes: ["הערות", "notes"] as Both,
+  countMarks: ["סימניות", "marks"] as Both,
+  countQueries: ["שאילתות", "questions"] as Both,
+  countFolders: ["תיקיות", "folders"] as Both,
+  countTags: ["תגיות", "tags"] as Both,
+  countFixes: ["תיקונים", "corrections"] as Both,
   scanGoWhy: [
     "כתוב דף — ב. או ב ע\"ב — או הדבק מראה מקום",
     "type a daf — 2a, or 2 amud bet — or paste a mareh makom",
