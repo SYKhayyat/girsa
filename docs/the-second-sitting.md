@@ -306,7 +306,7 @@ Escape.
 and 1000px, and a second specimen in English — twelve assertions where there was
 one assertion and a printed note.
 
-### 6 · Shas is filed by folder size, so Berakhos is at the bottom under "Guides"
+### 6 · Shas is filed by folder size, so Berakhos is at the bottom under "Guides" — **fixed**
 
 Complaint 1 was answered for *works* — `Work::order`, read from Sefaria, applied
 through one comparator. **Shelves never got it.** `taxonomy.rs:211` sorts a
@@ -333,6 +333,44 @@ seforim.
 
 *Fix:* shelves need an order the way works got one — from the corpus, not from a
 list of eight.
+
+**Done, and the same for the names.** Measured on the running tree, the same
+shelf now reads:
+
+```
+סדר זרעים · סדר מועד · סדר נשים · סדר נזיקין · סדר קדשים · סדר טהרות ·
+גמרא נוחה · מסכתות קטנות · מדריכים · ראשונים · אחרונים · מחברי זמננו ·
+מפרשים על מסכתות קטנות
+```
+
+Four rules where there were two. The **sefer comes before the commentaries on
+it** — the same rule `branch()` already applied to the loose seforim it gathers,
+one level up, and without it the 641 rishonim inherit their base's order and
+sort above the masechta they are written on. Then the **corpus's own order**:
+the earliest `Work::order` beneath a shelf. Sefaria orders the masechtos in the
+sequence they are learned — Berakhos `[1]`, Shabbos `[2]`, Yevamos `[14]` — so
+זרעים-מועד-נשים-נזיקין-קדשים-טהרות falls out of the corpus without the six
+names being typed anywhere. Then era, then size.
+
+The English shelves are the same finding and needed a census, not a longer
+table. The shipped catalogue has **533 distinct categories, 376 of them without
+a Hebrew letter in them** — and almost none of the 376 are words. They are the
+names of seforim and of the men who wrote them, and the corpus already knows
+every one in Hebrew:
+
+| | |
+|---|---|
+| named by the `X on Y` split — `מפרשים על מסכתות קטנות` | both halves translated |
+| named by their own seforim's titles — `ברטנורא` off `ברטנורא על ברכות` | **234** |
+| named by the one author they all carry — `חיים דוד אזולאי` for `Chida` | **38** |
+| left for the term table, which grew from 30 to 80 | **50** |
+
+Latin shelves left in the whole 7,189-work bookcase: **none**, asserted by
+`every_shelf_in_the_bookcase_is_named_in_hebrew` against the real corpus. A
+reader's own rename still wins over all of it.
+
+And the two Otzaria README files stand on `אחר / על אוצריא` rather than among
+the seforim nobody has filed yet.
 
 ### 7 · The search panel greets a Hebrew reader in English
 
@@ -662,8 +700,10 @@ grade more than anything else on the list.
    extends its base's.
 5. ~~**Let the pane title win the header** (finding 5).~~ **Done** — the buttons
    are one box and the box wraps; nothing is squeezed and nothing is hidden.
-6. **Give shelves an order the way works got one** (finding 6), and translate
-   the categories from the corpus rather than from a list of thirty.
+6. ~~**Give shelves an order the way works got one** (finding 6), and translate
+   the categories from the corpus rather than from a list of thirty.~~ **Done** —
+   both. 272 of the 376 English categories are named by the seforim standing on
+   them; none is left in the bookcase.
 7. **Make a mareh makom the default reading of a query** (finding 8), and print
    places as places, never as ids (findings 8, 9, 14).
 8. ~~**Put a browser in the gate.**~~ **Started** — `npm run eyes` is a headless

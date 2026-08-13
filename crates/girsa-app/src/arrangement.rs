@@ -164,6 +164,17 @@ impl Arrangement {
             .map_or_else(|| key.to_string(), |(_, tail)| tail.to_string())
     }
 
+    /// What the **reader** renamed this shelf to, and nothing else.
+    ///
+    /// Separated out so that a shelf the corpus named in English can be given a
+    /// Hebrew name off its own seforim *without* overriding a rename — see
+    /// `girsa_app::taxonomy::branch`. A reader who dragged a shelf's name to
+    /// something of their own keeps it.
+    #[must_use]
+    pub fn named_title_of(&self, key: &str) -> Option<String> {
+        self.titles.get(key).cloned()
+    }
+
     /// Read the arrangement from the personal layer.
     ///
     /// A file that will not parse is **moved aside rather than overwritten** —

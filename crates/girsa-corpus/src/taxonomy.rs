@@ -112,20 +112,42 @@ const PREFIX: [(&[&str], &[&str]); 34] = [
     (&["Second Temple"], &["בית שני"]),
     (&["Reference"], &["עזר"]),
     (&["ספרות עזר"], &["עזר"]),
-    // Otzaria ships its own documentation as two works. They are not seforim,
-    // and they are not thrown away either — see the module note on `אחר`.
-    (&["הודעה חשובה"], &["אחר"]),
-    (&["אודות התוכנה"], &["אחר"]),
+    // Otzaria ships its own documentation as two works — `הודעה חשובה` and
+    // `עריכת ספר באוצריא`. They are not seforim, and they are not thrown away
+    // either: they went to `אחר`, where they stood among the seforim nobody has
+    // filed yet and read as two more of them. A shelf of their own says what
+    // they are, and keeps them browsable and countable, which is what the note
+    // on `אחר` was for.
+    (&["הודעה חשובה"], &["אחר", "על אוצריא"]),
+    (&["אודות התוכנה"], &["אחר", "על אוצריא"]),
     (&["שלי"], &["שלי"]),
 ];
 
 /// What a category below the top is called on the shelf.
 ///
-/// Only exact translations are in here. `Chasidut/Early Works` is *not* —
-/// "early" there means the first generations of chasidus, and `ראשונים` would
-/// file the Maggid of Mezritch with the Rishonim. It is carried through in
-/// English instead, which is honest and which a reader can rename.
-const TERM: [(&str, &str); 30] = [
+/// Only exact translations are in here. `Chasidut/Early Works` used to be left
+/// out on the grounds that "early" there means the first generations of
+/// chasidus and `ראשונים` would file the Maggid of Mezritch with the Rishonim —
+/// which is right about `ראשונים` and was the wrong conclusion: it is
+/// `ראשוני החסידות`, and refusing to name it left an English folder in a Hebrew
+/// bookcase.
+///
+/// # This list was thirty long, and it was measured
+///
+/// The shipped catalogue has **533 distinct categories, 376 of them without a
+/// Hebrew letter in them**, and thirty translations against that is a Hebrew
+/// bookcase carrying `Commentary on Minor Tractates`, `Guides`, `Rif` and
+/// `Sefer Zemanim` among its shelves. Most of the 376 are not words at all —
+/// they are the names of seforim and of the men who wrote them, and
+/// [`hebrew_names`] gets 272 of them out of the corpus itself rather than out
+/// of here.
+///
+/// What is left after those two rules and the `X on Y` split is **fifty**, and
+/// they are in here: the fourteen sefarim of the Mishneh Torah, the rishonim
+/// the corpus files by acronym, and about a dozen ordinary English words. The
+/// count is asserted in `every_shelf_has_a_hebrew_name`, so this cannot quietly
+/// fall behind the corpus again.
+const TERM: [(&str, &str); 80] = [
     ("Rishonim", "ראשונים"),
     ("Acharonim", "אחרונים"),
     ("Commentary", "מפרשים"),
@@ -156,6 +178,66 @@ const TERM: [(&str, &str); 30] = [
     ("Encyclopedic Works", "אנציקלופדיות"),
     ("Dictionary", "מילונים"),
     ("Grammar", "דקדוק"),
+    // The fourteen sefarim of the Mishneh Torah. 1,851 works stand under
+    // `Mishneh Torah` and every one of them is in one of these.
+    ("Sefer Madda", "ספר מדע"),
+    ("Sefer Ahavah", "ספר אהבה"),
+    ("Sefer Zemanim", "ספר זמנים"),
+    ("Sefer Nashim", "ספר נשים"),
+    ("Sefer Kedushah", "ספר קדושה"),
+    ("Sefer Haflaah", "ספר הפלאה"),
+    ("Sefer Zeraim", "ספר זרעים"),
+    ("Sefer Avodah", "ספר עבודה"),
+    ("Sefer Korbanot", "ספר קרבנות"),
+    ("Sefer Taharah", "ספר טהרה"),
+    ("Sefer Nezikim", "ספר נזיקין"),
+    ("Sefer Kinyan", "ספר קנין"),
+    ("Sefer Mishpatim", "ספר משפטים"),
+    ("Sefer Shoftim", "ספר שופטים"),
+    ("Hasagot HaRa'avad", "השגות הראב״ד"),
+    // The rishonim the corpus files by acronym. `Rif` is finding 17 as well as
+    // finding 6: it is the group heading `Rif · 4` between `ראשונים · 13` and
+    // `מפרשים · 3` in the mefarshim chooser.
+    ("Rif", "רי״ף"),
+    ("Rosh", "רא״ש"),
+    ("Rashba", "רשב״א"),
+    ("Ibn Ezra", "אבן עזרא"),
+    ("Maharal", "מהר״ל"),
+    ("Alshich", "אלשיך"),
+    ("Rav Kook", "הרב קוק"),
+    ("Rabbi Lord Jonathan Sacks", "הרב יונתן זקס"),
+    // Works and collections named in English where the sefer has a Hebrew name
+    // everybody uses.
+    ("Midrash Rabbah", "מדרש רבה"),
+    ("Midrash Lekach Tov", "מדרש לקח טוב"),
+    ("Seder Olam Rabbah", "סדר עולם רבה"),
+    ("Sefer Yetzirah", "ספר יצירה"),
+    ("Sefer HaMitzvot", "ספר המצוות"),
+    ("Shulchan Arukh HaRav", "שולחן ערוך הרב"),
+    ("Peninei Halakhah", "פניני הלכה"),
+    ("Ba'er Hetev", "באר היטב"),
+    ("Shem HaGedolim", "שם הגדולים"),
+    ("Guide for the Perplexed", "מורה נבוכים"),
+    ("Duties of the Heart", "חובות הלבבות"),
+    ("Mishnat Eretz Yisrael", "משנת ארץ ישראל"),
+    ("Aramaic Targum", "תרגום ארמי"),
+    ("Targum Jerusalem", "תרגום ירושלמי"),
+    // Editions, movements, and plain English words.
+    ("Vilna Edition", "דפוס וילנא"),
+    ("Lieberman Edition", "מהדורת ליברמן"),
+    ("Geonim", "גאונים"),
+    ("Chabad", "חב״ד"),
+    ("Breslov", "ברסלב"),
+    ("Izhbitz", "איזביצא"),
+    // *Early* here is the first generations of chasidus, which is why this is
+    // not `ראשונים`.
+    ("Early Works", "ראשוני החסידות"),
+    ("Other Chasidut Works", "ספרי חסידות נוספים"),
+    ("Other Kabbalah Works", "ספרי קבלה נוספים"),
+    ("Other Liturgy Works", "ספרי תפילה נוספים"),
+    ("High Holidays", "ימים נוראים"),
+    ("Introduction", "הקדמה"),
+    ("Guides", "מדריכים"),
 ];
 
 /// Shelves that have an order older than the alphabet: rishonim before
@@ -220,6 +302,28 @@ const SECTION: [&str; 9] = [
     "סדר קדשים",
     "סדר טהרות",
 ];
+
+/// Whether a **shelf** is a shelf of commentary, from its canonical key.
+///
+/// The sibling of [`commentary_shelf`], which asks the same question of a work
+/// and its raw categories. This one is asked of the mapped path, so it tests the
+/// canonical Hebrew — and by prefix, because `term_of` now names a mefarshim
+/// shelf that sits beside its base `מפרשים על מסכתות קטנות` rather than
+/// carrying `Commentary on Minor Tractates` through in English.
+///
+/// What it is for: **the sefer comes before the commentaries on it.** `branch()`
+/// already applies that rule to the loose seforim gathered out of a level, and
+/// it is the same rule one level up — the six sedarim of Shas before the
+/// rishonim and acharonim on them, which is what a reader opening תלמוד expects
+/// and is not what they got.
+#[must_use]
+pub fn is_commentary_shelf(key: &str) -> bool {
+    let term = key.rsplit('/').next().unwrap_or(key);
+    COMMENTARY
+        .iter()
+        .filter(|m| is_hebrew(m))
+        .any(|m| term.starts_with(m))
+}
 
 /// Whether a work stands on a shelf of commentary, and what is above it.
 ///
@@ -546,13 +650,157 @@ fn term_of(part: &str, said: &[&str]) -> String {
     // Tanakh` is the corpus repeating where the reader already is, and it is
     // the whole reason Sefaria's rishonim and Otzaria's ראשונים would sit on
     // two shelves.
-    let bare = match part.split_once(" on ") {
-        Some((head, base)) if said.iter().any(|s| s.eq_ignore_ascii_case(base)) => head,
-        _ => part,
-    };
+    match part.split_once(" on ") {
+        Some((head, base)) if said.iter().any(|s| s.eq_ignore_ascii_case(base)) => translate(head),
+        // …and `X on Y` where Y is **not** where the reader is standing is a
+        // different shelf, not the same one said twice. `Commentary on Minor
+        // Tractates` sits under `תלמוד` beside `מסכתות קטנות`, and carrying it
+        // through whole put an English folder in a Hebrew bookcase — while
+        // translating it to a bare `מפרשים` would have collided it with the
+        // mefarshim on the Bavli, which are a different shelf of a different
+        // thing. Both halves are translated and the preposition is said.
+        Some((head, base)) => format!("{} על {}", translate(head), translate(base)),
+        None => translate(part),
+    }
+}
+
+/// A category, in the shelf's Hebrew — or exactly as the corpus wrote it.
+///
+/// Rule 3 of this module's header: **a category we have no Hebrew name for is
+/// shown in the corpus's words rather than in a guess at them.** What names the
+/// rest of them without a longer table is [`hebrew_names`], which asks the
+/// seforim.
+fn translate(part: &str) -> String {
     TERM.iter()
-        .find(|(en, _)| *en == bare)
-        .map_or_else(|| bare.to_string(), |(_, he)| (*he).to_string())
+        .find(|(en, _)| *en == part)
+        .map_or_else(|| part.to_string(), |(_, he)| (*he).to_string())
+}
+
+/// A Hebrew name for every shelf the table could not name, read off the seforim
+/// standing on it.
+///
+/// # The list of thirty, and the 200 categories it does not cover
+///
+/// [`TERM`] translates thirty categories exactly, and everything else is
+/// carried through as the corpus wrote it — which is honest and which left a
+/// Hebrew bookcase carrying `Commentary on Minor Tractates`, `Guides`, `Chida`
+/// and `Mechokekei Yehudah` among its shelves. Counted over the shipped
+/// catalogue: **357 distinct categories, 200 of them without a Hebrew letter in
+/// them.**
+///
+/// Lengthening the table is not the answer, because almost none of the 200 are
+/// *words*. They are the names of seforim and of the people who wrote them —
+/// `Bartenura`, `Malbim`, `Or HaChaim`, `Rashbam`, `Tosafot Yom Tov` — and the
+/// corpus already knows every one of them in Hebrew. Two ways, in order:
+///
+/// 1. **The seforim's own titles.** `Bartenura` is the shelf that holds
+///    `Bartenura on Berakhot`, whose `he_title` is `ברטנורא על ברכות`. Take the
+///    stem before ` על ` from every sefer on the shelf, and when they all agree,
+///    that is what the shelf is called. Sixty-three seforim agree on `ברטנורא`.
+/// 2. **The one author they name.** `Chida` holds `Chomat Anakh`, `Nachal
+///    Eshkol`, `Marit HaAyin` — several of his works, no shared title stem — and
+///    all 45 of them carry `author: חיים דוד אזולאי`. A shelf named after a man
+///    takes his name.
+///
+/// A shelf whose seforim agree on neither keeps its English, which is rule 3 and
+/// is what `Vilna Edition` and `Targum Jonathan` get: nobody wrote a Hebrew name
+/// for them anywhere in the corpus, and inventing one here would be a guess
+/// presented as a fact.
+///
+/// Keyed by the **shelf key** — the canonical path, `/`-joined — because that is
+/// what the arrangement persists and what a rename is recorded against. This
+/// names shelves; it never moves one.
+#[must_use]
+pub fn hebrew_names(
+    works: &[Work],
+    shelves: &[Vec<String>],
+) -> std::collections::BTreeMap<String, String> {
+    use std::collections::BTreeMap;
+
+    // Every prefix of a shelf path is a shelf: `תנ״ך/ראשונים/Bartenura` names
+    // three, and only the ones whose own last segment is Latin need anything.
+    let mut under: BTreeMap<String, Vec<&Work>> = BTreeMap::new();
+    for (work, shelf) in works.iter().zip(shelves) {
+        for depth in 1..=shelf.len() {
+            if is_hebrew(&shelf[depth - 1]) {
+                continue;
+            }
+            under.entry(shelf[..depth].join("/")).or_default().push(work);
+        }
+    }
+
+    under
+        .into_iter()
+        .filter_map(|(key, seforim)| named_by(&seforim).map(|name| (key, name)))
+        .collect()
+}
+
+/// Whether anything in this string is a Hebrew letter.
+fn is_hebrew(part: &str) -> bool {
+    part.chars().any(|c| ('\u{0590}'..='\u{05FF}').contains(&c))
+}
+
+/// The stem of a sefer's Hebrew title before the ` על ` — `ברטנורא על ברכות` is
+/// `ברטנורא` — or `None` when it has no Hebrew title at all.
+fn hebrew_stem(work: &Work) -> Option<&str> {
+    let title = work.he_title.trim();
+    let head = title.split_once(" על ").map_or(title, |(head, _)| head).trim();
+    (!head.is_empty() && is_hebrew(head)).then_some(head)
+}
+
+/// What a set of seforim standing together call the shelf they are on — see
+/// [`hebrew_names`] for the two rules and why there are two.
+fn named_by(seforim: &[&Work]) -> Option<String> {
+    let first = seforim.first()?;
+
+    // 1 · the stem their own titles agree on.
+    if let Some(stem) = hebrew_stem(first) {
+        if seforim.iter().all(|w| hebrew_stem(w) == Some(stem)) {
+            return Some(stem.to_string());
+        }
+    }
+
+    // 2 · the one author all of them name.
+    let author = first.author.as_deref().map(str::trim)?;
+    if author.is_empty() || !is_hebrew(author) {
+        return None;
+    }
+    seforim
+        .iter()
+        .all(|w| w.author.as_deref().map(str::trim) == Some(author))
+        .then(|| author.to_string())
+}
+
+/// Where a shelf sits in the corpus's own order: the earliest [`Work::order`]
+/// among the seforim standing on it, or `None` when none of them has one.
+///
+/// # Complaint 1, answered for the second half of it
+///
+/// > *"seforim sorted by name, not true order."*
+///
+/// That was answered for **works** — [`Work::order`], read from Sefaria,
+/// applied through one comparator — and shelves never got it. They sorted by a
+/// hand-written rank table of eight names and then by **count descending**, and
+/// the six sedarim are not among the eight, so a reader opening Shas found:
+///
+/// ```text
+/// ראשונים 641 · אחרונים 717 · מחברי זמננו 125 · Commentary on Minor Tractates 48 ·
+/// גמרא נוחה 36 · מסכתות קטנות 15 · סדר מועד 11 · סדר קדשים 9 · סדר נזיקין 8 ·
+/// סדר נשים 7 · Guides 5 · סדר זרעים 1 · סדר טהרות 1
+/// ```
+///
+/// Zeraim — where ברכות lives, alone — second from the bottom, below an English
+/// folder called *Guides*, with the sedarim in size order. Inside Seder Moed the
+/// masechtos were right, which made the folders look even more like a mistake.
+///
+/// The answer is the same one the works got. Sefaria orders the masechtos in the
+/// sequence they are learned — Berakhos `[1]`, Shabbos `[2]`, Yevamos `[14]` —
+/// so the earliest order under each seder recovers
+/// זרעים-מועד-נשים-נזיקין-קדשים-טהרות from the corpus, without anybody typing
+/// the six names anywhere.
+#[must_use]
+pub fn earliest_order(orders: impl Iterator<Item = Vec<i32>>) -> Option<Vec<i32>> {
+    orders.filter(|o| !o.is_empty()).min()
 }
 
 /// Where a shelf sorts among its siblings: era first, then size.
@@ -697,8 +945,8 @@ mod tests {
             shelves(&[genesis, lekach_tov, beur]),
             [
                 "תנ״ך/תורה",
-                "מדרש/אגדה/Midrash Lekach Tov",
-                "מדרש/אגדה/Midrash Lekach Tov/מפרשים"
+                "מדרש/אגדה/מדרש לקח טוב",
+                "מדרש/אגדה/מדרש לקח טוב/מפרשים"
             ]
         );
     }
@@ -713,7 +961,7 @@ mod tests {
             &["Jewish Thought", "Modern", "Rav Kook"],
             &["orot"],
         );
-        assert_eq!(shelves(&[footnotes]), ["מחשבה/מחברי זמננו/Rav Kook"]);
+        assert_eq!(shelves(&[footnotes]), ["מחשבה/מחברי זמננו/הרב קוק"]);
     }
 
     #[test]
@@ -999,19 +1247,28 @@ mod tests {
 
     #[test]
     fn a_category_nobody_has_translated_is_carried_through_not_guessed_at() {
-        // Real: Sefaria's chasidus shelf. `Early Works` is not `ראשונים` and
-        // is not going to be renamed into one by this code.
-        assert_eq!(shelf(&["Chasidut", "Early Works"]), "חסידות/Early Works");
-        assert_eq!(shelf(&["Kabbalah", "Baal HaSulam"]), "קבלה/Baal HaSulam");
+        // Rule 3 of this module, and it still holds — but for very few
+        // categories now. `Chasidut/Early Works` used to be the example, on the
+        // grounds that `ראשונים` would file the Maggid of Mezritch with the
+        // Rishonim; that is right about `ראשונים` and it is
+        // `ראשוני החסידות`, and refusing to name it left English on a Hebrew
+        // shelf. The census that came out of finding 6 is what settled it.
+        assert_eq!(shelf(&["Chasidut", "Early Works"]), "חסידות/ראשוני החסידות");
+        // What genuinely has no Hebrew name anywhere in the corpus is carried
+        // through, and `hebrew_names` is what gets most of these off the shelf
+        // by asking the seforim standing on them.
+        assert_eq!(shelf(&["Kabbalah", "Nobody Filed This"]), "קבלה/Nobody Filed This");
     }
 
     #[test]
     fn a_shelf_nobody_has_mapped_keeps_its_name_and_stays_countable() {
         assert_eq!(shelf(&["Something New"]), "אחר/Something New");
         assert_eq!(shelf(&[]), "אחר");
-        // Otzaria ships its own about-box as a work. It is not a sefer; it is
-        // also not silently dropped.
-        assert_eq!(shelf(&["אודות התוכנה"]), "אחר");
+        // Otzaria ships its own about-box as a work. It is not a sefer, it is
+        // not silently dropped, and it does not stand among the seforim nobody
+        // has filed yet either — it is on a shelf that says what it is.
+        assert_eq!(shelf(&["אודות התוכנה"]), "אחר/על אוצריא");
+        assert_eq!(shelf(&["הודעה חשובה"]), "אחר/על אוצריא");
     }
 
     #[test]
@@ -1021,12 +1278,15 @@ mod tests {
             shelf(&["Mishnah", "Modern Commentary on Mishnah"]),
             "משנה/מחברי זמננו"
         );
-        // The base named is something else — a work, not this shelf. Kept,
-        // because dropping it would file the commentary as though it were the
-        // thing it comments on.
+        // The base named is something else — a shelf beside this one, not this
+        // one. The `on Y` is kept, because dropping it would file the
+        // commentary as though it were the thing it comments on and collide it
+        // with the mefarshim on the Bavli. Both halves are translated: carrying
+        // the whole thing through put `Commentary on Minor Tractates` in a
+        // Hebrew bookcase for as long as this shelf has existed.
         assert_eq!(
             shelf(&["Talmud", "Bavli", "Commentary on Minor Tractates"]),
-            "תלמוד/בבלי/Commentary on Minor Tractates"
+            "תלמוד/בבלי/מפרשים על מסכתות קטנות"
         );
     }
 }

@@ -796,7 +796,7 @@ mod tests {
         // commentary shelf with enough edges settles as `Stands::On` — so it
         // takes the same path as Rashi and must not be cut by it.
         let dir = std::env::temp_dir().join("girsa-app-beside-flat-mefaresh");
-        shard_with(&dir, &[("girsa:korban-netanel/7#7", "girsa:bavli/berakhot/2a:3#3")]);
+        shard_with(&dir, &[("girsa:korban-netanel/7#2", "girsa:bavli/berakhot/2a:3#3")]);
 
         let gemara = gemara();
         let mut flat = open("korban-netanel", &[&["6"], &["7"], &["8"]]);
@@ -813,7 +813,7 @@ mod tests {
         );
         assert_eq!(
             place(&beside, "girsa:bavli/berakhot/2a:3#3"),
-            Place::At(vec!["girsa:korban-netanel/7#7".parse().unwrap()]),
+            Place::At(vec!["girsa:korban-netanel/7#2".parse().unwrap()]),
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

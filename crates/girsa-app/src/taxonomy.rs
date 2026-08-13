@@ -39,26 +39,41 @@ use crate::arrangement::{self, Arrangement};
 /// - `canonical_path` walks two tables per call, and `works_on` did it 7,189
 ///   times for one click on one shelf.
 #[derive(Debug, Clone, Default)]
-pub struct Shipped(BTreeMap<String, String>);
+pub struct Shipped {
+    /// Sefer → the shelf key the corpus files it on.
+    where_it_stands: BTreeMap<String, String>,
+    /// Shelf key → the Hebrew name its own seforim give it, for the shelves the
+    /// term table has no word for. See `girsa_corpus::taxonomy::hebrew_names`.
+    named: BTreeMap<String, String>,
+}
 
 impl Shipped {
     /// File the whole catalogue.
     #[must_use]
     pub fn of(works: &[Work]) -> Self {
-        Self(
-            works
+        let shelves = shelves_of(works);
+        Self {
+            where_it_stands: works
                 .iter()
-                .zip(shelves_of(works))
+                .zip(&shelves)
                 .map(|(work, shelf)| (work.slug.clone(), shelf.join("/")))
                 .collect(),
-        )
+            named: girsa_corpus::taxonomy::hebrew_names(works, &shelves),
+        }
     }
 
     /// Where the corpus files this sefer. Empty for one the catalogue has never
     /// seen, which is `אחר` by the same rule that puts an unfiled sefer there.
     #[must_use]
     pub fn of_slug(&self, slug: &str) -> &str {
-        self.0.get(slug).map_or("אחר", String::as_str)
+        self.where_it_stands.get(slug).map_or("אחר", String::as_str)
+    }
+
+    /// What this shelf's own seforim call it, for a shelf the corpus named in
+    /// English and the term table has no word for.
+    #[must_use]
+    pub fn name_of(&self, key: &str) -> Option<&str> {
+        self.named.get(key).map(String::as_str)
     }
 }
 
@@ -81,6 +96,16 @@ pub struct Branch {
     /// see that it was them who moved it.
     pub edited: bool,
     pub children: Vec<Branch>,
+    /// Where the corpus puts this shelf among its siblings: the earliest
+    /// [`Work::order`] anywhere beneath it. Not on the wire — the window draws a
+    /// shelf, it does not sort one — and it is what answers complaint 1 for
+    /// shelves the way `Work::order` answered it for seforim.
+    #[serde(skip)]
+    pub order: Option<Vec<i32>>,
+    /// This shelf holds commentary on the shelf beside it. Not on the wire, for
+    /// the same reason: it is a fact about where this sorts.
+    #[serde(skip)]
+    pub commentary: bool,
     /// This is not a shelf: it is the seforim standing on its parent, gathered
     /// so that a level is all folders or all seforim (W42).
     ///
@@ -114,10 +139,23 @@ pub fn shelf_key_of(work: &Work, arrangement: &Arrangement, shipped: &Shipped) -
 pub fn tree(works: &[Work], arrangement: &Arrangement, shipped: &Shipped) -> Vec<Branch> {
     let mut here: BTreeMap<String, usize> = BTreeMap::new();
     let mut keys: BTreeSet<String> = BTreeSet::new();
+    // The corpus's order for each shelf: the earliest `Work::order` standing on
+    // it. Gathered here rather than in `Shipped` so that it follows a sefer the
+    // reader has **moved** — the shelf they dragged it to is the shelf its order
+    // now belongs to.
+    let mut orders: BTreeMap<String, Vec<i32>> = BTreeMap::new();
 
     for work in works {
         let key = shelf_key_of(work, arrangement, shipped);
         *here.entry(key.clone()).or_default() += 1;
+        if !work.order.is_empty() {
+            let earliest = orders
+                .entry(key.clone())
+                .or_insert_with(|| work.order.clone());
+            if work.order < *earliest {
+                earliest.clone_from(&work.order);
+            }
+        }
         keys.insert(key);
     }
     // Every shelf anybody has named, whether or not a sefer stands on it: a
@@ -163,8 +201,11 @@ pub fn tree(works: &[Work], arrangement: &Arrangement, shipped: &Shipped) -> Vec
 
     let mut out: Vec<Branch> = roots
         .iter()
-        .map(|key| branch(key, arrangement, &here, &children, 0))
+        .map(|key| branch(key, arrangement, shipped, &here, &orders, &children, 0))
         .collect();
+    // The top shelves have an order of their own — `TOP`, the sixteen a bookcase
+    // has — so this is unchanged. It is the *levels below* that were sorted by
+    // how much was on them.
     out.sort_by(|a, b| {
         ordered(arrangement, arrangement::TOP, &a.key, &b.key)
             .then_with(|| top_rank_of(&a.key).cmp(&top_rank_of(&b.key)))
@@ -172,6 +213,60 @@ pub fn tree(works: &[Work], arrangement: &Arrangement, shipped: &Shipped) -> Vec
             .then_with(|| a.title.cmp(&b.title))
     });
     out
+}
+
+/// Where two shelves sit relative to each other, once the reader has not said.
+///
+/// # Complaint 1 came back wearing new clothes
+///
+/// > *"seforim sorted by name, not true order."*
+///
+/// Answered for **works** — `Work::order`, read from Sefaria, applied through
+/// one comparator — and shelves never got it. They sorted by a rank table of
+/// eight names and then by **count descending**, and the six sedarim are not
+/// among the eight:
+///
+/// ```text
+/// ראשונים 641 · אחרונים 717 · מחברי זמננו 125 · Commentary on Minor Tractates 48 ·
+/// גמרא נוחה 36 · מסכתות קטנות 15 · סדר מועד 11 · סדר קדשים 9 · סדר נזיקין 8 ·
+/// סדר נשים 7 · Guides 5 · סדר זרעים 1 · סדר טהרות 1
+/// ```
+///
+/// Zeraim, where ברכות lives alone, second from the bottom under an English
+/// folder called *Guides* — while inside Seder Moed the masechtos were in the
+/// right order, which made the folders look even more like a mistake. Lesson 4
+/// of the audit: *a fix is not finished at the site of the complaint.*
+///
+/// Four rules, in order, and only the last is a fallback:
+///
+/// 1. **The sefer before the commentaries on it.** `branch()` already applies
+///    this to the loose seforim it gathers out of a level; it is the same rule
+///    one level up, and it is what puts the whole of Shas above the rishonim on
+///    Shas.
+/// 2. **The corpus's own order**, the way the works got it: the earliest
+///    `Work::order` beneath a shelf. Sefaria orders the masechtos in the
+///    sequence they are learned — Berakhos `[1]`, Shabbos `[2]`, Yevamos `[14]`
+///    — so this recovers זרעים-מועד-נשים-נזיקין-קדשים-טהרות without anybody
+///    typing the six names anywhere. A shelf the corpus ordered comes before one
+///    it did not, exactly as `Work::by_order` has it.
+/// 3. **The era**, for the shelves that have one: rishonim, then acharonim,
+///    then our own contemporaries. Not derivable from anything — Sefaria states
+///    no order on a commentary shelf — so it stays a table.
+/// 4. **Size, then the title**, so the answer is stable for everything else.
+fn by_the_corpus(a: &Branch, b: &Branch) -> std::cmp::Ordering {
+    a.commentary
+        .cmp(&b.commentary)
+        .then_with(|| match (&a.order, &b.order) {
+            (Some(x), Some(y)) => x.cmp(y),
+            // An unordered shelf sorts after every ordered one, because an
+            // unordered shelf is one the corpus said nothing about.
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        })
+        .then_with(|| rank_of(&a.title).cmp(&rank_of(&b.title)))
+        .then_with(|| b.count.cmp(&a.count))
+        .then_with(|| a.title.cmp(&b.title))
 }
 
 /// Whether `key` is somewhere above `shelf` — which is what makes putting
@@ -194,7 +289,9 @@ fn hangs_under(arrangement: &Arrangement, key: &str, shelf: &str) -> bool {
 fn branch(
     key: &str,
     arrangement: &Arrangement,
+    shipped: &Shipped,
     here: &BTreeMap<String, usize>,
+    orders: &BTreeMap<String, Vec<i32>>,
     children: &BTreeMap<String, Vec<String>>,
     depth: usize,
 ) -> Branch {
@@ -205,15 +302,10 @@ fn branch(
             .get(key)
             .into_iter()
             .flatten()
-            .map(|child| branch(child, arrangement, here, children, depth + 1))
+            .map(|child| branch(child, arrangement, shipped, here, orders, children, depth + 1))
             .collect()
     };
-    kids.sort_by(|a, b| {
-        ordered(arrangement, key, &a.key, &b.key)
-            .then_with(|| rank_of(&a.title).cmp(&rank_of(&b.title)))
-            .then_with(|| b.count.cmp(&a.count))
-            .then_with(|| a.title.cmp(&b.title))
-    });
+    kids.sort_by(|a, b| ordered(arrangement, key, &a.key, &b.key).then_with(|| by_the_corpus(a, b)));
 
     let here_count = here.get(key).copied().unwrap_or_default();
     // Counted before anything is gathered, and used as the total afterwards.
@@ -240,20 +332,39 @@ fn branch(
                 mine: false,
                 edited: false,
                 children: Vec::new(),
+                order: orders.get(key).cloned(),
+                commentary: false,
                 loose: true,
             },
         );
         here_count = 0;
     }
 
+    // The earliest order anywhere beneath, so a shelf of shelves inherits the
+    // sequence of what is under it — `סדר זרעים` has ברכות `[1]` standing on it
+    // and `תלמוד/בבלי` has the whole of Shas beneath it.
+    let order = std::iter::once(orders.get(key).cloned())
+        .chain(kids.iter().map(|kid| kid.order.clone()))
+        .flatten()
+        .min();
+
     Branch {
         key: key.to_string(),
-        title: arrangement.title_of(key),
+        // The shelf's own seforim name it when the term table could not — see
+        // `girsa_corpus::taxonomy::hebrew_names`, and finding 6's second half:
+        // a Hebrew bookcase carrying `Chida` and `Mechokekei Yehudah` among its
+        // shelves.
+        title: arrangement
+            .named_title_of(key)
+            .or_else(|| shipped.name_of(key).map(str::to_string))
+            .unwrap_or_else(|| arrangement.title_of(key)),
         here: here_count,
         count: total,
         mine: arrangement.made.contains(key),
         edited: arrangement.titles.contains_key(key) || arrangement.shelves.contains_key(key),
         children: kids,
+        order,
+        commentary: girsa_corpus::taxonomy::is_commentary_shelf(key),
         loose: false,
     }
 }
@@ -388,6 +499,212 @@ mod tests {
         let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
         let counted: usize = tree.iter().map(|b| b.count).sum();
         assert_eq!(counted, works.len());
+    }
+
+    // ── finding 6 · complaint 1, answered for the shelves this time ─────────
+
+    /// A work with categories **and** the corpus's order for it.
+    fn ordered_work(slug: &str, categories: &[&str], order: &[i32]) -> Work {
+        let mut work = work_on(slug, categories);
+        work.order = order.to_vec();
+        work
+    }
+
+    #[test]
+    fn the_sedarim_are_in_the_order_they_are_learned_and_not_in_size_order() {
+        // What a reader saw opening Shas: `ראשונים 641 · אחרונים 717 · … ·
+        // סדר מועד 11 · … · סדר זרעים 1 · סדר טהרות 1`. Zeraim, where ברכות
+        // lives alone, second from the bottom — because a shelf sorted by a
+        // rank table of eight names and then by count descending, and the six
+        // sedarim are not among the eight.
+        //
+        // Sefaria orders the masechtos in the sequence they are learned, so the
+        // earliest order beneath each seder is the seder's own place. Nothing
+        // here names a seder.
+        let works = vec![
+            ordered_work("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[1]),
+            ordered_work("bavli/shabbat", &["Talmud", "Bavli", "Seder Moed"], &[2]),
+            ordered_work("bavli/eruvin", &["Talmud", "Bavli", "Seder Moed"], &[3]),
+            ordered_work("bavli/yevamot", &["Talmud", "Bavli", "Seder Nashim"], &[14]),
+            ordered_work("bavli/bava-kamma", &["Talmud", "Bavli", "Seder Nezikin"], &[21]),
+            ordered_work("bavli/zevachim", &["Talmud", "Bavli", "Seder Kodashim"], &[28]),
+            ordered_work("bavli/niddah", &["Talmud", "Bavli", "Seder Tahorot"], &[37]),
+        ];
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
+        let bavli = find(&tree, "בבלי").expect("the bavli is there");
+        let sedarim: Vec<&str> = bavli.children.iter().map(|b| b.title.as_str()).collect();
+        assert_eq!(
+            sedarim,
+            vec![
+                "סדר זרעים",
+                "סדר מועד",
+                "סדר נשים",
+                "סדר נזיקין",
+                "סדר קדשים",
+                "סדר טהרות",
+            ],
+            "and Moed, with two masechtos on it, does not overtake Zeraim with one"
+        );
+    }
+
+    #[test]
+    fn the_gemara_comes_before_the_rishonim_on_it() {
+        // Rule 1 of `by_the_corpus`, and the same rule `branch()` already
+        // applies to the loose seforim it gathers: the sefer comes before the
+        // commentaries on it. Without it the rishonim inherit their base's
+        // order — the importer gives a commentary its base's order when it has
+        // none of its own — and 641 of them sort above the one masechta they
+        // are written on.
+        let works = vec![
+            ordered_work("bavli/berakhot", &["Talmud", "Bavli", "Seder Zeraim"], &[1]),
+            ordered_work(
+                "bavli/rashi-on-berakhot",
+                &["Talmud", "Bavli", "Rishonim on Talmud"],
+                &[1],
+            ),
+            ordered_work(
+                "bavli/pnei-yehoshua",
+                &["Talmud", "Bavli", "Acharonim on Talmud"],
+                &[1],
+            ),
+        ];
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
+        let bavli = find(&tree, "בבלי").expect("the bavli is there");
+        let shelves: Vec<&str> = bavli.children.iter().map(|b| b.title.as_str()).collect();
+        assert_eq!(shelves, vec!["סדר זרעים", "ראשונים", "אחרונים"]);
+    }
+
+    #[test]
+    fn a_shelf_the_corpus_named_in_english_is_named_by_its_own_seforim() {
+        // `Bartenura` is not a word anybody could put in a translation table —
+        // it is the name of a sefer, and the corpus already knows it in Hebrew,
+        // sixty-three times over.
+        let mut one = work_on("bartenura-on-berakhot", &["Mishnah", "Rishonim on Mishnah", "Bartenura"]);
+        one.he_title = "ברטנורא על ברכות".into();
+        let mut two = work_on("bartenura-on-shabbat", &["Mishnah", "Rishonim on Mishnah", "Bartenura"]);
+        two.he_title = "ברטנורא על שבת".into();
+        let works = vec![one, two];
+
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
+        assert!(find(&tree, "ברטנורא").is_some(), "named off its own seforim");
+        assert!(find(&tree, "Bartenura").is_none(), "and not left in English");
+    }
+
+    #[test]
+    fn a_shelf_of_several_of_one_mans_works_is_named_after_the_man() {
+        // The Chida's shelf holds `Chomat Anakh`, `Nachal Eshkol`, `Marit
+        // HaAyin` — no shared title stem, and all forty-five carry the same
+        // author. A shelf named after a man takes his name.
+        let mut one = work_on("chomat-anakh-on-isaiah", &["Tanakh", "Acharonim on Tanakh", "Chida"]);
+        one.he_title = "חומת אנך על ישעיהו".into();
+        one.author = Some("חיים דוד אזולאי".into());
+        let mut two = work_on("nachal-eshkol-on-ruth", &["Tanakh", "Acharonim on Tanakh", "Chida"]);
+        two.he_title = "נחל אשכול על רות".into();
+        two.author = Some("חיים דוד אזולאי".into());
+        let works = vec![one, two];
+
+        let tree = tree(&works, &Arrangement::default(), &Shipped::of(&works));
+        assert!(find(&tree, "חיים דוד אזולאי").is_some());
+        assert!(find(&tree, "Chida").is_none());
+    }
+
+    #[test]
+    fn a_rename_by_the_reader_beats_the_name_the_corpus_gives() {
+        // spec.md §5: the shipped taxonomy is a default, not a fact. Naming a
+        // shelf off its seforim must not undo a drag.
+        let mut one = work_on("bartenura-on-berakhot", &["Mishnah", "Rishonim on Mishnah", "Bartenura"]);
+        one.he_title = "ברטנורא על ברכות".into();
+        let works = vec![one];
+        let mut arrangement = Arrangement::default();
+        arrangement.titles.insert(
+            "משנה/ראשונים/Bartenura".to_string(),
+            "רע״ב".to_string(),
+        );
+
+        let tree = tree(&works, &arrangement, &Shipped::of(&works));
+        assert!(find(&tree, "רע״ב").is_some(), "the reader's name stands");
+        assert!(find(&tree, "ברטנורא").is_none());
+    }
+
+    // ── the whole bookcase, against the shipped catalogue ───────────────────
+
+    #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
+    fn every_shelf_in_the_bookcase_is_named_in_hebrew() {
+        // The measurement finding 6 rests on, kept where it can go red. The
+        // shipped catalogue has 533 distinct categories and 376 of them carry
+        // no Hebrew letter; thirty translations against that is a Hebrew
+        // bookcase with `Commentary on Minor Tractates`, `Guides`, `Rif` and
+        // `Sefer Zemanim` among its shelves.
+        //
+        // What names them is, in order: the `X on Y` split, `TERM`, the
+        // seforim's own titles, and their one author. This asserts the result
+        // rather than any of the four, so a corpus that grows a category nobody
+        // has named turns this red instead of quietly putting English on the
+        // shelf.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
+        assert!(
+            root.join("works").is_dir(),
+            "no corpus at {} — run girsa-fetch and girsa-import. This check is \
+             #[ignore]d precisely so that its absence is never read as a pass.",
+            root.display()
+        );
+        let shelf = crate::shelf::Shelf::open(&root, &root.join("no-personal-layer"))
+            .expect("the shelf opens");
+        let works = shelf.works();
+        assert!(works.len() > 5_000, "only {} works read", works.len());
+
+        let tree = tree(works, &Arrangement::default(), &Shipped::of(works));
+        let mut latin: Vec<(String, usize)> = Vec::new();
+        fn walk(branches: &[Branch], out: &mut Vec<(String, usize)>) {
+            for b in branches {
+                if !b.title.chars().any(|c| ('\u{0590}'..='\u{05FF}').contains(&c)) {
+                    out.push((b.title.clone(), b.count));
+                }
+                walk(&b.children, out);
+            }
+        }
+        walk(&tree, &mut latin);
+        latin.sort_by(|a, b| b.1.cmp(&a.1));
+        assert!(
+            latin.is_empty(),
+            "{} shelves in a Hebrew bookcase have no Hebrew name: {:?}",
+            latin.len(),
+            &latin[..latin.len().min(20)]
+        );
+    }
+
+    #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
+    fn shas_opens_on_zeraim_and_not_on_the_biggest_folder() {
+        // The reader's own complaint, at the scale it was made at: open
+        // תלמוד → בבלי and the six sedarim come first, in the order they are
+        // learned, above the rishonim and acharonim written on them.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
+        assert!(
+            root.join("works").is_dir(),
+            "no corpus at {} — run girsa-fetch and girsa-import.",
+            root.display()
+        );
+        let shelf = crate::shelf::Shelf::open(&root, &root.join("no-personal-layer"))
+            .expect("the shelf opens");
+        let works = shelf.works();
+        let tree = tree(works, &Arrangement::default(), &Shipped::of(works));
+        let bavli = find(&tree, "בבלי").expect("the bavli is on the shelf");
+
+        let titles: Vec<&str> = bavli.children.iter().map(|b| b.title.as_str()).collect();
+        println!("תלמוד/בבלי: {}", titles.join(" · "));
+
+        let at = |name: &str| titles.iter().position(|t| *t == name);
+        let (zeraim, moed) = (at("סדר זרעים"), at("סדר מועד"));
+        assert!(zeraim.is_some() && moed.is_some(), "the sedarim are {titles:?}");
+        assert!(zeraim < moed, "Zeraim comes before Moed");
+        if let Some(rishonim) = at("ראשונים") {
+            assert!(
+                zeraim < Some(rishonim),
+                "the Gemara comes before the rishonim on it"
+            );
+        }
     }
 
     #[test]

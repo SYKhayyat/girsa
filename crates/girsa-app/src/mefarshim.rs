@@ -420,6 +420,11 @@ fn folder(
         mine: arrangement.made.contains(&key),
         edited: arrangement.titles.contains_key(&key) || arrangement.shelves.contains_key(&key),
         children,
+        // Not the bookcase's sort — this list is grouped by era and ordered by
+        // `rank_of` a few lines up — but the field is a fact about the shelf and
+        // is answered rather than left at a default.
+        order: None,
+        commentary: girsa_corpus::taxonomy::is_commentary_shelf(&key),
         key,
         // Never here: the mefarshim list already puts the ungrouped ones above the
         // folders rather than in a folder of their own, because a list of sixty
@@ -1534,6 +1539,8 @@ mod tests {
             mine: false,
             edited: false,
             children: Vec::new(),
+            order: None,
+            commentary: false,
             loose: false,
         }
     }

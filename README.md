@@ -86,7 +86,7 @@ runs one way, and the reading workspace compiles without any of them.
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
 is **27**<!--=window-modules--> TypeScript modules and one stylesheet of
-**2,832**<!--=styles-lines--> lines — no framework, three runtime dependencies,
+**2,872**<!--=styles-lines--> lines — no framework, three runtime dependencies,
 and no fossils.
 
 That sentence used to say *supposed to be*, and it was measured: of the
