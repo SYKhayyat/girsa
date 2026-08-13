@@ -518,13 +518,20 @@ fn every_documented_command_names_the_crate_that_has_it() {
     );
 }
 
-/// The version is stated in four places, and they have to agree.
+/// The **product's** version is stated in three places, and they have to agree.
 ///
-/// `Cargo.toml`'s `[workspace.package]`, the shell crate's own `version`,
-/// `tauri.conf.json`, and `app/package.json`. Three of them decide something a
-/// reader sees — the bundle's filename, what Add/Remove Programs reports, what
-/// the update check would compare against — and nothing has ever checked that
-/// they say the same thing.
+/// The shell crate's own `version`, `tauri.conf.json`, and `app/package.json`.
+/// Each decides something a reader sees — the bundle's filename, what
+/// Add/Remove Programs reports, what an update check would compare against —
+/// and nothing has ever checked that they say the same thing.
+///
+/// **`[workspace.package]` is deliberately not one of them**, and finding that
+/// out cost a broken build. Bumping it to cut a release moved every library
+/// crate at once and left them requiring `=0.1.0` of each other, because those
+/// pins are exact on purpose (see the scan above). Which is the answer: that
+/// number versions a set of libraries pinned against one another, and these
+/// three version the application somebody installs. Two questions that happen
+/// to have had the same answer since the first commit.
 ///
 /// That is the same shape as the README stating numbers nothing measured, which
 /// this repository already guards. A release cut with `tauri.conf.json` at
@@ -538,12 +545,6 @@ fn the_version_is_the_same_number_everywhere() {
         std::fs::read_to_string(root.join(at)).unwrap_or_else(|e| panic!("{at} reads: {e}"))
     };
 
-    // `[workspace.package] version`, which every crate inherits.
-    let workspace = read("Cargo.toml");
-    let after = workspace
-        .split_once("[workspace.package]")
-        .unwrap_or_else(|| panic!("Cargo.toml has a [workspace.package] table"))
-        .1;
     let said = |body: &str, key: &str| -> String {
         body.lines()
             .find_map(|line| {
@@ -562,7 +563,6 @@ fn the_version_is_the_same_number_everywhere() {
             .unwrap_or_else(|| panic!("no {key} found"))
     };
     let found = [
-        ("Cargo.toml [workspace.package]", said(after, "version")),
         (
             "app/src-tauri/Cargo.toml",
             said(&read("app/src-tauri/Cargo.toml"), "version"),
@@ -585,7 +585,7 @@ fn the_version_is_the_same_number_everywhere() {
         .collect();
     assert!(
         disagree.is_empty(),
-        "the version is {first} in Cargo.toml and something else elsewhere:\n{}\n\nA bundle \
+        "the product is {first} in app/src-tauri/Cargo.toml and something else elsewhere:\n{}\n\nA bundle \
          named for one version containing a binary that reports another is found by noticing, \
          which is not a way of being found.",
         disagree.join("\n"),
