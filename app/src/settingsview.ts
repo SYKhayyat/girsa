@@ -28,6 +28,7 @@
 import { api, type Pointing, type Settings, type Shortcut } from "./api.ts";
 import { announces, button, choice as pick, field, glyph, region } from "./controls.ts";
 import { said } from "./keys.ts";
+import type { Language } from "./names.ts";
 import { interfaceLanguage, say } from "./say.ts";
 
 /** What a theme row offers. Three, said out loud — see `session::Theme`. */
@@ -104,12 +105,19 @@ export class SettingsView {
    * in Rust**, so the tabs, the panes, where you are in each of them and every
    * setting are read back exactly as they were. What is only in the window is
    * what the reader is typing, and `main.ts` flushes that first.
+   *
+   * **The reload was right and it did not work**, for a whole audit, because
+   * the panels are rebuilt from a *cache* of the language and nothing wrote
+   * that cache before reloading. Which is why this hands the handler the
+   * language rather than only the news that one changed: the write and the
+   * reload are one act, and they live together in `say.ts` as
+   * `switchInterfaceTo`.
    */
-  onInterfaceChanged(fn: () => Promise<void>): void {
+  onInterfaceChanged(fn: (language: Language) => Promise<void>): void {
     this.interfaceChanged = fn;
   }
 
-  private interfaceChanged: (() => Promise<void>) | null = null;
+  private interfaceChanged: ((language: Language) => Promise<void>) | null = null;
 
   get isOpen(): boolean {
     return !this.element.hidden;
@@ -210,7 +218,7 @@ export class SettingsView {
     this.body.append(this.heading(say("settingsLanguage")));
     this.body.append(
       this.choice(say("seforimIn"), languages(), s.language, (value) => {
-        void api.setLanguage(value as "hebrew" | "english").then(() => this.changed());
+        void api.setLanguage(value as Language).then(() => this.changed());
       }),
     );
     this.body.append(
@@ -221,8 +229,12 @@ export class SettingsView {
       // from `refresh()` rather than patched, because the row has to come back
       // showing what Rust actually stored.
       this.choice(say("windowIn"), languages(), s.interface, (value) => {
-        void api.setInterface(value as "hebrew" | "english").then(async () => {
-          if (this.interfaceChanged) await this.interfaceChanged();
+        void api.setInterface(value as Language).then(async () => {
+          // The language goes to the handler. It used to be told only *that*
+          // something changed and had to go and look — and what it looked at
+          // was a cache written after the panels that read it, which is why
+          // every switch left the window in two languages (finding 2).
+          if (this.interfaceChanged) await this.interfaceChanged(value as Language);
           else {
             this.changed();
             await this.refresh();

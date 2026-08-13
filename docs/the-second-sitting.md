@@ -132,7 +132,7 @@ Nobody ticked a mefaresh and looked.
 
 *Fix:* rename the block class. One line.
 
-### 2 · Every language switch leaves the window half-translated
+### 2 · Every language switch leaves the window half-translated — **fixed**
 
 `say.ts:542` initialises the interface language from **localStorage**, written
 by `speakInterface()` — which runs inside `main()`, after the module-level
@@ -167,6 +167,20 @@ because the cache is read before the truth arrives and written after.
 *Fix:* have the panels ask for their strings when they draw rather than when
 they are constructed, or construct them after `connect()`. Not one line, but not
 large.
+
+**Done, and neither of those was what it wanted.** The reload was never the
+problem — it is the right mechanism, and `settingsview.ts` argues for it well: a
+`retitle()` on eleven panels is a second list per panel and a twelfth panel
+nobody adds one to, and the session lives in Rust so a reload costs the reader
+nothing. What was missing is that **the write and the reload were two statements
+in two files with nothing making them agree**, which is the pattern Part 4 names
+under all eighteen of the first complaints.
+
+They are one function now — `switchInterfaceTo` in `say.ts`, the module that
+owns the cache — and the settings panel hands it the language rather than only
+the news that one changed. Two guards, both of the class rather than the shape:
+what the window is saying and what the next load will be built from may never
+disagree, and no module but `say.ts` may call `location.reload()`.
 
 ### 3 · The keyboard dies after every search — including the send to Ksav — **fixed**
 
@@ -608,8 +622,10 @@ grade more than anything else on the list.
    fourth keyboard mode, `typing`, and a caret with three positions instead of
    two. It restores every shortcut in the application, including the send to
    Ksav that the whole project is about.
-3. **Make the panels ask for their strings at draw time** (finding 2), and drop
-   the localStorage cache or write it before the panels are built.
+3. ~~**Make the panels ask for their strings at draw time** (finding 2), and drop
+   the localStorage cache or write it before the panels are built.~~ **Done** —
+   the second of the two: the cache is written before the reload that rebuilds
+   the panels, and the write and the reload are one function.
 4. **Stop the follower jumping on an unrelated edge** (finding 4) — an edge is
    only a place if its address is near the leader's.
 5. **Let the pane title win the header** (finding 5).

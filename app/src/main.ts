@@ -38,7 +38,7 @@ import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { GIRSA, KSAV, type Named, sefer, speak, withPrefix } from "./names.ts";
-import { say, speakInterface } from "./say.ts";
+import { say, speakInterface, switchInterfaceTo } from "./say.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
@@ -137,9 +137,16 @@ async function main(): Promise<void> {
   // `SettingsView.onInterfaceChanged`. Whatever is in the writing drawer goes to
   // disk first; everything else the window is holding is a copy of what Rust
   // holds, and comes back the same.
-  settingsview.onInterfaceChanged(async () => {
+  //
+  // This used to be `await writing.flush(); window.location.reload()`, and the
+  // missing statement between them was the whole of finding 2: the reload
+  // rebuilt every panel from a cache that had not been told about the switch
+  // yet, so the window came back one language behind — in both directions,
+  // until it was restarted. `switchInterfaceTo` is the write and the reload as
+  // one act, in the module that owns the cache.
+  settingsview.onInterfaceChanged(async (language) => {
     await writing.flush();
-    window.location.reload();
+    switchInterfaceTo(language);
   });
   suspects.onOpen(openSuspect);
   linksview.onOpen(openFound);

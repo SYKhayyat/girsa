@@ -20,7 +20,14 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { check, ok } from "./harness.mjs";
 import { dirOf } from "../tools/paths.mjs";
-import { everyWord, say, sayIn, speakInterface } from "../.tmp-test/say.mjs";
+import {
+  everyWord,
+  interfaceLanguage,
+  nextLoadSpeaks,
+  say,
+  sayIn,
+  speakInterface,
+} from "../.tmp-test/say.mjs";
 
 const HERE = dirOf(import.meta.url);
 const SRC = path.resolve(HERE, "..", "src");
@@ -72,6 +79,57 @@ export async function run() {
   speakInterface("english");
   check("…and English when told that", say("settings"), "Settings");
   speakInterface("hebrew");
+
+  // -------------------------------------------------- the cache, and finding 2
+  //
+  // Every panel builds its titles, buttons and placeholders **in its
+  // constructor**, at module load — before `main()` has asked Rust anything —
+  // so what they are built from is the cache, and the only thing that relabels
+  // them is a reload. The switch used to write the cache *after* those
+  // constructors had already read it, so the reload following a language change
+  // rebuilt the window in the language before the one the reader had chosen:
+  //
+  // ```
+  // after switching to English:  toolbar English, shelf Hebrew
+  // after switching back:        toolbar Hebrew,  shelf English
+  // ```
+  //
+  // …in both directions, until the application was restarted. The invariant
+  // that was missing is the one below: **what the window is saying now and what
+  // the next load will be built from may never disagree.**
+
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, String(v)),
+  };
+  try {
+    for (const language of ["english", "hebrew", "english"]) {
+      speakInterface(language);
+      check(
+        `switching to ${language} leaves the cache saying the same thing`,
+        nextLoadSpeaks(),
+        interfaceLanguage(),
+      );
+    }
+  } finally {
+    delete globalThis.localStorage;
+    speakInterface("hebrew");
+  }
+
+  // …and the reload that acts on it lives in the same module, so the two cannot
+  // be put in the wrong order at a call site again. That ordering, spread over
+  // two files, was the entire defect.
+  const reloaders = [];
+  for (const file of (await readdir(SRC)).filter((f) => f.endsWith(".ts"))) {
+    if (file === "say.ts") continue;
+    const body = await readFile(path.join(SRC, file), "utf8");
+    body.split("\n").forEach((line, i) => {
+      if (isComment(line)) return;
+      if (/location\.reload\s*\(/.test(line)) reloaders.push(`${file}:${i + 1}`);
+    });
+  }
+  check("only the module that owns the cache reloads the window", reloaders, []);
 
   // ------------------------------------------------- and nothing outside it
 

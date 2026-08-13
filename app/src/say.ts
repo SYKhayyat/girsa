@@ -525,6 +525,29 @@ export type Word = keyof typeof WORDS;
  * with in the milliseconds before the truth arrives, and `speakInterface`
  * overwrites it the moment it does. It is the same shape as the theme cache
  * every application keeps to avoid a flash of the wrong colours.
+ *
+ * # And how it came to be one switch behind, in both directions
+ *
+ * This is the whole of finding 2. The panels are built at module load, from the
+ * cache. The cache was written by `speakInterface`, which runs inside `main()`,
+ * **after** those constructors — so on the reload that follows a language
+ * switch, the constructors read the value from the switch *before* the one the
+ * reader had just made. Measured, immediately after switching to English:
+ *
+ * ```
+ * toolbar     nikud, no te'amim · with variants · A− · A+ · Settings
+ * shelf       המדף · מדף חדש · החזר לסדר המקורי · צמצם · סגור
+ * ```
+ *
+ * …and immediately after switching back to Hebrew, the same window with the two
+ * halves swapped. It settled only on a restart, which reads less like a setting
+ * and more like a broken build.
+ *
+ * The reload was never the problem — it is the right mechanism, and the
+ * argument for it is in `settingsview.ts`. The problem was that **the write and
+ * the reload were two statements in two files with nothing making them agree**,
+ * which is the pattern the audit named under all eighteen of the first
+ * complaints. They are one function now: `switchInterfaceTo`.
  */
 const REMEMBERED = "girsa-interface";
 
@@ -574,6 +597,38 @@ export function speakInterface(language: Language): void {
 /** Which language the window is in now. */
 export function interfaceLanguage(): Language {
   return speaking;
+}
+
+/** What the next load of this window will be built in — the cache, read back.
+ * For the guard that holds it to agreeing with `interfaceLanguage()`. */
+export function nextLoadSpeaks(): Language {
+  return lastKnown();
+}
+
+/**
+ * Put the window into a language, and rebuild it in that language.
+ *
+ * **One function, because they are one act.** Every panel builds its title, its
+ * buttons and its placeholders in its constructor, so the only thing that
+ * relabels all of them is a reload — and the only thing that makes the reload
+ * come back in the right language is the cache having been written first. Those
+ * two used to be one statement in `say.ts` and one in `main.ts`, run in the
+ * wrong order, which is finding 2 in its entirety.
+ *
+ * The alternative — a `retitle()` on eleven panels, each restating the strings
+ * its constructor already sets — is a second list per panel, and a twelfth
+ * panel nobody adds one to. Reloading is safe here for a reason that is not
+ * luck: **the session lives in Rust**, so the tabs, the panes, where you are in
+ * each of them and every setting come back exactly as they were. What is only
+ * in the window is what the reader is typing, and the caller flushes that
+ * first.
+ */
+export function switchInterfaceTo(language: Language): void {
+  // Sets `speaking` and writes the cache. The reload below is what actually
+  // relabels the window, and it reads that cache before anything else runs.
+  speakInterface(language);
+  if (typeof window === "undefined") return;
+  window.location.reload();
 }
 
 /** What the window calls something, in the language it is in. */
