@@ -661,10 +661,32 @@ shelf already holds.
   which corpus they came from. A duplicate reads as two copies rather than as a
   bug. A false positive costs a label nobody needed; there is no false negative
   worth worrying about, because the row is unchanged.
-* **Ticking a targum marks every line.** 1,533 of Bereishis' 1,533; Rashi marks
+* ~~**Ticking a targum marks every line.** 1,533 of Bereishis' 1,533; Rashi marks
   356 of 400 drawn lines of Shabbos. The `◆` was designed so that marking
   everything would say nothing, and for the most obvious mefarshim it marks
-  everything.
+  everything.~~ **Fixed**, and the design was right — it stopped one step short.
+
+  `Marks::marked` takes the ticked set precisely so the marker means *one of
+  **yours*** rather than *somebody's*, and the module's own header says *a
+  marker on every line is not a marker*. Then a targum, who comments on every
+  posuk by construction, makes that true of every line. The care was real and
+  the first mefaresh anybody ticks defeats it, because of **which** mefarshim a
+  reader ticks first.
+
+  The information was thrown away one step earlier: a reader ticks six mefarshim
+  and each line is asked a yes-or-no question. **How many of them speak here**
+  varies exactly where the bool cannot — a posuk with Onkelos and Rashi and the
+  Ramban is not the posuk before it with Onkelos alone — and it costs nothing,
+  because the works are already in hand. So `marked` is a count per line now,
+  and the margin carries the number wherever more than one of the ticked speaks.
+
+  Then the second rule, which is what *a marker on everything is not a marker*
+  actually means: if the number is the same on every line of the sefer, it is
+  said **once, in words**, above the daf, and no line carries a mark. A claim
+  that holds everywhere is a fact about the sefer, not about the line. Neither
+  rule is a threshold somebody picked — Rashi's 356 of 400 keeps every diamond,
+  because the 44 lines without one are the reader's answer to *where does Rashi
+  stop*.
 * ~~**The docked shelf squeezes the seforim to a 70 px column**, one word per
   line, with the era clipped to a single letter.~~ **Fixed.** `.shelf-tree` is
   `width: 320px` and `--dock` is `380px`. Both numbers were in the stylesheet,

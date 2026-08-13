@@ -7,8 +7,9 @@
 import { api } from "./api.ts";
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
 import { toolStrip } from "./controls.ts";
+import { everywhereSaid, marking } from "./mefarshim.ts";
 import { alsoCalled, sefer } from "./names.ts";
-import { say } from "./say.ts";
+import { fill, say } from "./say.ts";
 
 /** How many lines are put on the page at once, and how many more at an edge. */
 const WINDOW = 400;
@@ -42,6 +43,8 @@ export class PaneView {
   readonly element: HTMLElement;
   private readonly body: HTMLElement;
   private readonly note: HTMLElement;
+  /** The one sentence that replaces a marker on every line of the sefer. */
+  private readonly everywhere: HTMLElement;
   private readonly title: HTMLElement;
   private readonly where: HTMLElement;
   /** The header's buttons, as one box that wraps as one — see `toolStrip`. */
@@ -69,9 +72,10 @@ export class PaneView {
   /** Your highlights in this sefer, as Rust placed them (W27). Kept so the
    * lines that scroll into view later get painted too. */
   private marks: MarkRow[] = [];
-  /** The lines a **ticked** mefaresh speaks on (W43). Rust's answer, not this
-   * one's: which lines those are is a fact about the link graph. */
-  private marked = new Set<string>();
+  /** The lines a **ticked** mefaresh speaks on, and how many of them do (W43).
+   * Rust's answer, not this one's: which lines those are is a fact about the
+   * link graph. */
+  private marked: Record<string, number> = {};
   /** How many mefarshim are ticked on this sefer. Nothing ticked means a click
    * on a line is just a click — the reader has not asked for anything, so the
    * pane must not start answering. */
@@ -103,6 +107,13 @@ export class PaneView {
     this.tools = toolStrip();
     header.append(this.title, this.where, this.note, this.tools);
     this.element.append(header);
+
+    // What a marker on every line would have said, said once. Under the header
+    // rather than in it, because the header is already the thing finding 5 was
+    // about — and empty for every sefer where the marker does its job, which is
+    // most of them. `:empty` takes the strip away with it.
+    this.everywhere = el("p", "pane-everywhere");
+    this.element.append(this.everywhere);
 
     this.body = el("div", "pane-body");
     this.body.tabIndex = 0;
@@ -265,9 +276,14 @@ export class PaneView {
    * on: 2,749 of Berakhot's segments carry commentary from somebody, so marking
    * every line that has any would mark the daf and say nothing. Which lines those
    * are was worked out in Rust, from the link graph — this draws it.
+   *
+   * It draws **how many** of them speak, and sometimes draws nothing at all: a
+   * targum comments on every posuk, so *one of yours is here* was true of 1,533
+   * of Bereishis' 1,533 lines and the careful marker marked the whole sefer.
+   * `marking` holds that decision; this asks it.
    */
-  setMefarshim(marked: string[], ticked: number): void {
-    this.marked = new Set(marked);
+  setMefarshim(marked: Record<string, number>, ticked: number): void {
+    this.marked = marked;
     this.ticked = ticked;
     // A mefaresh unticked while their comments are open: the comments are no
     // longer an answer to anything the reader is asking.
@@ -345,12 +361,40 @@ export class PaneView {
     }
   }
 
-  /** The mark itself: a class on the line, so the CSS owns what it looks like. */
+  /**
+   * The mark itself: a class on the line, so the CSS owns what it looks like.
+   *
+   * Except where there is nothing to distinguish. `marking` answers over the
+   * whole sefer's lines rather than the drawn ones, so the marker does not
+   * appear and vanish as the reader scrolls into a stretch that happens to be
+   * uniform — *the marker says nothing here* is a fact about the sefer, and a
+   * fact about the sefer is said once, in the header, where the reader is
+   * already told what they are looking at.
+   */
   private markMefarshim(): void {
+    const how = marking(this.marked, this.lines.length);
+    this.element.classList.toggle("is-marked-everywhere", how.kind === "everywhere");
+    this.everywhere.textContent = how.kind === "everywhere" ? everywhereSaid(how.each) : "";
     for (const row of this.body.querySelectorAll<HTMLElement>(".line")) {
-      const on = this.marked.has(row.dataset.id ?? "");
-      row.classList.toggle("has-mefarshim", on);
-      if (on && !row.title) row.title = say("markWhy");
+      const n = how.kind === "some" ? (this.marked[row.dataset.id ?? ""] ?? 0) : 0;
+      row.classList.toggle("has-mefarshim", n > 0);
+      // The number, and only where it is a number worth reading: one ticked
+      // mefaresh speaking is the diamond the reader already knows, and a `1` in
+      // the margin of a page where nothing says `2` is a worse diamond.
+      //
+      // On the address and not on the line, because `attr()` in a
+      // `::after` reads the element the pseudo-element hangs off and not its
+      // ancestors — the one thing about `attr()` that is easy to write wrong and
+      // impossible to see, since a `content` that cannot resolve draws nothing.
+      const address = row.querySelector<HTMLElement>(".line-address");
+      if (address) {
+        if (n > 1) address.dataset.said = String(n);
+        else delete address.dataset.said;
+      }
+      // Set **and cleared**, because unticking a mefaresh has to take the hover
+      // with it. The old line was `if (on && !row.title)`, which wrote the title
+      // once and left it there for the rest of the session.
+      row.title = n > 1 ? fill("markHowMany", { n }) : n === 1 ? say("markWhy") : "";
     }
   }
 

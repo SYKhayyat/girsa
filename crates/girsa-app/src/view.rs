@@ -479,10 +479,18 @@ pub struct Mefarshim {
     /// more than one sefer among them (W44). Empty when there is nothing worth
     /// grouping, and then the list is drawn flat.
     pub folders: Vec<Branch>,
-    /// The segments a **ticked** mefaresh speaks on. Only these get a marker:
-    /// 2,749 of Berakhot's segments carry commentary from somebody, and a mark
-    /// on nearly every line is not a mark.
-    pub marked: Vec<String>,
+    /// The segments a **ticked** mefaresh speaks on, and how many of them speak
+    /// there.
+    ///
+    /// Only these get a marker: 2,749 of Berakhot's segments carry commentary
+    /// from somebody, and a mark on nearly every line is not a mark. It was a
+    /// list of segments — a bool per line — until a reader ticked a targum and
+    /// got a diamond on 1,533 of Bereishis' 1,533 lines, which is the same
+    /// defect one level in: taking the chosen set does not help when the sets
+    /// people choose first are the ones that speak everywhere. The count is what
+    /// varies where the bool cannot, and `marking` in `mefarshim.ts` decides
+    /// whether even that is worth drawing.
+    pub marked: std::collections::BTreeMap<String, usize>,
     /// How many segments carry commentary from anybody. For the sentence under
     /// the list, so *you have ticked nobody* does not read as *nobody wrote*.
     pub touched: usize,
@@ -563,7 +571,7 @@ impl Mefarshim {
             shelf,
         );
         Self {
-            marked: marks.marked(chosen).into_iter().collect(),
+            marked: marks.marked(chosen),
             touched: marks.segments_touched(),
             works: commentators.into_iter().map(&named).collect(),
             alongside: alongside.into_iter().map(&named).collect(),

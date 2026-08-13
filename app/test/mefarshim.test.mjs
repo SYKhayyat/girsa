@@ -21,6 +21,8 @@ import {
   ordered,
   doorLabel,
   doorTitle,
+  everywhereSaid,
+  marking,
   nothingHere,
   ticked,
 } from "../.tmp-test/mefarshim.mjs";
@@ -231,4 +233,52 @@ export function run() {
   // is sent. What is left here is what the *window* decides: what the door
   // should say given what is behind it, and how to word the sentence under the
   // list. Those are label composition, and they belong on this side.
+
+  // ------------------------------------------------------- what the margin marks
+  //
+  // > *"Ticking a targum marks every line. 1,533 of Bereishis' 1,533; Rashi
+  // > marks 356 of 400 drawn lines of Shabbos. The `◆` was designed so that
+  // > marking everything would say nothing, and for the most obvious mefarshim
+  // > it marks everything."*
+  //
+  // `Marks::marked` takes the ticked set so that the marker means *one of
+  // yours* rather than *somebody's*. The care was real, and the first mefaresh
+  // anybody ticks defeats it: a targum comments on every posuk by construction,
+  // so the answer is `true` 1,533 times.
+
+  // The complaint itself. Every line marked, one mefaresh on each.
+  const targum = Object.fromEntries(Array.from({ length: 1533 }, (_, i) => [`l${i}`, 1]));
+  check(
+    "a mefaresh who speaks on every line is not marked on every line",
+    marking(targum, 1533).kind,
+    "everywhere",
+  );
+
+  // And Rashi on Shabbos, which is the case the same fix must **not** swallow:
+  // the lines without a diamond are the reader's answer to where Rashi stops.
+  const rashi = Object.fromEntries(Array.from({ length: 356 }, (_, i) => [`l${i}`, 1]));
+  check(
+    "a mefaresh who speaks on most lines keeps the marker on the ones they speak on",
+    marking(rashi, 400).kind,
+    "some",
+  );
+
+  // Uniform in *coverage* and not in **count** is still worth drawing: this is
+  // the half a bool threw away, and the whole reason the count is on the wire.
+  const mixed = { a: 1, b: 3, c: 2 };
+  check("every line marked, different numbers, still a marker", marking(mixed, 3).kind, "some");
+
+  check("nothing ticked marks nothing", marking({}, 400).kind, "none");
+  check("nothing ticked is not the same answer as everywhere", marking({}, 0).kind, "none");
+
+  // The number the sentence carries is the one every line shares, so a reader
+  // who ticked three targumim is told three and not one.
+  const three = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`l${i}`, 3]));
+  const how = marking(three, 20);
+  check("and it says how many of them, not just that there are some", how.each, 3);
+  ok("the sentence carries that number", everywhereSaid(3).includes("3"));
+
+  // One mefaresh on every line does not read as `1 of the mefarshim you ticked`
+  // — a count of one is a sentence about a person, and the words are different.
+  notOk("one on every line is said without a number", everywhereSaid(1).includes("1"));
 }

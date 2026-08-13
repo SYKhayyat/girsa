@@ -605,10 +605,46 @@ body {
   opacity: 0.85;
 }
 
-.line.has-mefarshim:hover > .line-text {
+/* # A diamond is a bool, and a bool is what broke
+ *
+ * > *"Ticking a targum marks every line. 1,533 of Bereishis' 1,533."*
+ *
+ * Where more than one of the ticked mefarshim speaks, the margin says **how
+ * many** instead of *at least one* — which is the thing that varies on a sefer
+ * where somebody comments on every posuk, and the thing a reader with six
+ * ticked was looking for in the first place. One speaking keeps the diamond: a
+ * `1` on a page where nothing says `2` is a diamond that has to be read. */
+.line.has-mefarshim > .line-address[data-said]::after {
+  content: attr(data-said);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+}
+
+.line.has-mefarshim:hover > .line-text,
+.pane.is-marked-everywhere .line:hover > .line-text {
   /* Enough to say *this line answers a click*, not enough to compete with a
    * highlight or a correction. */
   background: color-mix(in srgb, var(--mark) 7%, transparent);
+}
+
+/* Every line is a marked line, so every line is clickable and none of them
+ * carries a mark saying so. The strip above says it once instead. */
+.pane.is-marked-everywhere .line {
+  cursor: pointer;
+}
+
+.pane-everywhere {
+  margin: 0;
+  padding: 4px 14px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--hebrew);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.pane-everywhere:empty {
+  display: none;
 }
 
 /* What they said, under the line and not over it.

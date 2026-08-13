@@ -18,7 +18,7 @@
 // the door should say given what is behind it, and which sefer to offer first.
 
 import type { Comments, Companion } from "./api.ts";
-import { say } from "./say.ts";
+import { fill, say } from "./say.ts";
 
 /**
  * The declared commentaries, and only those.
@@ -166,4 +166,64 @@ export function ticked(touched: number, chosen: number): string {
   if (touched === 0) return say("noMefarshimAtAll");
   const of = `${say("mefarshimOn")} ${touched} ${say("lines")}`;
   return chosen === 0 ? `${of} · ${say("tickedNobody")}` : `${of} · ${say("tickedN")} ${chosen}`;
+}
+
+/**
+ * What the margin marker should do on this sefer — which is sometimes *nothing*.
+ *
+ * > *"Ticking a targum marks every line. 1,533 of Bereishis' 1,533; Rashi marks
+ * > 356 of 400 drawn lines of Shabbos. The `◆` was designed so that marking
+ * > everything would say nothing, and for the most obvious mefarshim it marks
+ * > everything."*
+ *
+ * The design was right and stopped one step short. `Marks::marked` takes the
+ * ticked set precisely so that the marker means *one of **yours*** rather than
+ * *somebody's* — and then a targum, who comments on every posuk by
+ * construction, makes that true of every line. The care was real and the first
+ * mefaresh anybody ticks defeats it.
+ *
+ * Two moves, and neither of them is a threshold somebody picked:
+ *
+ * 1. The marker carries **how many** of the ticked speak on the line, because
+ *    that is what varies where the bool cannot. A posuk with Onkelos and Rashi
+ *    and the Ramban is not the posuk before it with Onkelos alone, and a reader
+ *    with six mefarshim ticked is looking for exactly that difference.
+ * 2. If the number is the same on every line, it is drawn **once, in words**,
+ *    instead of in the margin of every line. That is the honest reading of *a
+ *    marker on everything is not a marker*: a claim that holds everywhere is a
+ *    fact about the sefer, not about the line, and belongs where facts about the
+ *    sefer go.
+ *
+ * Rule 2 fires on exactly the case that produced the complaint, and it fires
+ * because the marker genuinely distinguishes nothing — not because 1,533 is a
+ * big number. Rashi's 356 of 400 keeps its diamonds, because the 44 lines
+ * without one are the reader's answer to *where does Rashi stop*.
+ */
+export type Marking = { kind: "none" } | { kind: "everywhere"; each: number } | { kind: "some" };
+
+/**
+ * `lines` is the sefer's **whole** length, not the drawn window.
+ *
+ * Asking over the drawn lines would make the marker appear and disappear as the
+ * reader scrolled into and out of stretches that happen to be uniform, which is
+ * a worse marker than the one that marks everything. Rust answers over the whole
+ * sefer and the pane knows its total, so the question can be asked once and
+ * answered the same way at every scroll position.
+ */
+export function marking(marked: Record<string, number>, lines: number): Marking {
+  const counts = Object.values(marked);
+  // Nothing ticked, or nobody ticked speaks in this sefer. The pane draws no
+  // marker and says nothing — `ticked()` under the list is where a reader who
+  // expected one finds out which of those two it was.
+  if (counts.length === 0) return { kind: "none" };
+  // A line with no count is a line the marker distinguishes, so a sefer is
+  // uniform only if every one of its lines is marked, with the same number.
+  if (counts.length < lines) return { kind: "some" };
+  return counts.every((n) => n === counts[0]) ? { kind: "everywhere", each: counts[0] } : { kind: "some" };
+}
+
+/** What the pane says once, in place of a marker it would have drawn on every
+ * line. */
+export function everywhereSaid(each: number): string {
+  return each === 1 ? say("markEveryLineOne") : fill("markEveryLine", { n: each });
 }

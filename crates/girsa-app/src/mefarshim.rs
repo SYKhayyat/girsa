@@ -255,19 +255,53 @@ impl Marks {
             .collect()
     }
 
-    /// The segments to put a marker on: those where a chosen mefaresh speaks.
+    /// The segments to put a marker on, and **how many** of the chosen speak on
+    /// each.
     ///
-    /// Nothing chosen marks nothing. A marker on every line is not a marker.
+    /// Nothing chosen marks nothing. A marker on every line is not a marker —
+    /// and that is the sentence this function spent a year not living up to.
+    ///
+    /// # A bool over a set the reader chose is constant for the sets they choose
+    ///
+    /// > *"Ticking a targum marks every line. 1,533 of Bereishis' 1,533; Rashi
+    /// > marks 356 of 400 drawn lines of Shabbos."*
+    ///
+    /// Taking the chosen set was the right idea and it does not go far enough,
+    /// because of *which* mefarshim a reader ticks first. A targum comments on
+    /// every posuk by construction; Rashi on Shabbos is close behind. So the
+    /// answer to *does one of yours speak here* is `true`, 1,533 times, and the
+    /// marker that was careful not to mark everything marks everything on the
+    /// first sefer anybody tries it on.
+    ///
+    /// The information was thrown away one step earlier: the reader ticks six
+    /// mefarshim and the line is asked a yes-or-no question. **How many of them
+    /// speak here** varies exactly where the bool does not — a posuk with
+    /// Onkelos and Rashi and the Ramban is not the posuk before it with Onkelos
+    /// alone — and it costs nothing, because the works are already in hand.
+    ///
+    /// The window decides what to draw from that (`marking` in `mefarshim.ts`):
+    /// one count repeated down the whole sefer is still a marker saying nothing,
+    /// and it says it once, in words, instead of 1,533 times in the margin.
     #[must_use]
-    pub fn marked(&self, chosen: &[String]) -> BTreeSet<String> {
+    pub fn marked(&self, chosen: &[String]) -> BTreeMap<String, usize> {
         if chosen.is_empty() {
-            return BTreeSet::new();
+            return BTreeMap::new();
         }
         let want: BTreeSet<&str> = chosen.iter().map(String::as_str).collect();
         self.by_segment
             .iter()
-            .filter(|(_, said)| said.iter().any(|s| want.contains(s.work.as_str())))
-            .map(|(id, _)| id.clone())
+            .filter_map(|(id, said)| {
+                // The chosen **works**, not the comments: a mefaresh with three
+                // separate comments on one line is one mefaresh speaking there,
+                // and counting the comments would make a busy Rashi look like
+                // three ticked seforim.
+                let here: BTreeSet<&str> = said
+                    .iter()
+                    .map(|s| s.work.as_str())
+                    .filter(|work| want.contains(work))
+                    .collect();
+                (!here.is_empty()).then(|| (id.clone(), here.len()))
+            })
             .collect()
     }
 }
@@ -855,11 +889,51 @@ mod tests {
         let marks = made_up();
         let marked = marks.marked(&[RASHI.to_string()]);
         assert_eq!(marked.len(), 2, "{marked:?}");
-        assert!(marked.contains("girsa:bavli/berakhot/2a:1#1"));
-        assert!(marked.contains("girsa:bavli/berakhot/2a:2#2"));
+        assert!(marked.contains_key("girsa:bavli/berakhot/2a:1#1"));
+        assert!(marked.contains_key("girsa:bavli/berakhot/2a:2#2"));
         assert!(
-            !marked.contains("girsa:bavli/berakhot/2a:3#3"),
+            !marked.contains_key("girsa:bavli/berakhot/2a:3#3"),
             "the Meiri's line is not Rashi's"
+        );
+    }
+
+    #[test]
+    fn the_marker_counts_the_chosen_who_speak_there() {
+        // The half a bool threw away. A reader with two mefarshim ticked wants
+        // to see the line where **both** of them are, and a `true` cannot carry
+        // it — which is why ticking a targum, who speaks on every posuk,
+        // produced a marker on every posuk and told nobody anything.
+        let marks = made_up();
+        let both = marks.marked(&[RASHI.to_string(), TOSAFOT.to_string()]);
+        assert_eq!(
+            both.get("girsa:bavli/berakhot/2a:1#1"),
+            Some(&2),
+            "Rashi and Tosfos are both here: {both:?}"
+        );
+        assert_eq!(
+            both.get("girsa:bavli/berakhot/2a:2#2"),
+            Some(&1),
+            "Rashi alone"
+        );
+        assert!(
+            !both.contains_key("girsa:bavli/berakhot/2a:3#3"),
+            "the Meiri is not ticked, so his line is not marked: {both:?}"
+        );
+    }
+
+    #[test]
+    fn one_mefaresh_with_two_comments_on_a_line_is_one_mefaresh() {
+        // The count is of ticked **seforim** speaking here, not of comments.
+        // `2a:2` carries two Rashis, because that is what a daf looks like; a
+        // Rashi with three dibburim on one posuk must not read as three of the
+        // reader's mefarshim, or the busiest line in the sefer looks like the
+        // one where everybody turned up.
+        let marks = made_up();
+        let marked = marks.marked(&[RASHI.to_string()]);
+        assert_eq!(
+            marked.get("girsa:bavli/berakhot/2a:2#2"),
+            Some(&1),
+            "two comments, one mefaresh: {marked:?}"
         );
     }
 

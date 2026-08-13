@@ -46,7 +46,7 @@ export class Picker {
   private chosen: Chosen = () => {};
   private beside: string | null = null;
   private mefarshim: Mefarshim = {
-    works: [], alongside: [], folders: [], listed: [], marked: [], touched: 0, unbuilt: null,
+    works: [], alongside: [], folders: [], listed: [], marked: {}, touched: 0, unbuilt: null,
   };
   private tick: (work: string, on: boolean) => void = () => {};
   /**

@@ -295,7 +295,7 @@ export interface Mefarshim {
    * (W44). Empty when there is nothing worth grouping. Over `works` only —
    * `alongside` is drawn flat. */
   folders: Branch[];
-  marked: string[];
+  marked: Record<string, number>;
   /** How many lines of this sefer anybody comments on, so *you have ticked
    * nobody* never reads as *nobody wrote*. */
   touched: number;
@@ -1531,7 +1531,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "mefarshim":
     case "choose_mefaresh":
       return json<Mefarshim>(`/dev/mefarshim-${flatten(slug!)}.json`).catch(() => ({
-        works: [], alongside: [], folders: [], listed: [], marked: [],
+        works: [], alongside: [], folders: [], listed: [], marked: {},
         touched: 0, unbuilt: null,
       })) as Promise<T>;
     case "mefarshim_at":

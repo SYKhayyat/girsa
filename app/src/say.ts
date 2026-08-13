@@ -152,6 +152,28 @@ const WORDS = {
     "מפרשים שסימנת כתבו על השורה הזאת — לחץ",
     "mefarshim you ticked wrote on this line — click",
   ] as Both,
+  /** How many of the ticked wrote on this line, for the hover on a marker that
+   * carries a number rather than a diamond. */
+  markHowMany: [
+    "{n} מהמפרשים שסימנת כתבו על השורה הזאת — לחץ",
+    "{n} of the mefarshim you ticked wrote on this line — click",
+  ] as Both,
+  /**
+   * Said once in the header, in place of a marker on every line of the sefer.
+   *
+   * > *"Ticking a targum marks every line. 1,533 of Bereishis' 1,533."*
+   *
+   * A claim that holds on every line is a fact about the sefer, not about the
+   * line. `marking` in `mefarshim.ts` decides; these are what it says.
+   */
+  markEveryLineOne: [
+    "מפרש שסימנת כתב על כל שורה כאן — לחץ על שורה",
+    "a mefaresh you ticked wrote on every line here — click a line",
+  ] as Both,
+  markEveryLine: [
+    "{n} מהמפרשים שסימנת כתבו על כל שורה כאן — לחץ על שורה",
+    "{n} of the mefarshim you ticked wrote on every line here — click a line",
+  ] as Both,
 
   // --- the shelf -----------------------------------------------------------
   theShelf: ["המדף", "The shelf"] as Both,
