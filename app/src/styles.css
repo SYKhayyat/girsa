@@ -502,6 +502,16 @@ body {
   overflow-y: auto;
   padding: 14px 18px 60vh;
   outline: none;
+  /* This pane adds and removes lines above the fold and puts the reader back
+   * itself (`pane.ts:holdingPlace`). Scroll anchoring is the browser doing the
+   * same job by guessing which element to hold, and two corrections of one
+   * shift move the page twice. Whoever is right about where the reader was, it
+   * has to be one of them.
+   *
+   * Measured, not assumed: this computed to `auto` in the engine the window
+   * runs on, so the scroll-up path had been competing with the browser since it
+   * was written. `eyes.mjs` asks the computed value. */
+  overflow-anchor: none;
 }
 
 /* The measure (B13). `none` by default, so nothing changes for a reader who has

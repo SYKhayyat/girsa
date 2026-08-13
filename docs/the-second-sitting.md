@@ -1128,7 +1128,7 @@ follows is the one the arrangement is built around, and where nothing follows
 anything the focused pane is the label again. No shelf lookup: the window
 already holds the answer.
 
-### 22 · A long sitting: it holds, and the pane never gives anything back
+### 22 · A long sitting: it holds, and the pane never gives anything back — **fixed**
 
 Mishnah Berurah, 17,418 segments, scrolled to its end in rounds of sixty jumps:
 
@@ -1148,6 +1148,51 @@ But `pane.ts` bounds only the *first* render. `WINDOW = 400` is applied by
 The header says the window *"grows when they reach an edge"*, which is true; it
 does not claim it shrinks, and it does not. A reader who works through Mishnah
 Berurah front to back is carrying all 17,418 lines by the end of it.
+
+**Fixed — and the nineteen megabytes were never the reason.** The audit is right
+that nineteen megabytes for the largest sefer on the shelf is nothing, and a fix
+argued from the heap number would be a fix for a non-problem. The cost that
+matters is that `paint()` — the highlights, and the mefarshim marker on every
+line — walks the drawn lines, and the drawn lines were everything ever drawn. An
+unbounded page makes the work of adding to it grow with how long somebody has
+been sitting there. That is the one shape of slow a reader cannot attribute to
+anything, because nothing they did caused it; the application simply gets worse
+the longer they learn.
+
+So both ends move now. Growing at one edge pulls the other in behind it, and the
+arithmetic left the method that touches the DOM: `grown(have, where, total)` is
+twelve lines with no document in sight, which is why `pane.test.mjs` can run it
+two hundred and forty times over the audit's own 17,418 and assert that the span
+after two hundred and forty edges is the span after twenty. The test names no
+ceiling. The finding is not *the number should be a thousand* — it is that there
+is a number at all, and an assertion that hardcoded one would pass on a window
+bounded at seventeen thousand.
+
+Three things worth writing down, because none of them is the line of arithmetic:
+
+* **What is loaded is deliberately not bounded with it.** `lines` and `byId`
+  keep every line ever fetched, so turning back to a page already read is still
+  no round trip — the property the previous work order bought by taking the
+  whole sefer off the wire. A cache whose worst case is the size of the thing it
+  caches is a cache. A document that never stops growing is a leak. They are two
+  dinim and only one of them was the finding.
+* **The two directions were one method written twice**, with `from`/`to`,
+  `prepend`/`append` and `max`/`min` swapped — and the half that puts the reader
+  back on their words after a prepend existed only in the upward copy. Correct
+  then; the bug the moment the downward copy also had to move what is above the
+  fold. They are one method now, and the correction is one helper either can
+  call.
+* **`overflow-anchor: none`, and it was not a precaution.** The pane corrects
+  `scrollTop` itself after changing what is above the fold. Scroll anchoring is
+  the browser doing that same job by guessing which element to hold, and two
+  corrections of one shift move the page twice. Asked of the running engine,
+  `.pane-body` computed `overflow-anchor: **auto**` — so the existing
+  scroll-up path had been competing with the browser since the day it was
+  written, in a build nobody had scrolled backwards through. That is finding
+  22's own lesson arriving early: the eye that found it is one line in
+  `eyes.mjs`, asking the *computed* style rather than the file, because *the
+  sheet says `none`* and *this element is `none`* are different claims once
+  anything else in 3,200 lines can set it.
 
 ### 23 · There is no citation-style control anywhere in the window — **fixed**
 

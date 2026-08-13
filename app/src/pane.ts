@@ -16,6 +16,57 @@ const WINDOW = 400;
 const STEP = 300;
 
 /**
+ * The most lines the document holds at once — the window, plus room to reach
+ * an edge twice before anything comes off the other end.
+ *
+ * > *"Mishnah Berurah, 17,418 segments, scrolled to its end: 400 lines in the
+ * > document on opening, 17,418 after 240 jumps. `extend()` appends and
+ * > prepends and nothing ever removes a line."*
+ *
+ * The ceiling has to clear `WINDOW + STEP`, or an extend would trim into the
+ * lines it had just drawn; past that the number is a trade between how far a
+ * reader can turn back without a round trip and how much page the browser is
+ * laying out. Two steps of slack is a thousand lines either side of where they
+ * are standing, which is more than anybody reads back through in one motion.
+ */
+const KEEP = WINDOW + 2 * STEP;
+
+/** A stretch of the sefer, as indices into `lines`. */
+export interface Drawn {
+  from: number;
+  to: number;
+}
+
+/**
+ * Which lines should be on the page after the reader reaches an edge.
+ *
+ * **Both ends move.** The old rule moved one: `to` forward at the bottom,
+ * `from` back at the top, and the far end stayed where it was from the moment
+ * the sefer opened. That is a window in the sense that it starts small, and not
+ * in the sense that it stays that way — a reader working through Mishnah
+ * Berurah front to back finished holding all 17,418 lines, and every `paint()`
+ * on the way there walked every line drawn so far.
+ *
+ * So growing one end pulls the other in behind it, and the arithmetic is here
+ * rather than in the method that appends because *how big does this get* is a
+ * question with an answer, and the answer should be checkable without a
+ * browser. `pane.test.mjs` runs this two hundred and forty times over the real
+ * number from the audit and asserts the span stops growing.
+ *
+ * `Math.max`/`Math.min` against the near end and not a plain subtraction: a
+ * sefer shorter than the ceiling is never trimmed at all, and neither is a
+ * window that has not yet grown to it.
+ */
+export function grown(have: Drawn, where: "up" | "down", total: number): Drawn {
+  if (where === "down") {
+    const to = Math.min(total, have.to + STEP);
+    return { from: Math.max(have.from, to - KEEP), to };
+  }
+  const from = Math.max(0, have.from - STEP);
+  return { from, to: Math.min(have.to, from + KEEP) };
+}
+
+/**
  * A sefer is up to eighteen thousand segments (Mishnah Berurah), and putting
  * all of them in the document makes opening one feel like waiting. So a window
  * of lines around where the reader is goes in, and it grows when they reach an
@@ -36,6 +87,29 @@ const STEP = 300;
  * A line the pane has never seen — a search hit, a link, a mefaresh's place — is
  * found by asking Rust where it is (`sefer_index_of`) and loading that window,
  * which is one round trip on a jump and none on a scroll.
+ *
+ * # And the window gives lines back
+ *
+ * It did not. `WINDOW` bounded the *first* render and nothing else, so the
+ * sentence above — *a window of lines around where the reader is* — was true of
+ * the first screen and became less true with every edge they reached. The
+ * measurement is finding 22: 400 lines in the document on opening, **17,418**
+ * after two hundred and forty jumps, 52,618 nodes.
+ *
+ * Nineteen megabytes is not the reason to care, and saying so is worth the
+ * sentence: for the largest sefer on the shelf that is nothing, and the audit
+ * says as much. The cost that matters is that `paint()` — highlights, and the
+ * mefarshim marker on every line — walks the drawn lines, and the drawn lines
+ * were everything ever drawn. An unbounded page makes the work of adding to it
+ * grow with how long the reader has been sitting there, which is the one shape
+ * of slow that a person cannot tell from *this application gets worse*.
+ *
+ * `grown` bounds it. What is **loaded** is deliberately not bounded with it:
+ * `lines` and `byId` stay, so turning back to a line the reader has already
+ * seen is still no round trip, which is the property the previous work order
+ * bought by taking the whole sefer off the wire. A cache whose worst case is
+ * the size of the thing it caches is a cache; a document that never stops
+ * growing is a leak.
  */
 export class PaneView {
   readonly id: PaneId;
@@ -398,42 +472,106 @@ export class PaneView {
     }
   }
 
+  /**
+   * Grow the page at the edge the reader reached, and take the far end off.
+   *
+   * One shape for both directions, where there were two. They were the same
+   * method written twice with `from`/`to`, `prepend`/`append` and `max`/`min`
+   * swapped, and the half that put the reader back after a prepend existed only
+   * in the upward copy — which was correct then and would have been the bug the
+   * moment the downward copy also had to move what is above the fold.
+   */
   private extend(where: "up" | "down"): void {
     if (!this.text) return;
-    if (where === "down" && this.to < this.lines.length) {
-      const next = Math.min(this.lines.length, this.to + STEP);
-      if (!this.has(this.to, next)) {
-        // Not here yet. Fetch it and come back — one waiter, however many
-        // scroll events arrived while it was in flight.
-        if (this.extending) return;
-        this.extending = true;
-        void this.load(this.to, next - this.to).then(() => {
-          this.extending = false;
-          this.extend("down");
-        });
-        return;
+    const want = grown({ from: this.from, to: this.to }, where, this.lines.length);
+    // Already there: the end of the sefer downward, the start of it upward.
+    if (want.from === this.from && want.to === this.to) return;
+
+    const [at, until] = where === "down" ? [this.to, want.to] : [want.from, this.from];
+    if (!this.has(at, until)) {
+      // Not here yet. Fetch it and come back — one waiter, however many scroll
+      // events arrived while it was in flight.
+      if (this.extending) return;
+      this.extending = true;
+      void this.load(at, until - at).then(() => {
+        this.extending = false;
+        this.extend(where);
+      });
+      return;
+    }
+
+    if (where === "down") {
+      this.body.append(...this.drawn(at, until));
+      this.to = want.to;
+      if (want.from !== this.from) {
+        this.holdingPlace(() => this.dropAbove(want.from));
+        this.from = want.from;
       }
-      this.body.append(...this.drawn(this.to, next));
-      this.to = next;
-      this.paint();
-    } else if (where === "up" && this.from > 0) {
-      const next = Math.max(0, this.from - STEP);
-      if (!this.has(next, this.from)) {
-        if (this.extending) return;
-        this.extending = true;
-        void this.load(next, this.from - next).then(() => {
-          this.extending = false;
-          this.extend("up");
-        });
-        return;
+    } else {
+      this.holdingPlace(() => this.body.prepend(...this.drawn(at, until)));
+      this.from = want.from;
+      if (want.to !== this.to) {
+        // Nothing to correct: what goes is below the fold, and the reader is at
+        // the other end of a thousand lines.
+        this.dropBelow(want.to);
+        this.to = want.to;
       }
-      const before = this.body.scrollHeight;
-      this.body.prepend(...this.drawn(next, this.from));
-      this.from = next;
-      this.paint();
-      // Adding lines above moves everything down; put the reader back on the
-      // words they were looking at.
-      this.body.scrollTop += this.body.scrollHeight - before;
+    }
+    this.paint();
+  }
+
+  /**
+   * Do something that changes how much is **above** the reader, and leave them
+   * on the words they were looking at.
+   *
+   * Adding lines at the top pushes the page down and taking lines off the top
+   * pulls it up: one correction, with the sign falling out of which happened.
+   * Two `scrollHeight` reads are two forced layouts, so the callers only wrap
+   * the move that actually changes anything.
+   *
+   * The browser's own answer to this is scroll anchoring, and this pane must
+   * not have both: `.pane-body` declares `overflow-anchor: none`, because a
+   * heuristic about which element to hold and an explicit correction of the
+   * same shift add up to twice the shift. Nothing here noticed, which is the
+   * point — the correction was written when only one end moved.
+   */
+  private holdingPlace(change: () => void): void {
+    const before = this.body.scrollHeight;
+    change();
+    this.body.scrollTop += this.body.scrollHeight - before;
+  }
+
+  /** Take off every drawn line before `from`. */
+  private dropAbove(from: number): void {
+    for (;;) {
+      const first = this.body.firstElementChild;
+      if (!(first instanceof HTMLElement)) return;
+      // A block of commentary hangs *under* its line, so one standing at the
+      // top of the page is one whose line has already gone (W43).
+      if (first.classList.contains("line-said")) {
+        first.remove();
+        continue;
+      }
+      if (!first.classList.contains("line")) return;
+      const at = this.byId.get(first.dataset.id ?? "");
+      // A line this pane cannot place is left alone rather than thrown away:
+      // `from`/`to` are indices, and removing something whose index is unknown
+      // would put the two out of step with the page.
+      if (at === undefined || at >= from) return;
+      first.remove();
+    }
+  }
+
+  /** Take off every drawn line at or after `to`. */
+  private dropBelow(to: number): void {
+    for (;;) {
+      const last = this.body.lastElementChild;
+      if (!(last instanceof HTMLElement)) return;
+      const line = last.classList.contains("line-said") ? last.previousElementSibling : last;
+      if (!(line instanceof HTMLElement) || !line.classList.contains("line")) return;
+      const at = this.byId.get(line.dataset.id ?? "");
+      if (at === undefined || at < to) return;
+      last.remove();
     }
   }
 

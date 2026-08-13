@@ -251,6 +251,23 @@ async function main() {
     );
     seen("the stylesheet loaded", styled === "auto", `overflow-y was ${styled}`);
 
+    // ------------------------------------------ who is holding the reader's place
+    //
+    // The pane adds and removes lines above the fold and corrects `scrollTop`
+    // itself (`pane.ts:holdingPlace`). Scroll anchoring is the browser doing the
+    // same job by guessing which element to hold, and two corrections of one
+    // shift move the page twice. Asked of the *computed* style rather than of
+    // the file, because "the sheet says `none`" and "this element is `none`" are
+    // different claims once anything else in 3,200 lines can set it.
+    const anchoring = await eye.look(
+      `getComputedStyle(document.querySelector('.pane-body')).overflowAnchor`,
+    );
+    seen(
+      "nothing but the pane holds the reader's place",
+      anchoring === "none",
+      `overflow-anchor computed to ${anchoring} — the browser corrects the scroll too`,
+    );
+
     // ------------------------------------------------------- what a mefaresh said
     const comment = await eye.look(`(() => {
       const box = document.getElementById('said-box');
