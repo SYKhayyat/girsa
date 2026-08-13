@@ -233,6 +233,36 @@ class Eye {
 }
 
 /**
+ * Which port the browser actually took.
+ *
+ * Started with `--remote-debugging-port=0`, Chrome binds a free one and writes
+ * it to `DevToolsActivePort` in its profile directory — first line the port,
+ * second the browser's own websocket path. Reading it is the difference between
+ * *a port nobody else is using* and *a number we hope nobody else is using*.
+ *
+ * Same two exits as `pageOf`: stop the moment the browser dies, and say what it
+ * said. A profile that never grows the file is a browser that never opened a
+ * socket, which is a different failure from one that opened no page.
+ */
+async function portOf(profile, said = () => "", alive = () => true) {
+  const { readFile } = await import("node:fs/promises");
+  const where = path.join(profile, "DevToolsActivePort");
+  for (let tries = 0; tries < 300; tries += 1) {
+    try {
+      const port = Number((await readFile(where, "utf8")).split("\n")[0]);
+      if (port > 0) return port;
+    } catch {
+      // Not written yet.
+    }
+    if (!alive()) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const why = said().trim();
+  const what = alive() ? "never said which port it took" : "started and then exited";
+  throw new Error(why ? `the browser ${what}. It said:\n${why}` : `the browser ${what}`);
+}
+
+/**
  * The browser's page target, once it has one.
  *
  * `said` hands back whatever the browser has written to stderr, so that a
@@ -330,13 +360,27 @@ async function main() {
   const page = path.join(room, "specimens.html");
   await writeFile(page, PAGE(sheet), "utf8");
 
-  const port = 9333;
+  // **Port 0: let the browser pick, and ask it which.**
+  //
+  // This was `9333`, a constant, and two runs at once fought over it — the
+  // second either attached to the first one's browser or timed out on a port
+  // that was answering somebody else's questions. Found the way these things
+  // are found: running `eyes` six times to test the flake fix, while the gate
+  // was running its own copy, and watching the gate go red for a reason that
+  // had nothing to do with the gate.
+  //
+  // A fixed port in a test tool is a claim that only one of it will ever run on
+  // a machine, and nothing makes that true — not two terminals, not a gate
+  // beside a developer, not two CI jobs on one runner. Chrome writes the port
+  // it actually took into `DevToolsActivePort` in its profile directory, which
+  // is the answer rather than a guess at a free number.
+  const profile = path.join(room, "profile");
   const child = spawn(
     browser,
     [
       "--headless=new",
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${path.join(room, "profile")}`,
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
       "--no-first-run",
       "--disable-gpu",
       "--window-size=1360,900",
@@ -366,11 +410,9 @@ async function main() {
   });
 
   try {
-    const target = await pageOf(
-      port,
-      () => complained,
-      () => child.exitCode === null && child.signalCode === null,
-    );
+    const alive = () => child.exitCode === null && child.signalCode === null;
+    const port = await portOf(profile, () => complained, alive);
+    const target = await pageOf(port, () => complained, alive);
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.addEventListener("open", resolve);

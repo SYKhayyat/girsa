@@ -55,8 +55,9 @@ That is a B.
 
 *Overall* is not an A either, and **Part 7 is why that number moved back down
 too**. The moment the shipped build was driven rather than reasoned about, it
-produced four more findings, one of them the largest in the document: a reader
-who installs Girsa cannot obtain a single sefer. That is not a coincidence of timing. It is the
+produced six more findings, one of them the largest in the document — a reader
+who installs Girsa cannot obtain a single sefer — and one of them in the eye
+itself. That is not a coincidence of timing. It is the
 same lesson as the eye — measurement finds what measurement is pointed at, and
 nothing had ever been pointed at *the reader's first hour*, because the corpus
 was always already on the machine of whoever was looking.
@@ -1462,12 +1463,25 @@ Three things on my list were not settled, and saying so is more useful than
 implying they were. Two are settled now, by firing them on a real machine
 against the shipped build:
 
-* **Ksav → Girsa: fired, and it failed.** With Girsa open, the citation opened a
-  **second copy of the application** and left the running window untouched. That
-  is finding 27, and it is fixed and re-measured — one process, the open window
-  on `שבת דף יב: שורה ג'`, the cited line highlighted. The note below about the
-  registered command pointing into a build tree still stands until somebody
-  installs from the installer.
+* **Ksav → Girsa: both halves fired. One worked, one was broken.**
+
+  The **loopback** was fine all along. `POST /open` to the port in
+  `girsa-endpoint.json`, with the `X-Girsa-Token` header that `girsa-post`
+  checks before it even looks at the path:
+
+  ```
+  POST /open  {"ref":"girsa:bavli/berakhot/2a:1"}
+  → 200 {"id":"girsa:bavli/berakhot/2a:1#1","slug":"bavli/berakhot"}
+  → the window on ברכות דף ב. שורה א', that line highlighted
+  ```
+
+  A wrong token gets `401 wrong token` and no hint of what is behind it, which
+  is what that module's header says it is for.
+
+  The **protocol launch** was not fine: it opened a second copy of the
+  application and left the running window untouched — finding 27, fixed and
+  re-measured. The note below about the registered command pointing into a build
+  tree is settled too, by finding 29.
 * **Copy fidelity: reachable, and faithful.** `Ctrl+C` on the running build put
   this on the real Windows clipboard, read back with `Get-Clipboard`:
 
@@ -1699,7 +1713,132 @@ and the shell had been launched from the source tree, where `cwd/corpus` is
 wrong* — and a reminder that testing the empty case means standing somewhere
 genuinely empty.
 
-### 30 · What the walk cost me, twice, and what that says
+### 30 · The five things the walk left undone
+
+Every one of these was on my own list of *what I would still test*, which is a
+different list from *what the audit found* — and one of them found a bug.
+
+**The pane keeps your place going back.** Finding 22's fix removes lines from
+above the fold and corrects `scrollTop` by hand, with `overflow-anchor: none` so
+the browser does not correct it too. The bound was proven; the *correction* never
+was, and it is the riskier half — a wrong sign there jumps the page every time a
+reader turns back. Measured: scroll to `סימן תרצ״ז`, then ninety upward steps
+back to `סימן תר״ל`, watching the line under the fold. **Zero jumps over 40px**,
+while the drawn count climbed back to 1,000 — so `extend("up")` was firing,
+prepending and correcting throughout.
+
+**A column whose sefer will not open says so.** Pointed a restored pane at
+`bereishis-renamed-by-a-reimport`, which is what a re-import that renames a slug
+leaves behind:
+
+```
+אין ספר בשם הזה במדף        (hover: no-sefer: no sefer here called bereishis-…)
+panes drawn: 2 of 3
+```
+
+Hebrew on the face, the developer's string on the hover, and — the half that
+matters — **the other two panes still drew**. Before, `draw()` threw at the first
+failure and every pane after it was never built.
+
+**The window really does speak one language at a time.** Switched to English:
+`lang="en"`, `dir="ltr"`, `Shelf` / `Search` / `Write` / `Dark`. The Hebrew that
+remains is the sefer names — a *separate* setting, which is the whole of W41 —
+and `כְּתָב`, which is a name, and names are not translated.
+
+**Three columns, three names.** The audit measured 42px, **0px** and 6px across
+a three-way split. At the same 1360px:
+
+| | column | title |
+|---|---|---|
+| בראשית | 678 | 279 |
+| רש״י על בראשית | 336 | 117 |
+| רמב״ן על בראשית | 336 | 108 |
+
+**Uninstall.** `uninstall.exe /S` removes the executable and the licences and
+leaves `HKCU\SOFTWARE\Classes\girsa` declared with **no `shell\open\command`** —
+so a stale citation fails to launch rather than launching a deleted binary, which
+is the failure worth having. It keeps `personal/` and `session.json` in Roaming,
+which is right: uninstalling an application is not permission to delete
+somebody's notes. Residue is three loopback files in the install directory and
+the bare protocol declaration.
+
+### 31 · The eye had a fixed port, and I found it by tripping over it
+
+Six `eyes` runs to convince myself the flake was gone. All six clean — and the
+**gate went red**, on its own copy of `eyes`, at the same moment.
+
+```js
+const port = 9333;   // for two years
+```
+
+A constant. Two runs at once fight over it: the second attaches to the first
+one's browser or times out against a port answering somebody else's questions. A
+fixed port in a test tool is a claim that only one of it will ever run on a
+machine, and nothing makes that true — not two terminals, not a gate beside a
+developer, not two CI jobs on one runner.
+
+`--remote-debugging-port=0` and read `DevToolsActivePort` out of the profile
+directory, which is what Chrome writes there for exactly this. Three concurrent
+runs are clean now, where the second used to take the first one's browser.
+
+That is the fourth time in this part that the tool was the problem and not the
+product, and the third that I found it by doing something slightly unusual with
+my own apparatus. Which is the argument for driving the thing rather than
+reasoning about it, one level up: the apparatus gets exercised too.
+
+### 32 · Girsa never told its sibling it had closed
+
+Chasing the uninstall residue found something better than the residue.
+
+`State::desk` carries this note: *"Held because dropping it withdraws the
+endpoint file — which is exactly how presence stops being reported the moment
+this application stops."* Measured: close the window, and
+`girsa-endpoint.json` is still there, naming a dead pid.
+
+`Builder::run(context)` takes no callback and on Windows never returns — the
+event loop calls `exit()` — so nothing managed is ever dropped and `Desk::drop`
+is unreachable by any exit a reader can perform. The comment describes a
+mechanism that has never once run.
+
+What it costs is entirely on the other side of the loop. Ksav reads that file to
+find us, so **every ordinary close looked to Ksav like a crash**:
+`כְּתָב is registered but not answering — it may have closed badly`. That
+sentence was on the screen during the language check in finding 30 and I read
+past it. `Presence::Stale` exists for the crash case and had quietly become the
+normal case for both applications.
+
+`build()` then `run(callback)`, and on `RunEvent::Exit` the desk is taken out of
+the state and dropped, which unblocks the listener and withdraws the file — both
+halves in the order `girsa-post` insists on. Measured after:
+
+```
+running: endpoint written
+closed:  withdrawn
+siblings: ksav-endpoint.json, ksav-inbox.jsonl — untouched
+```
+
+And uninstall now takes `HKCU\SOFTWARE\Classes\girsa` with it, which it did not:
+the executable went and the protocol stayed declared, so Windows answered a
+citation by offering to look in the Store. Deliberately **not** the install
+directory's contents, because `%LOCALAPPDATA%\girsa` is the loopback rendezvous
+and Ksav's endpoint and inbox live in it — removing Girsa is not permission to
+unpair the pen.
+
+**Ksav has the same bug and states it as its own opposite.** `lib.rs:328`:
+
+```rust
+// Kept for the life of the process: dropping it is what
+// withdraws the endpoint file, which is how Girsa stops
+// offering to send the moment this window closes.
+std::mem::forget(desk);
+```
+
+The comment says the drop withdraws the file; `mem::forget` is a guarantee the
+drop will never happen. Girsa's version was a mechanism that could not be
+reached. Ksav's is a mechanism forbidden on the line below the sentence
+promising it — lesson 3 in three lines.
+
+### 33 · What the walk cost me, twice, and what that says
 
 Both times I nearly filed a finding that was not there.
 

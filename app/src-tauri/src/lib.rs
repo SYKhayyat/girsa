@@ -3878,12 +3878,44 @@ pub fn run() {
             tags,
             export_layer,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = built {
-        // A sentence a reader can act on, not a panic message. The rest of this
-        // shell refuses legibly; the one path that can only stop should too.
-        eprintln!("Girsa could not open its window: {e}");
-        std::process::exit(1);
+        // `build` and then `run(callback)`, where it used to be `run(context)`.
+        //
+        // The difference is the only place this application can be told it is
+        // about to stop. `Builder::run` takes no callback and, on Windows, never
+        // returns — the event loop calls `exit()` — so nothing managed is ever
+        // dropped. Which made the note on `State::desk` false: it says *"dropping
+        // it withdraws the endpoint file — which is exactly how presence stops
+        // being reported the moment this application stops"*, and `Desk::drop`
+        // was never reached by any exit a reader can perform.
+        //
+        // Measured: close the window, and `girsa-endpoint.json` is still there
+        // naming a dead pid. So Ksav, which reads that file to find us, saw
+        // every ordinary close as `Presence::Stale` — *registered but not
+        // answering, it may have closed badly*. That state exists for the crash
+        // case and had quietly become the normal one.
+        .build(tauri::generate_context!());
+    match built {
+        Ok(app) => app.run(|handle, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                // Taking the desk out drops it, and `Desk::drop` unblocks the
+                // listener and withdraws the endpoint — both halves, in that
+                // order, which is the crate's own rule about which of the two
+                // may outlive the other.
+                use tauri::Manager as _;
+                if let Some(shared) = handle.try_state::<Shared>() {
+                    if let Ok(mut state) = shared.lock() {
+                        state.desk = None;
+                    }
+                }
+            }
+        }),
+        Err(e) => {
+            // A sentence a reader can act on, not a panic message. The rest of
+            // this shell refuses legibly; the one path that can only stop should
+            // too.
+            eprintln!("Girsa could not open its window: {e}");
+            std::process::exit(1);
+        }
     }
 }
 
