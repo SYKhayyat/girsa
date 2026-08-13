@@ -525,7 +525,7 @@ stops everything, so the pane underneath does not turn its page while a reader
 types a `d` into the box. Focus goes back where it came from when the question
 closes.
 
-### 12 · Two buttons side by side, two opposite conventions
+### 12 · Two buttons side by side, two opposite conventions — **fixed**
 
 Complaint 5 was *the nikud button is labelled with the state I am already in*.
 The nikud button was fixed and its neighbour was not:
@@ -539,6 +539,28 @@ Click *showing* and it becomes `מתוקן`, and the toast also says `מתוקן
 same word means *what happened* in one place and *what will happen* in the
 other, eight pixels apart. This is the exact sentence the report wrote about the
 first one: *two buttons, two conventions, one toolbar.*
+
+Done, and the interesting part is not the one-line fix. Both rounds and both
+label functions have moved into `toolbar.ts`, because they were in `main.ts` —
+which builds views at import time and therefore **cannot be imported by a
+test**. That is why nothing held the convention: there was nowhere to hold it.
+
+`toolbar.test.mjs` now checks the two properties a label-as-promise rests on,
+over every round: *clicking always moves* (`next(x) !== x`, and `length` clicks
+come back to where they started), and *the label always changes when it does*
+(`said(next(x)) !== said(x)`) — the second in **both** languages, and in the
+stronger form: no two states in a round print the same word at all. A round of
+three where two print the same word is a button that appears not to have
+worked, and no amount of correctness underneath rescues it.
+
+The toast says `מוצג עכשיו: X` rather than the bare state word, so a report of
+the last click cannot be read as a promise about the next one.
+
+And a landmine went with it. The scroll control's two tooltips were
+`linkScrollWhy` and `unlinkScrollWhy`, each shown under the *other* one's label
+— correctly, because the label is the next state and the tooltip is the current
+one. They are `scrollNowSharedWhy` and `scrollNowOwnWhy` now. The next person to
+line them up by their keys would have reintroduced this finding.
 
 ### 13 · Closing the settings leaves a shortcut trap armed
 

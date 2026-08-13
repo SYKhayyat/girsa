@@ -125,11 +125,20 @@ const WORDS = {
   /** The scroll link, named after what it does rather than after a participle. */
   linkScroll: ["גלילה משותפת", "Linked scroll"] as Both,
   unlinkScroll: ["גלילה נפרדת", "Own scroll"] as Both,
-  linkScrollWhy: [
+  /**
+   * The two tooltips, named after the state they **describe**, which is not the
+   * state the button beside them is labelled with.
+   *
+   * They were `linkScrollWhy` and `unlinkScrollWhy`, and each was shown under
+   * the *other* one's label — because the label is the next state and the
+   * tooltip is the current one. Both were right and the names were a trap: the
+   * next person to line them up by their keys reintroduces finding 12.
+   */
+  scrollNowSharedWhy: [
     "הטור הזה זז עם הטור שהוא עוקב אחריו. לחץ כדי לנתק",
     "this column moves with the one it follows. Click to unlink",
   ] as Both,
-  unlinkScrollWhy: [
+  scrollNowOwnWhy: [
     "הטור הזה גולל לבדו. לחץ כדי לקשור אותו לטור שלצדו",
     "this column scrolls on its own. Click to link it to the one beside it",
   ] as Both,
@@ -648,6 +657,10 @@ const WORDS = {
   showingFixed: ["מתוקן", "corrected"] as Both,
   showingAsPrinted: ["כפי שנדפס", "as printed"] as Both,
   showingVariants: ["עם גרסאות", "with variants"] as Both,
+  /** What the toast says after the round moves. **Not** the bare state word:
+   * the button beside it is a promise about the next click and the toast is a
+   * report of the last one, and for a while both were `מתוקן`. */
+  showingNow: ["מוצג עכשיו: {what}", "now showing: {what}"] as Both,
   showingWhy: [
     "מתוקן — טעויות דפוס מתוקנות, גרסאות נרשמות בלבד · כפי שנדפס — הטקסט המקורי · עם גרסאות — גם ההגהות מוחלות (Ctrl+Shift+K)",
     "corrected — typos repaired, variants only noted · as printed — the original · with variants — emendations applied too (Ctrl+Shift+K)",

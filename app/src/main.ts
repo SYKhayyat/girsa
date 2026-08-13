@@ -19,8 +19,6 @@ import {
   type Mefarshim,
   type PaneId,
   type Presence,
-  type Pointing,
-  type Showing,
   type SuspectRow,
   type Tab,
 } from "./api.ts";
@@ -39,6 +37,13 @@ import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { GIRSA, type Named, sefer, speak } from "./names.ts";
 import { fill, ksavAs, say, speakInterface, switchInterfaceTo } from "./say.ts";
+import {
+  nextIn,
+  POINTING_ROUND,
+  pointingSaid,
+  SHOWING_ROUND,
+  showingSaid,
+} from "./toolbar.ts";
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
@@ -612,10 +617,10 @@ function scrollLink(id: PaneId): HTMLElement {
   const control = button(
     linked ? say("unlinkScroll") : say("linkScroll"),
     linked
-      ? `${say("linkScrollWhy")}${pane ? ` — ${followLabel(pane.follows)}` : ""}`
+      ? `${say("scrollNowSharedWhy")}${pane ? ` — ${followLabel(pane.follows)}` : ""}`
       : to
-        ? `${say("unlinkScrollWhy")} — ${titleOf(to.slug)}`
-        : say("unlinkScrollWhy"),
+        ? `${say("scrollNowOwnWhy")} — ${titleOf(to.slug)}`
+        : say("scrollNowOwnWhy"),
     async () => {
       await api.setFollows(id, linked ? null : (to?.id ?? null));
       await reload();
@@ -880,7 +885,7 @@ function toolBar(): HTMLElement {
   //
   // Three settings now rather than two, so it rounds: the label is the **next**
   // one, which is the one clicking gets you.
-  const next = nextPointing(state?.pointing ?? "full");
+  const next = nextIn(POINTING_ROUND, state?.pointing ?? "full");
   const nikud = button(pointingSaid(next), say("pointingWhy"), async () => {
     await api.setPointing(next);
     // The words themselves change, so the panes are rebuilt.
@@ -889,7 +894,12 @@ function toolBar(): HTMLElement {
   });
   nikud.classList.add("tool-wide");
 
-  const showing = button(showingSaid(state?.showing ?? "fixed"), say("showingWhy"), () => {
+  // The same convention as the button beside it, which is the whole of finding
+  // 12: **the label is the state clicking gets you.** This printed
+  // `state.showing` — the state you were already in — twenty lines under a
+  // comment explaining why its neighbour must not.
+  const showingNext = nextIn(SHOWING_ROUND, state?.showing ?? "fixed");
+  const showing = button(showingSaid(showingNext), say("showingWhy"), () => {
     void nextShowing();
   });
   showing.classList.add("tool-wide");
@@ -943,38 +953,21 @@ function toolBar(): HTMLElement {
   return bar;
 }
 
-/** What the three settings are called, and what each one promises. */
-function showingSaid(showing: Showing): string {
-  if (showing === "as_printed") return say("showingAsPrinted");
-  if (showing === "fixed_with_variants") return say("showingVariants");
-  return say("showingFixed");
-}
-
-/** What each pointing setting is called. Three, because the middle one is the
- * one a reader asked for: nikud with the trup off. */
-export function pointingSaid(pointing: Pointing): string {
-  if (pointing === "full") return say("pointingFull");
-  if (pointing === "nikud") return say("pointingNikud");
-  return say("pointingPlain");
-}
-
-/** The next pointing setting round — the one clicking the control gets you. */
-export function nextPointing(pointing: Pointing): Pointing {
-  if (pointing === "full") return "nikud";
-  if (pointing === "nikud") return "plain";
-  return "full";
-}
-
 /** Round the three states (spec.md §7.1, §7.2). Everything open is redrawn,
- * because the words themselves changed. */
+ * because the words themselves changed.
+ *
+ * The toast says **what is showing now**, which is the opposite of what the
+ * button says: the button is a promise about the next click, the toast is a
+ * report of the last one. They used to be the same bare word — the button read
+ * `מתוקן` and so did the toast, in the same second, eight pixels apart —
+ * which is how one vocabulary came to mean two things. */
 async function nextShowing(): Promise<void> {
   if (!state) return;
-  const order: Showing[] = ["fixed", "as_printed", "fixed_with_variants"];
-  const next = order[(order.indexOf(state.showing) + 1) % order.length];
+  const next = nextIn(SHOWING_ROUND, state.showing);
   await api.setShowing(next);
   views.clear();
   await reload();
-  announce(showingSaid(next), false);
+  announce(fill("showingNow", { what: showingSaid(next) }), false);
 }
 
 /**
@@ -1395,7 +1388,7 @@ function shortcut(event: KeyboardEvent): void {
         // The same round the toolbar button walks, and the same function that
         // labels it — one rule, so the key and the button cannot get out of
         // step about what *next* means.
-        await api.setPointing(nextPointing(state.pointing));
+        await api.setPointing(nextIn(POINTING_ROUND, state.pointing));
         views.clear();
         await reload();
       })();
