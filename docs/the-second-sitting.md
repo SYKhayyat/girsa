@@ -34,7 +34,7 @@ was re-measured on it and is identical to the pixel, and everything from finding
 | | |
 |---|---|
 | **Overall** | ~~**C+**~~ **B+** — every finding of the first twenty-five closed at the root; then using the thing found three more, and one of them is that a reader cannot get a sefer |
-| **Getting it at all** | ~~**F**~~ ~~**A**~~ **C** — the application can be obtained; a working **library** still cannot. See finding 16 and finding 26 |
+| **Getting it at all** | ~~**F**~~ ~~**A**~~ **B** — it installs, registers itself and says what it needs; the tools reach a reader only from the **next** tag. Findings 16, 26, 29 |
 
 The C+ was for the product and it did not move for Part 6: nothing found in the
 second round was a new kind of defect, and finding 1 was re-measured on a real
@@ -43,16 +43,20 @@ fact and deserved its own line — a reader could not obtain this application, a
 until Part 6 nobody had noticed, because the way you find out is to run a
 command nobody in this repository had run.
 
-**Both rows moved.** All twenty-three findings and every one of finding 15's six
-sub-items are closed; the per-axis table below says which change closed which.
-*Getting it at all* is an A because the link exists: a machine built
+**Both rows moved, and then one moved back.** All twenty-three findings and
+every one of finding 15's six sub-items are closed; the per-axis table below
+says which change closed which. A machine built
 [v0.1.0](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.0) from the tag in
-15m59s and put both installers on it.
+15m59s and put both installers on it, and on the strength of that link
+*Getting it at all* was graded **A** — which was wrong, and Part 7 says why at
+length. It installs, it registers `girsa://` to itself, and it states the four
+steps it needs; the tools a reader has to run reach them only from the next tag.
+That is a B.
 
-*Overall* is not, and **Part 7 is why the number moved back down**. The moment
-the shipped build was driven rather than reasoned about, it produced three more
-findings, one of them the largest in the document: a reader who installs Girsa
-cannot obtain a single sefer. That is not a coincidence of timing. It is the
+*Overall* is not an A either, and **Part 7 is why that number moved back down
+too**. The moment the shipped build was driven rather than reasoned about, it
+produced four more findings, one of them the largest in the document: a reader
+who installs Girsa cannot obtain a single sefer. That is not a coincidence of timing. It is the
 same lesson as the eye — measurement finds what measurement is pointed at, and
 nothing had ever been pointed at *the reader's first hour*, because the corpus
 was always already on the machine of whoever was looking.
@@ -75,7 +79,7 @@ things nothing else does.
 | Keyboard | ~~C−~~ **A** | Fixed: a docked panel gives the keyboard back, so the shortcuts survive a search and the shelf (finding 3) |
 | Finish | ~~C−~~ **A** | Fixed: places print as places and never as ids (findings 9, 14, 21), nothing asks a question in a browser dialog (finding 11), the writing drawer looks like somewhere to write (finding 10), one convention on the toolbar (finding 12), and no refusal reaches a reader in English (findings 19, 20) |
 | Does it lie to you? | ~~C~~ **A** | Fixed: a follower says *nothing here* and stays put rather than scrolling to a comment on a different line (finding 4), a tab is named after the sefer the arrangement is built around (finding 21), and every number on a face now says what it counts |
-| **Getting it at all** | ~~F~~ ~~A~~ **C** | The link exists — [v0.1.0](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.0) carries both installers, built by CI in 15m59s from the tag — and the **A was wrong**, graded on the link rather than on what the link gets you. A reader who installs it has no path to a corpus at all: finding 26 |
+| **Getting it at all** | ~~F~~ ~~A~~ **B** | The link exists — [v0.1.0](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.0) carries both installers, built by CI in 15m59s from the tag — and the **A was wrong**, graded on the link rather than on what the link gets you. A reader who installs it now gets a window that registers `girsa://` to itself and states the four steps it needs (finding 29) — but the tools are attached from the **next** tag onwards, so on v0.1.0 they are still build-it-yourself. Not an A until a release carries them: findings 26 and 29 |
 
 **Where this leaves it.** Every fault the audit filed is closed, and each one was
 closed at the root rather than at the symptom — which is why several of them took
@@ -1452,10 +1456,32 @@ header, every search row and the resolver's landing — so the promise
 `start-here.md` made is not only keepable, it is a bigger promise than the
 sentence claimed.
 
-### 24 · What is still untested, and why
+### 24 · What is still untested, and why — **two of three settled, and one of them was broken**
 
 Three things on my list were not settled, and saying so is more useful than
-implying they were:
+implying they were. Two are settled now, by firing them on a real machine
+against the shipped build:
+
+* **Ksav → Girsa: fired, and it failed.** With Girsa open, the citation opened a
+  **second copy of the application** and left the running window untouched. That
+  is finding 27, and it is fixed and re-measured — one process, the open window
+  on `שבת דף יב: שורה ג'`, the cited line highlighted. The note below about the
+  registered command pointing into a build tree still stands until somebody
+  installs from the installer.
+* **Copy fidelity: reachable, and faithful.** `Ctrl+C` on the running build put
+  this on the real Windows clipboard, read back with `Get-Clipboard`:
+
+  ```
+  או' | ד אומר.
+  (שינויי נוסחאות על תרומות א' א' א')
+  ```
+
+  The quote and the place, with the place printed as a place.
+* **Real typing is still untested.** Text still goes in through the automation
+  channel. A Hebrew IME needs a person at a keyboard, and pretending otherwise
+  would be the same shape of claim this whole document is against.
+
+The original three, as written:
 
 * **Ksav → Girsa.** The `girsa` URL scheme *is* registered
   (`HKCU\SOFTWARE\Classes\girsa` → `URL:org.girsa.app protocol`, pointing at
@@ -1628,7 +1654,52 @@ It is a toolbar round now, beside nikud and showing, keeping their convention �
 the label is the state clicking gets you — and `THEME_ROUND` is what the settings
 row reads, so the two controls cannot come to disagree about what `בהיר` means.
 
-### 29 · What the walk cost me, twice, and what that says
+### 29 · Installed, and opened by somebody with nothing
+
+The last thing nobody had ever done. `Girsa_0.1.0_x64-setup.exe /S` installs to
+`%LOCALAPPDATA%\girsa` — the shell, three licence files, an uninstaller — and
+the first thing it settles is the note left open in finding 24:
+
+```
+HKCU\SOFTWARE\Classes\girsa\shell\open\command
+  before  "C:\Users\…\Videos\Girsa\target\release\girsa-shell.exe" "%1"
+  after   "C:\Users\…\AppData\Local\girsa\girsa-shell.exe" "%1"
+```
+
+The registration pointed into a build tree because there had never been an
+installer. There is one, and it does not.
+
+Then opened from a directory with no corpus anywhere near it — which is what
+launching from the Start menu means, and which nobody had ever done either:
+
+```
+גִּרְסָא
+אין כאן ספרים עדיין. אם כבר הורדת אוצר ספרים, אפשר להראות לגרסא איפה הוא.
+                      [ בחר תיקיית ספרים ]
+איך מביאים ספרים
+  1. הורד את ספריא — כ־2.2 ג׳יגה: girsa-fetch corpus\sefaria
+  2. הורד את אוצריא בעצמך — הפרויקט הזה אינו מוריד אותו
+  3. בנה את המדף: girsa-import corpus <אוצריא>
+  4. לחיפוש — כ־3.6 ג׳יגה: girsa-index build index corpus personal
+את הכלים מורידים מדף השחרור — girsa-tools-windows.zip
+איפה חיפשנו
+```
+
+and in the toolbar, `אין מדף כאן — ייתכן שהייבוא לא רץ`, with **no Latin in
+it** — which was the whole of finding 19. The four directories are still every
+word of `Looked::said`, on the hover of `איפה חיפשנו`, where somebody debugging
+an installation finds them and a reader does not trip over them.
+
+One thing this run demonstrated by accident, about `roots.rs`. The first attempt
+set `GIRSA_CORPUS` to an empty directory and got `7189 ספרים` anyway: the
+variable pointed at nothing, so the search fell through to the next candidate,
+and the shell had been launched from the source tree, where `cwd/corpus` is
+11 GB of Torah. That is the module's documented rule working exactly as written
+— *a variable pointing at an empty directory is a reader who typed the path
+wrong* — and a reminder that testing the empty case means standing somewhere
+genuinely empty.
+
+### 30 · What the walk cost me, twice, and what that says
 
 Both times I nearly filed a finding that was not there.
 
