@@ -120,6 +120,41 @@ export function region(role: string, name: string, className?: string): HTMLElem
 }
 
 /**
+ * The strip of buttons in a pane's header, as **one box**.
+ *
+ * # Why the buttons are a box and not five loose children
+ *
+ * They were five loose children of `.pane-head`, each `flex: 0 1 auto`, beside
+ * a `.pane-title` that was `min-width: 0` with an ellipsis. So the sefer's name
+ * was the first thing the flexbox squeezed and it went all the way to zero.
+ * Measured at 1360px with a Gemara and two mefarshim:
+ *
+ * ```text
+ * pane 1 (בראשית)            title 42 px wide
+ * pane 2 (רש"י על בראשית)    title  0 px wide     ← invisible
+ * pane 3 (רמב"ן על בראשית)   title  6 px wide     ← one letter
+ * ```
+ *
+ * An ellipsis on a zero-width box shows nothing, so the application's signature
+ * arrangement — the daf with two commentaries — gave a reader three columns
+ * they could not tell apart. In English the header overflowed the other way and
+ * clipped the leftmost *button* to `se`.
+ *
+ * The owner's decision the audit left open is *what gives way first, the name
+ * of the sefer or the fifth button*, and the answer is **neither**. As one box
+ * the buttons wrap to a second line when the header runs out of room: the title
+ * keeps its width, every button stays where it was and stays reachable, and
+ * nothing is hidden behind a menu that would have to be built, routed and given
+ * an Escape. It costs a row of header in a narrow column, which is the cheapest
+ * thing on the screen.
+ */
+export function toolStrip(): HTMLElement {
+  const out = document.createElement("div");
+  out.className = "pane-tools";
+  return out;
+}
+
+/**
  * Mark an element as a live region.
  *
  * `polite` for a status line, which is everything here: `assertive` interrupts

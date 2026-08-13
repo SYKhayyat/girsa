@@ -6,6 +6,7 @@
 
 import { api } from "./api.ts";
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
+import { toolStrip } from "./controls.ts";
 import { alsoCalled, sefer } from "./names.ts";
 import { say } from "./say.ts";
 
@@ -43,6 +44,8 @@ export class PaneView {
   private readonly note: HTMLElement;
   private readonly title: HTMLElement;
   private readonly where: HTMLElement;
+  /** The header's buttons, as one box that wraps as one — see `toolStrip`. */
+  private readonly tools: HTMLElement;
   private text: Text | null = null;
   /** The sefer, as long as the sefer is, with holes where nothing is loaded. */
   private lines: (Line | undefined)[] = [];
@@ -95,7 +98,10 @@ export class PaneView {
     this.title = el("span", "pane-title");
     this.where = el("span", "pane-where");
     this.note = el("span", "pane-note");
-    header.append(this.title, this.where, this.note);
+    // The buttons are one box, so the header runs out of room by wrapping them
+    // rather than by squeezing the sefer's name to nothing — see `toolStrip`.
+    this.tools = toolStrip();
+    header.append(this.title, this.where, this.note, this.tools);
     this.element.append(header);
 
     this.body = el("div", "pane-body");
@@ -154,7 +160,7 @@ export class PaneView {
   /** The buttons a pane's header carries. Added by the caller, which owns what
    * they do. */
   addControl(control: HTMLElement): void {
-    this.element.querySelector(".pane-head")?.append(control);
+    this.tools.append(control);
   }
 
   /** The sefer's Hebrew title, once it has been read. */
@@ -657,7 +663,9 @@ export class PaneView {
     let chip = this.element.querySelector<HTMLElement>(".pane-follows");
     if (!chip) {
       chip = el("span", "pane-follows");
-      this.element.querySelector(".pane-head")?.append(chip);
+      // Before the buttons, not after them: the chip is a word about the
+      // reading and the buttons are a block that wraps as a block.
+      this.tools.before(chip);
     }
     chip.textContent = label;
   }

@@ -25,7 +25,7 @@ import { alsoCalled, sefer } from "./names.ts";
 import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } from "./api.ts";
 import { glyphsOf } from "./glyphs.ts";
 import { sayTrouble } from "./trouble.ts";
-import { area, button, choice, field } from "./controls.ts";
+import { area, button, choice, field, toolStrip } from "./controls.ts";
 import { say } from "./say.ts";
 
 /**
@@ -72,6 +72,8 @@ export class ScanView {
   private readonly title: HTMLElement;
   private readonly where: HTMLElement;
   private readonly note: HTMLElement;
+  /** The header's buttons, as one box that wraps as one — see `toolStrip`. */
+  private readonly tools: HTMLElement;
   private readonly pageBox: HTMLInputElement;
   private readonly goBox: HTMLInputElement;
 
@@ -110,7 +112,11 @@ export class ScanView {
     this.title = el("span", "pane-title");
     this.where = el("span", "pane-where");
     this.note = el("span", "pane-note");
-    header.append(this.title, this.where, this.note);
+    // One box, wrapping as one — the same contract `PaneView` has, and for the
+    // same reason: a header that runs out of room must not do it by erasing the
+    // name of the sefer. See `toolStrip`.
+    this.tools = toolStrip();
+    header.append(this.title, this.where, this.note, this.tools);
     this.element.append(header);
 
     const bar = el("div", "scan-bar");
@@ -168,7 +174,7 @@ export class ScanView {
   /** The buttons a pane's header carries, added by the caller that owns what
    * they do — the same contract `PaneView` has. */
   addControl(control: HTMLElement): void {
-    this.element.querySelector(".pane-head")?.append(control);
+    this.tools.append(control);
   }
 
   /** The sefer's Hebrew title, once it has been read. */
@@ -212,7 +218,7 @@ export class ScanView {
     let chip = this.element.querySelector<HTMLElement>(".pane-follows");
     if (!chip) {
       chip = el("span", "pane-follows");
-      this.element.querySelector(".pane-head")?.append(chip);
+      this.tools.before(chip);
     }
     chip.textContent = label;
   }

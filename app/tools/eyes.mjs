@@ -16,7 +16,8 @@
 //   in a container 16px tall — the feature W43 exists for, invisible from the day
 //   it was written;
 // * a pane title in a flex header with five buttons that do not shrink, measured
-//   at **0px** in a three-way split, so a column had no name.
+//   at **0px** in a three-way split, so a column had no name — and the honest
+//   `אין כאן` note clipped to a smudge beside it.
 //
 // Both are one assertion each in a browser, and neither is expressible in a
 // string search. This is that browser.
@@ -98,18 +99,41 @@ const HEADER = `
 <div style="width: 430px" id="narrow-pane">
   <header class="pane-head">
     <span class="pane-title" id="narrow-title">מסכת בבא בתרא עם תוספות</span>
-    <button class="tool">מפרשים · 34</button>
-    <button class="tool">גלילה משותפת</button>
-    <button class="tool">קישורים</button>
-    <button class="tool">ייצא</button>
-    <button class="tool">סגור</button>
+    <span class="pane-where">קכ״ז.</span>
+    <span class="pane-note is-empty" id="narrow-note">אין כאן</span>
+    <div class="pane-tools" id="narrow-tools">
+      <button class="tool">מפרשים · 34</button>
+      <button class="tool">גלילה משותפת</button>
+      <button class="tool">קישורים</button>
+      <button class="tool">ייצא</button>
+      <button class="tool" id="narrow-last">סגור</button>
+    </div>
+  </header>
+</div>`;
+
+/**
+ * The same header in English, where it used to overflow the other way and clip
+ * the leftmost **button** to `se`.
+ */
+const HEADER_EN = `
+<div style="width: 430px" id="english-pane" dir="ltr" lang="en">
+  <header class="pane-head">
+    <span class="pane-title">Bava Basra with Tosafos</span>
+    <span class="pane-where">127a</span>
+    <div class="pane-tools">
+      <button class="tool" id="english-first">mefarshim · 34</button>
+      <button class="tool">scrolling together</button>
+      <button class="tool">links</button>
+      <button class="tool">export</button>
+      <button class="tool">close</button>
+    </div>
   </header>
 </div>`;
 
 const PAGE = (sheet) => `<!doctype html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8">
 <link rel="stylesheet" href="${sheet}"></head>
-<body style="margin:0">${COMMENT}${HEADER}</body></html>`;
+<body style="margin:0">${COMMENT}${HEADER}${HEADER_EN}</body></html>`;
 
 // -------------------------------------------------------------------- the eye
 
@@ -271,38 +295,69 @@ async function main() {
     );
 
     // ------------------------------------------------ a column still has a name
-    const title = await eye.look(`(() => {
-      const t = document.getElementById('narrow-title');
-      const r = t.getBoundingClientRect();
-      return { width: Math.round(r.width), scroll: t.scrollWidth };
-    })()`);
-
-    // Not *un*truncated — an ellipsis in a 430px column is the right answer. But
-    // a title clipped to nothing is a column whose sefer the reader cannot name,
-    // and that is what a flex row of five buttons that never shrink produces.
-    seen(
-      "a column in a narrow split still shows some of its name",
-      title.width >= 40,
-      `the title measured ${title.width}px wide beside five buttons`,
-    );
-
-    // And the same header on a small laptop, reported rather than asserted.
     //
-    // At 240px — three columns in a 740px window — the buttons have taken the
-    // whole row and `min-width: 0` lets the title go to nothing. That is a real
-    // defect and it is **not** fixed here, because what should give way first —
-    // the name of the sefer, or the fifth button — is the owner's call and not an
-    // auditor's. The number is printed so that the decision is made against a
-    // measurement instead of an argument.
-    const cramped = await eye.look(`(() => {
-      const pane = document.getElementById('narrow-pane');
-      pane.style.width = '240px';
-      const t = document.getElementById('narrow-title');
-      const w = Math.round(t.getBoundingClientRect().width);
-      pane.style.width = '430px';
-      return w;
+    // The audit measured 42px, **0px** and 6px across a three-way split and left
+    // the fix as the owner's call: *what should give way first in that header —
+    // the name of the sefer or the fifth button?* The answer is neither. The
+    // buttons are one box that wraps to a second row, so the title keeps its
+    // width and every button stays where it was. These assert that at three
+    // widths, because the answer that is only right at one width is the answer
+    // that was there before.
+
+    const header = await eye.look(`(() => {
+      const measure = (px) => {
+        const pane = document.getElementById('narrow-pane');
+        pane.style.width = px + 'px';
+        const t = document.getElementById('narrow-title');
+        const note = document.getElementById('narrow-note');
+        const last = document.getElementById('narrow-last');
+        return {
+          title: Math.round(t.getBoundingClientRect().width),
+          note: Math.round(note.getBoundingClientRect().width),
+          noteFits: note.scrollWidth <= note.getBoundingClientRect().width + 1,
+          lastButton: Math.round(last.getBoundingClientRect().width),
+          lastFits: last.scrollWidth <= last.getBoundingClientRect().width + 1,
+        };
+      };
+      const out = { at430: measure(430), at240: measure(240), at1000: measure(1000) };
+      document.getElementById('narrow-pane').style.width = '430px';
+      return out;
     })()`);
-    console.log(`  note: at 240px the same title measures ${cramped}px`);
+
+    for (const [where, seenAt] of Object.entries(header)) {
+      // Not *un*truncated — an ellipsis on a long name in a narrow column is the
+      // right answer. But a title clipped to nothing is a column whose sefer the
+      // reader cannot name, which is what a flex row of five buttons that never
+      // shrink produces.
+      seen(
+        `a column ${where} still shows its name`,
+        seenAt.title >= 40,
+        `the title measured ${seenAt.title}px wide beside five buttons`,
+      );
+      seen(
+        `the "nothing here" note is readable ${where}`,
+        seenAt.noteFits,
+        `the note measured ${seenAt.note}px around text that needs more`,
+      );
+      seen(
+        `no button is clipped ${where}`,
+        seenAt.lastFits,
+        `the last button measured ${seenAt.lastButton}px around its own label`,
+      );
+    }
+
+    // The English header overflowed the other way and cut the leftmost button
+    // to `se`.
+    const english = await eye.look(`(() => {
+      const b = document.getElementById('english-first');
+      const r = b.getBoundingClientRect();
+      return { width: Math.round(r.width), fits: b.scrollWidth <= r.width + 1 };
+    })()`);
+    seen(
+      "an English header does not clip its first button",
+      english.fits,
+      `the first button measured ${english.width}px around its own label`,
+    );
   } finally {
     // Wait for it to actually go: on Windows the profile keeps a lockfile open
     // until the process is gone, and removing the directory under it throws

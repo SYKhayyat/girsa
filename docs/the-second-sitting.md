@@ -268,7 +268,7 @@ The ids are filtered rather than the answer taken or dropped whole, because the
 Ramban answer measured above had three of them and the wrong one was merely
 first.
 
-### 5 · A column in a three-way split has no name
+### 5 · A column in a three-way split has no name — **fixed**
 
 At 1360 px with a Gemara and two mefarshim, measured:
 
@@ -292,6 +292,19 @@ about this exact problem being fixed once already, for a different label.
 
 *Fix:* the title is the last thing to shrink, not the first. Give the buttons an
 overflow menu, or drop them to icons below a width.
+
+**Done, and the owner's answer to *which gives way first* is neither.** The five
+buttons are one box now — `toolStrip()`, used by both the reading pane and the
+scan pane — and the box wraps to a second row when the header runs out of room.
+The title keeps its width and a `7ch` floor, the address and the `אין כאן` note
+stop shrinking at all, and no button is ever clipped in either language. It
+costs a row of header in a narrow column, which is the cheapest thing on the
+screen; an overflow menu would have cost a popup, a keyboard route and an
+Escape.
+
+`npm run eyes` measures the title, the note and the last button at 240px, 430px
+and 1000px, and a second specimen in English — twelve assertions where there was
+one assertion and a printed note.
 
 ### 6 · Shas is filed by folder size, so Berakhos is at the bottom under "Guides"
 
@@ -647,7 +660,8 @@ grade more than anything else on the list.
    only a place if its address is near the leader's.~~ **Done** — near turned
    out to be the wrong test; the right one is whether the commentary's address
    extends its base's.
-5. **Let the pane title win the header** (finding 5).
+5. ~~**Let the pane title win the header** (finding 5).~~ **Done** — the buttons
+   are one box and the box wraps; nothing is squeezed and nothing is hidden.
 6. **Give shelves an order the way works got one** (finding 6), and translate
    the categories from the corpus rather than from a list of thirty.
 7. **Make a mareh makom the default reading of a query** (finding 8), and print

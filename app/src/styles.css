@@ -415,7 +415,10 @@ body {
 .pane-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  /* Wraps, so that a header with no room left gives up a **row** rather than
+   * giving up the name of the sefer. See `.pane-tools` below and finding 5. */
+  flex-wrap: wrap;
+  gap: 2px 8px;
   padding: 5px 10px;
   border-bottom: 1px solid var(--rule);
   font-size: 12px;
@@ -426,6 +429,14 @@ body {
   font-family: var(--hebrew);
   font-size: 15px;
   color: var(--ink);
+}
+
+/* The two short facts beside the name: where you are, and whether there is
+ * anything here. Neither shrinks — `אין כאן` clipped to 14px is a smudge, and
+ * the address is the one thing on the header a reader looks up. */
+.pane-where,
+.pane-note {
+  flex: 0 0 auto;
 }
 
 .pane-where {
@@ -450,20 +461,44 @@ body {
   white-space: nowrap;
 }
 
+/* **The title is the last thing to give way, not the first.**
+ *
+ * This was `min-width: 0` with an ellipsis, beside five buttons that never
+ * shrank — so at 1360px with a Gemara and two mefarshim the sefer's names
+ * computed to 42px, **0px** and 6px, and an ellipsis on a zero-width box draws
+ * nothing. Three columns you cannot tell apart, in the arrangement the whole
+ * application is for.
+ *
+ * It still ellipsises, because a header is not a place for a wrapped title, but
+ * it has a floor now and the buttons wrap before it reaches it. `1 1 auto` so
+ * it takes the slack when there is some. */
 .pane-title {
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 7ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The buttons, as one box. Fixed: they do not shrink and they do not clip — in
+ * English the leftmost one used to be cut to `se` — and when the row cannot
+ * hold both the name and them, this is what moves to the next line. */
+.pane-tools {
+  display: flex;
+  align-items: baseline;
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+}
+
 .pane-head .tool {
   margin-inline-start: 4px;
   padding: 1px 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
-.pane-head .tool:first-of-type {
-  margin-inline-start: auto;
+.pane-tools .tool:first-child {
+  margin-inline-start: 0;
 }
 
 .pane-body {
