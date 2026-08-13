@@ -1221,6 +1221,20 @@ body {
   border-bottom: 1px dotted var(--rule);
 }
 
+/* What it takes to get seforim, on the screen that has none. Left-aligned and
+ * monospaced-ish for the commands, because a command a reader has to type is a
+ * string they have to copy exactly, and justified Hebrew prose is the wrong
+ * shape for one. */
+.empty-steps {
+  margin: 0;
+  padding-inline-start: 22px;
+  max-width: 62ch;
+  text-align: start;
+  color: var(--ink-quiet);
+  font-size: 12.5px;
+  line-height: 1.9;
+}
+
 /* A column whose sefer will not open. It said this by being black and empty. */
 .pane-broken {
   display: flex;

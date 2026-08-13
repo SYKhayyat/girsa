@@ -1280,6 +1280,31 @@ function noCorpus(): HTMLElement[] {
     out.push(choose);
   }
 
+  // And what to do when there is nothing to choose, which is the case this
+  // screen is actually for.
+  //
+  // The picker alone was a question with no answer available: the installer
+  // carries the window and the three tools, and it does not carry 11 GB of
+  // Torah. Worse, one leg of the road is a download this project does not
+  // automate at all — `girsa-import` refuses without an `אוצריא/` directory and
+  // nothing here fetches one. A first screen that offered only a folder picker
+  // left a reader hunting for a folder that does not exist on their machine and
+  // never said so.
+  const steps = document.createElement("ol");
+  steps.className = "empty-steps";
+  const title = document.createElement("p");
+  title.className = "empty-hint";
+  title.textContent = say("corpusStepsTitle");
+  for (const word of ["corpusStepFetch", "corpusStepOtzaria", "corpusStepImport", "corpusStepIndex"] as const) {
+    const step = document.createElement("li");
+    step.textContent = say(word);
+    steps.append(step);
+  }
+  const beside = document.createElement("p");
+  beside.className = "empty-detail";
+  beside.textContent = say("corpusStepsWhere");
+  out.push(title, steps, beside);
+
   // Where it looked, for whoever is debugging an installation — as a hover on a
   // quiet line rather than as the screen.
   const where = document.createElement("p");

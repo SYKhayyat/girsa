@@ -752,6 +752,35 @@ const WORDS = {
     "There are no seforim here yet. If you have already downloaded a corpus, you can show Girsa where it is.",
   ] as Both,
   chooseCorpus: ["בחר תיקיית ספרים", "Choose a folder of seforim"] as Both,
+  /**
+   * What it takes to get seforim, said out loud on the first screen.
+   *
+   * The installer carries the window and the three tools; it does not carry
+   * 11 GB of Torah, and one leg of the road — Otzaria — is a download this
+   * project does not automate. A folder picker on a machine with no corpus is
+   * a question with no answer available, so the steps are on the screen.
+   */
+  corpusStepsTitle: ["איך מביאים ספרים", "How to bring in seforim"] as Both,
+  corpusStepFetch: [
+    "1. הורד את ספריא — כ־2.2 ג׳יגה: girsa-fetch corpus\\sefaria",
+    "1. Fetch Sefaria — about 2.2 GB: girsa-fetch corpus\\sefaria",
+  ] as Both,
+  corpusStepOtzaria: [
+    "2. הורד את אוצריא בעצמך — הפרויקט הזה אינו מוריד אותו",
+    "2. Download Otzaria yourself — this project does not fetch it",
+  ] as Both,
+  corpusStepImport: [
+    "3. בנה את המדף: girsa-import corpus <אוצריא>",
+    "3. Build the shelf: girsa-import corpus <otzaria>",
+  ] as Both,
+  corpusStepIndex: [
+    "4. לחיפוש — כ־3.6 ג׳יגה: girsa-index build index corpus personal",
+    "4. For search — about 3.6 GB: girsa-index build index corpus personal",
+  ] as Both,
+  corpusStepsWhere: [
+    "את הכלים מורידים מדף השחרור — girsa-tools-windows.zip",
+    "the tools are on the release page — girsa-tools-windows.zip",
+  ] as Both,
   chooseCorpusWhy: [
     "התיקייה שהייבוא כתב אליה — זו שיש בה works/index.jsonl",
     "the folder the import wrote to — the one with works/index.jsonl in it",

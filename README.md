@@ -86,7 +86,7 @@ runs one way, and the reading workspace compiles without any of them.
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
 is **29**<!--=window-modules--> TypeScript modules and one stylesheet of
-**3,222**<!--=styles-lines--> lines — no framework, three runtime dependencies,
+**3,236**<!--=styles-lines--> lines — no framework, three runtime dependencies,
 and no fossils.
 
 That sentence used to say *supposed to be*, and it was measured: of the
@@ -237,10 +237,28 @@ push — a release build of tantivy and candle on a Windows runner is tens of
 minutes, and what has to be true on every push is that the code compiles, which
 the other two jobs already say.
 
-Girsa needs a corpus, which is not in the installer and is not downloaded for
-you: run `girsa-fetch` and `girsa-import`, or point the window at a folder you
-already have. With no corpus it opens on a screen that says so and offers a
-folder picker (`docs/the-second-sitting.md`, finding 19).
+**The installer carries the application and the tools. It does not carry the
+library.** Girsa is 11 GB of Torah and that is not in a 7 MB download, so a
+fresh install has a window and no seforim. The road, which the first screen also
+states:
+
+| | | |
+|---|---|---|
+| 1 | Sefaria, ~2.2 GB | `girsa-fetch corpus\sefaria` |
+| 2 | Otzaria | **you download this yourself** — nothing here fetches it |
+| 3 | Build the shelf | `girsa-import corpus <otzaria>` |
+| 4 | Search, ~3.6 GB | `girsa-index build index corpus personal` |
+
+Those three tools are `girsa-tools-windows.zip` on the same release page. They
+are **not** bundled into the installer, and that is deliberate rather than
+lazy: Tauri validates `bundle.resources` when the shell *compiles*, so naming
+three release binaries there breaks `cargo check` for anybody who has not built
+them first — CI's own shell job included. A second download couples nothing.
+
+Step 2 is manual and step 3 refuses without it — `girsa-import` needs an
+`אוצריא/` directory and says so. If you already have a corpus, point the window
+at it instead: with none it opens on a screen that says all of this and offers a
+folder picker (`docs/the-second-sitting.md`, findings 19 and 26).
 
 ### Building the window
 

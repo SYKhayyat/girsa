@@ -261,6 +261,22 @@ jobs:
       - run: npx tauri build
         working-directory: app
 
+      # The tools a reader needs to *fill* the library, which the installer
+      # deliberately does not carry.
+      #
+      # They are not Tauri `resources`: that list is validated when the shell
+      # **compiles**, so declaring three release binaries there breaks
+      # `cargo check` for anyone who has not built them first — CI's own shell
+      # job included. A separate asset costs one download and couples nothing.
+      - name: The corpus tools
+        shell: bash
+        run: |
+          cargo build --release -p girsa-corpus --bin girsa-fetch --bin girsa-import
+          cargo build --release -p girsa-search --bin girsa-index
+          mkdir -p tools-out
+          cp target/release/girsa-fetch.exe target/release/girsa-import.exe target/release/girsa-index.exe tools-out/
+          cp README.md tools-out/
+
       - uses: actions/upload-artifact@v4
         with:
           name: girsa-windows
@@ -268,6 +284,7 @@ jobs:
             target/release/bundle/nsis/*.exe
             target/release/bundle/msi/*.msi
             target/release/girsa-shell.exe
+            tools-out/*
           if-no-files-found: error
 
       # And on a tag, where a reader can actually reach it.
@@ -276,9 +293,11 @@ jobs:
         shell: bash
         run: |
           gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME" || true
+          7z a girsa-tools-windows.zip ./tools-out/*
           gh release upload "$GITHUB_REF_NAME" \
             target/release/bundle/nsis/*.exe \
             target/release/bundle/msi/*.msi \
+            girsa-tools-windows.zip \
             --clobber
         env:
           GH_TOKEN: ${{ github.token }}
