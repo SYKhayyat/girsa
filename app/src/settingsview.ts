@@ -34,6 +34,7 @@ import {
   type Shortcut,
 } from "./api.ts";
 import { announces, button, choice as pick, field, glyph, region } from "./controls.ts";
+import { OneKey } from "./capture.ts";
 import { said } from "./keys.ts";
 import type { Language } from "./names.ts";
 import { interfaceLanguage, say } from "./say.ts";
@@ -82,6 +83,18 @@ export class SettingsView {
   private readonly body: HTMLElement;
   private now: Settings | null = null;
   private changed: () => void = () => {};
+  /**
+   * The one wait for a key, and the only one there can be.
+   *
+   * The listener used to be added straight onto `window` and removed in
+   * exactly one place — inside itself, when a key arrived — so closing the
+   * panel, clicking a second row, or any redraw of the body left it armed and
+   * the next bare letter you typed anywhere was bound (finding 13). `OneKey`
+   * owns the waiting; this panel's job is to call `stop()` at every door out,
+   * which is safe when nothing is waiting and is why it can be called at all
+   * of them without asking.
+   */
+  private readonly binding = new OneKey();
 
   constructor() {
     this.element = document.createElement("div");
@@ -147,6 +160,9 @@ export class SettingsView {
   }
 
   close(): void {
+    // Door one. The reader clicked `×`, pressed Escape, or clicked outside the
+    // sheet — three ways in, and none of them used to disarm the trap.
+    this.binding.stop();
     this.element.hidden = true;
   }
 
@@ -171,6 +187,10 @@ export class SettingsView {
   private draw(): void {
     const s = this.now;
     if (!s) return;
+    // Door two. Every row here is rebuilt, so a capture still holding a
+    // reference to the button that showed `…` is holding a button that is no
+    // longer on the screen.
+    this.binding.stop();
     this.body.replaceChildren();
 
     this.body.append(this.heading(say("settingsReading")));
@@ -410,20 +430,15 @@ export class SettingsView {
     const other = interfaceLanguage() === "hebrew" ? row.en : row.he;
     const key = button(row.bound ?? "—", `${other} · ${row.shipped}`, () => {
       key.textContent = "…";
-      const listen = (event: KeyboardEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        // A bare modifier is somebody on their way to a combination, not a
-        // binding. Keep listening.
-        if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
-        window.removeEventListener("keydown", listen, true);
-        if (event.key === "Escape") {
-          void this.refresh();
+      // Door three is inside `wait` itself: starting this one ends whichever
+      // row was waiting before, and puts that row's label back.
+      this.binding.wait(window, (pressed) => {
+        if (!pressed) {
+          key.textContent = row.bound ?? "—";
           return;
         }
-        void this.bind(row.id, said(event));
-      };
-      window.addEventListener("keydown", listen, true);
+        void this.bind(row.id, said(pressed));
+      });
     });
     key.className = "settings-key";
 

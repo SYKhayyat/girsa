@@ -562,7 +562,7 @@ And a landmine went with it. The scroll control's two tooltips were
 one. They are `scrollNowSharedWhy` and `scrollNowOwnWhy` now. The next person to
 line them up by their keys would have reintroduced this finding.
 
-### 13 · Closing the settings leaves a shortcut trap armed
+### 13 · Closing the settings leaves a shortcut trap armed — **fixed**
 
 Click a shortcut's key button (it shows `…`), then close the panel with `×`
 instead of pressing a key. The `keydown` listener on `window` stays. The next
@@ -575,6 +575,27 @@ click "Ctrl+O" row → close panel with × → press "g"
 
 No confirmation, no message, and the only way back is `↺` in a panel you now
 cannot open with its shortcut if you happened to rebind that one.
+
+**Closing was not the only door.** Clicking a second row's key button armed a
+second listener beside the first, so one press bound two actions and the first
+row went on showing `…` for ever; and any redraw of the body — changing a font,
+changing the theme — replaced the button while the listener kept its reference
+to the one that was gone. Three doors, and a fix that added
+`removeEventListener` at the one in the report would be the same bug twice
+more.
+
+So the class, in `capture.ts`: **at most one wait for a key exists, and every
+way of ending it ends it.** `OneKey` owns the waiting; starting a second wait
+cancels the first and tells it so; `stop()` cancels from anywhere and is free
+when nothing is waiting, which is why the panel can call it at every door
+without asking which one the reader used.
+
+It takes its listener target as an argument, and that is the load-bearing part.
+`window` is not there in a unit test, and a rule about *when a listener is
+removed* that cannot run without a browser is a rule held by nobody — which is
+exactly how this one lasted. `capture.test.mjs` drives it with a counting
+stand-in and asserts the listener count is zero on every path out, including
+the reproduction above.
 
 ### 14 · The tab strip shows internal slugs after a restart — **fixed**
 

@@ -85,7 +85,7 @@ runs one way, and the reading workspace compiles without any of them.
 **nothing that decides anything**. Where a pane lands, what may
 sit beside what, and what the nikud toggle takes off are all answered in
 `girsa-app`, because those can be tested and a webview cannot. The window itself
-is **28**<!--=window-modules--> TypeScript modules and one stylesheet of
+is **29**<!--=window-modules--> TypeScript modules and one stylesheet of
 **3,022**<!--=styles-lines--> lines — no framework, three runtime dependencies,
 and no fossils.
 
