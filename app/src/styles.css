@@ -3487,3 +3487,27 @@ body {
   font-size: 10px;
   color: var(--ink-quiet);
 }
+
+/* Your highlights on a photograph (W24 meeting W26).
+ *
+ * Drawn from the rectangles they were made on and not from any offset, so they
+ * are in the right place on a page a better engine has read since — which is
+ * the whole reason the ink is what gets written down. A wash rather than an
+ * outline, because unlike the correcting boxes these are not a grid to hunt
+ * through: they are the few places the reader chose. */
+.scan-yours {
+  position: absolute;
+  background: color-mix(in srgb, var(--yours, var(--mark)) 34%, transparent);
+  border-radius: 2px;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+/* The first word of a run, waiting for its second click. Lit rather than
+ * merely outlined: a reader who clicked and looked away has to be able to see
+ * that the window is still holding one end. */
+.scan-marks.is-correcting .scan-mark.is-picked {
+  border-color: var(--mark);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--mark) 28%, transparent);
+}

@@ -66,6 +66,7 @@ const CALLED = new Map([
   ["PageWordsRow", "PageWords"],
 
   ["ReadingRow", "Reading"],
+  ["ScanMarkRow", "ScanMark"],
   ["ScanView", "ScanOpen"],
   ["ScannedRow", "Scanned"],
   ["SettingsView", "Settings"],

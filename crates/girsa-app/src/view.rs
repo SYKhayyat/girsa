@@ -697,6 +697,20 @@ pub struct WordRow {
 }
 
 impl WordRow {
+    /// A bare rectangle, for a highlight's ink — which has no text of its own
+    /// and no confidence, because nothing guessed at it: the reader drew it.
+    #[must_use]
+    pub fn box_of(at: girsa_scan::reading::Area) -> Self {
+        Self {
+            text: String::new(),
+            left: at.left,
+            top: at.top,
+            right: at.right,
+            bottom: at.bottom,
+            confidence: 1.0,
+        }
+    }
+
     pub fn of(word: &girsa_scan::Word) -> Self {
         Self {
             text: word.text.clone(),
@@ -716,6 +730,30 @@ pub struct PageWordsRow {
     pub by: Option<String>,
     pub guessed: bool,
     pub words: Vec<WordRow>,
+}
+
+/// One highlight on a page of a scan, drawn from its ink (W24 meeting W26).
+///
+/// The rectangles as they were written down, and the words they cover in the
+/// reading the page has **now** — which is the whole reason an ink anchor is
+/// worth having. A page read again by a better engine has different words in
+/// slightly different places, and this says what is under the mark today rather
+/// than what was under it when it was made.
+#[derive(Serialize)]
+pub struct ScanMarkRow {
+    pub id: String,
+    /// Rectangles in fractions of the page, one per line of the highlight.
+    pub ink: Vec<WordRow>,
+    /// The words the mark was made on, as the engine read them then.
+    pub was: String,
+    /// The words under that ink now. Different from `was` after a re-read, and
+    /// a reader is entitled to see that it changed.
+    pub says: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colour: Option<String>,
+    pub tags: Vec<String>,
 }
 
 /// *4 PDFs on this shelf aren't searchable yet*, and what it is about.

@@ -73,7 +73,12 @@ impl From<String> for MarkId {
 }
 
 /// One highlight, or one bookmark.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `PartialEq` and **not** `Eq`, since a mark on a page carries a rectangle in
+/// fractions of the page and a fraction is a float. Nothing here wants a mark
+/// as a key: they are held in a log and looked up by [`MarkId`], which is a
+/// string and is `Eq` on its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Mark {
     pub id: MarkId,
     /// The permanent id of the segment (spec.md §3). **Never a line number.**
@@ -89,6 +94,32 @@ pub struct Mark {
     /// offsets rot — see the module note.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub was: String,
+    /// Where on the photograph, for a mark on a page of a scan (W24 meeting
+    /// W26).
+    ///
+    /// A page is one segment and carries no text, so `from_char` above has
+    /// nothing to count into and a highlight on a scan could only ever be the
+    /// whole page. What a page does have is words with rectangles under them.
+    ///
+    /// **The rectangle and not the offsets**, and it is the same argument
+    /// `girsa-scan` makes about a correction: a page's words are an engine's
+    /// current opinion, and the whole premise of the OCR work order is that a
+    /// better engine replaces them. Re-read the page and there are more words,
+    /// or fewer, spelled differently — every offset then points somewhere else,
+    /// silently. The ink does not move.
+    ///
+    /// **One rectangle per line, not one for the run.** A highlight over three
+    /// lines of a daf has a bounding box that also covers everything between
+    /// its first word and its last — including the ends of the lines it passes
+    /// through, which the reader did not mark. Redrawing from that box would
+    /// quietly grow the highlight, and a mark two words wider than the one
+    /// somebody made looks exactly like one that landed right.
+    ///
+    /// Which words fall inside these is asked of whatever reading the page has
+    /// **now**, so a re-read changes the answer honestly rather than leaving
+    /// the mark pointing at letters it was never on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ink: Vec<girsa_scan::reading::Area>,
     /// What you called it. A bookmark's name, a highlight's reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -112,6 +143,7 @@ impl Mark {
         who: impl Into<String>,
     ) -> Self {
         let mut mark = Self {
+            ink: Vec::new(),
             id: MarkId(String::new()),
             at,
             kind: Kind::Highlight,
@@ -128,10 +160,51 @@ impl Mark {
         mark
     }
 
+    /// Highlight a stretch of a **page of a scan** (W24 meeting W26).
+    ///
+    /// Not a span of characters, because a page has none: the segment carries
+    /// an empty string and its words are an engine's opinion kept in the
+    /// personal layer. What is written down is the rectangle the marked words
+    /// sit on, which is what makes the highlight survive the page being read
+    /// again by something better — `girsa-scan`'s argument about a correction,
+    /// made once more about a highlight.
+    ///
+    /// `was` is still the words, for the same reason it is on a text mark: it
+    /// is what a reader sees in a list of their own highlights, and what tells
+    /// them the engine has since changed its mind about this page.
+    #[must_use]
+    pub fn on_ink(
+        at: SegmentId,
+        ink: Vec<girsa_scan::reading::Area>,
+        was: impl Into<String>,
+        who: impl Into<String>,
+    ) -> Self {
+        let mut mark = Self {
+            ink,
+            id: MarkId(String::new()),
+            at,
+            kind: Kind::Highlight,
+            // Deliberately absent rather than zero. A page mark has no offsets,
+            // and `Some(0..0)` would be a highlight of nothing rather than a
+            // highlight measured another way.
+            from_char: None,
+            to_char: None,
+            was: was.into(),
+            label: None,
+            colour: None,
+            tags: Vec::new(),
+            who: who.into(),
+            when: girsa_personal::now_seconds(),
+        };
+        mark.id = mark.name();
+        mark
+    }
+
     /// Mark the place.
     #[must_use]
     pub fn bookmark(at: SegmentId, who: impl Into<String>) -> Self {
         let mut mark = Self {
+            ink: Vec::new(),
             id: MarkId(String::new()),
             at,
             kind: Kind::Bookmark,
@@ -180,12 +253,28 @@ impl Mark {
     }
 
     fn name(&self) -> MarkId {
+        // The ink is part of what a mark *is* on a page, and two highlights on
+        // one page have the same id without it: the offsets are both absent and
+        // the words can read alike twice on a daf. Written as the four edges at
+        // four decimal places, which is finer than any rectangle a reader can
+        // draw with a mouse and coarser than the noise in a float.
+        let where_on_it: String = self
+            .ink
+            .iter()
+            .map(|ink| {
+                format!(
+                    "{:.4},{:.4},{:.4},{:.4};",
+                    ink.left, ink.top, ink.right, ink.bottom
+                )
+            })
+            .collect();
         MarkId(girsa_personal::fingerprint(&[
             &self.at.to_string(),
             &self.from_char.unwrap_or_default().to_string(),
             &self.to_char.unwrap_or_default().to_string(),
             &self.was,
             self.kind.as_str(),
+            &where_on_it,
         ]))
     }
 

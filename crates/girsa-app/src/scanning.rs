@@ -37,6 +37,7 @@ use girsa_cite::{cite, CiteStyle, Sefer};
 use girsa_corpus::import::{mine, SegmentKind};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::work::{Source, Work};
+use girsa_scan::reading::Area;
 use girsa_scan::Scan;
 use girsa_source::SourcePacket;
 
@@ -141,6 +142,87 @@ pub fn where_word_on_page(read: &girsa_scan::Read, word: &str) -> Option<usize> 
         });
         found
     })
+}
+
+/// How much of a word has to sit inside a rectangle to be under it.
+///
+/// Most of it, and the number is the same shape as `girsa-scan`'s own rule for
+/// re-finding a correction: a word that a mark clips the edge of was not
+/// marked, and a word a mark covers three quarters of was. The failure this
+/// guards is the one W24 named about a dibur hamatchil and W26 named again
+/// about a rectangle — **a highlight two letters off looks exactly like one
+/// that landed right**, so the rule is stated rather than tuned by eye.
+const MOSTLY_INSIDE: f32 = 0.6;
+
+/// How much two words have to overlap vertically to be on one line.
+///
+/// The same question `girsa-scan` answers when it groups glyphs into lines, and
+/// deliberately the same shape of answer: Hebrew type has no descenders to
+/// speak of, so two words on one line share almost all of their height and two
+/// words on neighbouring lines share almost none.
+const ONE_LINE: f32 = 0.5;
+
+/// The ink a run of words sits on, one rectangle per line, and the words.
+///
+/// **Not one rectangle for the run.** A highlight over three lines of a daf has
+/// a bounding box that also covers everything between its first word and its
+/// last, including the ends of the lines it passes through — so redrawing from
+/// that box would grow the highlight by however many words happened to lie in
+/// the middle. One rectangle per line is tight on every line, which is also
+/// what a highlight over running text looks like.
+///
+/// `None` when the range names no words, which is a caller asking about a page
+/// nobody has read or a range that ran off the end of one.
+#[must_use]
+pub fn ink_of(
+    read: &girsa_scan::Read,
+    words: std::ops::Range<usize>,
+) -> Option<(Vec<Area>, String)> {
+    let picked = read.words.get(words)?;
+    if picked.is_empty() {
+        return None;
+    }
+    let mut lines: Vec<Area> = Vec::new();
+    for word in picked {
+        match lines.last_mut() {
+            // Same line: widen the rectangle to take this word in.
+            Some(line) if shares_a_line(*line, word.at) => *line = line.with(word.at),
+            _ => lines.push(word.at),
+        }
+    }
+    let said = picked
+        .iter()
+        .map(|word| word.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some((lines, said))
+}
+
+/// Whether a word sits on the line a rectangle already covers.
+fn shares_a_line(line: Area, word: Area) -> bool {
+    let overlap = (line.bottom.min(word.bottom) - line.top.max(word.top)).max(0.0);
+    let tall = (word.bottom - word.top).max(f32::EPSILON);
+    overlap / tall >= ONE_LINE
+}
+
+/// Which words of the reading a mark's ink covers, in reading order.
+///
+/// Asked of whatever reading the page has **now**. A page read again by a
+/// better engine has different words in slightly different places, and the
+/// honest answer is *these are the words under that ink today* rather than the
+/// words that were under it when the mark was made — which is exactly the
+/// property that makes an ink anchor worth having over an offset one.
+#[must_use]
+pub fn words_under(read: &girsa_scan::Read, ink: &[Area]) -> Vec<usize> {
+    read.words
+        .iter()
+        .enumerate()
+        .filter(|(_, word)| {
+            ink.iter()
+                .any(|area| word.at.covered_by(*area) >= MOSTLY_INSIDE)
+        })
+        .map(|(at, _)| at)
+        .collect()
 }
 
 /// The scan a sefer is, if it is one.

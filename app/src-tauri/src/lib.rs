@@ -1837,6 +1837,110 @@ fn scan_fix(
     scan_words(shared, slug, page)
 }
 
+/// Highlight a run of words on a page, by the ink they sit on (W24, W26).
+///
+/// A page is one segment and carries no text, so the character span every other
+/// highlight in this window is stored as means nothing here — a scan could only
+/// ever be marked whole. What a page has is words with rectangles under them,
+/// and the rectangle is the anchor that survives the page being read again by a
+/// better engine, which is the argument `scan_fix` already makes about a
+/// correction.
+///
+/// One rectangle per line rather than one for the run: the bounding box of a
+/// highlight spanning three lines also covers the ends of the lines it passes
+/// through, and redrawing from it would grow the mark by words nobody chose.
+#[tauri::command]
+fn scan_mark(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+    from_word: usize,
+    to_word: usize,
+    label: Option<String>,
+    colour: Option<String>,
+) -> Result<Vec<girsa_app::view::ScanMarkRow>, String> {
+    if from_word > to_word {
+        return Err(girsa_app::trouble::refuse(
+            girsa_app::trouble::Code::NothingChosen,
+            "nothing is selected",
+        ));
+    }
+    {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        let at = {
+            let sefer = state.sefer(&slug)?;
+            girsa_app::scanning::page_id(sefer, page)
+                .ok_or_else(|| format!("{slug} has no page {page}"))?
+        };
+        let read = state
+            .words(&slug)?
+            .page(page)
+            .ok_or_else(|| format!("nobody has read page {page} of {slug}"))?;
+        let (ink, was) = girsa_app::scanning::ink_of(&read, from_word..to_word + 1)
+            .ok_or("those words are not on this page")?;
+        let who = girsa_app::who();
+        let mut mark = girsa_note::Mark::on_ink(at, ink, was, &who);
+        mark.label = label;
+        mark.colour = colour;
+        let trouble = state.trouble();
+        let shelf = state.shelf.as_mut().ok_or(trouble)?;
+        shelf.marks_mut().add(mark).map_err(|e| e.to_string())?;
+    }
+    scan_marks(shared, slug, page)
+}
+
+/// The highlights on a page, with the words each one covers **now**.
+#[tauri::command]
+fn scan_marks(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    page: usize,
+) -> Result<Vec<girsa_app::view::ScanMarkRow>, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let at = {
+        let sefer = state.sefer(&slug)?;
+        girsa_app::scanning::page_id(sefer, page)
+            .ok_or_else(|| format!("{slug} has no page {page}"))?
+    };
+    let read = state.words(&slug)?.page(page);
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let standing = girsa_corpus::standing::Standing::just(at);
+    let rows = shelf
+        .marks()
+        .on(&standing)
+        .into_iter()
+        .filter(|mark| !mark.ink.is_empty())
+        .map(|mark| {
+            // What is under that ink today. A page nobody has read any more —
+            // the reading was thrown away and not replaced — leaves this empty,
+            // which is honest: the rectangle is still on the photograph and
+            // there are no words to name.
+            let says = read.as_ref().map_or_else(String::new, |read| {
+                girsa_app::scanning::words_under(read, &mark.ink)
+                    .into_iter()
+                    .filter_map(|at| read.words.get(at))
+                    .map(|word| word.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            });
+            girsa_app::view::ScanMarkRow {
+                id: mark.id.as_str().to_string(),
+                ink: mark
+                    .ink
+                    .iter()
+                    .map(|area| girsa_app::view::WordRow::box_of(*area))
+                    .collect(),
+                was: mark.was.clone(),
+                says,
+                label: mark.label.clone(),
+                colour: mark.colour.clone(),
+                tags: mark.tags.clone(),
+            }
+        })
+        .collect();
+    Ok(rows)
+}
+
 /// What a search over this shelf cannot see — spec.md §9.7's results header, and
 /// the two things it never used to include (B7).
 ///
@@ -4026,6 +4130,8 @@ pub fn run() {
             scan_ocr_page,
             scan_words,
             scan_fix,
+            scan_mark,
+            scan_marks,
             scan_gap,
             lane_state,
             lane_ask,

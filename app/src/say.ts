@@ -867,6 +867,18 @@ const WORDS = {
     "show every word the engine read — click one to correct it",
   ] as Both,
   scanFixWord: ["מה כתוב כאן", "what it says here"] as Both,
+  /** Highlighting on the photograph (W24 meeting W26). A page is one segment,
+   * so a highlight on one could only ever be the whole page — what is written
+   * down now is the ink, which is what survives a re-read. */
+  scanMark: ["סמן מילים", "Highlight words"] as Both,
+  scanMarkWhy: [
+    "לחץ על המילה הראשונה ואחר כך על האחרונה — מה שנרשם הוא המקום על התצלום",
+    "click the first word and then the last — what is written down is the place on the photograph",
+  ] as Both,
+  scanMarkMoved: [
+    "סומן על: {was} · כעת שם: {says}",
+    "marked on: {was} · now reads: {says}",
+  ] as Both,
   // The transmission chain (spec.md §8, W28). The walk and the terminal tool
   // have existed since W28; nothing drew them, so the whole tier was a feature
   // you had to leave the window to see.

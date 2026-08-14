@@ -22,7 +22,16 @@ import worker from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 import { api, assetUrl } from "./api.ts";
 import { alsoCalled, sefer } from "./names.ts";
-import type { Anchor, PageSaid, PaneId, PageWords, Reading, ScanOpen, Scheme } from "./api.ts";
+import type {
+  Anchor,
+  PageSaid,
+  PaneId,
+  PageWords,
+  Reading,
+  ScanMark,
+  ScanOpen,
+  Scheme,
+} from "./api.ts";
 import { glyphsOf } from "./glyphs.ts";
 import { sayTrouble } from "./trouble.ts";
 import { area, button, choice, field, toolStrip } from "./controls.ts";
@@ -95,7 +104,14 @@ export class ScanView {
   private correcting = false;
   /** The box being typed into, so a second click does not leave two. */
   private fixing: HTMLInputElement | null = null;
-  private readonly marks: HTMLElement;
+  /** Set while the reader is highlighting: every box is clickable, and a click
+   * picks the ends of a run rather than opening a correction box. */
+  private marking = false;
+  /** The first word of a run, once one has been picked. */
+  private from: number | null = null;
+  /** Your highlights on this page, drawn from the ink they were made on. */
+  private yours: ScanMark[] = [];
+  private readonly overlay: HTMLElement;
   private readonly reading: HTMLElement;
   /** Set while the read-the-scan job is running; cleared to stop it. */
   private job = false;
@@ -163,6 +179,7 @@ export class ScanView {
       this.mapButton(),
       this.readButton(),
       this.correctButton(),
+      this.markButton(),
       this.reading,
     );
     this.element.append(bar);
@@ -177,8 +194,8 @@ export class ScanView {
     const sheet = el("div", "scan-sheet");
     this.canvas = document.createElement("canvas");
     this.canvas.className = "scan-canvas";
-    this.marks = el("div", "scan-marks");
-    sheet.append(this.canvas, this.marks);
+    this.overlay = el("div", "scan-marks");
+    sheet.append(this.canvas, this.overlay);
     this.body.append(sheet);
     this.element.append(this.body);
 
@@ -312,13 +329,17 @@ export class ScanView {
     this.drawing = mine.catch(() => undefined);
     // The header is asked for in parallel: it is one small call, and a reader
     // turning pages should not wait for the render to find out where they are.
-    const [said, words] = await Promise.all([
+    const [said, words, yours] = await Promise.all([
       api.scanAt(this.slug, this.page),
       api.scanWords(this.slug, this.page).catch(() => null),
+      // Your own layer, which a browser build does not have — an empty list
+      // rather than a failure, the answer every other own-layer call gives.
+      api.scanMarks(this.slug, this.page).catch((): ScanMark[] => []),
       mine,
     ]);
     this.said = said;
     this.words = words;
+    this.yours = yours;
     this.paint();
     this.drawMarks();
     // Where the reader is, so the scan reopens on the page they left it on and
@@ -380,14 +401,40 @@ export class ScanView {
    * guess at where the word would be if it were there.
    */
   private drawMarks(): void {
-    this.marks.replaceChildren();
-    this.marks.classList.toggle("is-guessed", this.words?.guessed === true);
-    this.marks.classList.toggle("is-correcting", this.correcting);
+    this.overlay.replaceChildren();
+    this.overlay.classList.toggle("is-guessed", this.words?.guessed === true);
+    // One class for both modes, because both make every box on the page
+    // clickable and the overlay has to stop being transparent to the pointer
+    // for either. What a click *does* is the difference, and that is in the
+    // handler rather than in the stylesheet.
+    this.overlay.classList.toggle("is-correcting", this.correcting || this.marking);
+    // Your highlights, drawn from the rectangles they were made on and not from
+    // any offset — so they are in the right place on a page that has been read
+    // again since, which is the whole reason the ink is what was written down.
+    for (const mark of this.yours) {
+      for (const ink of mark.ink) {
+        const box = el("div", "scan-yours");
+        box.style.insetInlineStart = "";
+        box.style.left = `${ink.left * 100}%`;
+        box.style.top = `${ink.top * 100}%`;
+        box.style.width = `${(ink.right - ink.left) * 100}%`;
+        box.style.height = `${(ink.bottom - ink.top) * 100}%`;
+        if (mark.colour) box.style.setProperty("--yours", mark.colour);
+        // What it was made on, and what is under it now. The same sentence
+        // where the page has not been re-read, and the difference is the thing
+        // worth seeing where it has.
+        box.title =
+          mark.says && mark.says !== mark.was
+            ? fill("scanMarkMoved", { was: mark.was, says: mark.says })
+            : mark.label ?? mark.was;
+        this.overlay.append(box);
+      }
+    }
     if (!this.words) return;
     // Correcting draws **every** word, because the reader is looking for the
     // one the engine got wrong and cannot ask for it by name — asking for it by
     // name is the thing they cannot do. Otherwise only what a search asked for.
-    const wanted = this.correcting ? null : new Set(this.marked);
+    const wanted = this.correcting || this.marking ? null : new Set(this.marked);
     if (wanted && wanted.size === 0) return;
     this.words.words.forEach((word, index) => {
       if (wanted && !wanted.has(bare(word.text))) return;
@@ -403,9 +450,14 @@ export class ScanView {
         // reader hunting the wrong one is better served by being told where the
         // machine was least sure than by being left to compare all of them.
         if (word.confidence < DOUBTFUL) box.classList.add("is-doubtful");
-        box.addEventListener("click", () => this.correct(index, word.text, box));
+        if (this.marking) {
+          box.classList.toggle("is-picked", this.from === index);
+          box.addEventListener("click", () => void this.pick(index));
+        } else {
+          box.addEventListener("click", () => this.correct(index, word.text, box));
+        }
       }
-      this.marks.append(box);
+      this.overlay.append(box);
     });
   }
 
@@ -445,7 +497,7 @@ export class ScanView {
     this.correcting = true;
     this.drawMarks();
     // Correcting draws every word in order, so the nth box is the nth word.
-    const box = this.marks.children[index];
+    const box = this.overlay.children[index];
     const word = this.words?.words[index];
     if (!(box instanceof HTMLElement) || !word) {
       // The page has been read again since the queue was built and there is no
@@ -473,7 +525,7 @@ export class ScanView {
     typed.value = was;
     this.fixing = typed;
     const at = box.getBoundingClientRect();
-    const page = this.marks.getBoundingClientRect();
+    const page = this.overlay.getBoundingClientRect();
     typed.style.left = `${((at.left - page.left) / page.width) * 100}%`;
     typed.style.top = `${((at.bottom - page.top) / page.height) * 100}%`;
     typed.addEventListener("keydown", (event) => {
@@ -500,9 +552,52 @@ export class ScanView {
         }
       })();
     });
-    this.marks.append(typed);
+    this.overlay.append(typed);
     typed.focus();
     typed.select();
+  }
+
+  /**
+   * Pick the ends of a run, one click each.
+   *
+   * Two clicks rather than a drag, and it is not a shortcut. There is no text
+   * over a photograph to select, so a drag would have to hit-test its own path
+   * across the boxes and guess at what a diagonal across two columns of a daf
+   * means — and on a page laid out in two columns the guess is wrong often
+   * enough to matter. Two clicks say exactly which words, and the first one
+   * stays lit until the second lands.
+   *
+   * Clicking the same word twice marks that one word, which is the common case
+   * and needs no special path: a run of one.
+   */
+  private async pick(index: number): Promise<void> {
+    if (this.from === null) {
+      this.from = index;
+      this.drawMarks();
+      return;
+    }
+    const [from, to] = this.from <= index ? [this.from, index] : [index, this.from];
+    this.from = null;
+    try {
+      this.yours = await api.scanMark(this.slug, this.page, from, to);
+      this.drawMarks();
+    } catch (e) {
+      sayTrouble(this.note, e, "mark");
+    }
+  }
+
+  /** *Highlight words* — the toggle that makes a click pick instead of correct. */
+  private markButton(): HTMLElement {
+    return button(say("scanMark"), say("scanMarkWhy"), () => {
+      this.marking = !this.marking;
+      // The two modes are exclusive. Both make every box clickable and a click
+      // cannot mean two things, so turning one on turns the other off rather
+      // than leaving a reader to find out which one they are in by clicking.
+      if (this.marking) this.correcting = false;
+      this.from = null;
+      this.stopCorrecting();
+      this.drawMarks();
+    });
   }
 
   private stopCorrecting(): void {
@@ -514,6 +609,8 @@ export class ScanView {
   private correctButton(): HTMLElement {
     return button(say("scanFix"), say("scanFixWhy"), () => {
       this.correcting = !this.correcting;
+      if (this.correcting) this.marking = false;
+      this.from = null;
       this.stopCorrecting();
       this.drawMarks();
     });

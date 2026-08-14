@@ -338,6 +338,21 @@ export interface Forked {
   works_read: number;
 }
 
+/** One highlight on a page of a scan, drawn from its ink. */
+export interface ScanMark {
+  id: string;
+  /** Rectangles in fractions of the page, one per line of the highlight. */
+  ink: WordBox[];
+  /** The words the mark was made on, as the engine read them then. */
+  was: string;
+  /** The words under that ink **now** — different from `was` after the page has
+   * been read again, and a reader is entitled to see that it changed. */
+  says: string;
+  label?: string;
+  colour?: string;
+  tags: string[];
+}
+
 export interface Text {
   work: Card;
   /** A stretch of the sefer, beginning at `from`. */
@@ -1156,6 +1171,26 @@ export const api = {
     call<PageWords | null>("scan_words", { slug, page }),
   /** Correct a word by its ink, so the fix survives the page being read
    * again by something better. */
+  /** Highlight a run of words on a page, by the ink they sit on (W24, W26).
+   * `fromWord`/`toWord` are indices into the reading; what is stored is the
+   * rectangles, so the mark survives the page being read again. */
+  scanMark: (
+    slug: string,
+    page: number,
+    fromWord: number,
+    toWord: number,
+    label?: string,
+    colour?: string,
+  ) =>
+    call<ScanMark[]>("scan_mark", {
+      slug,
+      page,
+      fromWord,
+      toWord,
+      label: label ?? null,
+      colour: colour ?? null,
+    }),
+  scanMarks: (slug: string, page: number) => call<ScanMark[]>("scan_marks", { slug, page }),
   scanFix: (slug: string, page: number, word: number, says: string) =>
     call<PageWords | null>("scan_fix", { slug, page, word, says }),
   /** The results header's *not searchable yet* line. */
@@ -1772,6 +1807,11 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         },
         works_read: 0,
       } as T;
+    case "scan_marks":
+    case "scan_mark":
+      // Your own layer is the shell's — it is written into `personal/`, and a
+      // browser has none.
+      return [] as T;
     case "chain_forks":
       return {
         start: "",

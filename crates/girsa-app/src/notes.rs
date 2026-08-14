@@ -59,7 +59,10 @@ impl Wrote {
 }
 
 /// One mark, and where it lands in the text the pane drew.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `PartialEq` and not `Eq`, because a mark on a page of a scan carries the
+/// rectangles it was drawn on and a fraction of a page is a float.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Marked {
     pub mark: Mark,
     /// Where it is now — or that its words have gone. Never quietly dropped:
@@ -68,7 +71,7 @@ pub struct Marked {
 }
 
 /// What you have on one line.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Yours {
     pub notes: Vec<Wrote>,
     pub marks: Vec<Marked>,

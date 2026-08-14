@@ -2139,6 +2139,7 @@ dependencies = [
  "girsa-link",
  "girsa-personal",
  "girsa-plain",
+ "girsa-scan",
  "serde",
  "serde_json",
  "thiserror 2.0.19",

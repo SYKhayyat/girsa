@@ -698,6 +698,12 @@ yet — [OCR now]"*. Scanned hits get a badge. Badge them, don't demote them.
 **Open:** the OCR engine is undecided (`spec.md` §17). Tesseract is mediocre on old
 Hebrew print. Evaluate before committing.
 
+*Amended: a highlight on a page is anchored to the ink, so a scan is markable
+finer than the whole page — W24's character span had nothing to count into,
+because a page carries no text. One rectangle per line rather than one round the
+run, since a box round a three-line highlight also covers the ends of the lines
+it passes through. See `record/scans.md`.*
+
 ---
 
 ## Tier 9 — Personal layer and beyond

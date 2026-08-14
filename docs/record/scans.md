@@ -404,6 +404,46 @@ mark come from the search's own marker rather than from what the reader typed.
 Searching the drawn text for the typed string would find nothing on a menukad
 page, which is most of them.
 
+### A highlight on a photograph is on the ink, and one rectangle per line
+
+W24 attaches a highlight to **specific words** by storing a character span into
+the segment's text. A page has no text — the importer gives a dropped PDF one
+segment per page with an empty string in it, because it will not invent Hebrew
+it cannot read — so the span had nothing to count into and a scan could be
+marked whole and no finer.
+
+The answer is the one this work order already settled two sections up, applied
+to a highlight: **anchor to the ink.** A page's words are an engine's current
+opinion and the whole premise here is that a better engine replaces them, so an
+offset written down today points somewhere else after a re-read, silently. The
+photograph does not move.
+
+`girsa-app/tests/a_highlight_on_a_photograph_is_on_the_ink.rs` is that property:
+the page is read again, a word the first pass missed appears *before* the run
+and another is spelled differently — so every offset after the first change is
+wrong — and the mark is still on the two places it was made on, reporting the
+engine's new opinion of what is written there.
+
+**One rectangle per line and not one round the run.** A highlight from the
+middle of the top line to the middle of the third has a bounding box that also
+covers the far ends of all three, including words the reader never touched;
+redrawing from that box would grow the mark. The test asserts both halves — the
+three rectangles cover exactly the words picked, and the box round them covers
+more.
+
+And the picking is **two clicks, not a drag**. There is no text over a
+photograph to select, so a drag would have to hit-test its own path across the
+boxes and guess what a diagonal across two columns of a daf means — and on a
+page set in two columns the guess is wrong often enough to matter. Two clicks
+say exactly which words; the first stays lit until the second lands. Clicking
+one word twice is a run of one, which is the common case and needs no separate
+path.
+
+The mark carries what it was made on **and** what is under it now. On a page
+nobody has re-read those are the same sentence; where they differ, the reader is
+entitled to see that the engine has changed its mind about the words they
+highlighted.
+
 ### Never a silent gap
 
 Since OCR is off at onboarding, a shelf with scans on it has holes in its index
@@ -504,9 +544,7 @@ W25 chose for the same reason. It hands over glyphs, or a picture, and
 everything after that is decided in `girsa-scan`, where it can be tested without
 a webview.
 
-**What this does not yet do.** A page's words cannot be linked to at a finer
-grain than the page; W24's
-span anchoring is about segments and a page is one segment. And nothing has been
+**What this does not yet do.** Nothing has been
 run against a real photographed sefer: every measurement above is against a
 born-digital PDF, which is the only kind on this shelf, so the numbers for
 tesseract are its numbers on **clean 300-dpi print** and a photograph of a Vilna

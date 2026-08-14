@@ -25,6 +25,13 @@ girsa-hebrew.workspace = true
 # folders are appended to rather than rewritten, so keeping a hundredth
 # highlight costs what the first did.
 girsa-personal.workspace = true
+# A page of a scan is one segment, so a highlight on one cannot be a span of
+# characters — there is no text to count into. What it can be is a rectangle on
+# the photograph, which is the anchor W26 settled on for a correction and is the
+# same argument about a highlight: the image is ground truth and does not move
+# when a better engine reads the page again. `Area` is that rectangle, and it
+# lives where the readings do.
+girsa-scan.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
