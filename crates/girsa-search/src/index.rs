@@ -1819,6 +1819,23 @@ impl Writer {
         self.add_saying(segment, touching, &segment.text)
     }
 
+    /// Delete every segment of a work, and add nothing back.
+    ///
+    /// [`Writer::add`] already does the delete half the first time it sees a
+    /// work, which covers every work that still exists. This is for the one
+    /// that does not: a note you threw away has no `segments.jsonl` to re-read,
+    /// so nothing is ever added under its name and the delete never fires. It
+    /// would stay findable until the next full build, and a hit on it opens a
+    /// sefer that is not on the shelf.
+    ///
+    /// Marked as replaced, so a later `add` for the same work does not delete
+    /// it a second time.
+    pub fn forget(&mut self, slug: &str) {
+        self.writer
+            .delete_term(Term::from_field_text(self.fields.work, slug));
+        self.replaced.insert(slug.to_string());
+    }
+
     /// Index one segment saying something other than what is on disk (W20).
     ///
     /// The one thing that says it: **the reader's corrections**. A typo fixed

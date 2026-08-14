@@ -272,6 +272,50 @@ impl State {
         refuse(Code::Poisoned, "state is poisoned")
     }
 
+    /// Put a sefer of your own into the search index, now (W11, spec.md §11).
+    ///
+    /// A note is a sefer and *your notes are searchable* — and until this they
+    /// were searchable as of the last build, so the honest sentence in the
+    /// results header was **"1 note since the index was built"** and the only
+    /// way to make it stop saying that was four minutes over five million
+    /// segments. A note is one segment. See `girsa_search::building`.
+    ///
+    /// **Nothing here fails a write.** The note is on disk before this is
+    /// called; if the index will not take it the reader has still written their
+    /// note, and what they lose is that it is findable until the next build —
+    /// which is exactly the state everything was in before, and which the
+    /// results header already knows how to say. Refusing the write because a
+    /// cache would not update would be the tail wagging the dog.
+    fn searchable(&mut self, slug: &str) {
+        let (Some(bar), Some(shelf)) = (self.bar.as_ref(), self.shelf.as_ref()) else {
+            return;
+        };
+        let personal = shelf.personal().to_path_buf();
+        match bar.absorb(&personal, slug) {
+            Ok(done) => {
+                for line in done.trouble {
+                    eprintln!("{line}");
+                }
+            }
+            Err(e) => eprintln!("{slug} is written and is not in the index yet: {e}"),
+        }
+    }
+
+    /// And take one out, because it is not on the shelf any more.
+    ///
+    /// The asymmetry is real: a work that has been deleted has no
+    /// `segments.jsonl` to read back, so the delete-then-add rule never fires
+    /// for it. Left alone, a note you threw away stays findable until the next
+    /// full build and a hit on it opens a sefer that is not there.
+    fn unsearchable(&mut self, slug: &str) {
+        let Some(bar) = self.bar.as_ref() else {
+            return;
+        };
+        if let Err(e) = bar.forget(slug) {
+            eprintln!("{slug} is gone and is still in the index: {e}");
+        }
+    }
+
     /// The documents the reader has told Girsa about, read once.
     ///
     /// Refreshed on open — a `stat` per document, once, rather than a file read
@@ -1327,6 +1371,7 @@ fn add_mine(shared: tauri::State<'_, Shared>, paths: Vec<String>) -> Result<Drop
 
     let mut added = Vec::new();
     let mut refused = Vec::new();
+    let mut fresh = Vec::new();
     for path in paths {
         let file = PathBuf::from(&path);
         match shelf.add_mine(&file, None) {
@@ -1334,12 +1379,20 @@ fn add_mine(shared: tauri::State<'_, Shared>, paths: Vec<String>) -> Result<Drop
                 if let Some(work) = shelf.work(&slug) {
                     added.push(Card::of(work));
                 }
+                fresh.push(slug);
             }
             Err(e) => refused.push(Refusal {
                 file: path,
                 why: e.to_string(),
             }),
         }
+    }
+    // Searchable now rather than at the next build (W11). A dropped handout is
+    // a few dozen segments; a PDF is pages with no words in them until it is
+    // OCR'd, and going in empty is what makes the results header able to count
+    // it as *not searchable yet* rather than leaving the sefer absent entirely.
+    for slug in fresh {
+        state.searchable(&slug);
     }
     Ok(Dropped { added, refused })
 }
@@ -4102,6 +4155,8 @@ fn note_write(
     let who = girsa_app::who();
     let note = girsa_app::note_here(shelf, &at, title.as_deref(), &text, &who)
         .map_err(|e| e.to_string())?;
+    let slug = note.slug.clone();
+    state.searchable(&slug);
     Ok(NoteRow::of(&note))
 }
 
@@ -4204,14 +4259,20 @@ fn note_edit(
         }
     }
     let written = shelf.write_note(held).map_err(|e| e.to_string())?;
-    Ok(written
+    let rows: Vec<ParaRow> = written
         .paras()
         .iter()
         .map(|para| ParaRow {
             id: para.id.to_string(),
             text: para.text.clone(),
         })
-        .collect())
+        .collect();
+    let slug = written.slug.clone();
+    // An edit is a rewrite of the note, so the index gets the whole note back.
+    // A work is the unit of replacement, which makes *changed* and *new* the
+    // same operation here.
+    state.searchable(&slug);
+    Ok(rows)
 }
 
 /// Throw a note away — the file, the sefer and the catalogue line.
@@ -4226,6 +4287,7 @@ fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, S
     let gone = shelf.forget_note(&note).map_err(|e| e.to_string())?;
     if let Some(slug) = slug {
         state.open.forget(&slug);
+        state.unsearchable(&slug);
     }
     Ok(gone)
 }

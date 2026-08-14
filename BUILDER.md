@@ -711,6 +711,14 @@ that touches this sugya?"* is the same query as *"who quotes this Rishon?"*
 Local, exportable as plain files, no account. Optional encrypted sync of the
 personal layer only — never the corpus, never telemetry.
 
+*Amended: your writing reaches the index when you write it, not at the next
+build. A work has been the unit of replacement since W11 — the first segment of
+a work deletes that work's old copy — so indexing one sefer was always possible
+and had no caller. The build loop's body is `girsa_search::building` now, and a
+note, an edit, a dropped sefer and `girsa-index update` all go through it.
+Deleting a note takes it out, which the replacement rule cannot do for a work
+that no longer has segments to read.*
+
 **Amended after the fact: one store, not six.** Marks, saved questions, folders,
 corrections, link repairs and the spelling queue each grew their own copy of the
 same file store, and each copy had the same defect — the whole collection

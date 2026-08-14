@@ -680,26 +680,82 @@ the same door, and neither needs a format.
   own. **This one is for you to rule on.** What is built instead is the half
   that needs no ruling and that §11 names first: it is all plain files, and
   `girsa-notes export` puts them where you can copy them.
-- **A note is not searchable until the index is rebuilt.** Being a sefer is
-  enough for the indexer — pointed at a layer holding one note it reads it like
-  anything else, and the search finds the paragraph that was written *between*
-  two others:
+- **The results header still counts a note the index already has.** See the
+  section below: your writing goes into the index the moment you write it, but
+  the sentence that says *what the index has not seen* answers by comparing file
+  times against when the index was **built**, and absorbing one work does not
+  make the index newly built. So a note written and indexed a second ago is
+  still counted as outstanding until the next full rebuild.
 
-  ```
-  $ girsa-index find index personal "ובאמת כבר עמדו"
-  1 in 4 segments · showing 1
+  Deliberately left over-reporting rather than fixed by re-stamping the index.
+  The stamp is what the *corrections* gap is measured against too, and a note's
+  absorb re-stamping would clear a pending correction's sentence while the index
+  still held the old words. Over-reporting says *there may be something you
+  cannot see*; under-reporting says *you are seeing everything* and is the
+  failure `spec.md` §9.7 exists to prevent. Closing it properly means recording
+  per work what has been absorbed, which is a store this does not have yet.
 
-  girsa:note/מאימתי/2.1#2.1  [text]
-    [ובאמת] [כבר] [עמדו] בזה
+### Your writing is in the index before you have finished reading it back
 
-  narrow by:
-    shelf      שלי 1        author  shaul 1        sefer  מאימתי 1
-  ```
+`spec.md` §11 says your notes are searchable, and they were — **as of the last
+build**. Being a sefer was already enough for the indexer; pointed at a layer
+holding one note it reads it like anything else, and finds the paragraph that
+was written *between* two others:
 
-  But **nothing rebuilds the index when you write one**, and a 5,000,545-segment
-  rebuild is four minutes. Until tantivy is written to incrementally, your own
-  writing is on the shelf and in the search only as of the last build, and that
-  gap is real.
+```
+$ girsa-index find index personal "ובאמת כבר עמדו"
+1 in 4 segments · showing 1
+
+girsa:note/מאימתי/2.1#2.1  [text]
+  [ובאמת] [כבר] [עמדו] בזה
+
+narrow by:
+  shelf      שלי 1        author  shaul 1        sefer  מאימתי 1
+```
+
+The trouble was the word *build*. Nothing indexed a note when you wrote one, and
+a 5,000,545-segment rebuild is four minutes — for one paragraph.
+
+Nothing about tantivy required that, and this is the part worth writing down: **a
+work has been the unit of replacement since W11.** The first time a writer is
+handed a segment of some work it deletes every segment of that work already in
+the index, because `girsa-import` rewrites `segments.jsonl` wholesale and an
+append would have doubled every hit. That rule was built as a full rebuild's
+safety net. Read from the other side it is an incremental update — one work in,
+the old copy out, nothing else touched — and it had been sitting there since the
+day the index was written.
+
+What was missing was a caller, and before a caller could exist the body of the
+build loop had to become a function. It is not three lines: a page of a scan is
+indexed from its reading and not from its segment, your corrections are applied
+over a `Standing`, the link-type masks are read per work and **refused** when
+they were built against a different segmentation, and the wordless count is asked
+of what actually went in. An `absorb` that reimplemented any of that would be a
+second indexer, and the disagreement would be silent — a note indexed one way and
+Shas the other, agreeing until the day they did not. So `girsa_search::building`
+holds it once, and the build loop and the window both call it.
+
+Three doors, all the same function underneath:
+
+- `girsa-index update <index> <root> <slug…>`, for a shelf maintained from a
+  terminal;
+- the window, which absorbs a note when you write one, when you edit one, and a
+  sefer when you drop one — and which **never fails a write because a cache
+  would not update**. The note is on disk before the index is asked; if the
+  index refuses, the reader has still written their note and what they lose is
+  that it is findable until the next build, which is exactly where everything
+  stood before;
+- `forget`, which is the half `absorb` cannot cover. A note you threw away has
+  no `segments.jsonl` to read back, so nothing is ever added under its name and
+  the delete never fires — it would stay findable until the next full build, and
+  a hit on it would open a sefer that is not on the shelf. That is worse than
+  the gap this closes, so it is closed in the same breath.
+
+`girsa-search/tests/a_note_is_searchable_before_the_next_rebuild.rs` asserts the
+four things that would go quietly wrong: the note is findable and the corpus has
+not moved, taking it twice leaves one copy rather than two (W8 shipped that
+failure once already), an edit replaces rather than accumulates, and a deleted
+note stops being found.
 
 ---
 

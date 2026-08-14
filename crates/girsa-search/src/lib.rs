@@ -10,6 +10,10 @@
 //! are W14.
 
 pub mod bar;
+// Indexing one work, which is what a full build does 7,189 times and what your
+// writing needs done once. It was the body of `girsa-index`'s loop, so the only
+// way to index a note you had just written was to re-read Shas.
+pub mod building;
 pub mod chips;
 pub mod citation;
 // Your corrections, applied at build time. It lived in `girsa-index` while it

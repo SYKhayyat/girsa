@@ -217,6 +217,50 @@ impl Bar {
         &mut self.catalogue
     }
 
+    /// Take one work into the index this bar is searching, without a rebuild.
+    ///
+    /// spec.md §11 says your notes are searchable, and until this they were
+    /// searchable *as of the last build* — so a note finished ten seconds ago
+    /// was absent, honestly reported as absent, and the only way to make the
+    /// report stop saying so was a four-minute walk over 5,000,545 segments.
+    /// A note is one segment. See [`crate::building`].
+    ///
+    /// `root` is which root the work is under, because a note lives in the
+    /// personal layer and a sefer of the corpus does not. The corrections are
+    /// gathered from both, for the reason [`crate::corrected`] gives: a
+    /// correction to a corpus sefer is kept in the personal layer.
+    ///
+    /// # Errors
+    ///
+    /// If the work will not read back off disk, or tantivy will not take it.
+    pub fn absorb(
+        &self,
+        root: &Path,
+        slug: &str,
+    ) -> Result<crate::building::Done, crate::building::AbsorbError> {
+        let roots: Vec<&Path> = [Some(self.root.as_path()), self.personal.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect();
+        let (corrections, trouble) = crate::corrected::Corrections::of(&roots);
+        let mut done = crate::building::absorb(&self.index, root, slug, &corrections)?;
+        // Whatever the layer had to complain about goes back with everything
+        // else this call has to say. A corrections file that will not parse is
+        // not a reason to refuse to index a note, and it is not a reason to say
+        // nothing either.
+        done.trouble.extend(trouble);
+        Ok(done)
+    }
+
+    /// Take a work out of the index, because it is not on the shelf any more.
+    ///
+    /// # Errors
+    ///
+    /// If tantivy will not commit.
+    pub fn forget(&self, slug: &str) -> Result<(), crate::index::IndexError> {
+        crate::building::forget(&self.index, slug)
+    }
+
     /// Ask.
     ///
     /// `context` is where the reader is standing, and it is used by exactly one

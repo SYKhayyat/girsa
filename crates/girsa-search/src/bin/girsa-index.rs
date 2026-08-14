@@ -89,6 +89,12 @@ fn main() -> std::process::ExitCode {
             }
             _ => usage(),
         },
+        "update" => match rest.split_first() {
+            Some((index_dir, and)) if and.len() >= 2 => {
+                update(Path::new(index_dir), Path::new(&and[0]), &and[1..])
+            }
+            _ => usage(),
+        },
         "find" => match rest.len() {
             0 | 1 => usage(),
             _ => find(Path::new(&rest[0]), &args),
@@ -251,9 +257,15 @@ fn refuse_a_root_among_the_query_words(words: &[&str]) -> Result<(), std::proces
 const USAGE: &str = "\
 usage:
   girsa-index build <index> <corpus> [personal \u{2026}] [--without-link-types]
+  girsa-index update <index> <root> <slug \u{2026}>
   girsa-index find <index> <root> [how \u{2026}] <query \u{2026}>
   girsa-index where-from <index> <root> [--except SLUG] <phrase>
   girsa-index stamp <index>
+
+`update` takes named works into an index that already exists, without
+rebuilding it \u{2014} a work is the unit of replacement, so this is the same
+indexing a build does, for one sefer. A note is one segment; a rebuild is
+four minutes.
 
 <root> is the corpus or personal root that `find` reads its catalogue,
 corrections and shelf from. It is required.
@@ -346,6 +358,58 @@ struct Tally {
     stale_fixes: usize,
 }
 
+/// Take named works into an index that already exists.
+///
+/// The counterpart of `build`, and the same indexing: `building::one_work` is
+/// the body of the loop below, so a sefer taken in here and a sefer taken in by
+/// a rebuild are the same document. What differs is only that this deletes and
+/// replaces one work rather than throwing the whole index away.
+///
+/// It **refuses a root that is not a directory**, for the reason `find` does:
+/// `update index corpus` with the slug forgotten would otherwise read `corpus`
+/// as a root and index nothing, and report success.
+fn update(index_dir: &Path, root: &Path, slugs: &[String]) -> std::process::ExitCode {
+    if refuse_a_query_word_in_root_position(root).is_err() {
+        return std::process::ExitCode::from(2);
+    }
+    let index = match SearchIndex::open(index_dir) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("cannot open the index at {}: {e}", index_dir.display());
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let (corrections, trouble) = Corrections::of(std::slice::from_ref(&root));
+    for line in trouble {
+        eprintln!("{line}");
+    }
+
+    let began = Instant::now();
+    let mut segments = 0usize;
+    for slug in slugs {
+        match girsa_search::building::absorb(&index, root, slug, &corrections) {
+            Ok(done) => {
+                for line in &done.trouble {
+                    eprintln!("  {line}");
+                }
+                segments += done.segments;
+                println!("{slug}: {} segments", done.segments);
+            }
+            Err(e) => {
+                eprintln!("{slug}: {e}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+    }
+    println!(
+        "{} works, {segments} segments, {:.2}s — {} in the index",
+        slugs.len(),
+        began.elapsed().as_secs_f64(),
+        index.count()
+    );
+    std::process::ExitCode::SUCCESS
+}
+
 fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitCode {
     let started = Instant::now();
 
@@ -425,129 +489,37 @@ fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitC
                     continue;
                 }
             };
-            // Which kinds of link touch each segment, from both directions —
-            // spec.md §9.8's fifth facet. A cache (`girsa-link-types`), and
-            // allowed to be missing: what is not allowed is reading its
-            // absence as *nothing is commented on*, which is why the build
-            // records whether it was there.
-            //
-            // Since the cache became one 16-bit mask per segment there is a
-            // third thing it can be, and it is the one that would be silent:
-            // masks written against a segmentation this work no longer has.
-            // The ids are passed in so the file can be refused rather than
-            // believed — every mask after an inserted se'if is about the line
-            // above it, and the facet column would look exactly like a good one.
-            let ids: Vec<girsa_corpus::segment::SegmentId> =
-                imported.segments.iter().map(|s| s.id.clone()).collect();
-            let by_segment = match girsa_link::touching::read(&root, &work.slug, &ids) {
-                girsa_link::touching::Touching::Known(masks) => {
-                    tally.with_links += 1;
-                    masks
-                }
-                girsa_link::touching::Touching::Unbuilt => vec![Default::default(); ids.len()],
-                girsa_link::touching::Touching::NotThisSegmentation { held, wanted } => {
-                    eprintln!(
-                        "  {}: link-type masks are for {held} segments and this work has \
-                         {wanted} — not read. Run girsa-link-types.",
-                        work.slug
-                    );
-                    tally.links_stale.push(work.slug.clone());
-                    vec![Default::default(); ids.len()]
-                }
-            };
-
-            // What somebody has read off the pages of this sefer, if it is a
-            // scan (W26). Read once per work rather than once per page, and
-            // **corrections applied**, because a reader who fixed a misread
-            // word and then cannot find it has been given a correction that
-            // only corrects the display.
-            let (words, trouble) = girsa_scan::Words::open(&root, &work.slug);
-            for line in trouble {
-                eprintln!("  {}: {line}", work.slug);
-            }
-            let mut page = 0;
-
-            // What you have corrected in this sefer, if anything (W20). Both
-            // halves of the evidence for a `Standing` are gathered per work and
-            // only for a work a correction actually touches, so a shelf of
-            // 7,189 works pays for this on the handful somebody has edited: the
-            // live names, so a cut can be told from an insertion, and
-            // `redirects.jsonl` backwards, so a name upstream moved leads home.
-            let fixes_here = corrections.touch(&work.slug);
-            let (live, back) = if fixes_here {
-                (
-                    ids.iter().cloned().collect(),
-                    girsa_corpus::standing::redirected_here(&imported.redirects),
-                )
-            } else {
-                (
-                    std::collections::BTreeSet::new(),
-                    std::collections::BTreeMap::new(),
-                )
-            };
-
-            for (at, segment) in imported.segments.iter().enumerate() {
-                let kinds: Vec<girsa_link::EdgeType> =
-                    by_segment.get(at).copied().unwrap_or_default().kinds();
-                // A page of a scan is counted through the pages, never read
-                // off the segment's ordinal — splitting one mints `#47.1` and
-                // the arithmetic would quietly slip by one from there
-                // (`girsa_app::scanning::page_of_id`, and W6 underneath it).
-                let read = if segment.kind == girsa_corpus::import::SegmentKind::Page {
-                    page += 1;
-                    words.page(page)
-                } else {
-                    None
-                };
-                // A page of a scan is corrected on the photograph, by ink, and
-                // `words.page` above has already applied those. The overlay
-                // here is the other kind — a span of characters in a line — and
-                // the two never meet on one segment.
-                let corrected = if fixes_here && read.is_none() {
-                    let standing = girsa_corpus::standing::Standing::derived(
-                        &segment.id,
-                        |name| live.contains(name),
-                        |name| back.get(name).cloned().unwrap_or_default(),
-                    );
-                    corrections.text(&standing, &segment.text)
-                } else {
-                    None
-                };
-                if let Some(reading) = &corrected {
-                    if reading.applied > 0 {
-                        tally.corrected += 1;
+            // One work, indexed the way every work is indexed — the link-type
+            // masks, the scan reading, your corrections and the four counts,
+            // all in `girsa_search::building`. It was inline here, which is
+            // why nothing else could index a single sefer without writing a
+            // second description of what a document in this index looks like.
+            let done =
+                match girsa_search::building::one_work(&mut writer, &root, &imported, &corrections)
+                {
+                    Ok(done) => done,
+                    Err(e) => {
+                        eprintln!("cannot index {}: {e}", work.slug);
+                        return std::process::ExitCode::FAILURE;
                     }
-                    tally.stale_fixes += reading.stale;
-                }
-                let outcome = match (&read, &corrected) {
-                    (Some(read), _) => writer.add_page(segment, &kinds, read),
-                    (None, Some(reading)) => writer.add_saying(segment, &kinds, &reading.text),
-                    (None, None) => writer.add(segment, &kinds),
                 };
-                if let Err(e) = outcome {
-                    eprintln!("cannot index {}: {e}", segment.id);
-                    return std::process::ExitCode::FAILURE;
-                }
-                if let Some(read) = &read {
-                    tally.pages_read += 1;
-                    tally.scanned_words += read.words.len();
-                }
-                // Asked of what went in, which for a corrected line is the
-                // corrected words: the count is *segments with nothing to find*,
-                // and what is findable is what was indexed.
-                let indexed = corrected
-                    .as_ref()
-                    .map_or(segment.text.as_str(), |reading| reading.text.as_str());
-                if read.is_none() && girsa_hebrew::normalize(indexed).is_empty() {
-                    tally.wordless += 1;
-                }
-                if segment.kind == girsa_corpus::import::SegmentKind::Page && read.is_none() {
-                    tally.pages_unread += 1;
-                }
-                if segment.kind == girsa_corpus::import::SegmentKind::Heading {
-                    tally.headings += 1;
-                }
+            for line in &done.trouble {
+                eprintln!("  {line}");
             }
+            if let Some(girsa_search::building::Masks::NotThisSegmentation { .. }) = done.masks {
+                tally.links_stale.push(work.slug.clone());
+            }
+            if done.has_link_types() {
+                tally.with_links += 1;
+            }
+            tally.headings += done.headings;
+            tally.wordless += done.wordless;
+            tally.pages_read += done.pages_read;
+            tally.pages_unread += done.pages_unread;
+            tally.scanned_words += done.scanned_words;
+            tally.corrected += done.corrected;
+            tally.stale_fixes += done.stale_fixes;
+
             tally.works += 1;
             tally.segments += imported.segments.len();
             since_commit += imported.segments.len();

@@ -32,7 +32,7 @@ which is a different and generally harder problem than either piece was.
 
 | | Where it is argued |
 |---|---|
-| **Nothing rebuilds the index when you write.** Your own seforim and notes are searchable as of the last build, and a 5,000,545-segment rebuild is four minutes. Until tantivy is written incrementally, that gap is real. | [your own layer](record/your-own-layer.md#what-this-does-not-do) |
+| **The results header counts a note the index already has.** Your writing now goes into the index as you write it, but the sentence that says *what the index has not seen* compares file times against when the index was **built**, and absorbing one work does not make the index newly built. Left over-reporting on purpose — re-stamping would clear a pending correction's warning while the index still held the old words. | [your own layer](record/your-own-layer.md#what-this-does-not-do) |
 
 ## Built narrower than the name suggests
 
