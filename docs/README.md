@@ -1,10 +1,20 @@
 # Girsa — documentation
 
-The repository's own documentation is builder-to-builder: `spec.md` says what the
-application must do and `BUILDER.md` says what was built and why, order by order.
-Both are for somebody working on it.
+Three audiences, and they want different pages.
 
-This directory is for somebody **using** it. B36 is the order that asked for it:
+| You are here to | Start at |
+|---|---|
+| **use** Girsa | [`start-here.md`](start-here.md) |
+| **contribute** to it | [`../CONTRIBUTING.md`](../CONTRIBUTING.md), then [`your-first-change.md`](your-first-change.md) |
+| **understand** it | [`architecture.md`](architecture.md), then [`the-record.md`](the-record.md) |
+
+---
+
+## For somebody using it
+
+`spec.md` says what the application must do and `BUILDER.md` says what was built
+and why, order by order. Both are builder-to-builder. B36 is the order that asked
+for pages that are not:
 
 > *"The documentation is outstanding builder-to-builder … It is almost useless
 > switcher-to-switcher. There is no getting-started for a bochur, no 'coming from
@@ -20,6 +30,21 @@ This directory is for somebody **using** it. B36 is the order that asked for it:
 | [`shortcuts.md`](shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
 | [`tools.md`](tools.md) | every command this repository can be told to run, and what each is for |
 | [`images/`](images/) | screenshots, and an honest note about why there are none yet |
+
+## For somebody working on it
+
+| Page | For |
+|---|---|
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | **read this first.** Setup, the gate, the rules that bind every change, how to send one |
+| [`your-first-change.md`](your-first-change.md) | one contribution end to end, with nothing skipped |
+| [`architecture.md`](architecture.md) | how the pieces fit, and why the seams are where they are |
+| [`the-record.md`](the-record.md) | why any particular thing is the way it is — the old README, kept whole |
+
+The split between those last two is worth knowing. `architecture.md` is the map:
+what is where, and which rule holds it there. `the-record.md` is the argument:
+every decision written down beside the defect that caused it, in the order the
+defects were found. If you want to *change* something, read the map. If you want
+to know why somebody would object to your changing it, read the record.
 
 ## What readers said, and what came of it
 

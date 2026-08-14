@@ -50,11 +50,19 @@ fn repo() -> PathBuf {
 
 /// Every markdown file a reader or a builder is pointed at.
 ///
-/// The three reader pages, the two builder documents, and the specification.
-/// Not `target/`, and not anything a tool wrote.
+/// The pages under `docs/`, the two builder documents, the specification, and
+/// the two front doors at the root. Not `target/`, and not anything a tool
+/// wrote.
+///
+/// `CONTRIBUTING.md` is in here for the reason the whole file exists. It is the
+/// first page a contributor opens, it names commands and links to a dozen other
+/// pages, and it sat outside this walk for exactly as long as it took somebody
+/// to notice — which is the same shape as `docs/start-here.md` opening with a
+/// binary that had never been in this tree.
 fn documents(root: &Path) -> Vec<PathBuf> {
     let mut found = vec![
         root.join("README.md"),
+        root.join("CONTRIBUTING.md"),
         root.join("spec.md"),
         root.join("BUILDER.md"),
     ];
@@ -69,8 +77,8 @@ fn documents(root: &Path) -> Vec<PathBuf> {
     found.extend(pages);
     found.retain(|path| path.exists());
     assert!(
-        found.len() >= 6,
-        "expected the six documents at least, found {}: {found:?}",
+        found.len() >= 7,
+        "expected the seven documents at least, found {}: {found:?}",
         found.len()
     );
     found
