@@ -229,14 +229,21 @@ fn midrash_lekach_tov_is_not_filed_among_its_own_mefarshim() {
             .map(|w| girsa_app::taxonomy::shelf_key_of(w, &arrangement, &shipped))
     };
 
+    // The shelf is named after the sefer, and the sefer has a Hebrew name: the
+    // term table carries `Midrash Lekach Tov → מדרש לקח טוב`, so all three
+    // levels of the path are Hebrew. This test asserted an English third level
+    // for as long as it existed and nothing caught it, because `--ignored` had
+    // never been run — while the sibling test in `girsa_corpus::taxonomy`, which
+    // runs on every push, asserted the Hebrew and passed. Two tests, one fact,
+    // and only the one nobody ran was wrong.
     assert_eq!(
         shelf_of("midrash-lekach-tov").as_deref(),
-        Some("מדרש/אגדה/Midrash Lekach Tov"),
+        Some("מדרש/אגדה/מדרש לקח טוב"),
         "the midrash itself"
     );
     assert_eq!(
         shelf_of("beur-hareem-on-midrash-lekach-tov").as_deref(),
-        Some("מדרש/אגדה/Midrash Lekach Tov/מפרשים"),
+        Some("מדרש/אגדה/מדרש לקח טוב/מפרשים"),
         "and its mefaresh, which really is one and really does move"
     );
 

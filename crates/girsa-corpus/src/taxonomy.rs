@@ -563,7 +563,7 @@ fn canonical_path(categories: &[String]) -> Vec<String> {
 /// catalogue, the rule had to fire on *any* declared commentary not already on a
 /// commentary shelf, and that is one rule doing the work of two: it also moved
 /// **Midrash Lekach Tov**, which declares the five chumashim, stands on its own
-/// shelf `מדרש/אגדה/Midrash Lekach Tov` — named after itself, because Sefaria
+/// shelf `מדרש/אגדה/מדרש לקח טוב` — named after itself, because Sefaria
 /// files its commentaries under it — and was thereby filed into a `מפרשים`
 /// folder among its own mefarshim. The reader's words: *"medrash lekach tov
 /// seems to be in a separate category? i dont know why, but it looks
@@ -931,7 +931,7 @@ mod tests {
         //
         // It declares all five chumashim, so the old rule — *any* declared
         // commentary not already on a commentary shelf — moved it. But the shelf
-        // it stands on is `מדרש/אגדה/Midrash Lekach Tov`, named after **itself**
+        // it stands on is `מדרש/אגדה/מדרש לקח טוב`, named after **itself**
         // because that is where Sefaria files its mefarshim; the chumashim are
         // nowhere near it. So it was filed into a `מפרשים` folder among its own
         // commentaries, which is where a reader found it.
