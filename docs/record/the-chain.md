@@ -162,10 +162,53 @@ both up. It is offered as a place to look and never as a finding, and a pair wit
 an edge joining the two directly is marked as such — one of them may simply be
 answering the other, which is a different thing.
 
+### The panel, and the three judgements it is not allowed to make
+
+For as long as this tier existed it was a command. `girsa-chain` printed all
+four walks and nothing in the window drew any of them — so the whole of
+`spec.md` §8 was a feature a reader could only see by leaving the application,
+which `BUILDER.md` §0.3 says is not built.
+
+The panel docks beside the reading like every other one, on `Ctrl+Shift+M` or
+the button next to *links* — the neighbouring question, put next to it: the
+links panel says what touches this line, this says where it went and where it
+came from. Three tabs, which are the three walks a reader has a question for:
+to halacha, back to a source, and two readings.
+
+**The walk is `girsa-link`'s, unchanged.** `girsa_app::chaining` turns it into
+rows and adds naming and the tree's shape, and nothing else — because a panel
+and a terminal tool that could disagree about which hops are real would be two
+answers to *how did this become halacha*, and the shape of the answer is the
+whole claim. In particular the panel does not decide, and could not:
+
+- **whether a chain is a transmission.** 49% of this graph is `references`,
+  which says only that two places are connected somehow. A row that drew one of
+  those like `quotes` would be presenting a shrug as a mesorah, so
+  `Hop.transmission` is computed where the edge types are known and the
+  stylesheet only reads it. The count under the list is *chains, and how many of
+  them assert something at every hop* — the second number being the honest one.
+- **what the weakest hop claims**, which is what the whole chain to that point
+  is worth. Named on a row only when the chain is *not* a transmission: it
+  matters when there is a weak link and is noise when there is not.
+- **what the walk refused.** Carried on the answer rather than logged. *Nine of
+  the eleven seforim that read this line could not be dated* changes what the
+  chain above it means, and a reader who cannot see that number is reading a
+  chain that looks complete. The panel ends with the same paragraph
+  `girsa-chain` ends every command with, including the one that is not a count
+  of edges but of blind spots: seforim whose incoming half was never built, each
+  a place the walk may have missed a hop entirely.
+
+A hop that is yours — a link you drew or confirmed — says so. A panel that hid
+that would be handing your own guess back to you as evidence.
+
+The fork tab carries the caveat above the list rather than under it, because it
+is true of every row: **the graph has no `disputes` edge anywhere in it.**
+Nothing in the data says two seforim disagree. What it says is that two of them
+read one line and a later one had to deal with both, which is the shape a
+machlokes leaves behind — offered as a place to look and not as a finding.
+
 ### What the chain does not do yet
 
-- **It is a command, not a panel.** `girsa-chain` prints all four; nothing in the
-  window draws them.
 - **A fork is one hop wide on each side.** Two readings joined through an
   intermediate sefer are not found, and the ones that are found are bounded by
   `--width` with the drop counted.

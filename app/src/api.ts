@@ -253,6 +253,83 @@ export interface Standing {
   word?: number;
 }
 
+/** One place a walk reached, and the link it got there by — `girsa_app::chaining::Hop`. */
+export interface Hop {
+  /** Index into `Chain.hops` of the hop this was reached from. Absent for a
+   * step straight off the start, so a view can draw the tree. */
+  parent?: number;
+  depth: number;
+  at: string;
+  anchor: string;
+  work: string;
+  title: string;
+  address: string;
+  written?: string;
+  era?: string;
+  /** What the link claims after your repairs — `quotes`, `explains`, down to
+   * `references`, which says only that two places are connected somehow. */
+  edge_type: string;
+  /** What the corpus called it, verbatim. Blank for three quarters of them. */
+  label: string;
+  confidence: number;
+  mine: boolean;
+  /** Every hop from the start to here asserts something. */
+  transmission: boolean;
+  /** The weakest claim on the chain to here — what the whole chain is worth. */
+  weakest?: string;
+  end: boolean;
+}
+
+/** What a walk would not follow. Part of the answer, not diagnostics. */
+export interface LeftOut {
+  undated: number;
+  wrong_way: number;
+  contemporary: number;
+  over_budget: number;
+  rejected: number;
+  incoming_unknown: number;
+  nothing: boolean;
+}
+
+export interface Chain {
+  start: string;
+  title: string;
+  address: string;
+  direction: "forward" | "back";
+  hops: Hop[];
+  chains: number;
+  transmissions: number;
+  left_out: LeftOut;
+  works_read: number;
+}
+
+/** One side of a fork, or one witness to it. */
+export interface Side {
+  at: string;
+  work: string;
+  title: string;
+  address: string;
+  written?: string;
+  era?: string;
+}
+
+export interface Fork {
+  a: Side;
+  b: Side;
+  witnesses: Side[];
+  /** A link joins the two sides directly, so one is answering the other. */
+  joined: boolean;
+}
+
+export interface Forked {
+  start: string;
+  title: string;
+  address: string;
+  forks: Fork[];
+  left_out: LeftOut;
+  works_read: number;
+}
+
 export interface Text {
   work: Card;
   /** A stretch of the sefer, beginning at `from`. */
@@ -1188,6 +1265,16 @@ export const api = {
   exportSefer: (slug: string, format: "txt" | "docx", into?: string) =>
     call<Written>("export_sefer", { slug, format, into: into ?? null }),
 
+  // --- the transmission chain (spec.md §8, W28) ---------------------------
+  //
+  // The walk is `girsa-link`'s and is the same one `girsa-chain` prints on a
+  // terminal. Nothing here decides which hops are real: a panel and a tool that
+  // could disagree about that would be two answers to *how did this become
+  // halacha*, and the shape of the answer is the whole claim.
+  chainWalk: (at: string, direction: "forward" | "back", depth?: number) =>
+    call<Chain>("chain_walk", { at, direction, depth: depth ?? null }),
+  chainForks: (at: string) => call<Forked>("chain_forks", { at }),
+
   // --- links, and repairing them (W23) ------------------------------------
   //
   // Repairs are overrides in your own layer; nothing here writes into the
@@ -1653,6 +1740,47 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return [] as T;
     case "links":
       return { links: [], incoming_unknown: false, types: [], lenses: [], lens: null } as T;
+    // The chain needs the link graph and the catalogue, both of which are the
+    // shell's roots. An empty walk rather than a thrown error: the panel then
+    // draws its own *nothing this walk could follow*, which is a true sentence
+    // in a browser and a true one on a shelf with no inbound cache.
+    case "chain_walk":
+      return {
+        start: "",
+        title: "",
+        address: "",
+        direction: "forward",
+        hops: [],
+        chains: 0,
+        transmissions: 0,
+        left_out: {
+          undated: 0,
+          wrong_way: 0,
+          contemporary: 0,
+          over_budget: 0,
+          rejected: 0,
+          incoming_unknown: 0,
+          nothing: true,
+        },
+        works_read: 0,
+      } as T;
+    case "chain_forks":
+      return {
+        start: "",
+        title: "",
+        address: "",
+        forks: [],
+        left_out: {
+          undated: 0,
+          wrong_way: 0,
+          contemporary: 0,
+          over_budget: 0,
+          rejected: 0,
+          incoming_unknown: 0,
+          nothing: true,
+        },
+        works_read: 0,
+      } as T;
     // Your own layer is the shell's, for the reason corrections are: it is
     // written into `personal/`, and a browser has none. Reading it comes back
     // empty; writing to it says so rather than looking as though it landed.

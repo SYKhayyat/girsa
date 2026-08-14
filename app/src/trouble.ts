@@ -62,6 +62,10 @@ export type Doing =
   // its commonest failure is a real and specific one — you can cite a sefer you
   // have not imported — and *reading the links* would name the wrong thing.
   | "open_ref"
+  // Walking the transmission chain (W28). Its own name because its commonest
+  // failure is specific and not about links at all: the catalogue could not be
+  // read, so nothing knows when any sefer was written.
+  | "chain"
   | "general";
 
 export interface Trouble {
@@ -89,6 +93,7 @@ const DOING: Record<Doing, string> = {
   copy_scan: say("doingCopySource"),
   read_suspects: say("doingReadSuspects"),
   open_ref: say("doingOpenRef"),
+  chain: say("doingChain"),
   general: say("doingSomething"),
 };
 

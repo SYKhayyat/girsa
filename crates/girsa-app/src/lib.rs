@@ -24,6 +24,10 @@
 
 pub mod arrangement;
 pub mod beside;
+// spec.md §8's walk, as rows. It had a library and a terminal tool and nothing
+// that drew it, so the whole tier was a feature you had to leave the window to
+// see.
+pub mod chaining;
 pub mod citing;
 pub mod display;
 pub mod enough;

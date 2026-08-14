@@ -801,6 +801,14 @@ both ends.
 *Chain tracing and MCP shipped in W28. The lane was held for a ruling and is now
 W30.*
 
+*Amended: the chain has a panel. It shipped as a library and a terminal tool,
+which meant the whole of `spec.md` §8 was a tier a reader could only see by
+leaving the application — §0.3 says that is not built. The walk is unchanged and
+still `girsa-link`'s; `girsa_app::chaining` turns it into rows. The three
+judgements a panel must not make for itself are made where the edge types are:
+whether a chain asserts something at every hop, what its weakest link claims,
+and what the walk refused. See `record/the-chain.md`.*
+
 ---
 
 ### W30 · The semantic lane — **shipped**

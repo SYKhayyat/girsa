@@ -62,6 +62,9 @@ pub const ACTIONS: &[Action] = &[
     // the lane's tooltip named a key that did nothing. Building this table is what
     // found it — the collision test below is the reason.
     Action { id: "lane", he: "הלשון הסמוכה", en: "The adjacent language", default: "Ctrl+Shift+L" },
+    // W28's walk, which had a library and a terminal tool and no way in from the
+    // window at all.
+    Action { id: "chain", he: "שלשלת המסירה", en: "The transmission chain", default: "Ctrl+Shift+M" },
     Action { id: "close-pane", he: "סגור את הטור", en: "Close this column", default: "Ctrl+W" },
     Action { id: "send", he: "שלח מקור לכתב", en: "Send a source to Ksav", default: "Ctrl+Shift+C" },
     Action { id: "copy", he: "העתק עם מקור", en: "Copy with its citation", default: "Ctrl+C" },

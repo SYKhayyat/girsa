@@ -24,6 +24,7 @@ import {
 } from "./api.ts";
 import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
+import { ChainView } from "./chainview.ts";
 import { LinksView } from "./linksview.ts";
 import { PaneView } from "./pane.ts";
 import { ScanView } from "./scanview.ts";
@@ -61,6 +62,7 @@ const writing = new WritingView();
 const fixbox = new FixBox();
 const suspects = new SuspectsView();
 const linksview = new LinksView();
+const chainview = new ChainView();
 const yoursview = new YoursView();
 /** The semantic lane's settings (spec.md §9.9, W30). Off in a fresh install,
  * and off costs nothing — so the panel is always reachable and never nags. */
@@ -157,6 +159,7 @@ async function main(): Promise<void> {
   });
   suspects.onOpen(openSuspect);
   linksview.onOpen(openFound);
+  chainview.onOpen(openFound);
   linksview.onHere(whereIAm);
   linksview.onPinTo(whatIsHighlighted);
   // The drawer asks the window for a source, because which pane is focused is
@@ -687,6 +690,13 @@ function addControls(view: PaneView, id: PaneId): void {
   const links = button(say("links"), say("linksWhy"), () => {
     void showLinks();
   });
+  // W28's walk, which had a library, a terminal tool and no door. A button
+  // beside the links one because it asks the neighbouring question — the links
+  // panel says what touches this line, this says where it went and where it
+  // came from.
+  const chain = button(say("chainTitle"), say("chainWhy"), () => {
+    void showChain();
+  });
   // W22: base text + your patches → a file. On the pane, because what is
   // written out is the sefer this pane is reading, corrections and all — and it
   // asks **where**, which it did not.
@@ -703,6 +713,7 @@ function addControls(view: PaneView, id: PaneId): void {
   view.addControl(beside);
   view.addControl(scrollLink(id));
   view.addControl(links);
+  view.addControl(chain);
   view.addControl(save);
   view.addControl(close);
 }
@@ -1212,6 +1223,20 @@ async function showLinks(): Promise<void> {
   await linksview.toggle(at, chosen ? [chosen.fromChar, chosen.toChar] : null);
 }
 
+/**
+ * How the line you are standing on became halacha, and where it came from
+ * (spec.md §8, W28).
+ *
+ * The line, not a selection — the same question `showLinks` asks, and for the
+ * same reason: a chain is a walk out from a place, and *the highlighted part*
+ * is W24's question about which links touch which words.
+ */
+async function showChain(): Promise<void> {
+  const at = whereIAm();
+  if (!at) return;
+  await chainview.toggle(at);
+}
+
 /** The highlight in the focused pane, as offsets in its line. */
 function whatIsHighlighted(): [number, number] | null {
   const open = tab();
@@ -1481,6 +1506,7 @@ const PANELS: readonly Held[] = Object.freeze([
     // Drawers over the reading: Escape closes them from anywhere, and the
     // reading shortcuts stay live behind them.
     { panel: linksview, keyboard: "reading", escape: "anywhere" },
+    { panel: chainview, keyboard: "reading", escape: "anywhere" },
     // Your own layer docks the moment it opens, so it is never over the
     // reading — the sibling of finding 3, cleared by moving it off `inside`.
     // Its boxes still own what is typed into them; its buttons do not own the
@@ -1579,6 +1605,10 @@ function shortcut(event: KeyboardEvent): void {
     case "links":
       event.preventDefault();
       void showLinks();
+      return;
+    case "chain":
+      event.preventDefault();
+      void showChain();
       return;
     case "lane":
       event.preventDefault();

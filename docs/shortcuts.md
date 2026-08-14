@@ -20,6 +20,7 @@ there rebinds by pressing the keys you want. `↺` puts one back.
 | `Ctrl+\` | Mefarshim, or a sefer alongside | מפרשים / ספר לצד |
 | `Ctrl+L` | Links on this line | קישורים על השורה |
 | `Ctrl+Shift+L` | The adjacent language | הלשון הסמוכה |
+| `Ctrl+Shift+M` | The transmission chain | שלשלת המסירה |
 | `Ctrl+W` | Close this column | סגור את הטור |
 | `Ctrl+Shift+C` | Send a source to Ksav | שלח מקור לכתב |
 | `Ctrl+C` | Copy with its citation | העתק עם מקור |

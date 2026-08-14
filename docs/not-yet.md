@@ -17,12 +17,16 @@ page has rotted.**
 
 ## Built, and the window cannot reach it
 
-The pattern to watch for: the crate works, the tests are green, and the only
-way to it is a terminal. A reader does not have a terminal.
+**Empty, and worth leaving here for that reason.** The pattern this section
+watched for is the one that costs the most and shows the least: the crate works,
+the tests are green, and the only way to it is a terminal. A reader does not have
+a terminal, so a tier in that state is a tier that does not exist for them.
 
-| | Where it is argued |
-|---|---|
-| **The transmission chain is a command, not a panel.** `girsa-chain` prints all four traversals — forward to halacha, back to a source, the era ladder, the forks. Nothing in the window draws any of them. | [the chain](record/the-chain.md#what-the-chain-does-not-do-yet) |
+The last entry was the transmission chain, which had a library, a terminal tool
+and no door for as long as `spec.md` §8 had been "built". It has a panel now.
+The heading stays because the next thing built crate-first will belong under it,
+and a category with nothing in it is easier to notice filling up than one that
+has to be invented again.
 
 ## Built on both sides of a seam, and not joined across it
 

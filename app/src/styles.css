@@ -135,6 +135,10 @@ body {
    * holding one width is how a panel ends up half over the text. `dock.ts` reads
    * these off the document rather than restating them. */
   --links-wide: min(620px, 50vw);
+  /* The chain (W28). Wider than the links panel would need to be, because a hop
+   * carries a sefer, a place, a date and what the link claims on one line, and
+   * the tree indents them. */
+  --chain-wide: min(680px, 52vw);
   --suspects-wide: min(560px, 46vw);
   --yours-wide: min(680px, 55vw);
   --lane-wide: min(560px, 46vw);
@@ -3284,4 +3288,193 @@ body {
   color: var(--page);
   background: var(--mark);
   border-color: var(--mark);
+}
+
+/* ── The transmission chain (spec.md §8, W28) ────────────────────────────────
+ *
+ * The walk and its terminal tool have existed since W28; nothing drew them, so
+ * the whole tier was a feature a reader had to leave the window to see. Docked
+ * beside the reading like every other panel, never over it. */
+.chain {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 0;
+  overflow: hidden;
+  z-index: 30;
+  background: var(--page-raised);
+  border-inline-end: 1px solid var(--rule);
+  transition: width 0.12s ease-out;
+}
+
+.chain.is-open {
+  width: var(--chain-wide);
+}
+
+.chain-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.chain-title {
+  font-family: var(--hebrew);
+  font-size: 17px;
+}
+
+.chain-note {
+  flex: 1;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.chain-ways {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.chain-way.is-on {
+  color: var(--ink);
+  border-color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 14%, transparent);
+}
+
+.chain-list {
+  height: calc(100% - 92px);
+  overflow-y: auto;
+  padding: 6px 0 14px;
+}
+
+/* One hop. The indent is the tree, and it is `--depth` rather than nested
+ * elements so a chain twelve deep does not nest twelve divs to say so. */
+.chain-hop {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 14px;
+  padding-inline-start: calc(14px + var(--depth, 0) * 14px);
+}
+
+.chain-hop:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.chain-where {
+  font-family: var(--hebrew);
+  font-size: 15px;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+}
+
+.chain-where:hover {
+  text-decoration: underline;
+}
+
+.chain-kind {
+  font-family: var(--plain);
+  font-size: 10px;
+  color: var(--ink-quiet);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0 8px;
+}
+
+/* 49% of this graph says only *these two are connected somehow*. A row that
+ * drew that like `quotes` would be presenting a shrug as evidence. */
+.chain-hop.is-shrug .chain-kind {
+  border-style: dashed;
+}
+
+.chain-hop.is-transmission .chain-where {
+  color: var(--ink);
+}
+
+.chain-hop:not(.is-transmission) .chain-where {
+  color: var(--ink-quiet);
+}
+
+.chain-when {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+/* *No date* is a state with a name, not a blank cell: a blank reads as
+ * *earlier than the row above*. */
+.chain-when.is-empty {
+  font-style: italic;
+}
+
+.chain-mine {
+  font-family: var(--hebrew);
+  font-size: 11px;
+  color: var(--mark);
+}
+
+.chain-weakest {
+  font-family: var(--plain);
+  font-size: 10px;
+  color: var(--ink-quiet);
+}
+
+.chain-tally,
+.chain-refused,
+.chain-caveat,
+.chain-empty {
+  margin: 10px 14px;
+  font-family: var(--plain);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ink-quiet);
+}
+
+/* What the walk would not follow is part of the answer, so it is drawn like
+ * one rather than greyed into a footnote. */
+.chain-refused {
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+  color: var(--mark);
+}
+
+.chain-fork {
+  margin: 10px 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.chain-fork.is-joined {
+  border-color: var(--mark);
+}
+
+.chain-side {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.chain-side.is-witness {
+  padding-inline-start: 16px;
+}
+
+.chain-side.is-witness .chain-where {
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.chain-witnesses {
+  margin: 6px 0 2px;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
 }

@@ -2519,6 +2519,84 @@ fn export_sefer(
     })
 }
 
+// ── The transmission chain (spec.md §8, BUILDER.md W28) ─────────────────────
+
+/// How far a walk goes, unless the reader says otherwise.
+///
+/// Clamped rather than trusted: the window sends this, and a depth of 400 is a
+/// walk that reads the shelf. The library's own default is what an unclamped
+/// caller gets.
+const CHAIN_DEEPEST: usize = 12;
+
+/// Which way the walk is not able to go without dates.
+fn no_timeline() -> String {
+    girsa_app::trouble::refuse(
+        girsa_app::trouble::Code::NoSuch,
+        "the catalogue could not be read, so nothing here knows when any sefer was written — \
+         and which way a link points is a question about dates",
+    )
+}
+
+/// How a line became halacha, or where a ruling came from (spec.md §8.1, §8.2).
+///
+/// The walk is `girsa-link`'s and is the same one `girsa-chain` prints on a
+/// terminal. What this adds is nothing: if the panel and the tool could
+/// disagree about which hops are real, they would be two answers to one
+/// question, and the shape of the answer is the whole claim.
+#[tauri::command]
+fn chain_walk(
+    shared: tauri::State<'_, Shared>,
+    at: String,
+    direction: String,
+    depth: Option<usize>,
+) -> Result<girsa_app::chaining::Chain, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let direction = match direction.as_str() {
+        "forward" => girsa_link::chain::Direction::Forward,
+        "back" => girsa_link::chain::Direction::Back,
+        other => {
+            return Err(girsa_app::trouble::refuse(
+                girsa_app::trouble::Code::NoSuch,
+                format!("no such direction: {other}"),
+            ))
+        }
+    };
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
+    let names = state.names().ok_or_else(|| state.trouble())?;
+    let limits = girsa_link::chain::Limits {
+        depth: depth.map_or(girsa_link::chain::Limits::default().depth, |asked| {
+            asked.clamp(1, CHAIN_DEEPEST)
+        }),
+        ..girsa_link::chain::Limits::default()
+    };
+    let mut graph = girsa_link::chain::Graph::new(shelf.root(), timeline, shelf.repairs());
+    Ok(girsa_app::chaining::walk(
+        &mut graph, &names, &at, direction, limits,
+    ))
+}
+
+/// Where two rishonim read one gemara apart (spec.md §8.6).
+#[tauri::command]
+fn chain_forks(
+    shared: tauri::State<'_, Shared>,
+    at: String,
+) -> Result<girsa_app::chaining::Forked, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
+    let names = state.names().ok_or_else(|| state.trouble())?;
+    let mut graph = girsa_link::chain::Graph::new(shelf.root(), timeline, shelf.repairs());
+    Ok(girsa_app::chaining::forked(
+        &mut graph,
+        &names,
+        &at,
+        girsa_link::chain::Limits::default(),
+    ))
+}
+
 // ── The OCR queue (spec.md §7.3, BUILDER.md W21) ────────────────────────────
 
 /// The next candidates to review, best first.
@@ -4010,6 +4088,8 @@ pub fn run() {
             unfix,
             set_showing,
             fixes,
+            chain_walk,
+            chain_forks,
             suspects,
             suspect_at,
             suspect_decide,

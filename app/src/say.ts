@@ -867,6 +867,69 @@ const WORDS = {
     "show every word the engine read — click one to correct it",
   ] as Both,
   scanFixWord: ["מה כתוב כאן", "what it says here"] as Both,
+  // The transmission chain (spec.md §8, W28). The walk and the terminal tool
+  // have existed since W28; nothing drew them, so the whole tier was a feature
+  // you had to leave the window to see.
+  chainTitle: ["שלשלת המסירה", "The chain"] as Both,
+  chainWhy: [
+    "מן השורה הזאת: לאן הגיעה, ומאין באה (Ctrl+Shift+M)",
+    "from this line: where it went, and where it came from (Ctrl+Shift+M)",
+  ] as Both,
+  chainWalking: ["הולך…", "walking…"] as Both,
+  chainForward: ["איך נעשה הלכה", "To halacha"] as Both,
+  chainForwardWhy: [
+    "מן השורה הזאת ולהלן — מי הביא אותה, ומי פסק כמותה",
+    "from this line onward — who quoted it, and who ruled from it",
+  ] as Both,
+  chainBack: ["מאין בא", "Where it came from"] as Both,
+  chainBackWhy: [
+    "אחורה, אל המקור שממנו נלקח",
+    "back, to the source it came from",
+  ] as Both,
+  chainForks: ["שתי גרסאות", "Two readings"] as Both,
+  chainForksWhy: [
+    "שני ראשונים שקראו שורה אחת בשתי דרכים, ומי שנצרך לשניהם",
+    "two rishonim who read one line two ways, and who had to deal with both",
+  ] as Both,
+  chainNothing: ["אין כאן מה ללכת אחריו", "nothing this walk could follow"] as Both,
+  chainNoForks: ["לא נמצאו כאן שתי גרסאות", "no two readings found here"] as Both,
+  chainTally: [
+    "{chains} שלשלות, {carried} מהן מסירה לכל אורכן",
+    "{chains} chains, {carried} of them a transmission all the way",
+  ] as Both,
+  /** Said once above the fork list, because it is true of every row in it. */
+  chainForkCaveat: [
+    "אין בגרף שום קשר שאומר שני ספרים חולקים — מה שיש הוא ששניהם קראו שורה אחת ושמאוחר מהם נצרך לשניהם. מקום להסתכל בו, לא מסקנה.",
+    "nothing in the graph says two seforim disagree — what it says is that both read one line and a later one had to deal with both. A place to look, not a finding.",
+  ] as Both,
+  chainForkJoined: [
+    "קשר מחבר את השניים במישרין — אחד מהם משיב על חבירו",
+    "a link joins the two directly — one is answering the other",
+  ] as Both,
+  chainForkWitnesses: [
+    "{n} מאוחרים שנצרכו לשני הצדדים",
+    "{n} later seforim that deal with both sides",
+  ] as Both,
+  chainNoDate: ["בלי תאריך", "no date"] as Both,
+  chainNoLabel: ["הקורפוס לא אמר כלום", "the corpus said nothing"] as Both,
+  chainCorpusSaid: ["הקורפוס אמר: {label}", "the corpus said: {label}"] as Both,
+  chainMine: ["שלך", "yours"] as Both,
+  chainMineWhy: [
+    "את הקשר הזה ציירת או אישרת בעצמך",
+    "you drew or confirmed this link yourself",
+  ] as Both,
+  chainWeakest: ["החוליה החלשה: {kind}", "weakest link: {kind}"] as Both,
+  chainFollowedAll: ["שום דבר לא נשאר בחוץ", "nothing was left out"] as Both,
+  chainLeftOut: ["לא הלך אחרי:", "did not follow:"] as Both,
+  chainUndated: ["{n} בלי תאריך", "{n} undated"] as Both,
+  chainWrongWay: ["{n} לצד השני", "{n} the other way"] as Both,
+  chainContemporary: ["{n} בני זמן אחד", "{n} contemporary"] as Both,
+  chainRejected: ["{n} שדחית", "{n} you rejected"] as Both,
+  chainOverBudget: ["{n} מעבר למכסה", "{n} over the limit"] as Both,
+  chainNoInbound: [
+    "{n} ספרים שחצי הקשרים הנכנס אליהם לא נבנה",
+    "{n} seforim whose incoming links were never built",
+  ] as Both,
   /** A candidate from the OCR queue whose word the page no longer has — the
    * page was read again by something better since the queue was built. Said
    * out loud rather than opening a correction box on nothing. */
@@ -900,6 +963,7 @@ const WORDS = {
   doingReadPage: ["קריאת העמוד", "reading the page"] as Both,
   doingReadLinks: ["קריאת הקישורים", "reading the links"] as Both,
   doingOpenRef: ["פתיחת המראה מקום", "opening the mareh makom"] as Both,
+  doingChain: ["מעקב אחר שלשלת המסירה", "following the chain"] as Both,
   doingRepairLink: ["תיקון הקישור", "repairing the link"] as Both,
   doingReadLane: ["קריאת נתיב המשמעות", "reading the lane"] as Both,
   doingWriteNote: ["כתיבת הרשומה", "writing the note"] as Both,
