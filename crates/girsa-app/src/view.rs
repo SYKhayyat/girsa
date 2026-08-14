@@ -937,6 +937,14 @@ pub struct SuspectRow {
 }
 
 /// Where on the page a candidate's word is, and what to put in the box.
+///
+/// Two kinds of place, because there are two kinds of sefer. A sefer whose
+/// words are in a file is corrected at a **character span** in a line, and
+/// `from_char`/`to_char` are it. A photograph has no text to take an offset
+/// into, so it is corrected at the **ink** — and then `page` and `word` are
+/// filled in and the offsets are both zero. The window branches on `page`
+/// being there, which is also how it knows which of the two doors to send the
+/// correction through: `fix` for a line, `scan_fix` for a rectangle.
 #[derive(Serialize)]
 pub struct Standing {
     pub at: String,
@@ -948,6 +956,14 @@ pub struct Standing {
     /// see [`girsa_fix::suspect::Suspect::suggestion`]. `null` on a pointed
     /// word, and then the reader types.
     pub suggestion: Option<String>,
+    /// Which page of the scan, counted through the pages of the file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<usize>,
+    /// Which word of that page's reading — the index `scan_fix` takes, which
+    /// is what makes the correction survive the page being read again by a
+    /// better engine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub word: Option<usize>,
 }
 
 /// What you are writing, and where it is kept.

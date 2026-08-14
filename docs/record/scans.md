@@ -334,6 +334,49 @@ highlight two letters off looks exactly like one that landed right, which is the
 refusal W24 made about a dibur hamatchil made again about a rectangle. A
 correction pointed at ink that two words share is refused, naming neither.
 
+### The OCR queue was ranking these words all along, and could not open one
+
+W21 built a queue of words that are almost certainly scanning errors: a word
+seen once, one letter from a word seen ten thousand times, ranked by which pair
+of letters a scanner confuses. This document used to say that OCR text does not
+reach it — *a word tesseract got wrong is not ranked beside a word Otzaria's
+scanner got wrong.* That sentence was wrong, and it was wrong in the direction
+that costs the most: it described a missing feature, so nobody went looking for
+a broken one.
+
+`girsa-suspects` builds its vocabulary from **the index's term dictionary**, not
+from the corpus files — and `add_page` has written a page's words into that same
+dictionary since this work order. So tesseract's misreadings have been counted,
+compared and ranked beside the corpus's from the day the two existed together.
+`girsa-search/tests/what_tesseract_got_wrong_is_in_the_queue.rs` is that,
+written down: three lines of Gemara saying `קורין`, one page where the engine
+read the final nun as a vav, and the pair coming out of `hunt` with its counts.
+
+What did not work was **opening** one. The queue row points at a segment id; the
+window resolves it by looking for the word in that segment's text; and a page
+segment's text is the empty string the importer minted, because the words of a
+page are an engine's opinion and live in `personal/words/<slug>/pages.jsonl`.
+Every candidate on a photograph answered *that word is not in that line any
+more* — a sentence about a word that had never been looked for. And before even
+that, the window gave up one line earlier: a scan opens into a `ScanView` and
+the queue reached for a reading pane, which for a scan does not exist.
+
+So a page takes the other branch from end to end, and that is the whole of the
+join:
+
+- `scanning::where_word_on_page` finds the word in the **reading**, tokenized by
+  the same normalizer the index was built with. Tokenized and not compared whole,
+  because a `Word` can hold an entire line when the file positions lines rather
+  than words — see the section above, and then the word wanted is one token
+  inside it.
+- The reading is asked for with **the reader's own corrections already applied**,
+  so a candidate they fixed an hour ago reports itself as gone rather than
+  opening a box on a word that no longer says that.
+- And the correction goes through `scan_fix`, by ink, which is the only
+  correction a photograph can take. Sending it through `fix` would have written
+  a character span into a text that does not exist, which is the anchor this
+  work order spent its first section refusing.
+
 ### One index, two location types
 
 `spec.md` §9.7. A page with words on it is a row of the same result list as a
@@ -461,10 +504,8 @@ W25 chose for the same reason. It hands over glyphs, or a picture, and
 everything after that is decided in `girsa-scan`, where it can be tested without
 a webview.
 
-**What this does not yet do.** OCR text does not reach the OCR-error queue of
-W21, so a word tesseract got wrong is not ranked beside a word Otzaria's
-scanner got wrong — the machinery is the same shape and the two have not been
-joined. A page's words cannot be linked to at a finer grain than the page; W24's
+**What this does not yet do.** A page's words cannot be linked to at a finer
+grain than the page; W24's
 span anchoring is about segments and a page is one segment. And nothing has been
 run against a real photographed sefer: every measurement above is against a
 born-digital PDF, which is the only kind on this shelf, so the numbers for

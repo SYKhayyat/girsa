@@ -424,7 +424,47 @@ export class ScanView {
    * since; **no view called either**, so a reader looking at a word the engine
    * plainly got wrong had nothing to click. This is that click.
    */
-  private correct(index: number, was: string, box: HTMLElement): void {
+  /**
+   * Open the correction box on one word because the OCR queue sent us here
+   * (W21 meeting W26).
+   *
+   * The queue has always ranked what tesseract got wrong — the index's term
+   * dictionary holds a page's words like any other segment's — and the row was
+   * a dead end anyway, because opening it went through the reading pane and a
+   * scan does not have one. This is the other door: turn to the page, put every
+   * box on the screen, and open the same field the reader would have got by
+   * clicking that word themselves.
+   *
+   * `done` is run only when a correction was actually saved, which is what
+   * keeps *fixed* in the queue honest: a reader who looks at the word, decides
+   * the engine was right and presses Escape has decided nothing, and the
+   * candidate is still waiting for them.
+   */
+  async correctWord(page: number, index: number, done: () => Promise<void>): Promise<void> {
+    await this.goTo(page);
+    this.correcting = true;
+    this.drawMarks();
+    // Correcting draws every word in order, so the nth box is the nth word.
+    const box = this.marks.children[index];
+    const word = this.words?.words[index];
+    if (!(box instanceof HTMLElement) || !word) {
+      // The page has been read again since the queue was built and there is no
+      // longer a word there. Said out loud rather than opening an empty box.
+      this.note.textContent = say("scanSuspectNotHere");
+      this.note.classList.add("is-empty");
+      return;
+    }
+    box.classList.add("is-suspect");
+    box.scrollIntoView({ block: "center", behavior: "auto" });
+    this.correct(index, word.text, box, done);
+  }
+
+  private correct(
+    index: number,
+    was: string,
+    box: HTMLElement,
+    after?: () => Promise<void>,
+  ): void {
     if (this.fixing) this.fixing.remove();
     // In the overlay, over the word, and not in a `window.prompt` — a browser
     // dialog is a different application's furniture and it cannot show the ink
@@ -454,6 +494,7 @@ export class ScanView {
           this.words = await api.scanFix(this.slug, this.page, index, says);
           this.stopCorrecting();
           this.drawMarks();
+          await after?.();
         } catch (e) {
           sayTrouble(this.note, e, "fix");
         }

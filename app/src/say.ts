@@ -867,6 +867,10 @@ const WORDS = {
     "show every word the engine read — click one to correct it",
   ] as Both,
   scanFixWord: ["מה כתוב כאן", "what it says here"] as Both,
+  /** A candidate from the OCR queue whose word the page no longer has — the
+   * page was read again by something better since the queue was built. Said
+   * out loud rather than opening a correction box on nothing. */
+  scanSuspectNotHere: ["המילה הזאת כבר לא בעמוד הזה", "that word is not on this page any more"] as Both,
   scanPages: ["דפים", "Pages"] as Both,
   scanPagesWhy: ["אמור איזה עמוד הוא איזה דף", "say which page is which daf"] as Both,
   scanScheme: ["איך העמודים נקראים", "How the pages are named"] as Both,

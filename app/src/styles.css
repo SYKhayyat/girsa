@@ -2330,6 +2330,16 @@ body {
   background: color-mix(in srgb, var(--mark) 16%, transparent);
 }
 
+/* The one word the OCR queue sent the reader here for. Every box on the page is
+   drawn while correcting, which is right for hunting and useless for being sent
+   — so the candidate is the only one filled in, and it is findable at a glance
+   on a page holding three hundred outlines. */
+.scan-marks.is-correcting .scan-mark.is-suspect {
+  border-color: var(--mark);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--mark) 34%, transparent);
+}
+
 .scan-fix {
   position: absolute;
   z-index: 2;

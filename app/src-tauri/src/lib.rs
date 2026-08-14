@@ -2510,6 +2510,16 @@ fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<Suspec
 }
 
 /// Open a candidate: where its word sits in the segment the queue named.
+///
+/// Two kinds of place, because the queue ranks words off both kinds of sefer.
+/// `girsa-suspects` reads the index's term dictionary, and since W26 that
+/// dictionary holds what an engine read off a photograph as well as what a
+/// file said — so tesseract's misreads have always been ranked beside
+/// Otzaria's. What they had no way to reach was **this** call: a page segment
+/// carries no text of its own, so the character-span lookup below tokenized an
+/// empty string and every candidate on a scan answered *that word is not in
+/// that line any more*. The words of a page are in the reading, and the
+/// correction is by ink, so a page takes the other branch end to end.
 #[tauri::command]
 fn suspect_at(
     shared: tauri::State<'_, Shared>,
@@ -2523,6 +2533,52 @@ fn suspect_at(
     let (queue, _) = girsa_fix::suspect::Queue::open(shelf.personal());
     let suspect = queue.get(&id).ok_or("there is no such candidate")?.clone();
     state.queue = Some(queue);
+
+    // Which page of the file, if this is a page at all. Counted through the
+    // pages rather than read off the ordinal, because a page that was split by
+    // a correction mints `#47.1` and arithmetic on the ordinal would slip by
+    // one from there (`girsa_app::scanning::page_of_id`).
+    let page = {
+        let sefer = state.sefer(at.work())?;
+        let position = sefer.position_of(&at).ok_or("not in this sefer")?;
+        let kind = sefer
+            .segments
+            .get(position)
+            .ok_or("not in this sefer")?
+            .kind;
+        match kind {
+            girsa_corpus::import::SegmentKind::Page => girsa_app::scanning::page_of_id(sefer, &at),
+            _ => None,
+        }
+    };
+    if let Some(page) = page {
+        let slug = at.work().to_string();
+        // The reading with the reader's own corrections already applied, which
+        // is what makes a candidate they have already fixed report itself as
+        // gone rather than opening a box on a word that no longer says that.
+        let read = state
+            .words(&slug)?
+            .page(page)
+            .ok_or_else(|| format!("nobody has read page {page} of {slug}"))?;
+        let word = girsa_app::scanning::where_word_on_page(&read, &suspect.rare)
+            .ok_or("that word is not on that page any more")?;
+        let printed = read
+            .words
+            .get(word)
+            .map(|on_page| on_page.text.clone())
+            .unwrap_or_default();
+        return Ok(Standing {
+            at: at.to_string(),
+            // A photograph has no text to take an offset into. The place is
+            // the rectangle, and it is named by `page` and `word`.
+            from_char: 0,
+            to_char: 0,
+            suggestion: suspect.suggestion(&printed),
+            printed,
+            page: Some(page),
+            word: Some(word),
+        });
+    }
 
     let sefer = state.sefer(at.work())?;
     let span = girsa_app::fixing::where_word(sefer, &at, &suspect.rare, pointing)
@@ -2547,6 +2603,8 @@ fn suspect_at(
         to_char: span.end,
         suggestion: suspect.suggestion(&printed),
         printed,
+        page: None,
+        word: None,
     })
 }
 

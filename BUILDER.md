@@ -640,6 +640,12 @@ queue**. This is worth more than the editor.
 list is the whole motion. Every decision used to rewrite all 28,124 lines; it now
 appends the one that changed. See W20's amendment and `girsa-personal`.*
 
+*Amended: a candidate off a scanned page can be opened and corrected. The
+ranking always covered them — the vocabulary is the index's term dictionary and
+W26 writes a page's words into it — but opening one went through the reading
+pane, and a page carries no text of its own to find a word in. A page now
+resolves through its reading and corrects by ink. See `record/scans.md`.*
+
 ### W22 · Export a fixed sefer
 
 Base text + patches → clean `.txt`/`.docx`. Falls out of the storage design for

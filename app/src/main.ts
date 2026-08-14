@@ -1100,7 +1100,27 @@ async function openSuspect(row: SuspectRow): Promise<void> {
   await openFound(row.work, row.at);
   const open = tab();
   const view = open?.panes.find((p) => p.slug === row.work);
-  const pane = view ? views.get(view.id) : undefined;
+  if (!view) return;
+  // A scan opens into a `ScanView` and never into a reading pane, so this used
+  // to give up here without a word — every candidate the queue found on a
+  // photograph was a row that did nothing when clicked. A photograph is
+  // corrected by its ink, so it goes to the other view and the other command.
+  const scan = scans.get(view.id);
+  if (scan) {
+    try {
+      const standing = await api.suspectAt(row.id, row.at);
+      if (standing.page === undefined || standing.word === undefined) return;
+      await scan.correctWord(standing.page, standing.word, async () => {
+        await api.suspectDecide(row.id, "fixed");
+        suspects.taken(row.id);
+      });
+    } catch (e) {
+      const t = trouble(e, "read_suspects");
+      announce(t.said, true, t.detail);
+    }
+    return;
+  }
+  const pane = views.get(view.id);
   if (!pane) return;
   try {
     const standing = await api.suspectAt(row.id, row.at);

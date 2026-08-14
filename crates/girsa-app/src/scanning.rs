@@ -109,6 +109,40 @@ pub fn page_of_id(sefer: &Open, id: &SegmentId) -> Option<usize> {
         .map(|at| at + 1)
 }
 
+/// Which word of a page's reading a candidate from the OCR queue is (W21
+/// meeting W26).
+///
+/// The counterpart of [`crate::fixing::where_word`], and the reason the two are
+/// not one function is the reason this gap existed at all: **a page is the one
+/// segment whose words are not in its text.** The importer gives a dropped PDF
+/// one segment per page with an empty string in it — what is printed there is a
+/// machine's opinion, kept in `personal/words/<slug>/pages.jsonl` — so
+/// `where_word` tokenizes nothing and finds nothing, and every candidate the
+/// queue placed on a photograph opened on *that word is not in that line any
+/// more*. The candidates were ranked; they were not reachable.
+///
+/// The comparison is on the **normalized** form, the same rule `where_word`
+/// uses and for the same reason: the queue works in the index's spelling —
+/// nikud off, final letters folded — and the reading is in whatever the engine
+/// saw. Tokenizing rather than normalizing the whole string is deliberate: one
+/// `Word` can hold a whole line when the file positions lines rather than words
+/// (see *Two words with one rectangle*), and then the word wanted is one token
+/// inside it.
+///
+/// The first occurrence, where a page has the word twice — the box opens
+/// somewhere the reader can see it, and the second one is the next item in the
+/// queue.
+#[must_use]
+pub fn where_word_on_page(read: &girsa_scan::Read, word: &str) -> Option<usize> {
+    read.words.iter().position(|on_page| {
+        let mut found = false;
+        girsa_hebrew::for_each_token(&on_page.text, |token, _, _| {
+            found = found || token == word;
+        });
+        found
+    })
+}
+
 /// The scan a sefer is, if it is one.
 ///
 /// A scan with no mapping is still a scan — it is one the chore has not been

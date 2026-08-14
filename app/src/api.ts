@@ -244,6 +244,13 @@ export interface Standing {
   /** `null` on a pointed word — rebuilding nikud for different letters would
    * be inventing text, so the reader types it. */
   suggestion: string | null;
+  /** Which page of a scan the candidate is on, when the sefer is a
+   * photograph. Absent on a sefer whose words are in a file, where the
+   * character span above is the place instead. */
+  page?: number;
+  /** Which word of that page's reading — what `scanFix` corrects by, because
+   * ink survives a re-read and an offset does not. */
+  word?: number;
 }
 
 export interface Text {
