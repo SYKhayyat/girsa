@@ -13,6 +13,10 @@ description = "The library, answering a program instead of a person — MCP over
 girsa-plain.workspace = true
 # The shelf, and the text a segment id names.
 girsa-app.workspace = true
+# The corrections overlay, for the `correct` tool. `girsa-app` composes a patch
+# from a highlight and this is the type it composes — a program hands offsets
+# rather than a selection, and the composing is the same either way.
+girsa-fix.workspace = true
 # `Adjacency` and `Unseen`: the lane's answers, and the one composer of what an
 # answer could not see.
 girsa-nearby.workspace = true

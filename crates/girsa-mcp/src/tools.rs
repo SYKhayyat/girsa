@@ -63,9 +63,14 @@ fn max_limit() -> usize {
 const MAX_LIMIT_DEFAULT: usize = 50;
 
 /// The tools, as `tools/list` describes them.
+///
+/// `writable` adds the three that write into your own layer. They are **absent**
+/// rather than listed-and-refused when it is off: a tool list is what a program
+/// plans against, and one that advertises a door it cannot open gets an agent
+/// halfway through a plan before the refusal arrives.
 #[must_use]
-pub fn catalogue() -> Value {
-    json!([
+pub fn catalogue(writable: bool) -> Value {
+    let mut tools = json!([
         {
             "name": "search",
             "title": "Search the corpus",
@@ -246,7 +251,113 @@ pub fn catalogue() -> Value {
                 "required": ["title"]
             }
         }
-    ])
+    ]);
+    if !writable {
+        return tools;
+    }
+    let Some(list) = tools.as_array_mut() else {
+        return tools;
+    };
+    list.extend(writing());
+    tools
+}
+
+/// The tools that write, and everything they will not do.
+///
+/// Three, and they are the three the record named: a note, a link, a
+/// correction. Every one of them writes into **`personal/`** and nothing here
+/// can reach the corpus at all — the same wall the window is behind, and the
+/// reason spec.md §4.1 can promise the download stays replaceable.
+///
+/// `readOnlyHint: false` on each, so a client that asks its user before a write
+/// knows which calls to ask about. The hint is a claim about the tool and not a
+/// promise about the client: this server does not know what the caller does
+/// with it, which is why the flag that turns these on exists at all.
+fn writing() -> Vec<Value> {
+    // Read off `EdgeType::ALL` rather than typed here. The first draft of this
+    // file listed `explains`, `sources` and `parallels`, none of which this
+    // graph has ever had — a description that names types the parser will
+    // refuse is a description that costs a program a round trip to find out
+    // the truth, and the only reason it was caught is that a test called one
+    // of them.
+    let kinds: Vec<&str> = girsa_link::EdgeType::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    let kinds = kinds.join(", ");
+    vec![
+        json!({
+            "name": "write_note",
+            "title": "Write a note",
+            "description": "\
+        Write a note anchored to a place in the library. A note is a sefer on your \
+        own shelf (spec.md section 11) with the same kind of typed edge to the sugya \
+        as any commentary, so what you write comes back in the links on that line \
+        rather than in a list of its own. Written into `personal/` — nothing here \
+        touches the corpus.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "at": {"type": "string", "description": "A segment id or a girsa: ref — the line it is about."},
+                    "title": {"type": "string", "description": "What to call it. Defaults to the place."},
+                    "text": {"type": "string", "description": "The note itself."},
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["at", "text"]
+            }
+        }),
+        json!({
+            "name": "draw_link",
+            "title": "Draw a link",
+            "description": "\
+        Join two places with a typed edge. An override in your own layer, never an \
+        edit to the shipped graph (spec.md section 8.3): the corpus's own links stay \
+        exactly as they were, and yours sit beside them marked as yours. A link \
+        drawn here is the same kind of object as the 4.2 million Sefaria seeded, so \
+        it is walked by `trace` and shown by `links` like any other.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string", "description": "A segment id or girsa: ref."},
+                    "to": {"type": "string", "description": "The other end."},
+                    "type": {
+                        "type": "string",
+                        "enum": girsa_link::EdgeType::ALL.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
+                        "description": format!("What it claims. One of: {kinds}.")
+                    }
+                },
+                "required": ["from", "to", "type"]
+            }
+        }),
+        json!({
+            "name": "correct",
+            "title": "Correct a word",
+            "description": "\
+        Record a correction to a stretch of a segment. An overlay, never an edit \
+        (spec.md section 4.1): the base text on disk is untouched, so re-importing \
+        the corpus keeps your correction and a download stays replaceable. `kind` \
+        says what is being claimed — `ocr` is *the scanner got this wrong* and \
+        `girsa` is *this edition reads differently*, which are the same machinery \
+        and two very different statements. Character offsets are into the segment's \
+        text as the corpus stores it, which `read` returns.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "at": {"type": "string", "description": "A segment id or girsa: ref."},
+                    "from_char": {"type": "integer", "minimum": 0},
+                    "to_char": {"type": "integer", "minimum": 1},
+                    "says": {"type": "string", "description": "What those characters should read."},
+                    "kind": {"type": "string", "enum": ["ocr", "girsa"]},
+                    "note": {"type": "string", "description": "Why, in your own words."},
+                    "source": {"type": "string", "description": "For a variant: the sefer that says so, as a ref."}
+                },
+                "required": ["at", "from_char", "to_char", "says"]
+            }
+        }),
+    ]
 }
 
 /// Serve one `tools/call`.
@@ -269,6 +380,17 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "fork" => fork(server, &args),
         "seforim" => seforim(server, &args),
         "adjacent" => adjacent(server, &args),
+        // The three that write. Guarded here as well as being absent from the
+        // catalogue, because a tool list is a description and this is the
+        // door: a client that remembered the tools from a writable session and
+        // called one against a read-only server gets a refusal that names the
+        // reason rather than a note appearing in somebody's layer.
+        "write_note" | "draw_link" | "correct" if !server.is_writable() => Err(format!(
+            "{name} writes into your own layer, and this server was started without --writable"
+        )),
+        "write_note" => write_note(server, &args),
+        "draw_link" => draw_link(server, &args),
+        "correct" => correct(server, &args),
         other => Err(format!("no such tool: {other}")),
     };
     Response::ok(match answered {
@@ -793,5 +915,168 @@ fn seforim(server: &Server, args: &Value) -> Result<Value, String> {
                 "era": when.era.map(|e| e.he()),
             })
         }).collect::<Vec<Value>>(),
+    }))
+}
+
+/// Who a write is by, over the wire.
+///
+/// `girsa_app::who` is the same name the window and the command-line tools
+/// stamp, read from the environment or the machine — so a note written by an
+/// agent on your behalf is attributed to **you**, which is true: you ran the
+/// server and pointed it at your layer. What it is not is anonymous, and a
+/// personal layer with unattributed records in it is one nobody can audit.
+fn writer(args: &Value) -> String {
+    args.get("who")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .map_or_else(girsa_app::who, str::to_string)
+}
+
+/// Write a note on a place (spec.md §11).
+fn write_note(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let at = id_arg(args, "at")?;
+    let text = text_arg(args, "text")?;
+    let title = args.get("title").and_then(Value::as_str);
+    let who = writer(args);
+    let note = girsa_app::note_here(server.shelf_mut(), &at, title, &text, &who)
+        .map_err(|e| e.to_string())?;
+    let name = note.name().to_string();
+    let slug = note.slug.clone();
+
+    // Tags after the write, through the same door the window uses, so a tag
+    // arriving over the wire is folded and compared exactly as a typed one is
+    // (W2) rather than being pushed onto the vector raw.
+    let tags: Vec<String> = args
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !tags.is_empty() {
+        let mut held = server
+            .shelf()
+            .notes()
+            .get(&name)
+            .cloned()
+            .ok_or("the note was written and cannot be read back")?;
+        for tag in &tags {
+            held.tag(tag);
+        }
+        server
+            .shelf_mut()
+            .write_note(held)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(json!({
+        "wrote": name,
+        "sefer": slug,
+        "at": named(server, &at),
+        "tags": tags,
+        "into": "personal",
+        "note": "a note is a sefer on your own shelf, joined to that line by a typed edge — \
+                 it comes back from `links` on that line, not from a list of its own",
+    }))
+}
+
+/// Draw a link between two places (spec.md §8.3).
+fn draw_link(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let from = id_arg(args, "from")?;
+    let to = id_arg(args, "to")?;
+    let asked = text_arg(args, "type")?;
+    // The same parse the window's repair panel uses, so a type named over the
+    // wire and a type picked in a dropdown cannot be two different vocabularies.
+    let edge_type = girsa_link::touching::type_named(&asked).ok_or_else(|| {
+        let names: Vec<&str> = girsa_link::EdgeType::ALL
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect();
+        format!(
+            "no such link type: {asked} — it is one of {}",
+            names.join(", ")
+        )
+    })?;
+    let who = writer(args);
+    server
+        .shelf_mut()
+        .repairs_mut()
+        .draw(
+            girsa_link::Anchor::point(from.clone()),
+            girsa_link::Anchor::point(to.clone()),
+            edge_type,
+            &who,
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "drew": {"from": named(server, &from), "to": named(server, &to), "type": edge_type.as_str()},
+        "into": "personal",
+        "note": "an override in your own layer — the shipped graph is unchanged, and this edge \
+                 is marked as yours wherever it is shown",
+    }))
+}
+
+/// Record a correction to a stretch of a segment (spec.md §7).
+fn correct(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let at = id_arg(args, "at")?;
+    let says = text_arg(args, "says")?;
+    let from_char = usize::try_from(
+        args.get("from_char")
+            .and_then(Value::as_u64)
+            .ok_or("`from_char` is required")?,
+    )
+    .map_err(|_| "`from_char` is too large".to_string())?;
+    let to_char = usize::try_from(
+        args.get("to_char")
+            .and_then(Value::as_u64)
+            .ok_or("`to_char` is required")?,
+    )
+    .map_err(|_| "`to_char` is too large".to_string())?;
+    if from_char >= to_char {
+        return Err("`from_char` must be before `to_char`".to_string());
+    }
+    // `ocr` unless told otherwise, and the two are not interchangeable: one
+    // says the scanner got a letter wrong and the other says this edition reads
+    // differently. A default of `girsa` would let a program quietly file
+    // emendations to the text of Shas.
+    let kind = match args.get("kind").and_then(Value::as_str).unwrap_or("ocr") {
+        "ocr" => girsa_fix::Kind::Ocr,
+        "girsa" => girsa_fix::Kind::Girsa,
+        other => return Err(format!("no such kind: {other} — it is `ocr` or `girsa`")),
+    };
+    let who = writer(args);
+
+    let sefer = server.shelf().read(at.work()).map_err(|e| e.to_string())?;
+    // As the corpus stores it — `Pointing::Full` — because the offsets a program
+    // is given are the ones `read` returned, and `read` returns the segment's
+    // own text. A window counts into what it drew; a tool has not drawn
+    // anything.
+    let mut patch = girsa_app::correction(
+        &sefer,
+        &at,
+        from_char..to_char,
+        &says,
+        kind,
+        &who,
+        girsa_app::session::Pointing::Full,
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(note) = args.get("note").and_then(Value::as_str) {
+        patch = patch.with_note(note);
+    }
+    if let Some(source) = args.get("source").and_then(Value::as_str) {
+        patch = patch.from_source(source);
+    }
+    let was = patch.was.clone();
+    server.shelf_mut().fix(patch).map_err(|e| e.to_string())?;
+    Ok(json!({
+        "corrected": named(server, &at),
+        "was": was,
+        "says": says,
+        "kind": kind.as_str(),
+        "into": "personal",
+        "note": "an overlay — the corpus text on disk is untouched, so re-importing keeps this",
     }))
 }

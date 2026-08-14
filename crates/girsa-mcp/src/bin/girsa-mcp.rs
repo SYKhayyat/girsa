@@ -29,19 +29,25 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 const USAGE: &str = "\
-usage: girsa-mcp <corpus> <personal> <index>
+usage: girsa-mcp <corpus> <personal> <index> [--writable]
 
-  Speaks MCP on stdin and stdout. All three are required, and the count is
-  exact: this is started by another program, and a default that quietly
+  Speaks MCP on stdin and stdout. All three paths are required, and the count
+  is exact: this is started by another program, and a default that quietly
   opened the wrong shelf would be a program answering confidently about a
-  library nobody asked about.";
+  library nobody asked about.
+
+  --writable   let a program write into <personal>: a note, a link you drew,
+               a correction. Off by default, and the three tools are absent
+               from the tool list rather than listed and refused when it is —
+               a program plans against that list. Nothing here can write into
+               <corpus> with the flag on or off.";
 
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();
     if Argv::wants_help(&typed) {
         return argv::asked(USAGE);
     }
-    let args = match Argv::of(typed, &[], &[]) {
+    let args = match Argv::of(typed, &["--writable"], &[]) {
         Ok(args) => args,
         Err(e) => {
             eprintln!("{e}");
@@ -57,6 +63,7 @@ fn main() -> std::process::ExitCode {
         &PathBuf::from(personal),
         &PathBuf::from(index),
     ) {
+        Ok(server) if args.switch("--writable") => server.writable(),
         Ok(server) => server,
         Err(e) => {
             eprintln!("{e}");
@@ -74,6 +81,17 @@ fn main() -> std::process::ExitCode {
                  Run girsa-link-types.",
                 server.root().join("links").display()
             )
+        }
+    );
+    // Said on the terminal that started it, not only in the tool list. A person
+    // reading a client's log should be able to see that this process can write
+    // into their layer without going and asking it for its tools.
+    eprintln!(
+        "girsa-mcp: {}",
+        if server.is_writable() {
+            "writable — a program may write a note, a link or a correction into your own layer"
+        } else {
+            "read-only — pass --writable to let a program write into your own layer"
         }
     );
 

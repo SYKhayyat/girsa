@@ -86,6 +86,22 @@ pub struct Server {
     /// refused rather than served, because a client that has not handshaken has
     /// not agreed a protocol version and cannot be assumed to read the answer.
     ready: bool,
+    /// Whether a program may write into your own layer (spec.md §12).
+    ///
+    /// **Off unless asked for**, and the tools are not in the catalogue when it
+    /// is off rather than being listed and refused. A tool list is what a
+    /// program plans against, and one that advertises a door it cannot open
+    /// gets an agent halfway through a plan before the refusal arrives.
+    ///
+    /// Opt-in rather than opt-out, and the argument is spec.md §4.1's: the
+    /// corpus is replaceable and your layer is not. Nothing in it can be
+    /// recovered from a download, so the case where somebody has not thought
+    /// about whether an agent should be writing there is the case that has to
+    /// be safe. What the flag buys the reader who does want it is real —
+    /// **every write goes into `personal/`, and nothing here can touch the
+    /// corpus at all**, which is the same wall the window and the tools are
+    /// behind.
+    writable: bool,
 }
 
 impl Server {
@@ -124,7 +140,23 @@ impl Server {
             lane,
             unindexed,
             ready: false,
+            writable: false,
         })
+    }
+
+    /// Let a program write into your own layer.
+    ///
+    /// The binary's `--writable`, and nothing else sets it. See the field.
+    #[must_use]
+    pub fn writable(mut self) -> Self {
+        self.writable = true;
+        self
+    }
+
+    /// Whether writes are on.
+    #[must_use]
+    pub fn is_writable(&self) -> bool {
+        self.writable
     }
 
     /// What your own layer holds that the index has not seen (B7).
@@ -154,6 +186,11 @@ impl Server {
     #[must_use]
     pub fn lane(&self) -> &girsa_nearby::Adjacency {
         &self.lane
+    }
+
+    #[must_use]
+    pub fn shelf_mut(&mut self) -> &mut Shelf {
+        &mut self.shelf
     }
 
     #[must_use]
@@ -203,7 +240,9 @@ impl Server {
             "notifications/initialized" | "notifications/cancelled" | "ping" => {
                 Response::ok(serde_json::json!({}))
             }
-            "tools/list" => Response::ok(serde_json::json!({ "tools": tools::catalogue() })),
+            "tools/list" => {
+                Response::ok(serde_json::json!({ "tools": tools::catalogue(self.writable) }))
+            }
             "tools/call" => {
                 if !self.ready {
                     return Response::error(

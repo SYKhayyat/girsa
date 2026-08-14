@@ -57,15 +57,63 @@ written before.
 cargo run --release -p girsa-mcp -- corpus personal index
 ```
 
+### Writing, and the permission around it
+
+The server answered nine questions and wrote nothing. That is a defensible place
+to stop and it is not where `spec.md` §12 stops — *MCP on both ends* — and a
+library a program can read but not add to is one an agent learns beside rather
+than with.
+
+Three tools, and they are the three this section used to name as missing: a
+note, a link, a correction. Each is a thin call onto the same door the window
+uses, for the reason every read tool here is: one that reimplemented a write
+would be the place the layer's own rules quietly stopped applying. A note
+arrives as a **sefer on your shelf** with its `work.json` and its segments,
+because §11 says a note is a sefer and one written by a program is not a
+second-class one. A link is an **override**, so the shipped graph is unchanged
+and yours is marked as yours wherever it is drawn. A correction is an
+**overlay**, so the corpus text on disk does not move and re-importing keeps it.
+
+The permission is the part worth arguing, and it has four pieces:
+
+- **Off unless asked.** `--writable`, and nothing else sets it. The corpus is a
+  download and your own layer is not: nothing in it can be recovered by
+  re-fetching, so the case where nobody has thought about whether an agent
+  should be writing there is the case that has to be safe.
+- **Absent from the catalogue when it is off**, rather than listed and refused.
+  A tool list is what a program *plans against*, and one advertising a door it
+  cannot open gets an agent halfway through a plan before the refusal lands.
+- **And refused at the door anyway.** A client that remembered the tools from a
+  writable session will call them, and the refusal names `--writable` rather
+  than saying *no such tool*, which would be a lie about why.
+- **`readOnlyHint: false` on each**, so a client that asks its user before a
+  write knows which calls to ask about. That is a claim about the tool and not a
+  promise about the client — this server does not know what the caller does with
+  it, which is exactly why the flag exists.
+
+`ocr` is the default kind for a correction and `girsa` has to be asked for. They
+are the same machinery and two very different claims — *the scanner got a letter
+wrong* against *this edition reads differently* — and a default of `girsa` would
+let a program file emendations to the text of Shas without anybody choosing to.
+
+One repair fell out of writing the tests. The `draw_link` description listed
+`explains`, `sources` and `parallels`, none of which this graph has ever had:
+the real nine are `comments-on, quotes, paraphrases, codifies, disputes, emends,
+parallel-to, translates, references`. A description that names types the parser
+will refuse costs a program a round trip to discover the truth, so the list is
+read off `EdgeType::ALL` now rather than typed, and it reaches the schema as an
+`enum` as well as as prose.
+
 ### What the MCP end does not do
 
 - **Ksav's end is Ksav's repo.** "Both ends" is two servers and this is one of
   them.
-- **Read only.** Nothing here writes a note, draws a link or records a
-  correction. Those are all *your layer*, and a tool that let an agent edit it
-  without a person in the loop is a different decision from exposing the library.
 - **No resources, no prompts, no sampling.** Tools only.
 - **A search is capped at 50 rows** whatever `limit` says, and says so.
+- **A write is not undoable over the wire.** Every one of them is append-only
+  in a layer you can read as plain files, and there is no `forget_note` or
+  `undraw_link` tool — deleting is a decision, and this end has no way to show
+  you what you are about to delete first.
 
 ### And one guardrail, bought expensively
 

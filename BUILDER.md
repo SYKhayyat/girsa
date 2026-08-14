@@ -807,6 +807,12 @@ both ends.
 *Chain tracing and MCP shipped in W28. The lane was held for a ruling and is now
 W30.*
 
+*Amended: the MCP end writes. Three tools behind `--writable` — a note, a link,
+a correction — each a thin call onto the door the window uses, each into
+`personal/` and none able to reach the corpus. Off unless asked, absent from the
+catalogue when it is off rather than listed and refused, and refused at the door
+anyway for the client that remembered them. See `record/answering-a-program.md`.*
+
 *Amended again: a fork widens past one hop. The walk that finds two readings and
 the walk that finds who dealt with them were bounded at the same number, and only
 the first was a definition — so a pair whose common witness reached one side
