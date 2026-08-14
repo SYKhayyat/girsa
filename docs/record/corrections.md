@@ -303,6 +303,24 @@ one OS is not evidence.* **Only Windows has been looked at.** There is no Mac
 here, and saying the rendering is fine on one would be exactly the claim the
 trap warns about.
 
+Narrowed, and it is worth being exact about by how much. CI now has a **macOS
+job**, and what it settles is:
+
+- the Rust half compiles and its tests pass there — a different target, a
+  different linker, a case-insensitive filesystem, and `std::path` behaving
+  differently in every place it does;
+- the shell compiles against macOS's own WebKit bindings, which is where a Tauri
+  feature that exists on one platform and not the other shows up.
+
+What it settles about **rendering is nothing**. The eyes tool drives Chrome, and
+Chrome on macOS is the same Blink it is on Windows — a second machine, not a
+second engine. What W9 asks about is Safari's WebKit, which is what the shipped
+window there actually uses, and no headless WebKit is reachable from this tool
+without a WebDriver stack it does not speak.
+
+So: the code is known to build and pass on macOS, and **nikud rendering on
+WebKit is still unknown**. Unknown is the word, not fine.
+
 Half of it is cheap and is wired up: `cargo run -p girsa-app --example
 dev-fixtures -- corpus app/public/dev` writes the real Gemara to static JSON and
 `npm --prefix app run dev` serves the same page, same CSS, to any browser on

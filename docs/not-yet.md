@@ -60,7 +60,7 @@ exists so the two do not get written down as one.
 | | Where it is argued |
 |---|---|
 | **Nobody has dragged a sefer with a mouse — the gesture, not the logic.** What a drop *means* is a tested function now, refusals and all. What no machine here can raise is the gesture itself: a native HTML5 drag is not synthesizable through the debugging protocol the eyes tool drives, and a file drop is an OS event no browser can fire. So what is untested is whether the events arrive, not what happens when they do. | [corrections](record/corrections.md#what-has-not-been-checked) |
-| **Only Windows has been looked at.** W9's trap says Tauri uses Edge's engine on Windows and Safari's on macOS, and that a screenshot from one OS is not evidence about the other. There is no Mac here, so nikud rendering on WebKit is unknown — not fine, unknown. | [corrections](record/corrections.md#what-has-not-been-checked) |
+| **Nikud on WebKit is unknown — the code builds on macOS, the rendering is unseen.** CI has a macOS job now: the Rust half passes there and the shell compiles against macOS's WebKit bindings. What it does not settle is rendering, because the eyes tool drives Chrome and Chrome on macOS is the same Blink it is on Windows — a second machine, not a second engine. W9 asks about Safari's WebKit, which is what the shipped window there uses. | [corrections](record/corrections.md#what-has-not-been-checked) |
 | **Nothing has been run against a photographed sefer.** Every OCR measurement is against born-digital PDFs, which is the only kind on this shelf. Those are tesseract's numbers on clean 300-dpi print; a photograph of a Vilna Shas will do worse by an unknown amount. | [scans](record/scans.md#the-job-is-one-page-at-a-time-and-that-is-the-promise) |
 
 ---
