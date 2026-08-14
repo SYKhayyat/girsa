@@ -29,7 +29,7 @@ for pages that are not:
 | [`from-bar-ilan.md`](from-bar-ilan.md) | you use Bar Ilan — including where Girsa is genuinely behind |
 | [`shortcuts.md`](shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
 | [`tools.md`](tools.md) | every command this repository can be told to run, and what each is for |
-| [`images/`](images/) | screenshots, and an honest note about why there are none yet |
+| [`images/`](images/) | screenshots — four of them, and what they are and are not evidence for |
 
 ## For somebody working on it
 
@@ -38,7 +38,7 @@ for pages that are not:
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | **read this first.** Setup, the gate, the rules that bind every change, how to send one |
 | [`your-first-change.md`](your-first-change.md) | one contribution end to end, with nothing skipped |
 | [`architecture.md`](architecture.md) | how the pieces fit, and why the seams are where they are |
-| [`the-record.md`](the-record.md) | why any particular thing is the way it is — the old README, kept whole |
+| [`the-record.md`](the-record.md) | why any particular thing is the way it is — the old README, kept whole, split into twelve pages under [`record/`](record) |
 
 The split between those last two is worth knowing. `architecture.md` is the map:
 what is where, and which rule holds it there. `the-record.md` is the argument:

@@ -13,6 +13,12 @@ else does:
 Nothing is retyped, because what gets stored is the **reference**, not a printed
 string that looks like one.
 
+![Berakhot 2a menukad, with Rashi in a column beside it and the two in step](docs/images/reading.png)
+
+<sub>Berakhot 2a with Rashi beside it. The refs in the margin are permanent
+segment ids — more in [`docs/images/`](docs/images/), including what these
+pictures are and are not evidence for.</sub>
+
 ---
 
 ## Where to go
@@ -49,6 +55,8 @@ are still on screen.
 step as you scroll. Or tick Rashi, Tosafot and the Rosh, and every line one of
 them wrote about gets a **◆** in the margin; click a marked line and their
 comments open under that line only.
+
+![The mefarshim panel: 34 on this masechta, in folders, each row tickable or openable beside the text](docs/images/mefarshim.png)
 
 **The Ksav loop.** Highlight, `Ctrl+Shift+C`, and the words land in your document
 with the mareh makom under them, formatted the way you have citations set —
@@ -360,6 +368,7 @@ why that is the load-bearing decision.
 | [`docs/from-bar-ilan.md`](docs/from-bar-ilan.md) | you use Bar Ilan — including where Girsa is genuinely behind |
 | [`docs/shortcuts.md`](docs/shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
 | [`docs/tools.md`](docs/tools.md) | every command this repository can be told to run |
+| [`docs/images/`](docs/images/) | screenshots, and what they are and are not evidence for |
 
 **For a contributor**
 
@@ -370,7 +379,7 @@ why that is the load-bearing decision.
 | [`docs/architecture.md`](docs/architecture.md) | how the pieces fit, and why the seams are where they are |
 | [`spec.md`](spec.md) | what Girsa is. §2, §3 and §16 first |
 | [`BUILDER.md`](BUILDER.md) | the work orders, the binding rules, the verified traps in the data |
-| [`docs/the-record.md`](docs/the-record.md) | why everything is the way it is — the old README, kept whole |
+| [`docs/the-record.md`](docs/the-record.md) | why everything is the way it is — the old README, kept whole, in twelve pages by subject |
 
 **What happened when somebody used it**
 
@@ -385,9 +394,6 @@ and used it, written down without softening.
 Ksav's own pages are in the pen's repository, at `Ksav/docs/`. Not a link,
 because a link out of this repository is broken for anybody who cloned only this
 one, which is everybody reading it on GitHub.
-
-Screenshots: [`docs/images/`](docs/images/), including an honest note about why
-there are none yet.
 
 ---
 

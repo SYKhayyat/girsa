@@ -59,6 +59,29 @@ fn repo() -> PathBuf {
 /// pages, and it sat outside this walk for exactly as long as it took somebody
 /// to notice — which is the same shape as `docs/start-here.md` opening with a
 /// binary that had never been in this tree.
+/// Every `.md` under a directory, at any depth.
+///
+/// It read `docs/` one level deep until 14 August, which was true of `docs/`
+/// while `docs/` was flat. It stopped being true twice in one change: the record
+/// split into `docs/record/`, twelve pages of links to the rest of the tree, and
+/// `docs/images/README.md` — which had been unchecked since the day it was
+/// written and is the page that tells somebody how to take a screenshot. A walk
+/// that stops at the first subdirectory is a walk that checks whatever nobody
+/// has filed yet.
+fn walk(dir: &Path, into: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            walk(&path, into);
+        } else if path.extension().is_some_and(|ext| ext == "md") {
+            into.push(path);
+        }
+    }
+}
+
 fn documents(root: &Path) -> Vec<PathBuf> {
     let mut found = vec![
         root.join("README.md"),
@@ -66,13 +89,8 @@ fn documents(root: &Path) -> Vec<PathBuf> {
         root.join("spec.md"),
         root.join("BUILDER.md"),
     ];
-    let docs = root.join("docs");
-    let mut pages: Vec<PathBuf> = std::fs::read_dir(&docs)
-        .unwrap_or_else(|e| panic!("docs/ reads: {e}"))
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
-        .collect();
+    let mut pages = Vec::new();
+    walk(&root.join("docs"), &mut pages);
     pages.sort();
     found.extend(pages);
     found.retain(|path| path.exists());

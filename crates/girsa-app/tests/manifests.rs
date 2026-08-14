@@ -85,6 +85,35 @@ fn normalise(p: &Path) -> PathBuf {
 
 /// Every file called `name` in the tree, minus build output and other
 /// ecosystems' dependencies.
+/// Directories these walks do not descend into, and the reason is not the same
+/// for both halves of the list.
+///
+/// `target`, `node_modules` and `.git` are build output and were always here.
+/// The other four are the reader's data — the corpus, the derived indices, the
+/// personal layer — every one of them gitignored, none of them able to hold a
+/// `Cargo.toml` or a `.rs` file belonging to this workspace.
+///
+/// They were not skipped, and it does not show on CI, which has no corpus. It
+/// shows on the machine of the one person who has one: the four tests in this
+/// file that walk the tree each stat their way through **11 GB** first. On
+/// 14 August the same gate, on the same tree, ran in **91s** with a warm file
+/// cache and **1107s** an hour later after a release build had evicted it —
+/// 12× for a walk over Torah text that no test in here reads. All four went
+/// past the 60-second mark the test harness warns at; the whole file now runs
+/// in **6.65s**, and the warm-or-cold question stops applying because the
+/// corpus is no longer walked at all.
+///
+/// That is a gate a contributor is told to run before every commit, and
+/// `docs/your-first-change.md` makes it step 0. A check nobody will sit through
+/// is a check that stops being run, which is the argument `tools/verify.mjs`
+/// already exists to make.
+fn is_not_ours(base: &str) -> bool {
+    matches!(
+        base,
+        "target" | "node_modules" | ".git" | "corpus" | "index" | "personal" | "data"
+    )
+}
+
 fn files(root: &Path, name: &str) -> Vec<PathBuf> {
     fn walk(dir: &Path, name: &str, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -95,7 +124,7 @@ fn files(root: &Path, name: &str) -> Vec<PathBuf> {
             let base = entry.file_name();
             let base = base.to_string_lossy();
             if path.is_dir() {
-                if base == "target" || base == "node_modules" || base == ".git" {
+                if is_not_ours(&base) {
                     continue;
                 }
                 walk(&path, name, out);
@@ -122,7 +151,7 @@ fn rust_files(root: &Path) -> Vec<PathBuf> {
             let base = entry.file_name();
             let base = base.to_string_lossy();
             if path.is_dir() {
-                if base == "target" || base == "node_modules" || base == ".git" {
+                if is_not_ours(&base) {
                     continue;
                 }
                 walk(&path, out);

@@ -66,6 +66,13 @@ row:
   has a small **◆** in the margin of every line one of those three wrote about.
   **Click a marked line** and their comments open under it — that line only.
 
+![The mefarshim panel, 34 on this masechta, in folders: rishonim together, then the Rif, then later commentary](images/mefarshim.png)
+
+Clicking a row opens it beside the Gemara, and the two stay in step as you
+scroll:
+
+![Berakhot 2a menukad with Rashi in the column beside it](images/reading.png)
+
 Tick nothing and nothing is marked. That is on purpose: 2,749 of Berakhot's lines
 carry commentary from somebody, so marking every line with any commentary marks
 the daf and tells you nothing.
