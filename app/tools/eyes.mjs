@@ -363,31 +363,55 @@ async function pageOf(port, said = () => "", alive = () => true) {
  * are *how long a cold machine might take*, and neither costs anything on a warm
  * one, because both return the moment the thing they want is true.
  *
- * They differ now, and the paragraph above is the reason they may. `pageOf` was
- * raised to sixty because what it waits for is a **process starting cold** —
- * disk, dynamic linking, a profile directory that does not exist yet — which is
- * the part a loaded runner makes slow, and which has now gone red four times.
- * This clock starts after all of that has already happened: the browser is up
- * and warm, and what it is waiting for is one local file to parse and one
- * stylesheet to apply. Thirty seconds is an enormous budget for that, and no run
- * has ever spent it. Raising it too would be symmetry for its own sake, which is
- * not a reason — if this one ever does go red on the wait, that is evidence, and
- * evidence is what moved the other one.
+ * They differed for a while, and the paragraph above is the reason they were
+ * allowed to. `pageOf` was raised to sixty because what it waits for is a
+ * **process starting cold** — disk, dynamic linking, a profile directory that
+ * does not exist yet — which is the part a loaded runner makes slow, and which
+ * had gone red four times. This clock starts after all of that has already
+ * happened: the browser is up and warm, and what it is waiting for is one local
+ * file to parse and one stylesheet to apply. Thirty seconds was called an
+ * enormous budget for that, on the stated grounds that no run had ever spent it,
+ * and the note ended by saying that if one ever did, that would be evidence.
+ *
+ * **One did.** Actions run 31809481885, the `shell` job, on a commit that
+ * touched no file under `app/src`: `no .pane-body after 30s`. Re-running that
+ * same job on that same commit was green in 1m40s. So the reasoning was right
+ * about the mechanism and wrong about the ceiling — parsing one file and
+ * applying one stylesheet is all this waits for, and a runner loaded enough can
+ * still take longer than thirty seconds to do it. There is no third thing to
+ * find here. A warm browser on a contended machine is simply slow, which is the
+ * same finding as the other four, one layer further in.
+ *
+ * Sixty, then, and the two clocks agree again — not for symmetry, which was
+ * never a reason, but because each was moved by a red of its own. It costs a
+ * healthy run nothing: the loop returns the moment the style is `auto`, so the
+ * budget is only ever spent by a machine that needed it, or by a failure that
+ * was going to fail regardless.
+ *
+ * The wait is one number here and printed from it. It was two — a loop counter
+ * and the word `30s` typed into the message beside it — which is the same defect
+ * this repository gates elsewhere, small enough to survive being noticed: had
+ * only the loop been raised, the message would have kept saying thirty and the
+ * next person to read a red would have been told a lie by the check itself.
  */
+const SETTLED_TRIES = 600;
+const SETTLED_EVERY = 100;
+
 async function settled(eye) {
-  for (let tries = 0; tries < 300; tries += 1) {
+  for (let tries = 0; tries < SETTLED_TRIES; tries += 1) {
     const found = await eye.look(`(() => {
       if (document.readyState !== 'complete') return 'loading';
       const body = document.querySelector('.pane-body');
       return body ? getComputedStyle(body).overflowY : 'no .pane-body yet';
     })()`);
     if (found === "auto") return found;
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, SETTLED_EVERY));
   }
   // Whatever it last saw, so the failure names the state rather than the wait.
+  const waited = (SETTLED_TRIES * SETTLED_EVERY) / 1000;
   return eye.look(`(() => {
     const body = document.querySelector('.pane-body');
-    return body ? getComputedStyle(body).overflowY : 'no .pane-body after 30s';
+    return body ? getComputedStyle(body).overflowY : 'no .pane-body after ${waited}s';
   })()`);
 }
 
