@@ -22,10 +22,51 @@ import { say } from "./say.ts";
 type Opened = (slug: string) => void;
 
 /** What is being dragged: a sefer by slug, or a shelf by key. */
-interface Held {
+export interface Held {
   what: "work" | "shelf";
   id: string;
   from: string;
+}
+
+/** What a drop asks Rust to do, or nothing. */
+export interface Move {
+  what: "work" | "shelf";
+  id: string;
+  into: string;
+}
+
+/**
+ * What a drop means — the decision, out of the handler that used to hold it.
+ *
+ * It was five lines inside a `drop` listener, which is the only reason nobody
+ * had ever run it: `app/test` has no DOM, so a module's exported functions are
+ * reachable and its event handlers are not, and the shelf panel was driven in
+ * the browser build where `row.draggable` is `false` because dragging is the
+ * shell's. So the one path in this file that rearranges a reader's shelf was
+ * the one path nothing anywhere had executed.
+ *
+ * Three refusals, and each is a real drop somebody will do:
+ *
+ * - **nothing held.** A `drop` can arrive from outside the window — a file, a
+ *   selection, another application — and `held` is null. Moving *something* on
+ *   the strength of a drop nobody started is the worst of the three.
+ * - **onto itself.** Picking a shelf up and putting it back is not an edit, and
+ *   asking Rust to do it would produce a refusal a reader would read as *that
+ *   did not work* rather than as *that was not anything*.
+ * - **back where it came from.** The same, one step out: dropping a sefer on
+ *   the shelf it is already on is a no-op, and `from` is carried on the held
+ *   thing precisely so this can be seen without asking the shelf.
+ *
+ * A shelf dropped into its own child is **not** refused here, and that is
+ * deliberate: `girsa_app::Arrangement` already refuses it, with the one walk of
+ * the tree that knows the whole shape. A second check here would be a second
+ * answer to that question, and the two would drift.
+ */
+export function dropping(held: Held | null, onto: string): Move | null {
+  if (!held) return null;
+  if (held.id === onto) return null;
+  if (held.from === onto) return null;
+  return { what: held.what, id: held.id, into: onto };
 }
 
 /** What the number beside a shelf's name counts. See [`countedOn`]. */
@@ -328,11 +369,13 @@ export class ShelfView {
       event.preventDefault();
       event.stopPropagation();
       node.classList.remove("is-target");
-      const held = this.held;
+      const move = dropping(this.held, key);
       this.held = null;
-      if (!held || held.id === key) return;
+      if (!move) return;
       void this.edit(() =>
-        held.what === "work" ? api.shelfPutWork(held.id, key) : api.shelfPutShelf(held.id, key),
+        move.what === "work"
+          ? api.shelfPutWork(move.id, move.into)
+          : api.shelfPutShelf(move.id, move.into),
       );
     });
   }

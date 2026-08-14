@@ -21,7 +21,7 @@
 // click through to, is the bug back, whatever the number says.
 
 import { check, ok, notOk } from "./harness.mjs";
-import { countedOn } from "../.tmp-test/shelf.mjs";
+import { countedOn, dropping } from "../.tmp-test/shelf.mjs";
 
 /** A shelf, with only the fields this decision reads. */
 function branch(key, here, count, children = []) {
@@ -83,5 +83,56 @@ export function run() {
   ok(
     "each why says the number it is about",
     [leaf, tanakh, both].every((c) => c.why.startsWith(c.said)),
+  );
+
+  // --- what a drop means ----------------------------------------------------
+  //
+  // The one path in `shelf.ts` that rearranges a reader's shelf, and until it
+  // was lifted out of its `drop` listener nothing anywhere had run it: this
+  // suite has no DOM, so a module's exported functions are reachable and its
+  // event handlers are not — and the shelf panel was driven in the browser
+  // build, where rows are not draggable at all because dragging is the shell's.
+  //
+  // What is still not exercised by any machine is the **gesture**: a real
+  // pointer press, move and release over a native drag. That is said in
+  // `docs/not-yet.md` rather than papered over here.
+  const shelf = (id, from) => ({ what: "shelf", id, from });
+  const work = (id, from) => ({ what: "work", id, from });
+
+  check(
+    "a sefer dropped on another shelf goes there",
+    dropping(work("bavli/berakhot", "shas"), "mine/chaburah"),
+    { what: "work", id: "bavli/berakhot", into: "mine/chaburah" },
+  );
+  check(
+    "and so does a shelf",
+    dropping(shelf("shas/moed", "shas"), "mine"),
+    { what: "shelf", id: "shas/moed", into: "mine" },
+  );
+
+  // A `drop` can arrive from outside the window — a file, a selection, another
+  // application — with nothing held. Moving *something* on the strength of a
+  // drop nobody started is the worst of the three refusals.
+  check("a drop with nothing held moves nothing", dropping(null, "mine"), null);
+  check(
+    "a shelf dropped on itself is not an edit",
+    dropping(shelf("shas/moed", "shas"), "shas/moed"),
+    null,
+  );
+  check(
+    "and a sefer dropped back where it came from is not one either",
+    dropping(work("bavli/berakhot", "shas"), "shas"),
+    null,
+  );
+
+  // A shelf dropped inside its own child is **not** refused here, on purpose:
+  // `girsa_app::Arrangement` refuses it with the one walk of the tree that
+  // knows the whole shape, and a second check in the window would be a second
+  // answer to that question. What this asserts is that the window does not
+  // quietly grow one.
+  check(
+    "a shelf dropped into its own child is Rust's refusal to make, and is passed on",
+    dropping(shelf("shas", ""), "shas/moed"),
+    { what: "shelf", id: "shas", into: "shas/moed" },
   );
 }

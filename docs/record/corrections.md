@@ -272,9 +272,30 @@ writing tantivy incrementally.
 `cargo run -p girsa-app --example dev-fixtures` writes the real 7,189-work tree
 to static JSON and the same page draws it — the counts above were read off that
 page — but drag-to-rearrange and the file-drop event **only exist in the shell**
-and were exercised through the Rust API and `girsa-shelf` instead. The shell
-starts, opens the shelf and serves the commands; nobody has dragged a sefer with
-a mouse.
+and were exercised through the Rust API and `girsa-shelf` instead.
+
+Narrowed since, and it is worth saying exactly how far. **What a drop means** is
+now a function rather than five lines inside a `drop` listener, and it is
+tested: a sefer or a shelf onto another shelf moves; a drop with nothing held
+moves nothing, which matters because a `drop` can arrive from outside the window
+with no drag of ours behind it; a thing dropped on itself or back where it came
+from is not an edit. A shelf dropped into its own child is deliberately *not*
+refused there — `Arrangement` refuses it with the one walk of the tree that
+knows the whole shape, and a second check in the window would be a second answer
+to that question.
+
+That was the one path in `shelf.ts` that rearranges a reader's shelf, and until
+it was lifted out of the listener nothing anywhere had executed it: `app/test`
+has no DOM, so a module's exported functions are reachable and its handlers are
+not — and the browser build sets `row.draggable = false`, because dragging is
+the shell's.
+
+**What is still unexercised is the gesture.** A pointer press, a move and a
+release over a native HTML5 drag cannot be synthesized through the debugging
+protocol the eyes tool drives, and a file drop is an operating system event that
+no browser can raise at all. So the logic behind the drag has been run and the
+drag has not, and the difference is a real one: what remains untested is whether
+the events fire, not what happens when they do.
 
 `BUILDER.md` W9 carries a trap: *Tauri uses Edge's engine on Windows and
 Safari's on macOS. Test Hebrew-with-nikud rendering on both — a screenshot from
