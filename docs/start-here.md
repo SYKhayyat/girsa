@@ -137,3 +137,8 @@ Stated here rather than discovered later:
   Otzaria's, and it is incomplete in ways that are visible: a sefer with no links
   says *nothing links here* only when the cache exists, and says *I have not been
   told* when it does not.
+
+Those are the four a reader meets first. Seventeen more — which features are a
+command with no panel, where two working pieces were never joined, and which
+measurements have simply never been taken — are in [`not-yet.md`](not-yet.md),
+each with the argument behind it.

@@ -78,6 +78,17 @@ The library as MCP tools: the same engine and the same refusals a person gets, o
 
 ---
 
+## What none of them finished
+
+Seven of the twelve pages above carry a section on what the thing just described
+still cannot do — eight sections in all, written where the work was argued, which
+is the right place to argue them and the wrong place to find them.
+[`not-yet.md`](not-yet.md) is those eight lists in one place, each linking back
+here. It is a copy, and this is the source: if the two disagree, believe these
+pages.
+
+---
+
 ## Licence
 
 MIT OR Apache-2.0 — see [`../LICENSE`](../LICENSE). Forced by crate-sharing with

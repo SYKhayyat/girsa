@@ -334,19 +334,27 @@ for enforcing it.
 
 ## Status
 
-**Tier 0 through Tier 8 are done.** The corpus is on the shelf, the graph is on
+**Every tier in the spec is built.** The corpus is on the shelf, the graph is on
 top of it, there is a window, all five ways of searching it, the Ksav loop in
 both directions, corrections as an overlay that never touches the text, a link
-graph you can argue with, and scans that are citable and readable.
+graph you can argue with, scans that are citable and readable, what you write as
+a sefer on your own shelf joined to the sugya by the same kind of edge as Rashi,
+a transmission chain that runs forward from a Gemara to how it became halacha
+and back from a ruling to where it came from, an answer to a program over MCP,
+and a semantic lane that ships off until you side-load a model.
 
-**Tier 9 is nearly done.** What you write is a sefer on your own shelf joined to
-the sugya by the same kind of edge as Rashi; the transmission chain runs forward
-from a Gemara to how it became halacha and back from a ruling to where it came
-from; the library answers a program over MCP; and the semantic lane is in, off
-until you turn it on, over a model you side-load.
+What each work order was **accepted on** is in [`BUILDER.md`](BUILDER.md) under
+*What holds, per work order* — twenty rows of measurements rather than a
+checklist of things that felt done.
 
-The spec is built. What each work order is asserted on is in
-[`BUILDER.md`](BUILDER.md) under *What holds, per work order*.
+**Built is not finished, and the distinction is the useful part.** Seven of the
+record's twelve pages carry a section saying what the thing just described still
+cannot do: the transmission chain is a command and nothing in the window draws
+it; a typo you corrected this morning is still findable by the typo and not by
+the correction; nobody has dragged a sefer with a mouse; only Windows has ever
+been looked at. Those eight lists are collected in
+[`docs/not-yet.md`](docs/not-yet.md), and the largest item is on none of them —
+**nobody has yet learned a sugya in this.**
 
 The one line worth knowing about the data: each record in the segments file
 **carries its own id**, so the file can be sorted, reordered, appended to or
@@ -366,6 +374,7 @@ why that is the load-bearing decision.
 | [`docs/start-here.md`](docs/start-here.md) | **read this first.** The five minutes that are the whole idea |
 | [`docs/from-otzar.md`](docs/from-otzar.md) | you use Otzar HaChochma — what is worse here, and what you can do that you could not |
 | [`docs/from-bar-ilan.md`](docs/from-bar-ilan.md) | you use Bar Ilan — including where Girsa is genuinely behind |
+| [`docs/not-yet.md`](docs/not-yet.md) | everything this does not do yet, in one place, each with the argument behind it |
 | [`docs/shortcuts.md`](docs/shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
 | [`docs/tools.md`](docs/tools.md) | every command this repository can be told to run |
 | [`docs/images/`](docs/images/) | screenshots, and what they are and are not evidence for |

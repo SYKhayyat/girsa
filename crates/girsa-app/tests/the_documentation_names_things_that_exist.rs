@@ -262,8 +262,14 @@ fn every_relative_link_points_inside_this_repository() {
     );
 }
 
-/// The targets of `[text](target)`, minus the ones that are not paths.
-fn links(text: &str) -> Vec<String> {
+/// The targets of `[text](target)`, minus the two that name nothing in this
+/// tree.
+///
+/// Anchors are kept here and thrown away by the caller that does not want
+/// them, because the two callers want different halves of the same string and
+/// scanning the brackets twice to get them would be two implementations of one
+/// thing.
+fn targets_in(text: &str) -> Vec<String> {
     let bytes: Vec<char> = text.chars().collect();
     let mut found = Vec::new();
     let mut i = 0;
@@ -284,19 +290,30 @@ fn links(text: &str) -> Vec<String> {
         };
         let target: String = bytes[close + 2..end].iter().collect();
         i = end + 1;
-        // Not paths: the web, an anchor on this page, a mail address, and the
-        // one shape markdown uses for a title after the URL.
+        // Not here: the web, a mail address, and the one shape markdown uses
+        // for a title after the URL.
         let target = target.split_whitespace().next().unwrap_or("").to_string();
-        if target.starts_with("http") || target.starts_with('#') || target.starts_with("mailto:") {
+        if target.starts_with("http") || target.starts_with("mailto:") {
             continue;
         }
-        let target = target.split('#').next().unwrap_or("").to_string();
         if target.is_empty() {
             continue;
         }
         found.push(target);
     }
     found
+}
+
+/// The file half of every target that has one. An anchor on this page names no
+/// file and is dropped.
+fn links(text: &str) -> Vec<String> {
+    targets_in(text)
+        .into_iter()
+        .filter_map(|target| {
+            let path = target.split('#').next().unwrap_or("").to_string();
+            (!path.is_empty()).then_some(path)
+        })
+        .collect()
 }
 
 /// `..` resolved lexically, because the target may not exist and
@@ -313,6 +330,113 @@ fn normalise(path: &Path) -> PathBuf {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// And the half of a link that was being thrown away
+//
+// `every_relative_link_points_inside_this_repository` split `page.md#section`
+// on the `#` and checked the left half. The right half was dropped on the line
+// above this comment's arrival, with no argument for dropping it beyond that
+// resolving a path is the thing the test was about.
+//
+// That was survivable while four anchors existed in the whole tree. On 14
+// August `docs/not-yet.md` was written — one page whose entire job is to point
+// at the eight sections of `docs/record/` that say what is unfinished — and
+// took the count to twenty-one. Seventeen new references, none of them checked
+// by anything, in a repository whose position is that a copy nothing
+// regenerates is a copy that rots.
+//
+// A heading is easier to break than a filename, too, and quieter. Renaming a
+// file is felt: something fails to open. Reword a heading and every link into
+// it lands at the top of the page instead, which reads exactly like a page
+// that was always going to open there.
+
+/// A heading's anchor, as GitHub spells it: lower case, punctuation dropped,
+/// spaces to hyphens. Emphasis markers go first, since they are how the text
+/// is written and not part of it.
+fn slug(heading: &str) -> String {
+    let kept: String = heading
+        .replace(['`', '*', '_'], "")
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
+        .collect();
+    kept.trim().replace(' ', "-")
+}
+
+/// Every anchor a reader could land on in one page.
+///
+/// A `#` line inside a fenced block is a shell comment and is counted as a
+/// heading here, which can only make this check more forgiving than a browser
+/// is — never less. Telling the two apart needs a fence parser, and a fence
+/// parser to widen a check that is already passing is work with no finding in
+/// it.
+fn headings(text: &str) -> BTreeSet<String> {
+    text.lines()
+        .filter_map(|line| {
+            let rest = line.trim_start_matches('#');
+            let hashes = line.len() - rest.len();
+            ((1..=6).contains(&hashes) && rest.starts_with(' ')).then(|| slug(rest.trim()))
+        })
+        .collect()
+}
+
+/// The `(file, anchor)` of every target that names a section. An empty file is
+/// an anchor on the page it is written on, which is the same claim about a
+/// heading and is checked the same way.
+fn anchors(text: &str) -> Vec<(String, String)> {
+    targets_in(text)
+        .into_iter()
+        .filter_map(|target| {
+            let (path, anchor) = target.split_once('#')?;
+            (!anchor.is_empty()).then(|| (path.to_string(), anchor.to_string()))
+        })
+        .collect()
+}
+
+#[test]
+fn every_anchor_points_at_a_heading_that_exists() {
+    let root = repo();
+    let mut checked = 0usize;
+    let mut wrong = Vec::new();
+    for page in documents(&root) {
+        let here = page.parent().unwrap_or(&root).to_path_buf();
+        for (file, anchor) in anchors(&read(&page)) {
+            let target = if file.is_empty() {
+                page.clone()
+            } else {
+                normalise(&here.join(&file))
+            };
+            // Whether the file is there at all, and whether it is in this
+            // repository, is the test above's question and its wording is
+            // better at it. This one is only about the heading.
+            if target.extension().is_none_or(|ext| ext != "md") {
+                continue;
+            }
+            let Ok(body) = std::fs::read_to_string(&target) else {
+                continue;
+            };
+            checked += 1;
+            if !headings(&body).contains(&anchor) {
+                wrong.push(format!(
+                    "{}: [{file}#{anchor}] is not a heading in that page",
+                    page.display()
+                ));
+            }
+        }
+    }
+    assert!(
+        checked > 0,
+        "no anchor links found in any document at all — the scan is wrong, not the docs"
+    );
+    assert!(
+        wrong.is_empty(),
+        "the documentation links to sections that are not there:\n  {}\n\nA heading \
+         that was reworded takes every link into it to the top of the page, which \
+         reads like a page that always opened there.",
+        wrong.join("\n  ")
+    );
 }
 
 // ---------------------------------------------------------------------------

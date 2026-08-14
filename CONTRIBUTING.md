@@ -347,6 +347,20 @@ arguing with it.
 link works on the one machine with both checkouts and is broken for everybody
 reading on GitHub.
 
+**And so must the `#section` half of it.** If you reword a heading, every link
+into it stops working — silently, by landing at the top of the page instead,
+which reads exactly like a page that always opened there. That is checked now
+too. The check is why [`docs/not-yet.md`](docs/not-yet.md) is allowed to exist:
+it is a page built entirely out of links into other pages' sections, which
+before this was seventeen references nothing verified.
+
+**If you close a gap, close it in two places.** The argument for what is
+unfinished lives in the relevant page of [`docs/the-record.md`](docs/the-record.md),
+where the work was done; `docs/not-yet.md` is a copy that collects those lists so
+a reader can find them. Strike the line in the record first and then in the copy.
+Nothing regenerates that page, which makes it the one file here most likely to
+start lying.
+
 **Numbers in `README.md` are marked and re-counted.** A count is followed by an
 invisible HTML comment naming the measurement, and a test re-measures it on every
 push. If you change something a marked number counts:
