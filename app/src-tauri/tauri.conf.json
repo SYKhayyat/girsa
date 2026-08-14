@@ -44,9 +44,9 @@
     "publisher": "Girsa",
     "category": "Education",
     "copyright": "Copyright (c) 2026 Shaul Khayyat. MIT OR Apache-2.0.",
-    "licenseFile": "../../LICENSE",
+    "licenseFile": "../../COPYRIGHT",
     "resources": {
-      "../../LICENSE": "LICENSE",
+      "../../COPYRIGHT": "COPYRIGHT",
       "../../LICENSE-MIT": "LICENSE-MIT",
       "../../LICENSE-APACHE": "LICENSE-APACHE"
     },

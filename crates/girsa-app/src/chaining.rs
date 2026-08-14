@@ -134,16 +134,30 @@ pub struct Chain {
 pub struct Fork {
     pub a: Side,
     pub b: Side,
-    /// Later places that link to both sides — the reason to think the two
-    /// readings were ever argued out.
-    pub witnesses: Vec<Side>,
+    /// Later places that had to deal with both sides, nearest first — the
+    /// reason to think the two readings were ever argued out.
+    pub witnesses: Vec<Seen>,
     /// A link joins the two sides directly, so one is answering the other
     /// rather than the two passing each other. A different thing to look at,
     /// and marked rather than merged.
     pub joined: bool,
 }
 
-/// One side of a fork, or one witness to it.
+/// A witness to a fork, and how far down it is.
+///
+/// `steps` carries the whole difference between *these two were argued out on
+/// one page* and *these two are both somewhere above a sefer six hops down*.
+/// A panel that drew those alike would be inventing the first out of the
+/// second, so the number travels rather than being flattened into a count.
+#[derive(Debug, Clone, Serialize)]
+pub struct Seen {
+    #[serde(flatten)]
+    pub side: Side,
+    /// Hops to whichever reading is further. `1` is a sefer that quotes both.
+    pub steps: usize,
+}
+
+/// One side of a fork, or the place a witness is.
 #[derive(Debug, Clone, Serialize)]
 pub struct Side {
     pub at: String,
@@ -259,7 +273,14 @@ pub fn forked(
             .map(|fork| Fork {
                 a: side(names, &fork.a),
                 b: side(names, &fork.b),
-                witnesses: fork.witnesses.iter().map(|w| side(names, w)).collect(),
+                witnesses: fork
+                    .witnesses
+                    .iter()
+                    .map(|w| Seen {
+                        side: side(names, &w.at),
+                        steps: w.steps,
+                    })
+                    .collect(),
                 joined: fork.joined,
             })
             .collect(),

@@ -313,10 +313,18 @@ export interface Side {
   era?: string;
 }
 
+/** A witness to a fork, and how far down it is. */
+export interface Seen extends Side {
+  /** Hops to whichever reading is further. `1` is a sefer that quotes both. */
+  steps: number;
+}
+
 export interface Fork {
   a: Side;
   b: Side;
-  witnesses: Side[];
+  /** Nearest first. *Argued out on one page* and *both somewhere above a sefer
+   * six hops down* are different claims, so the distance travels with each. */
+  witnesses: Seen[];
   /** A link joins the two sides directly, so one is answering the other. */
   joined: boolean;
 }

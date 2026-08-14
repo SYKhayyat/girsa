@@ -12,7 +12,7 @@
 // said anything at all. A panel that made those calls itself would be a second
 // opinion about the mesorah, kept in a stylesheet.
 
-import { api, type Chain, type Forked, type Hop, type LeftOut, type Side } from "./api.ts";
+import { api, type Chain, type Forked, type Hop, type LeftOut, type Seen, type Side } from "./api.ts";
 import { button } from "./controls.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 import { Latest } from "./latest.ts";
@@ -249,13 +249,26 @@ export class ChainView {
 
       const said = document.createElement("p");
       said.className = "chain-witnesses";
+      // How near the nearest one is, not just how many. A sefer that quotes
+      // both sides itself is evidence the two readings were argued out; one
+      // that reaches them through three others is a much weaker claim wearing
+      // the same word, and the count alone cannot tell them apart.
+      const nearest = fork.witnesses[0]?.steps ?? 0;
       said.textContent = fork.joined
         ? say("chainForkJoined")
-        : fill("chainForkWitnesses", { n: fork.witnesses.length });
+        : nearest <= 1
+          ? fill("chainForkWitnesses", { n: fork.witnesses.length })
+          : fill("chainForkFarWitnesses", { n: fork.witnesses.length, steps: nearest });
       row.append(said);
       for (const witness of fork.witnesses) {
         const one = this.sideRow(witness);
         one.classList.add("is-witness");
+        if (witness.steps > 1) {
+          const how = document.createElement("span");
+          how.className = "chain-steps";
+          how.textContent = fill("chainSteps", { n: witness.steps });
+          one.append(how);
+        }
         row.append(one);
       }
       this.list.append(row);
@@ -263,7 +276,7 @@ export class ChainView {
     this.list.append(this.leftOut(forked.left_out));
   }
 
-  private sideRow(side: Side): HTMLElement {
+  private sideRow(side: Side | Seen): HTMLElement {
     const row = document.createElement("div");
     row.className = "chain-side";
     const open = button(side.title, side.address, () => {

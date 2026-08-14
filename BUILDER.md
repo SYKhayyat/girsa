@@ -801,6 +801,13 @@ both ends.
 *Chain tracing and MCP shipped in W28. The lane was held for a ruling and is now
 W30.*
 
+*Amended again: a fork widens past one hop. The walk that finds two readings and
+the walk that finds who dealt with them were bounded at the same number, and only
+the first was a definition — so a pair whose common witness reached one side
+through an intermediate sefer was not a fork at all. Witnesses now go as deep as
+asked, and how far each one is travels with it, because *argued out on one page*
+and *both somewhere above a sefer six hops down* are different claims.*
+
 *Amended: the chain has a panel. It shipped as a library and a terminal tool,
 which meant the whole of `spec.md` §8 was a tier a reader could only see by
 leaving the application — §0.3 says that is not built. The walk is unchanged and

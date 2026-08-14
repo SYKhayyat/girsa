@@ -207,11 +207,51 @@ Nothing in the data says two seforim disagree. What it says is that two of them
 read one line and a later one had to deal with both, which is the shape a
 machlokes leaves behind — offered as a place to look and not as a finding.
 
+### A reading is one hop and a witness is not
+
+A fork used to be found only where one sefer linked to **both** readings
+directly, and that was the same number twice: the walk that finds the readings
+and the walk that finds who dealt with them were both bounded at one hop. Only
+one of those bounds was a definition.
+
+*A reading of this line* means a place that links to this line. Widening that
+would make it mean *anything downstream*, and every sefer that ever quoted a
+sefer that quoted this one would become a reading of it. So the readings stay at
+one hop, and `a_reading_is_one_hop_even_when_a_witness_is_not` is that.
+
+*A witness* is a later place that had to deal with both readings, and there the
+one-hop bound was a limit wearing a definition's clothes. The shape it could not
+see is the ordinary one: the Beis Yosef quotes the Rosh and quotes the Rif, and
+the Mishnah Berurah reaches one of them **through** the Shulchan Arukh. Under
+the old rule that pair was not a fork at all — which is not a claim about the
+sugya, it is an artefact of how far the walk was allowed to go.
+
+So the witness walk goes as deep as the caller asked, and **how far** each
+witness is comes back on the answer rather than being flattened into a count.
+That number is the point of the type: *these two were argued out on one page*
+and *these two are both somewhere above a sefer six hops down* are different
+claims, and a panel that drew them alike would be inventing the first out of the
+second. The window says *the nearest N hops down* where the near case would have
+said nothing; the MCP answer carries `steps` on every witness and
+`nearest_witness_steps` on the pair; `girsa-chain` prints `(N hops down)` where
+it is not one.
+
+Ranking changed with it. A fork whose nearest witness quotes both sides itself
+now outranks one whose witnesses are all further down, however many there are —
+the count was the only signal available when every witness was one hop away, and
+it is the weaker of the two now.
+
+And a fork does not testify about itself. A deeper walk reaches the other
+reading wherever one side links to it, so anything in either sefer is excluded:
+counting `b` as evidence that somebody had to deal with `a` and `b` would be the
+pair vouching for itself.
+
 ### What the chain does not do yet
 
-- **A fork is one hop wide on each side.** Two readings joined through an
-  intermediate sefer are not found, and the ones that are found are bounded by
-  `--width` with the drop counted.
+- **Two readings are found at one hop from the line.** A sefer that reads this
+  sugya only by way of another sefer is a witness, not a reading, and there is
+  no way to ask for it as one. Whether that is a limit or the right definition
+  is a question about how a sugya travels, not about the walk.
 
 ### Your own layer's dates, and the comment that was not an instruction
 

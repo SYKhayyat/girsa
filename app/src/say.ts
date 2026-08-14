@@ -910,6 +910,13 @@ const WORDS = {
     "{n} מאוחרים שנצרכו לשני הצדדים",
     "{n} later seforim that deal with both sides",
   ] as Both,
+  /** The same count, when not one of them quotes both sides itself. A weaker
+   * claim wearing the same word, and the count alone cannot tell them apart. */
+  chainForkFarWitnesses: [
+    "{n} מאוחרים שנצרכו לשני הצדדים — הקרוב שבהם {steps} צעדים מכאן",
+    "{n} later seforim that deal with both sides — the nearest {steps} hops down",
+  ] as Both,
+  chainSteps: ["{n} צעדים", "{n} hops"] as Both,
   chainNoDate: ["בלי תאריך", "no date"] as Both,
   chainNoLabel: ["הקורפוס לא אמר כלום", "the corpus said nothing"] as Both,
   chainCorpusSaid: ["הקורפוס אמר: {label}", "the corpus said: {label}"] as Both,

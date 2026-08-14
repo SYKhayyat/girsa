@@ -399,7 +399,15 @@ impl<'a> Printer<'a> {
                 }
             );
             for witness in fork.witnesses.iter().take(4) {
-                println!("      both cited by {}", self.said(witness));
+                // How far down it is, because *quotes both itself* and
+                // *reaches both through three other seforim* are different
+                // claims about the same pair. Said only when it is not the
+                // near case, which is the one the sentence already describes.
+                let how = match witness.steps {
+                    0 | 1 => String::new(),
+                    steps => format!(" ({steps} hops down)"),
+                };
+                println!("      both cited by {}{how}", self.said(&witness.at));
             }
             if fork.witnesses.len() > 4 {
                 println!("      … and {} more", fork.witnesses.len() - 4);

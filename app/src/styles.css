@@ -3478,3 +3478,12 @@ body {
   font-size: 11px;
   color: var(--ink-quiet);
 }
+
+/* How far down a witness is. Drawn only when it is not the near case, so a
+ * fork whose witnesses all quote both sides directly says nothing extra — and a
+ * fork whose nearest is six hops away cannot be mistaken for one. */
+.chain-steps {
+  font-family: var(--plain);
+  font-size: 10px;
+  color: var(--ink-quiet);
+}

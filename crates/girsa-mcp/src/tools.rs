@@ -675,9 +675,16 @@ fn fork(server: &mut Server, args: &Value) -> Result<Value, String> {
         "pairs": forks.iter().take(limit_of(args)).map(|pair| json!({
             "a": named(server, &pair.a.from),
             "b": named(server, &pair.b.from),
+            // Nearest first, and each says how far it is: a witness that
+            // quotes both sides itself and one that reaches them through three
+            // other seforim are different claims about the same pair, and a
+            // list that flattened them would be handing a program the stronger
+            // reading of the weaker fact.
             "cited_together_by": pair.witnesses.iter().take(4)
-                .map(|w| named(server, &w.from)).collect::<Vec<Value>>(),
+                .map(|w| json!({ "at": named(server, &w.at.from), "steps": w.steps }))
+                .collect::<Vec<Value>>(),
             "witnesses": pair.witnesses.len(),
+            "nearest_witness_steps": pair.witnesses.first().map(|w| w.steps),
             "a_link_joins_them_directly": pair.joined,
         })).collect::<Vec<Value>>(),
         "total": forks.len(),

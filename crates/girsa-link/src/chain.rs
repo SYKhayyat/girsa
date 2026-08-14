@@ -700,12 +700,33 @@ pub struct Fork {
     pub b: Anchor,
     pub a_when: When,
     pub b_when: When,
-    /// Later places that link to both sides.
-    pub witnesses: Vec<Anchor>,
+    /// Later places that had to deal with both sides, nearest first.
+    pub witnesses: Vec<Witness>,
     /// Whether a link joins the two sides directly. When it does they are not
     /// two readings passing each other — one of them is answering the other,
     /// and that is a different thing to look at.
     pub joined: bool,
+}
+
+/// A later place that reaches both readings, and how far away it is.
+///
+/// **`steps` is the point of this type.** A fork used to be found only where
+/// one sefer linked to *both* sides directly, which is a definition of
+/// *witness* this graph obliges very rarely: the Beis Yosef quotes the Rosh and
+/// quotes the Rif, and the Mishnah Berurah reaches one of them through the
+/// Shulchan Arukh. Under the old rule that pair was not a fork at all.
+///
+/// So a witness is anyone downstream of both, and how far downstream is
+/// reported rather than flattened — because *these two were argued out on the
+/// same page* and *these two are both somewhere above a sefer six hops down*
+/// are different claims, and a panel that drew them alike would be inventing
+/// the first out of the second.
+#[derive(Debug, Clone)]
+pub struct Witness {
+    pub at: Anchor,
+    /// Hops to whichever side is further. `1` is the old behaviour: a sefer
+    /// that links to both readings itself.
+    pub steps: usize,
 }
 
 impl Fork {
@@ -720,25 +741,69 @@ impl Fork {
     }
 }
 
+/// One reading of a line, and everything downstream of it by its nearest route.
+///
+/// A named type rather than a tuple because the third field is a map whose
+/// value is itself a pair, and *the anchor, and how many hops away it is* is a
+/// sentence that should be readable at the use site rather than reconstructed
+/// from three levels of parentheses.
+struct Downstream {
+    reading: Anchor,
+    when: When,
+    /// Keyed by the place as text, so two routes to one place are one entry —
+    /// and the entry kept is the **nearer** one.
+    reached: BTreeMap<String, (Anchor, usize)>,
+}
+
 /// Find the forks below a place.
 ///
 /// Returns them best first — most witnesses, then earliest — and everything the
 /// walk would not follow.
 pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork>, Refused) {
+    // **A reading is one hop and a witness is not.** The two bounds used to be
+    // the same number, and only one of them was a definition.
+    //
+    // A *reading of this line* means a place that links to this line. Widening
+    // that would make it mean *anything downstream*, and every sefer that ever
+    // quoted a sefer that quoted this one would become a reading of it. So the
+    // readings stay at one hop.
+    //
+    // A *witness* is a later place that had to deal with both readings, and
+    // there the one-hop bound was a limit dressed as a definition: it found a
+    // fork only where one sefer linked to both sides itself, which this graph
+    // obliges rarely. The Beis Yosef quotes the Rosh and quotes the Rif; the
+    // Mishnah Berurah reaches one of them through the Shulchan Arukh. That pair
+    // was not a fork at all. So the witness walk goes as deep as the caller
+    // asked, and how far each one is comes back on the answer.
     let one_hop = Limits { depth: 1, ..limits };
+    let downstream = Limits {
+        depth: limits.depth.max(1),
+        ..limits
+    };
     let readings = trace(graph, at, Direction::Forward, one_hop);
     let mut refused = readings.refused.clone();
 
-    // What each reading is itself read by, one hop further on.
-    let mut readers: Vec<(Anchor, When, BTreeMap<String, Anchor>)> = Vec::new();
+    // What each reading is read by, and how far down.
+    let mut readers: Vec<Downstream> = Vec::new();
     for step in &readings.steps {
-        let below = trace(graph, &step.at.from, Direction::Forward, one_hop);
+        let below = trace(graph, &step.at.from, Direction::Forward, downstream);
         refused.absorb(&below.refused);
-        let mut of_this: BTreeMap<String, Anchor> = BTreeMap::new();
+        let mut reached: BTreeMap<String, (Anchor, usize)> = BTreeMap::new();
         for reader in below.steps {
-            of_this.insert(reader.at.to_string(), reader.at);
+            // The nearest route to a place, where the walk reached it twice.
+            let key = reader.at.to_string();
+            match reached.get(&key) {
+                Some((_, seen)) if *seen <= reader.depth => {}
+                _ => {
+                    reached.insert(key, (reader.at, reader.depth));
+                }
+            }
         }
-        readers.push((step.at.clone(), step.when, of_this));
+        readers.push(Downstream {
+            reading: step.at.clone(),
+            when: step.when,
+            reached,
+        });
     }
 
     // `beside(a)` once per `a`, not once per pair.
@@ -749,24 +814,49 @@ pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork
     // outer loop already fixes, so it is hoisted rather than memoised: a cache
     // for a value with one obvious computation point is a cache nobody can
     // reason about.
-    let joined_of: Vec<Vec<(Anchor, Repaired)>> =
-        readers.iter().map(|(a, _, _)| graph.beside(a)).collect();
+    let joined_of: Vec<Vec<(Anchor, Repaired)>> = readers
+        .iter()
+        .map(|side| graph.beside(&side.reading))
+        .collect();
 
     let mut out = Vec::new();
-    for (i, (a, a_when, a_readers)) in readers.iter().enumerate() {
-        for (b, b_when, b_readers) in readers.iter().skip(i + 1) {
+    for (i, first) in readers.iter().enumerate() {
+        let (a, a_when, a_readers) = (&first.reading, &first.when, &first.reached);
+        for second in readers.iter().skip(i + 1) {
+            let (b, b_when, b_readers) = (&second.reading, &second.when, &second.reached);
             if a.from.work() == b.from.work() {
                 // Two lines of one sefer are not two readings of the sugya.
                 continue;
             }
-            let witnesses: Vec<Anchor> = a_readers
+            let mut witnesses: Vec<Witness> = a_readers
                 .iter()
-                .filter(|(key, _)| b_readers.contains_key(*key))
-                .map(|(_, anchor)| anchor.clone())
+                .filter_map(|(key, (anchor, a_steps))| {
+                    let (_, b_steps) = b_readers.get(key)?;
+                    // Neither side is a witness to its own fork, and nor is
+                    // anything else in either sefer. A deeper walk reaches `b`
+                    // itself when `a` links to it, and counting that as
+                    // *somebody had to deal with both* would be the fork
+                    // testifying about itself.
+                    let work = anchor.from.work();
+                    if work == a.from.work() || work == b.from.work() {
+                        return None;
+                    }
+                    Some(Witness {
+                        at: anchor.clone(),
+                        steps: *a_steps.max(b_steps),
+                    })
+                })
                 .collect();
             if witnesses.is_empty() {
                 continue;
             }
+            // Nearest first: a sefer that quotes both is stronger evidence that
+            // the two readings were argued out than one six hops below them.
+            witnesses.sort_by(|x, y| {
+                x.steps
+                    .cmp(&y.steps)
+                    .then_with(|| x.at.to_string().cmp(&y.at.to_string()))
+            });
             let joined = joined_of[i]
                 .iter()
                 .any(|(other, repaired)| !repaired.rejected && other.overlaps(b));
@@ -780,10 +870,15 @@ pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork
             });
         }
     }
+    // Best first, and *best* now has two parts. A fork whose nearest witness
+    // quotes both sides itself outranks one whose witnesses are all further
+    // down, however many of them there are — the count was the only signal when
+    // every witness was one hop away, and it is the weaker of the two now.
     out.sort_by(|x, y| {
-        y.witnesses
-            .len()
-            .cmp(&x.witnesses.len())
+        let nearest = |fork: &Fork| fork.witnesses.first().map_or(usize::MAX, |w| w.steps);
+        nearest(x)
+            .cmp(&nearest(y))
+            .then_with(|| y.witnesses.len().cmp(&x.witnesses.len()))
             .then_with(|| x.a.to_string().cmp(&y.a.to_string()))
             .then_with(|| x.b.to_string().cmp(&y.b.to_string()))
     });
@@ -1125,11 +1220,134 @@ mod tests {
             })
             .expect("the two rishonim fork");
         assert_eq!(pair.witnesses.len(), 1);
-        assert_eq!(pair.witnesses[0].from.work(), "mishnah-berurah");
+        assert_eq!(pair.witnesses[0].at.from.work(), "mishnah-berurah");
         assert!(
             !pair.joined,
             "nothing joins Rashi to the Rambam here, so neither is answering the other"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The shelf above, plus a posek who quotes one reading directly and
+    /// reaches the other through the Shulchan Arukh.
+    ///
+    /// The shape the one-hop rule could not see, and it is the ordinary shape:
+    /// the Beis Yosef quotes the Rosh and quotes the Rif, and the Mishnah
+    /// Berurah reaches one of them through the Shulchan Arukh.
+    fn shas_with_a_far_witness(name: &str) -> (PathBuf, Timeline) {
+        let root = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("works")).expect("makes the root");
+
+        let works = [
+            work("gemara", "c.450  – c.550 CE"),
+            work("rashi", "c.1065  – c.1115 CE"),
+            work("rambam", "c.1170  – c.1180 CE"),
+            work("shulchan-arukh", "1563 CE"),
+            work("taz", "c.1640  – c.1660 CE"),
+        ];
+        let body: String = works
+            .iter()
+            .map(|w| format!("{}\n", serde_json::to_string(w).expect("writes")))
+            .collect();
+        std::fs::write(root.join("works/index.jsonl"), body).expect("writes the catalogue");
+
+        let edges = [
+            // The two readings of the sugya.
+            edge("gemara", 1, "rashi", 1, EdgeType::CommentsOn),
+            edge("gemara", 1, "rambam", 1, EdgeType::CommentsOn),
+            // The Shulchan Arukh takes the Rambam, and nothing else here does.
+            edge("shulchan-arukh", 1, "rambam", 1, EdgeType::CommentsOn),
+            // The Taz quotes Rashi himself and reaches the Rambam only through
+            // the Shulchan Arukh. **No edge joins the Taz to the Rambam.**
+            edge("taz", 1, "rashi", 1, EdgeType::Quotes),
+            edge("taz", 1, "shulchan-arukh", 1, EdgeType::CommentsOn),
+        ];
+        let mut shard = store::Writer::default();
+        let mut back = inbound::Writer::default();
+        for e in &edges {
+            shard.push(e);
+            back.push(e);
+        }
+        shard.flush(&root).expect("writes the shards");
+        back.flush(&root).expect("writes the inbound cache");
+
+        let timeline = Timeline::of(&root).expect("reads the catalogue");
+        (root, timeline)
+    }
+
+    #[test]
+    fn a_witness_that_reaches_one_side_through_another_sefer_is_still_a_witness() {
+        // The widening, and the whole of it. The Taz quotes Rashi and reaches
+        // the Rambam through the Shulchan Arukh, so under the one-hop rule the
+        // pair Rashi/Rambam had no witness at all and was not a fork — which is
+        // not a claim about this sugya, it is an artefact of how far the walk
+        // was allowed to go.
+        let (root, timeline) = shas_with_a_far_witness("girsa-chain-far-fork");
+        let repairs = Repairs::nowhere();
+        let mut graph = Graph::new(&root, &timeline, &repairs);
+        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default());
+
+        let pair = forks
+            .iter()
+            .find(|f| {
+                let works = [f.a_work(), f.b_work()];
+                works.contains(&"rashi") && works.contains(&"rambam")
+            })
+            .expect("the two readings fork");
+        let taz = pair
+            .witnesses
+            .iter()
+            .find(|w| w.at.from.work() == "taz")
+            .expect("the Taz had to deal with both, one of them at a remove");
+        assert_eq!(
+            taz.steps, 2,
+            "one hop to Rashi and two to the Rambam, and what is reported is the further"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_reading_is_one_hop_even_when_a_witness_is_not() {
+        // The other half of the chiluk, and the reason the two bounds are not
+        // one number. *A reading of this line* means something that links to
+        // this line; if that widened with the witness walk, every sefer that
+        // ever quoted a sefer that quoted this one would become a reading of
+        // it, and the Taz would be a third reading of the Gemara rather than a
+        // witness to the two.
+        let (root, timeline) = shas_with_a_far_witness("girsa-chain-readings-stay-near");
+        let repairs = Repairs::nowhere();
+        let mut graph = Graph::new(&root, &timeline, &repairs);
+        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default());
+
+        for fork in &forks {
+            for side in [fork.a_work(), fork.b_work()] {
+                assert!(
+                    side == "rashi" || side == "rambam",
+                    "{side} does not link to this line, so it is not a reading of it"
+                );
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn neither_side_of_a_fork_is_a_witness_to_it() {
+        // A deeper walk reaches the other reading itself wherever one links to
+        // it, and counting that as *somebody had to deal with both* would be
+        // the fork testifying about itself. Nothing in either sefer counts.
+        let (root, timeline) = shas("girsa-chain-self-witness");
+        let repairs = Repairs::nowhere();
+        let mut graph = Graph::new(&root, &timeline, &repairs);
+        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default());
+
+        for fork in &forks {
+            for witness in &fork.witnesses {
+                let work = witness.at.from.work();
+                assert_ne!(work, fork.a_work());
+                assert_ne!(work, fork.b_work());
+            }
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
