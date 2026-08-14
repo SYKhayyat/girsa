@@ -698,6 +698,12 @@ yet — [OCR now]"*. Scanned hits get a badge. Badge them, don't demote them.
 **Open:** the OCR engine is undecided (`spec.md` §17). Tesseract is mediocre on old
 Hebrew print. Evaluate before committing.
 
+*Amended: what a photograph costs is bounded. `tools/degraded-ocr.mjs` puts a
+born-digital page through named degradations and scores against the PDF's own
+text layer — clean 89.9%, all of them at once 29.4%. No single degradation costs
+more than five points, so the parts do not predict the whole. It is a proxy, not
+a photograph, and the tool says so above its own table. See `record/scans.md`.*
+
 *Amended: a highlight on a page is anchored to the ink, so a scan is markable
 finer than the whole page — W24's character span had nothing to count into,
 because a page carries no text. One rectangle per line rather than one round the

@@ -544,11 +544,64 @@ W25 chose for the same reason. It hands over glyphs, or a picture, and
 everything after that is decided in `girsa-scan`, where it can be tested without
 a webview.
 
-**What this does not yet do.** Nothing has been
-run against a real photographed sefer: every measurement above is against a
-born-digital PDF, which is the only kind on this shelf, so the numbers for
-tesseract are its numbers on **clean 300-dpi print** and a photograph of a Vilna
-Shas will do worse.
+**What this does not yet do.** Nothing has been run against a real photographed
+sefer: every measurement above is against a born-digital PDF, which is the only
+kind on this shelf. What *has* been done is to bound the damage — see below —
+and a bound built out of simulated degradation is a floor and not a
+measurement.
+
+### What a photograph costs, bounded — and it is not what the parts suggested
+
+*A photograph of a Vilna Shas will do worse by an unknown amount* is the honest
+sentence and a bad place to stop. `tools/degraded-ocr.mjs` bounds it: a
+born-digital page, put through named degradations, read by the same tesseract,
+scored against **the PDF's own text layer** — which needs no model and cannot
+invent a word, and is a better ground truth than a second OCR run agreeing with
+the first.
+
+Five pages, 1,504 words of ground truth:
+
+| | words | found | of what clean found |
+|---|---|---|---|
+| clean — the 300-dpi render | 1,501 | **89.9%** | 100% |
+| 150 dpi — a phone held over the sefer | 1,503 | 90.2% | 100% |
+| 100 dpi — taken from further back | 1,494 | 87.3% | 97% |
+| soft — focus right in the middle and not at the edge | 1,473 | 85.4% | 95% |
+| aged — grey paper, ink no longer black | 1,501 | 89.9% | 100% |
+| askew — held by hand rather than laid flat | 1,498 | 89.5% | 100% |
+| grainy — a sensor in the light a beis medrash has | 1,503 | 90.0% | 100% |
+| compressed — what a photograph is once the phone saves it | 1,502 | 89.8% | 100% |
+| **a photograph — all of it at once** | 870 | **29.4%** | **33%** |
+
+The clean row is 89.9% against the 90.6% measured above, on different pages by a
+different harness, which is the reason to believe the rest of the column.
+
+**The finding is the last row against the eight above it.** Not one degradation
+alone costs more than five points — tesseract shrugs off grain, sepia, a
+two-and-a-half-degree tilt and JPEG at quality 0.3 almost entirely. Together
+they cost **two thirds of everything it found.** The damage is not additive and
+reasoning about the parts would have got the answer wrong by a factor of ten,
+which is worth knowing before anybody promises a reader that OCR will cope with
+a photograph.
+
+Three things about this that keep it honest:
+
+- **It is a proxy and the tool says so in its own output**, in four lines,
+  before the table. A real photograph brings uneven lighting across the page,
+  the gutter shadow of a bound sefer, show-through from thin paper, a lens sharp
+  in the middle and soft at the edges, and print that was never crisp because it
+  was set in 1880. None of that is simulated. **Read 29.4% as a floor.**
+- **The first draft measured nothing, and its own table said so.** It used a
+  1.4-pixel blur and a 1.6-degree turn against a 2,550-pixel render with letters
+  forty tall; every row came back within a point of clean and the photograph row
+  came back *above* it. A row that beats clean is not a finding, it is a tool
+  reporting its own noise. A degradation has to be proportional to the letter,
+  which is why the blur is a fraction of the page's height and why `dpi` is in
+  the table at all: the largest thing a photograph takes away is **pixels per
+  letter**, and no sharpening puts back a serif that was never sampled.
+- **It renders through pdf.js**, in a headless browser, because this repository
+  has exactly one PDF renderer and it is the window's. A second one inside a
+  measuring tool would be measuring a page the application never draws.
 
 ---
 
