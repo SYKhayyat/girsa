@@ -562,6 +562,25 @@ body {
   color: var(--ink-quiet);
 }
 
+/* A citation in your own writing (W19).
+ *
+ * Underlined rather than coloured, and dotted rather than solid. A mekor that
+ * changed colour would fight the nikud and the te'amim for the reader's eye on
+ * a line they are trying to learn, and this is the one place in the library
+ * where the words under the mark are the reader's own. The underline says
+ * *there is somewhere to go* and nothing more; the ref itself is on the hover.
+ */
+.run-cite {
+  text-decoration: underline dotted var(--mark);
+  text-underline-offset: 0.22em;
+  cursor: pointer;
+}
+
+.run-cite:hover {
+  text-decoration-style: solid;
+  background: color-mix(in srgb, var(--mark) 12%, transparent);
+}
+
 .line.is-heading .line-text {
   font-weight: 700;
   font-size: 1.1em;
@@ -2480,13 +2499,35 @@ body {
   color: var(--ink-quiet);
 }
 
+/* A tag. A `<button>` since W27's second half — clicking one shows everything
+ * of yours carrying it — so the background and the inherited font have to be
+ * said out loud, which a `<span>` never needed. */
 .yours-tag {
   font-family: var(--hebrew);
   font-size: 12px;
   color: var(--ink-quiet);
+  background: none;
   border: 1px solid var(--rule);
   border-radius: 999px;
   padding: 1px 8px;
+  cursor: pointer;
+}
+
+.yours-tag:hover {
+  color: var(--ink);
+  border-color: var(--mark);
+}
+
+/* The tag you are standing in, at the head of what carries it. */
+.yours-row.is-tagged {
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+}
+
+.yours-row.is-tagged .yours-where {
+  font-weight: 700;
+  color: var(--mark);
 }
 
 .yours-member {

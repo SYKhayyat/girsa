@@ -50,6 +50,16 @@ export class YoursView {
   private changed: (() => Promise<void>) | null = null;
   /** Which note is open for editing, if any. */
   private editing: string | null = null;
+  /**
+   * The tag being followed, if any (W27).
+   *
+   * Beside `panel` rather than a seventh value of it, because a tag is not a
+   * kind of thing you own — it is a word that crosses all four kinds at once.
+   * Made a panel, it would have had to pick one drawer to filter, and the
+   * whole use of a tag is that the note, the highlight, the saved question and
+   * the folder you put `ברכות` on are the answer together.
+   */
+  private tag: string | null = null;
 
   get isOpen(): boolean {
     return this.element.classList.contains("is-open");
@@ -90,6 +100,10 @@ export class YoursView {
       button.addEventListener("click", () => {
         this.panel = key;
         this.editing = null;
+        // A tab is how you get out of a tag. There is no separate way back,
+        // because a reader who has finished with `ברכות` wants a drawer, not
+        // an empty one with the filter still on.
+        this.tag = null;
         void this.draw();
       });
       this.tabs.append(button);
@@ -148,6 +162,7 @@ export class YoursView {
     this.note.textContent = say("linksReading");
     this.list.replaceChildren();
     try {
+      if (this.tag !== null) return await this.drawTagged(this.tag);
       switch (this.panel) {
         case "notes":
           return await this.drawNotes();
@@ -217,7 +232,7 @@ export class YoursView {
     });
 
     row.append(title, opening, about, edit, forget);
-    for (const tag of note.tags) row.append(chip(tag));
+    for (const tag of note.tags) row.append(chip(tag, (t) => void this.pickTag(t)));
 
     if (this.editing === note.name) {
       row.append(await this.editor(note));
@@ -337,7 +352,7 @@ export class YoursView {
     });
 
     row.append(where, said, forget);
-    for (const tag of mark.tags) row.append(chip(tag));
+    for (const tag of mark.tags) row.append(chip(tag, (t) => void this.pickTag(t)));
     return row;
   }
 
@@ -380,7 +395,7 @@ export class YoursView {
     });
 
     row.append(again, said, forget);
-    for (const tag of query.tags) row.append(chip(tag));
+    for (const tag of query.tags) row.append(chip(tag, (t) => void this.pickTag(t)));
     return row;
   }
 
@@ -439,6 +454,10 @@ export class YoursView {
       line.append(open, out);
       row.append(line);
     }
+    // A folder carries tags like the other three, and had no chips — so the one
+    // kind of thing you own that is *already* a grouping was the one you could
+    // not reach a tag from.
+    for (const tag of folder.tags) row.append(chip(tag, (t) => void this.pickTag(t)));
     return row;
   }
 
@@ -448,12 +467,91 @@ export class YoursView {
     for (const tag of tags) this.list.append(this.tagRow(tag));
   }
 
+  /**
+   * Follow a tag: everything of yours carrying it, all four kinds at once.
+   *
+   * Filtered here rather than in Rust. Your layer is the small one — notes,
+   * marks, saved questions and folders are four files a person wrote by hand,
+   * not five million segments — and a `tagged` command would be a fifth answer
+   * to *what carries this tag* beside the four lists that already exist, which
+   * is how the counts in the tags drawer and the rows under them start
+   * disagreeing.
+   *
+   * The four are asked for together rather than in turn: they are four
+   * independent reads of four files, and doing them one after another is three
+   * round trips of waiting for no reason.
+   */
+  private async drawTagged(tag: string): Promise<void> {
+    const [notes, marks, queries, folders] = await Promise.all([
+      api.notes(),
+      api.bookmarks(),
+      api.queries(),
+      api.folders(),
+    ]);
+    const carries = (tags: string[]) => tags.includes(tag);
+
+    this.list.append(this.tagHead(tag));
+    const mine = {
+      notes: notes.filter((row) => carries(row.tags)),
+      marks: marks.filter((row) => carries(row.tags)),
+      queries: queries.filter((row) => carries(row.tags)),
+      folders: folders.filter((row) => carries(row.tags)),
+    };
+    const found =
+      mine.notes.length + mine.marks.length + mine.queries.length + mine.folders.length;
+    this.note.textContent = fill("yoursTagged", { tag });
+
+    // A tag the tally still counts and nothing carries is a layer that changed
+    // under an open drawer — said out loud, because an empty list under a tag
+    // you just clicked otherwise reads as a click that failed.
+    if (found === 0) {
+      const none = document.createElement("p");
+      none.className = "yours-note";
+      none.textContent = say("yoursTagNothing");
+      this.list.append(none);
+      return;
+    }
+    // In the order the tabs are in, so a reader who knows the drawer knows
+    // where to look inside the answer.
+    for (const note of mine.notes) this.list.append(await this.noteRow(note));
+    for (const mark of mine.marks) this.list.append(this.markRow(mark));
+    for (const query of mine.queries) this.list.append(this.queryRow(query));
+    for (const folder of mine.folders) this.list.append(this.folderRow(folder));
+  }
+
+  /** The tag you are standing in, and the way out of it. */
+  private tagHead(tag: string): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "yours-row is-tagged";
+    const name = document.createElement("span");
+    name.className = "yours-where";
+    name.textContent = tag;
+    const clear = document.createElement("button");
+    clear.className = "tool";
+    clear.textContent = say("yoursTagClear");
+    clear.addEventListener("click", () => {
+      this.tag = null;
+      void this.draw();
+    });
+    row.append(name, clear);
+    return row;
+  }
+
+  /** Stand in a tag. */
+  private async pickTag(tag: string): Promise<void> {
+    this.tag = tag;
+    this.editing = null;
+    await this.draw();
+  }
+
   private tagRow(tag: TagRow): HTMLElement {
     const row = document.createElement("div");
     row.className = "yours-row";
-    const name = document.createElement("span");
+    const name = document.createElement("button");
     name.className = "yours-where";
     name.textContent = tag.tag;
+    name.title = say("yoursTagPick");
+    name.addEventListener("click", () => void this.pickTag(tag.tag));
     const count = document.createElement("span");
     count.className = "yours-about";
     // What a tag is on, not only how many: a tag on one note and a tag on
@@ -538,10 +636,14 @@ export class YoursView {
   }
 }
 
-function chip(tag: string): HTMLElement {
-  const el = document.createElement("span");
+/** A tag, as a way in (W27). A button and not a span: it does something now, and
+ * an affordance that does something has to look like one. */
+function chip(tag: string, pick: (tag: string) => void): HTMLElement {
+  const el = document.createElement("button");
   el.className = "yours-tag";
   el.textContent = tag;
+  el.title = say("yoursTagPick");
+  el.addEventListener("click", () => pick(tag));
   return el;
 }
 

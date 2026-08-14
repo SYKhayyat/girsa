@@ -183,6 +183,7 @@ fn main() -> std::process::ExitCode {
                         s,
                         girsa_app::session::Pointing::Full,
                         girsa_cite::CiteStyle::HebrewShort,
+                        None,
                     )
                 })
                 .collect(),

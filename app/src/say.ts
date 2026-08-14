@@ -895,6 +895,7 @@ const WORDS = {
   doingOpenFile: ["פתיחת הקובץ", "opening the file"] as Both,
   doingReadPage: ["קריאת העמוד", "reading the page"] as Both,
   doingReadLinks: ["קריאת הקישורים", "reading the links"] as Both,
+  doingOpenRef: ["פתיחת המראה מקום", "opening the mareh makom"] as Both,
   doingRepairLink: ["תיקון הקישור", "repairing the link"] as Both,
   doingReadLane: ["קריאת נתיב המשמעות", "reading the lane"] as Both,
   doingWriteNote: ["כתיבת הרשומה", "writing the note"] as Both,
@@ -939,6 +940,26 @@ const WORDS = {
   yoursNoFolders: ["אין תיקיות", "no folders"] as Both,
   yoursRemove: ["הסר", "Remove"] as Both,
   yoursNoTags: ["אין תגיות", "no tags"] as Both,
+  /**
+   * A tag as a way in (W27, spec.md §11).
+   *
+   * The tags drawer counted them and a click did nothing, which made the tally
+   * a report about your layer rather than a route through it. A tag is the one
+   * thing in here that crosses the four kinds — the same word is on a note, on
+   * a highlight, on a saved question and on a chaburah folder — so picking one
+   * shows all four at once rather than filtering the drawer you happen to be
+   * standing in.
+   */
+  yoursTagPick: [
+    "הראה את כל מה שנושא את התגית הזאת",
+    "show everything carrying this tag",
+  ] as Both,
+  yoursTagged: ["עם התגית {tag}", "carrying {tag}"] as Both,
+  yoursTagClear: ["הסר סינון", "Clear"] as Both,
+  yoursTagNothing: [
+    "שום דבר אינו נושא את התגית הזאת עוד",
+    "nothing carries this tag any more",
+  ] as Both,
   /** The corrections you have made, which had no list anywhere in the window
    * until this tab: `api.fixes` was wired to a live command nothing called, so
    * a correction made yesterday could not be found again, let alone undone. */

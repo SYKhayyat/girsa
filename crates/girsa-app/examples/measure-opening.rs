@@ -89,6 +89,7 @@ fn main() {
                     s,
                     Pointing::Full,
                     girsa_cite::CiteStyle::HebrewShort,
+                    None,
                 )
             })
             .collect();
@@ -111,6 +112,7 @@ fn main() {
                     s,
                     Pointing::Full,
                     girsa_cite::CiteStyle::HebrewShort,
+                    None,
                 )
             })
             .collect();

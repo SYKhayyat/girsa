@@ -1948,6 +1948,7 @@ dependencies = [
 name = "girsa-app"
 version = "0.1.0"
 dependencies = [
+ "girsa-app",
  "girsa-cite",
  "girsa-corpus",
  "girsa-fix",

@@ -92,6 +92,21 @@ pub struct Run {
     /// reader typed finds nothing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hit: bool,
+    /// The place these words cite, where they are a citation **in your own
+    /// writing** (W19, spec.md §10.5).
+    ///
+    /// Absent on every run of the corpus, and that is a rule rather than an
+    /// accident: a sefer Sefaria published has a link layer built from
+    /// `links0.csv` and drawn in the links panel, and running linkify over it
+    /// as well would put a second, weaker set of edges beside a stronger one.
+    /// A note you wrote this morning has no link layer at all, which is exactly
+    /// why the words have to answer for themselves. See
+    /// [`crate::view::Line::of`] for where the line is drawn.
+    ///
+    /// A field beside the style for the same reason `hit` is: a citation inside
+    /// a dibur hamatchil is both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cite: Option<String>,
 }
 
 /// The text as the pane drew it, and where every character of it came from.
@@ -333,19 +348,47 @@ pub fn runs(text: &str) -> Vec<Run> {
 /// a missing hint.
 #[must_use]
 pub fn runs_marking(text: &str, marks: &[(usize, usize)]) -> Vec<Run> {
+    runs_citing(text, marks, &[])
+}
+
+/// The same again, with the citations in your own writing in runs of their own
+/// (W19).
+///
+/// `cites` are **character** ranges into `text` — what [`crate::linkify`] hands
+/// back, which is already counted in characters because a citation is found in
+/// words and not in bytes. They are the same string's characters that
+/// [`Bit::Letter`] counts, so the two line up without arithmetic, and the caller
+/// has to have linkified *the text it is about to draw*: linkify the segment as
+/// it stands on disk and then draw it without nikud, and every offset is off by
+/// however many points were taken out.
+///
+/// A range that does not line up is ignored rather than clamped, the same rule
+/// as a search mark: a link on the wrong words is a claim about a mekor nobody
+/// made, and no link is only a missing convenience.
+#[must_use]
+pub fn runs_citing(text: &str, marks: &[(usize, usize)], cites: &[crate::Linked]) -> Vec<Run> {
     let hit = hit_chars(text, marks);
+    let cited = cite_chars(cites);
     let mut out: Vec<Run> = Vec::new();
     for bit in bits(text) {
         match bit {
             Bit::Letter { ch, style, at, len } => {
                 // A whole entity counts as marked if any of it is.
                 let marked = (at..at + len.max(1)).any(|n| hit.contains(&n));
+                // …and as cited if any of it is, for the same reason: an
+                // entity is one letter to a reader.
+                let cite = (at..at + len.max(1)).find_map(|n| cited.get(&n)).cloned();
                 match out.last_mut() {
-                    Some(last) if last.style == style && last.hit == marked => last.text.push(ch),
+                    Some(last)
+                        if last.style == style && last.hit == marked && last.cite == cite =>
+                    {
+                        last.text.push(ch);
+                    }
                     _ => out.push(Run {
                         text: ch.to_string(),
                         style,
                         hit: marked,
+                        cite,
                     }),
                 }
             }
@@ -353,7 +396,22 @@ pub fn runs_marking(text: &str, marks: &[(usize, usize)]) -> Vec<Run> {
                 text: String::new(),
                 style: Style::Break,
                 hit: false,
+                cite: None,
             }),
+        }
+    }
+    out
+}
+
+/// Which character positions carry which ref.
+///
+/// A map and not a set, because unlike a search mark the answer is *where does
+/// this go*, and two citations on one line go to two different places.
+fn cite_chars(cites: &[crate::Linked]) -> std::collections::BTreeMap<usize, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for cite in cites {
+        for n in cite.from..cite.to {
+            out.insert(n, cite.reference.clone());
         }
     }
     out

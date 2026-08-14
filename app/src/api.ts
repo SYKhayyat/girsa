@@ -83,6 +83,10 @@ export interface Run {
   /** These are the words that answered the search (W39). Beside the style and
    * not one of its values, because a hit inside a dibur hamatchil is both. */
   hit?: boolean;
+  /** The place these words cite, where they are a citation in your own
+   * writing (W19). Absent on every run of the corpus, which has a link layer
+   * of its own — see `girsa_app::display::Run::cite`. */
+  cite?: string;
 }
 
 /** One correction on a line, as the page shows it (spec.md §7, W20). */
@@ -1210,6 +1214,10 @@ export const api = {
   noteWrite: (at: string, text: string, title?: string) =>
     call<NoteRow>("note_write", { at, text, title: title ?? null }),
   noteRead: (note: string) => call<ParaRow[]>("note_read", { note }),
+  /** Where a citation in your own writing goes — the same landing a `girsa://`
+   * link takes, resolved in Rust because which segments an address names is a
+   * question about the corpus. */
+  citeOpen: (reference: string) => call<Asked>("cite_open", { reference }),
   noteEdit: (note: string, does: string, value?: string, text?: string) =>
     call<ParaRow[]>("note_edit", {
       note,
@@ -1662,6 +1670,13 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "folder_edit":
     case "folder_forget":
     case "export_layer":
+      throw new Error(say("browserLayer"));
+    // A citation in your own writing (W19). Out here nothing ever draws one:
+    // the fixtures are built with no lexicon, and linkify runs over your own
+    // layer alone, which a browser has none of. The case is here so that if one
+    // ever does appear the click says why it went nowhere instead of falling
+    // through to `default: undefined` and looking like a link that is broken.
+    case "cite_open":
       throw new Error(say("browserLayer"));
     case "buffer_open":
       return {

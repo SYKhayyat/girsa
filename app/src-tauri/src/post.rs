@@ -62,6 +62,37 @@ pub const OPEN_EVENT: &str = "girsa://open";
 /// And the one for *put this in the search and open it*.
 pub const SEARCH_EVENT: &str = "girsa://search";
 
+/// Where a ref lands: the sefer, and the first segment its address names.
+///
+/// **One resolution with two doors.** A `girsa://` link clicked in another
+/// application comes in through [`show`]; a citation clicked in your own
+/// writing comes in through the `cite_open` command (W19). Which segments an
+/// address names is a question about the corpus, settled by the same index the
+/// link graph was built with, and a second answer computed anywhere else would
+/// disagree with it eventually.
+#[derive(serde::Serialize, Clone)]
+pub(crate) struct Landing {
+    #[serde(rename = "ref")]
+    pub(crate) reference: String,
+    pub(crate) slug: String,
+    pub(crate) id: String,
+}
+
+/// Turn a ref into a place, or say why it is not one.
+pub(crate) fn landing(state: &mut crate::State, reference: &Ref) -> Result<Landing, String> {
+    let slug = reference.work_slug();
+    let sefer = state.sefer(&slug)?;
+    let at = sefer.at(reference.from());
+    let first = at
+        .first()
+        .ok_or_else(|| format!("{slug} is on the shelf and has no {}", reference.from()))?;
+    Ok(Landing {
+        reference: reference.to_string(),
+        slug,
+        id: first.to_string(),
+    })
+}
+
 /// What every errand carries.
 #[derive(Deserialize)]
 struct Asked {
@@ -136,28 +167,19 @@ fn show(handle: &tauri::AppHandle, reference: &Ref) -> Reply {
     let Ok(mut state) = shared.lock() else {
         return Reply::refused(500, "the library is busy");
     };
-    let slug = reference.work_slug();
-    let sefer = match state.sefer(&slug) {
-        Ok(sefer) => sefer,
+    let place = match landing(&mut state, reference) {
+        Ok(place) => place,
         Err(e) => return Reply::refused(404, e),
     };
-    let at = sefer.at(reference.from());
-    let Some(first) = at.first() else {
-        return Reply::refused(
-            404,
-            format!("{slug} is on the shelf and has no {}", reference.from()),
-        );
+    let landing = match serde_json::to_string(&place) {
+        Ok(json) => json,
+        Err(e) => return Reply::refused(500, format!("that place will not serialize: {e}")),
     };
-    let landing = serde_json::json!({
-        "ref": reference.to_string(),
-        "slug": slug,
-        "id": first.to_string(),
-    });
     // Raised rather than acted on here: which pane a sefer opens in, and what
     // happens to the one beside it, is the window's business and is already
     // wired.
     drop(state);
-    if let Err(e) = handle.emit(OPEN_EVENT, &landing) {
+    if let Err(e) = handle.emit(OPEN_EVENT, &place) {
         return Reply::refused(500, format!("the window did not take it: {e}"));
     }
     // And bring it to the front — an app that quietly changed pages behind

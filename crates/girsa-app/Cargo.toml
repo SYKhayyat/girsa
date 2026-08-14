@@ -46,6 +46,13 @@ thiserror.workspace = true
 pretend = []
 
 [dev-dependencies]
+# This crate, on itself, for `pretend` alone. An integration test in `tests/` is
+# its own crate, so the `cfg(test)` half of `#[cfg(any(test, feature =
+# "pretend"))]` does not reach it — the fixture is compiled for the unit tests
+# inside `src/` and invisible to every file beside them. Naming the feature here
+# is what the `pretend` module's own doc comment tells other crates to do, and
+# this crate is not an exception to it.
+girsa-app = { workspace = true, features = ["pretend"] }
 # Ksav is `girsa-desk`'s dependency now, and it is here for exactly one
 # assertion: that the packet a scan produces — no text, a daf for an address —
 # comes out of the writer as a *mareh makom* and not as an empty quote block.

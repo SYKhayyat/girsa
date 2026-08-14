@@ -93,7 +93,6 @@ depth, a note in small type, a quote against a rule.
 - **A table has no header row unless it says so.** The header is the run of
   `כותרת_תא` cells, and a table written entirely of `תא` has none — which is
   what the document said.
-- **A note's own words are not linkified**, the same gap W27 has for notes.
 
 This is a change to `girsa-ksav`, which both applications compile, so the shared
 crates went to **0.4.0** and both pins moved with them — the coordinated release

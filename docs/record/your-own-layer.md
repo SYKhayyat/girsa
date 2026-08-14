@@ -543,6 +543,83 @@ girsa-index find index corpus --personal personal --citation "חבורה על ה
 `find <index> corpus personal יתגבר` once read `personal` as a word to search
 for and answered zero in 5,000,847 segments.
 
+### A mekor in a note of yours, and the crate that could not be reached
+
+Linkify — prose full of citations becoming live refs, W19 — was written for the
+Ksav loop and lived in `girsa-desk`. `girsa-desk` depends on `girsa-app`, and a
+crate cannot depend back, so the reading pane had no way to call it. The pane is
+where a note is *read*. So a note that said *ועיין ברכות ב.* said it in ink:
+every other surface in the library will take you somewhere, and the one holding
+your own words would not.
+
+The function needs nothing from a desk. It is a lexicon and a string. `who_cites`
+is the half that genuinely needs one — it scans your buffers and your registered
+documents — and the two were together because they were written on the same
+afternoon, not because they are the same shape. So `linkify` and `Linked` moved
+down to `girsa-app`, and `girsa_desk::linkify` re-exports them: Ksav's loopback,
+the `/linkify` errand and the window's own command all still call the name they
+already called.
+
+**The rule is that the corpus does not get this.** A run of words carries a ref
+only when the work is `Source::Mine` — a note, a `.ksav` read onto the shelf, a
+file you dropped in. A sefer from Sefaria already has a link layer: 1.4 million
+edges built from `links0.csv` by somebody with the whole corpus in front of
+them, drawn in the links panel and repairable there. Linkify is three narrow
+rules over a string. Laying its edges over the same words would put a weaker
+answer beside a stronger one with nothing on the page to tell them apart. Your
+own writing has no link layer and no prospect of one, which is precisely why the
+words have to answer for themselves.
+
+The offsets are the part that had to be got right. `Line::of` draws
+`pointed(&segment.text, pointing)` — taking the nikud off **shortens the
+string** — so linkify runs over the text the pane is about to draw and not over
+the segment as it stands on disk. Reversed, a citation would land a few letters
+to the left of the words it was about, which is the same defect `display::Shown`
+exists to prevent for corrections, and
+`the_link_lands_on_the_words_after_the_nikud_comes_off` is the guard.
+
+A citation is a `<span class="run-cite">` in the flow of the sentence and not a
+`<button>`: a button there breaks the line box, takes tab focus out of the
+reading pane, and stops a reader dragging a selection across it to quote the
+line. The click resolves through `post::landing`, the same function a `girsa://`
+link from another application takes — one answer to *which segment does this
+address name*, because two of them would eventually disagree. A citation of a
+sefer that is not on this shelf says so out loud; you can write *עיין קצות סימן
+ג'* whether or not you have the Ketzos, and a click that silently did nothing
+would read as a broken window rather than as a sefer you have not imported.
+
+### A tag was a tally, and is a route
+
+The tags drawer counted every tag across your whole layer and told you the
+truth about it: `ברכות` is on three notes, nine highlights and a folder. Then
+you clicked it and nothing happened. A count you cannot follow is a report
+about your layer rather than a way through it, which is the wrong half of the
+work to have built.
+
+**A tag is the one thing in here that crosses all four kinds.** A note, a
+highlight, a saved question and a chaburah folder are four different files with
+four different shapes, and the word you wrote on them is the same word. So
+following one shows all four at once, and it is deliberately *not* a seventh
+tab: a tab would have had to pick one drawer to filter, and picking is the one
+thing the reader was not doing when they wrote the same tag on a note and on a
+highlight.
+
+The filtering is in the window and not in Rust, which is a decision and not
+laziness. Your layer is the small side of this library — four files a person
+wrote by hand, against five million segments — so there is nothing to push
+down; and a `tagged` command would be a **fifth** answer to *what carries this
+tag* standing beside the four lists that already exist, which is exactly how the
+number in the drawer and the rows underneath it start disagreeing. The four
+lists are asked for together rather than in turn, because they are four
+independent reads and doing them one after another is three round trips of
+waiting for nothing.
+
+Every chip is the way in, not only the drawer: the tags on a note, on a mark, on
+a query and — newly — on a folder, which carried them all along and was the one
+kind of thing you own that is *already* a grouping and could not be reached from
+a tag. A tab is how you get out, because a reader finished with `ברכות` wants a
+drawer and not an empty one with the filter still on.
+
 ### What this does not do
 
 - **No sync.** `spec.md` §11 offers *optional, off by default, encrypted sync of
@@ -571,10 +648,6 @@ for and answered zero in 5,000,847 segments.
   rebuild is four minutes. Until tantivy is written to incrementally, your own
   writing is on the shelf and in the search only as of the last build, and that
   gap is real.
-- **Tags are not yet a way in.** They are counted across the whole layer and
-  shown, and clicking one does not narrow anything.
-- **A note's own words are not linkified.** W19's linkify runs over Ksav
-  documents; a citation typed into a note is text.
 - **Nothing merges two people's layers.** Corrections have `girsa-fix merge`;
   notes, marks and folders do not, and two copies of `personal/` are two copies.
 

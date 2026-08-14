@@ -167,6 +167,29 @@ impl State {
         self.open.get(slug).ok_or_else(|| "not open".to_string())
     }
 
+    /// A sefer and the lexicon to draw it with — the pair every `Line::of` needs
+    /// (W19).
+    ///
+    /// One method rather than two calls because `sefer` takes `&mut self` to
+    /// load on demand, and the borrow it hands back rules out reading
+    /// `self.lexicon` afterwards. The alternatives were both worse: cloning a
+    /// 24,731-variant lexicon per pane of text, or passing `None` at the call
+    /// sites and quietly not linkifying anything.
+    pub(crate) fn reading(
+        &mut self,
+        slug: &str,
+    ) -> Result<(&Open, Option<&girsa_ref::Lexicon>), String> {
+        if !self.open.has(slug) {
+            let shelf = self.shelf.as_ref().ok_or_else(|| self.trouble())?;
+            let read = shelf.read(slug).map_err(|e| e.to_string())?;
+            if let Some(gone) = self.open.put(slug, read) {
+                self.marks.remove(&gone);
+            }
+        }
+        let sefer = self.open.get(slug).ok_or_else(|| "not open".to_string())?;
+        Ok((sefer, self.lexicon.as_ref()))
+    }
+
     /// Which mefarshim speak on which line of one sefer, read once.
     fn marks(&mut self, slug: &str) -> Result<&girsa_app::mefarshim::Marks, String> {
         if !self.marks.contains_key(slug) {
@@ -1421,7 +1444,7 @@ fn mefarshim_at(
         // different path from the pane would be a second idea of what the text
         // says.
         let lines: Vec<Line> = {
-            let sefer = state.sefer(&one.work)?;
+            let (sefer, lexicon) = state.reading(&one.work)?;
             let Some(first) = sefer.position_of(&one.at) else {
                 // The graph points at a segment this sefer does not have.
                 // Skipped rather than reported as an empty comment: it is a fact
@@ -1436,7 +1459,7 @@ fn mefarshim_at(
                 .map_or(first, |to| to.max(first));
             sefer.segments[first..=last]
                 .iter()
-                .map(|s| Line::of(sefer, s, pointing, style))
+                .map(|s| Line::of(sefer, s, pointing, style, lexicon))
                 .collect()
         };
         let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
@@ -1484,7 +1507,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
     // top and then jumping. `where_i_was` is the same memory `Session` keeps for
     // every sefer ever opened (W9).
     let left = state.session.where_i_was(&slug).cloned();
-    let sefer = state.sefer(&slug)?;
+    let (sefer, lexicon) = state.reading(&slug)?;
     // Whether anything in the sefer is pointed. Over the whole of it, because
     // the answer is about the sefer and not about the window a reader happens
     // to be looking at — a Chumash whose first four hundred segments are bare
@@ -1498,7 +1521,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         work: Card::of(&sefer.work),
         lines: sefer.segments[from..to]
             .iter()
-            .map(|s| Line::of(sefer, s, pointing, style))
+            .map(|s| Line::of(sefer, s, pointing, style, lexicon))
             .collect(),
         from,
         total,
@@ -1523,12 +1546,12 @@ fn sefer_lines(
     // How a place is printed, from the reader's own setting — one formatter
     // for the margin and for the citation. See `sending::printed_address`.
     let style = state.session.cite;
-    let sefer = state.sefer(&slug)?;
+    let (sefer, lexicon) = state.reading(&slug)?;
     let from = from.min(sefer.segments.len());
     let to = from.saturating_add(count).min(sefer.segments.len());
     Ok(sefer.segments[from..to]
         .iter()
-        .map(|s| Line::of(sefer, s, pointing, style))
+        .map(|s| Line::of(sefer, s, pointing, style, lexicon))
         .collect())
 }
 
@@ -2011,7 +2034,7 @@ fn fix(
     shelf.fix(patch).map_err(|e| e.to_string())?;
     state.reread(&slug);
 
-    let sefer = state.sefer(&slug)?;
+    let (sefer, lexicon) = state.reading(&slug)?;
     let position = sefer
         .position_of(&at)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
@@ -2020,7 +2043,7 @@ fn fix(
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, pointing, style),
+        line: Line::of(sefer, segment, pointing, style, lexicon),
         said: format!("{was} → {now}"),
     })
 }
@@ -2049,7 +2072,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
     }
     state.reread(&slug);
 
-    let sefer = state.sefer(&slug)?;
+    let (sefer, lexicon) = state.reading(&slug)?;
     let position = sefer
         .position_of(&at)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
@@ -2058,7 +2081,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, pointing, style),
+        line: Line::of(sefer, segment, pointing, style, lexicon),
         said: "הוחזר כפי שנדפס".to_string(),
     })
 }
@@ -2796,6 +2819,20 @@ fn linkify(
         .as_ref()
         .ok_or("there is no lexicon here — has girsa-import run?")?;
     Ok(girsa_desk::linkify(lexicon, &text))
+}
+
+/// Where a citation in your own writing goes (W19, spec.md §10.5).
+///
+/// The reader clicked words the pane drew as a link, and this turns the ref
+/// those words carry into a place to open. It is the same
+/// [`crate::post::landing`] a `girsa://` link from another application takes,
+/// on purpose: a citation resolves to one place whether it was clicked in Ksav
+/// or in a note of your own, and two resolutions would drift.
+#[tauri::command]
+fn cite_open(shared: tauri::State<'_, Shared>, reference: String) -> Result<post::Landing, String> {
+    let place: girsa_ref::Ref = reference.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    post::landing(&mut state, &place)
 }
 
 /// Whether Ksav is there (spec.md §10.6 — *presence*).
@@ -3857,6 +3894,7 @@ pub fn run() {
             buffer_to_ksav,
             who_cites,
             linkify,
+            cite_open,
             fix,
             unfix,
             set_showing,

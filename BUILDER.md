@@ -1977,21 +1977,24 @@ overlay taught to the indexer, and the README rules out both easy answers. B7's
 honest notice is what makes shipping this incrementally safe and is not a
 substitute for it.
 
-**B22 · The rest of the personal layer.** Four pieces, and two are now closed.
+**B22 · The rest of the personal layer.** Four pieces, and three are now closed.
 A note carries a `comp_date` and the timeline reads both roots, so a note is a
-hop in the chain; and your own seforim are in the resolver's lexicon, so one can
-be cited by name and not only opened by it — both argued in
-[`docs/record/your-own-layer.md`](docs/record/your-own-layer.md). What is left
-is linkify over notes and `girsa-notes merge` (there is no `merge` in that
-binary). **The merge first** — it is the substitute for the sync that was ruled
-against, and `girsa-personal::Log` now makes it nearly free: two append-only files
-replayed in one pass, which is what `Layer::merge` already became.
+hop in the chain; your own seforim are in the resolver's lexicon, so one can be
+cited by name and not only opened by it; and a mekor typed into a note is a link
+in the pane — linkify moved from `girsa-desk` down to `girsa-app`, which is the
+only reason the pane could reach it at all. All three argued in
+[`docs/record/your-own-layer.md`](docs/record/your-own-layer.md). What is left is
+`girsa-notes merge` (there is no `merge` in that binary) — the substitute for the
+sync that was ruled against, and `girsa-personal::Log` now makes it nearly free:
+two append-only files replayed in one pass, which is what `Layer::merge` already
+became.
 
 **B23 · `.ksav` on the shelf.** The containment is flat and nothing writes back.
 The second half needs a decision about what editing a `.ksav` from the shelf means
-when Ksav may have it open, and that decision is the work. Related, and newly
-sharper: `who_cites` answers over `personal/ksav/*.ksav` only, so a document
-written in the real Ksav is invisible to it.
+when Ksav may have it open, and that decision is the work. The `who_cites` half of
+this paragraph has rotted and is struck: it read `personal/ksav/*.ksav` alone when
+that was written, and it reads the document registry as well now, so a `.ksav`
+written in the real Ksav is found — see `girsa_desk::citing`.
 
 **B32 · Nothing drives a pointer.** The one job that closes five gaps at once —
 §4 items 21–24 of the grade, plus the accessibility claim that has only ever been

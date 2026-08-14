@@ -1213,14 +1213,45 @@ impl Line {
     /// free function in the shell, which is a fine place for it right up to the
     /// moment `dev-fixtures.rs` has to draw a line too — and it did, and it
     /// hand-rolled four of this struct's six fields instead.
+    /// # The lexicon, and why only your own writing gets one
+    ///
+    /// `lexicon` is what turns a citation typed into a note into somewhere to
+    /// go (W19). It is used **only when the work is yours** —
+    /// [`girsa_corpus::work::Source::Mine`], which covers both a note and a
+    /// sefer you dropped in — and that is a rule and not a shortcut.
+    ///
+    /// A sefer from Sefaria already has a link layer: 1.4 million edges built
+    /// from `links0.csv` by somebody who had the whole corpus in front of them,
+    /// drawn in the links panel and repairable there. Linkify is three narrow
+    /// rules over a string. Running it over Berakhot as well would lay a weaker
+    /// set of edges beside a stronger one on the same words, and the reader
+    /// would have no way to tell which was which. Your own writing has no link
+    /// layer at all, and no prospect of one, which is the whole reason the
+    /// words have to answer for themselves.
+    ///
+    /// Pass `None` where there is no lexicon — `girsa-import` may not have run
+    /// — and nothing is linkified, which is the right failure: a citation that
+    /// is plain text is a citation you can still read.
     #[must_use]
     pub fn of(
         sefer: &crate::Open,
         segment: &girsa_corpus::import::Segment,
         pointing: crate::session::Pointing,
         style: girsa_cite::CiteStyle,
+        lexicon: Option<&girsa_ref::Lexicon>,
     ) -> Self {
         let corrected = sefer.correction(&segment.id);
+        // The text the pane is about to draw, and the one linkify is run over.
+        // Not `segment.text`: taking the nikud out shortens the string, and a
+        // citation found in the pointed text and reported against the stored
+        // text lands a few letters to the left of the words it was about.
+        let shown = display::pointed(&segment.text, pointing);
+        let cites = match lexicon {
+            Some(lexicon) if sefer.work.source == girsa_corpus::work::Source::Mine => {
+                crate::linkify(lexicon, &shown)
+            }
+            _ => Vec::new(),
+        };
         Self {
             id: segment.id.to_string(),
             // **The margin says what a citation would say.** It used to be
@@ -1231,7 +1262,7 @@ impl Line {
             // formatter now: `crate::sending::printed_address`.
             address: crate::sending::printed_address(&sefer.work, &segment.id, style),
             kind: segment.kind.as_str(),
-            runs: display::runs(&display::pointed(&segment.text, pointing)),
+            runs: display::runs_citing(&shown, &[], &cites),
             fixed: corrected.map_or_else(Vec::new, |c| {
                 c.applied
                     .iter()

@@ -24,6 +24,7 @@
 
 pub mod arrangement;
 pub mod beside;
+pub mod citing;
 pub mod display;
 pub mod enough;
 pub mod fixing;
@@ -59,6 +60,7 @@ pub mod workspace;
 
 pub use arrangement::Arrangement;
 pub use beside::{Beside, Joined, Place, Relation};
+pub use citing::{linkify, Linked};
 pub use fixing::{correction, FixHere};
 pub use girsa_note::since::{find_index, is_an_index, Unindexed, Written};
 pub use keys::{Bound, Press, ACTIONS};

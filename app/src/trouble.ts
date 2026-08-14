@@ -58,6 +58,10 @@ export type Doing =
   | "keep_query"
   | "copy_scan"
   | "read_suspects"
+  // Following a mekor the reader typed themselves (W19). Its own name because
+  // its commonest failure is a real and specific one — you can cite a sefer you
+  // have not imported — and *reading the links* would name the wrong thing.
+  | "open_ref"
   | "general";
 
 export interface Trouble {
@@ -84,6 +88,7 @@ const DOING: Record<Doing, string> = {
   keep_query: say("doingKeepQuery"),
   copy_scan: say("doingCopySource"),
   read_suspects: say("doingReadSuspects"),
+  open_ref: say("doingOpenRef"),
   general: say("doingSomething"),
 };
 

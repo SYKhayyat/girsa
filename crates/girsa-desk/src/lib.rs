@@ -39,6 +39,12 @@ pub mod documents;
 pub mod refreshing;
 
 pub use buffer::{Buffer, BufferError};
-pub use citing::{linkify, who_cites, Citing, Linked};
+pub use citing::{who_cites, Citing};
 pub use documents::Documents;
+// Linkify moved down to `girsa-app` so the reading pane could reach it — see
+// `citing`. Re-exported here because this is the name Ksav's loopback and the
+// window both already call, and a move that renames every caller is two changes
+// to review instead of one. (`rustfmt` sorts these, so the note sits under the
+// line it is about rather than over it.)
+pub use girsa_app::{linkify, Linked};
 pub use refreshing::{refreshed, refreshed_reporting, Refreshed, Wanted};

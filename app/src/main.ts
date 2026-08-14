@@ -186,6 +186,23 @@ async function whenAskedFor(landing: Asked): Promise<void> {
   announce(`${say("opened")} — ${landing.ref}`, false);
 }
 
+/**
+ * Follow a citation the reader wrote themselves (W19).
+ *
+ * The refusal is said out loud rather than swallowed. A citation of a sefer
+ * that is not on this shelf is the commonest thing that can go wrong here —
+ * you can write *עיין קצות סימן ג'* whether or not you have the Ketzos — and a
+ * click that silently does nothing reads as a broken window rather than as a
+ * sefer you have not imported.
+ */
+async function goToCitation(reference: string): Promise<void> {
+  try {
+    await whenAskedFor(await api.citeOpen(reference));
+  } catch (e) {
+    announce(trouble(e, "open_ref").said, true);
+  }
+}
+
 /** Whether Ksav is there. Polled while the window is open, because the answer
  * changes without anything telling us: Ksav is a separate application and a
  * reader starts and stops it whenever they like. */
@@ -416,6 +433,9 @@ async function draw(): Promise<void> {
     // `inbound.jsonl` is one file per sefer, and reading Berakhot's 21,065 rows
     // into per-line answers takes 0.07s.
     view.whenComments((at) => void openComments(view, at));
+    // A citation in your own writing, clicked (W19). The same landing a
+    // `girsa://` link from Ksav takes, because it is the same question.
+    view.whenCiting((reference) => void goToCitation(reference));
     await drawMefarshim(view);
   }
 }

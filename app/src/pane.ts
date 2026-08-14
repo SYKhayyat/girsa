@@ -155,6 +155,8 @@ export class PaneView {
    * pane must not start answering. */
   private ticked = 0;
   private onComments: ((at: string) => void) | null = null;
+  /** Where a citation in your own writing goes when it is clicked (W19). */
+  private onCiting: ((reference: string) => void) | null = null;
   /** Set while a following pane is being moved, so its own scroll handler does
    * not report the move back and start the two panes chasing each other. */
   private quiet = false;
@@ -222,6 +224,11 @@ export class PaneView {
     this.onComments = fn;
   }
 
+  /** What to do when a reader clicks a citation in their own writing (W19). */
+  whenCiting(fn: (reference: string) => void): void {
+    this.onCiting = fn;
+  }
+
   /**
    * A click on a line, in the one case where it means something.
    *
@@ -230,11 +237,24 @@ export class PaneView {
    * cannot click, and the reader who has ticked nobody has not asked a question.
    */
   private clicked(event: MouseEvent): void {
-    if (this.ticked === 0 || !this.onComments) return;
-    // A reader dragging across words is quoting, not asking.
+    // A reader dragging across words is quoting, not asking. Checked before
+    // the citation as well as before the comments: selecting a line that has a
+    // mekor in it must not jump the pane out from under the selection.
     if (window.getSelection()?.isCollapsed === false) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
+    // A citation in your own writing, clicked (W19). Before the mefarshim,
+    // because these words asked a narrower question than the line did — and
+    // unconditionally, because unlike a comment there is nothing to tick: the
+    // reader wrote the citation, which is the whole of the request.
+    if (target instanceof Element) {
+      const cited = target.closest<HTMLElement>(".run-cite")?.dataset.cite;
+      if (cited && this.onCiting) {
+        this.onCiting(cited);
+        return;
+      }
+    }
+    if (this.ticked === 0 || !this.onComments) return;
     // Clicks inside an open comment belong to the comment.
     if (target instanceof Element && target.closest(".line-said")) return;
     const line = lineOf(target);
@@ -923,9 +943,20 @@ function fixMark(line: Line): HTMLElement {
 function runElement(run: Run): Node {
   const style = run.style ?? "plain";
   if (style === "break") return document.createElement("br");
-  if (style === "plain") return document.createTextNode(run.text);
+  if (style === "plain" && !run.cite) return document.createTextNode(run.text);
   const node = document.createElement("span");
-  node.className = style === "opening" ? "run-opening" : "run-quiet";
+  // A citation in your own writing (W19). A `<span>` and not a `<button>`: this
+  // sits inside the flow of a sentence, and a button there breaks the line box,
+  // takes tab focus away from the reading pane, and — the one that matters —
+  // stops a reader dragging a selection across it to quote the line. `charRange`
+  // walks text nodes, so wrapping words in a span leaves highlighting alone.
+  if (run.cite) {
+    node.classList.add("run-cite");
+    node.dataset.cite = run.cite;
+    node.title = run.cite;
+  }
+  if (style === "opening") node.classList.add("run-opening");
+  if (style === "quiet") node.classList.add("run-quiet");
   node.textContent = run.text;
   return node;
 }
