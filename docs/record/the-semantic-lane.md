@@ -38,7 +38,40 @@ answer, scored by where the right se'if landed:
 240. *How late may one daven shacharis?* comes back twenty-fourth.
 
 So the lane's box asks for **a line as you remember it**, which is §9.9's own
-sentence, and does not pretend to answer questions. And the standard repair for
+sentence, and does not pretend to answer questions.
+
+And now it says so **when you ask one.** Every answer already carried
+`girsa_lane::MEASURED` — *works poorly on a question* — which is the right place
+to start and the wrong place to stop: a reader who has just typed one is being
+handed a general caveat over ten plausible-looking rows, and the specific figure
+is not close. One in twelve against ten in ten is not a model having a bad day.
+So a query that reads as a question gets `A_QUESTION` above the results, with
+both numbers in it and with what to do instead.
+
+Three things about that sentence, and each is a refusal:
+
+- **It changes nothing about the ranking.** Same rows, same order. The lane does
+  not decide it knows better than the reader what they meant to type, and a
+  feature that silently rewrote a query would be worse than one that answers it
+  badly and says so.
+- **The rule is deliberately narrow.** A leading interrogative, or a question
+  mark. `מה` is a prefix of ordinary words and turns up mid-sentence in
+  perfectly good half-remembered lines, so only the first word is looked at —
+  under-reporting leaves a reader exactly where they were, and over-reporting
+  puts a wrong caveat over a good answer. A caveat a reader learns to ignore is
+  worse than none.
+- **It is worded once**, in `girsa-lane`, like `ADJACENT` and `MEASURED` and
+  `SHORTLISTED` before it. The window, `girsa-lane` on a terminal and the MCP
+  `adjacent` tool all say it, and none of them says it in their own words. On
+  the terminal it prints *above* the rows rather than under them, because a
+  reader reads downward and a caveat under ten results is read once the results
+  have already been believed.
+
+It is also said on a **refusal** — a lane that is off, or adrift — because a
+reader who typed a question and got *the semantic lane is off* is about to turn
+it on and type the same thing.
+
+And the standard repair for
 a raw BERT — subtract the mean of the space, since every sentence sits in a
 narrow cone — was **tried and made it worse** (24→40, 97→123, 9→24). It is
 measured in `examples/measure.rs` and it is not built. A plausible improvement

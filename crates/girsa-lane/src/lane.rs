@@ -84,6 +84,76 @@ pub const MEASURED: &str = "measured on a half-remembered statement, and it work
 pub const SHORTLISTED: &str = "ranked from a shortlist rather than by reading every vector \
                                — fast, and a near result the shortlist misjudged is not here";
 
+/// What to say when the query itself is the thing the lane is bad at.
+///
+/// [`MEASURED`] says the lane works poorly on a question. It says it about
+/// **every** answer, which is the right place to start and is not where this
+/// should stop: a reader who has just typed a question is being told a general
+/// caveat when the specific one applies, and ten plausible-looking rows are
+/// sitting under it.
+///
+/// The numbers are the ones [`crate::model`] measured over 240 se'ifim of
+/// Hilchos Tefillah, and they are not close. Asked as a statement you half
+/// recall, the right se'if is in the top ten for **ten of ten** pairs, worst
+/// case sixteenth. Asked as a question about that same se'if, **one of twelve**
+/// reaches the top ten and the worst is ninety-seventh. That is not a model
+/// having a bad day; BEREL is a masked-language model and not a sentence
+/// encoder, and a question and its answer do not sit near each other in its
+/// space.
+pub const A_QUESTION: &str = "this reads as a question, and the lane is measured to be poor at                               those — one in twelve reaches the top ten, against ten in ten for                               a line you half remember. Try writing the line as you recall it.";
+
+/// Whether a query reads as a question.
+///
+/// A leading interrogative, or a question mark anywhere. **Deliberately narrow**
+/// — `מה` is a prefix of ordinary words and turns up mid-sentence in perfectly
+/// good half-remembered lines, so only the first word is looked at. Under-
+/// reporting leaves a reader exactly where they were before this existed;
+/// over-reporting puts a wrong caveat over a good answer, and a caveat a reader
+/// learns to ignore is worse than none.
+///
+/// It changes **nothing about the ranking**. The same results come back in the
+/// same order, with a sentence over them — the lane does not decide it knows
+/// better than the reader what they meant to type.
+#[must_use]
+pub fn reads_as_a_question(text: &str) -> bool {
+    if text.contains('?') || text.contains('\u{061F}') {
+        return true;
+    }
+    // The interrogatives, Hebrew and English. `אם` is not here and neither is
+    // `is`: both are ordinary words far more often than they open a question.
+    const ASKING: [&str; 21] = [
+        "מה",
+        "ומה",
+        "מי",
+        "ומי",
+        "מתי",
+        "למה",
+        "מדוע",
+        "כיצד",
+        "איך",
+        "האם",
+        "היכן",
+        "איפה",
+        "כמה",
+        "מנין",
+        "מניין",
+        "מאין",
+        "what",
+        "who",
+        "when",
+        "why",
+        "how",
+    ];
+    let first = text
+        .split_whitespace()
+        .next()
+        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
+        .unwrap_or_default();
+    ASKING
+        .iter()
+        .any(|asking| first.eq_ignore_ascii_case(asking))
+}
+
 /// How many adjacent results a lane returns when nobody says.
 pub const MOST: usize = 10;
 
@@ -115,6 +185,9 @@ pub struct Asked {
     /// How many seforim were asked. A store made by another model is skipped and
     /// not counted.
     pub seforim: usize,
+    /// The query reads as a question, which is what this lane is measured to be
+    /// worst at. See [`reads_as_a_question`] and [`A_QUESTION`].
+    pub reads_as_a_question: bool,
 }
 
 /// The lane's setting.
@@ -472,15 +545,27 @@ impl Lane {
         most: usize,
     ) -> Result<Asked, LaneError> {
         let model = self.embedder()?;
+        // Answered even for an empty query and a `most` of zero: *this reads as
+        // a question* is a fact about what was typed, not about what came back,
+        // and a caller drawing a caveat wants it whether or not there are rows
+        // under it.
+        let asking = reads_as_a_question(text);
         if text.trim().is_empty() || most == 0 {
-            return Ok(Asked::default());
+            return Ok(Asked {
+                reads_as_a_question: asking,
+                ..Asked::default()
+            });
         }
         let query: Vec<Embedded> = model.embed(&[text])?;
         let Some(query) = query.first() else {
-            return Ok(Asked::default());
+            return Ok(Asked {
+                reads_as_a_question: asking,
+                ..Asked::default()
+            });
         };
 
         let mut asked = Asked {
+            reads_as_a_question: asking,
             whole: true,
             ..Asked::default()
         };
@@ -690,6 +775,61 @@ impl Run<'_> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_question_is_recognised_and_a_half_remembered_line_is_not() {
+        // The asymmetry this guards is not subtle. Over 240 se'ifim: a
+        // statement you half recall puts the right one in the top ten **ten
+        // times in ten**; a question about that same se'if manages it **once in
+        // twelve**, worst case ninety-seventh. BEREL is a masked-language model
+        // and not a sentence encoder, so a question and its answer do not sit
+        // near each other in its space.
+        for asking in [
+            "מה הדין בקריאת שמע של ערבית",
+            "מתי זמן קריאת שמע",
+            "האם מותר לאכול קודם התפילה",
+            "למה תיקנו תפילת ערבית",
+            "כיצד מברכין על הלחם",
+            "why did they establish maariv",
+            "how is this brocha said",
+            // A question mark alone is enough, whatever it opens with.
+            "זמן קריאת שמע?",
+        ] {
+            assert!(reads_as_a_question(asking), "{asking} reads as a question");
+        }
+
+        // And the other side, which is the one that costs something to get
+        // wrong: a wrong caveat over a good answer is a caveat a reader learns
+        // to ignore.
+        for line in [
+            "מאימתי קורין את שמע בערבין",
+            "יתגבר כארי לעמוד בבוקר לעבודת בוראו",
+            "לא יפסיק בין גאולה לתפילה",
+            // `מה` mid-sentence, which is the false positive a looser rule
+            // would produce: only the first word is looked at.
+            "וכל מה שיוכל להוסיף יוסיף",
+            "the line about standing up like a lion",
+        ] {
+            assert!(
+                !reads_as_a_question(line),
+                "{line} is a line somebody half remembers, not a question"
+            );
+        }
+    }
+
+    #[test]
+    fn what_the_lane_says_about_a_question_names_both_numbers() {
+        // The sentence is the whole of what this closes: a general caveat under
+        // every answer became a specific one where it applies. It has to carry
+        // the comparison, because *poor at questions* without *ten in ten for a
+        // line* is a limit a reader cannot act on.
+        assert!(A_QUESTION.contains("one in twelve"));
+        assert!(A_QUESTION.contains("ten in ten"));
+        assert!(
+            A_QUESTION.contains("Try writing the line"),
+            "and it says what to do instead"
+        );
+    }
 
     #[test]
     fn the_lane_is_off_until_somebody_turns_it_on() {

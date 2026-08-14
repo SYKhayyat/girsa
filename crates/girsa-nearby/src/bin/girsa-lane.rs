@@ -295,6 +295,12 @@ fn ask(lane: &Adjacency, names: &Names, text: &str) -> bool {
     // never to be read as the places the words appear (spec.md §14).
     println!("{}", answer.label);
     println!("{}", answer.coverage);
+    // Before the results rather than after them: a reader on a terminal reads
+    // downward, and a caveat under ten rows is a caveat read once the rows have
+    // already been believed.
+    if let Some(said) = answer.asking {
+        println!("{said}");
+    }
     if let Some(said) = answer.shortlisted {
         println!("{said}");
     }

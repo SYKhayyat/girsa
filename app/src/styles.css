@@ -3511,3 +3511,14 @@ body {
   border-width: 2px;
   background: color-mix(in srgb, var(--mark) 28%, transparent);
 }
+
+/* The caveat that applies to *this* query rather than to every answer. Drawn
+   like the measurement above it and marked, because a reader who has typed a
+   question is about to read ten plausible rows as an answer. */
+.lane-asking {
+  margin: 6px 14px;
+  font-family: var(--plain);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--mark);
+}

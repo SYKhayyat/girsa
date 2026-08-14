@@ -916,6 +916,15 @@ export interface LaneAnswer {
   measured: string;
   near: Near[];
   coverage: string;
+  /**
+   * Set when what was typed reads as a question — the one thing this lane is
+   * measured to be bad at, and by a wide margin: one in twelve reaches the top
+   * ten, against ten in ten for a line half remembered. Worded once in Rust.
+   *
+   * It changes nothing about the ranking. The same rows in the same order, with
+   * a sentence over them.
+   */
+  asking?: string;
   /** Why there is nothing. Never an empty list with no reason attached. */
   refused: string | null;
   /**

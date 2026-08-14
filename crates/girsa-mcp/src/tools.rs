@@ -874,6 +874,10 @@ fn adjacent(server: &Server, args: &Value) -> Result<Value, String> {
         "refused": answer.refused,
         // Null when every store was read whole. An agent that ranks these and
         // reports the top one is owed the same disclaimer the window draws.
+        // The specific caveat where the general one is not enough. An agent
+        // that asked a question is exactly the caller most likely to read ten
+        // plausible rows as an answer.
+        "reads_as_a_question": answer.asking,
         "ranked_from_a_shortlist": answer.shortlisted,
         "showing": found.len(),
         "adjacent": found,

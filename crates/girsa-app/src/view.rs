@@ -1121,7 +1121,7 @@ pub struct NearRow {
     pub nearness: f32,
 }
 
-/// What the lane answered. Five fields and all five are drawn.
+/// What the lane answered. Six fields and all six are drawn.
 #[derive(Serialize)]
 pub struct LaneAnswer {
     /// The label these must be drawn under. From `girsa-lane`, worded once.
@@ -1132,6 +1132,15 @@ pub struct LaneAnswer {
     pub coverage: String,
     /// Why there is nothing. Never an empty list with no reason attached.
     pub refused: Option<String>,
+    /// Set when what was typed reads as a question, which is the one thing this
+    /// lane is measured to be bad at — `girsa_lane::A_QUESTION`, worded once.
+    ///
+    /// `measured` says the same thing about every answer, which is where to
+    /// start and not where to stop: a reader who has just typed a question is
+    /// being handed a general caveat where the specific one applies, over ten
+    /// plausible-looking rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asking: Option<&'static str>,
     /// Set when the ranking came off a signature shortlist rather than from
     /// reading every vector — `girsa_lane::SHORTLISTED`, worded once.
     pub shortlisted: Option<&'static str>,

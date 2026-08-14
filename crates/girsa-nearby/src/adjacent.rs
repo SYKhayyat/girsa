@@ -101,6 +101,21 @@ pub struct Answer {
     /// Why there is nothing — the lane off, no model, a store from another
     /// model. **Never an empty list with no reason attached.**
     pub refused: Option<String>,
+    /// [`girsa_lane::A_QUESTION`] when the query reads as a question, and
+    /// `None` otherwise.
+    ///
+    /// The fifth thing this answer says about itself, and the sharpest.
+    /// [`girsa_lane::MEASURED`] already says the lane is poor at questions —
+    /// under *every* answer, which is the right place to start and the wrong
+    /// place to stop. A reader who has just typed one is being given a general
+    /// caveat where the specific one applies, with ten plausible-looking rows
+    /// sitting under it. The measurement is not close: one in twelve reaches
+    /// the top ten, against ten in ten for a line half remembered.
+    ///
+    /// It changes nothing about the ranking. The same rows in the same order,
+    /// with a sentence over them — the lane does not decide it knows better
+    /// than the reader what they meant to type.
+    pub asking: Option<&'static str>,
     /// [`girsa_lane::SHORTLISTED`] when at least one sefer answered from a
     /// signature shortlist rather than by reading every vector it holds, and
     /// `None` when every one of them was read whole.
@@ -255,12 +270,17 @@ impl Adjacency {
         let shelf = names.shelf;
         let most = if most == 0 { MOST } else { most };
         let coverage = self.coverage.said();
+        // A fact about what was typed, so it is known before the lane is even
+        // asked — and said on a refusal too. A reader whose lane is off and who
+        // typed a question is about to turn it on and type the same thing.
+        let asking = girsa_lane::lane::reads_as_a_question(text).then_some(girsa_lane::A_QUESTION);
         let refuse = |why: String| Answer {
             label: ADJACENT,
             measured: MEASURED,
             near: Vec::new(),
             coverage: coverage.clone(),
             refused: Some(why),
+            asking,
             // Nothing was ranked, so there is no ranking to disclaim.
             shortlisted: None,
         };
@@ -313,6 +333,7 @@ impl Adjacency {
             near,
             coverage,
             refused: None,
+            asking,
             shortlisted,
         }
     }
@@ -429,6 +450,7 @@ mod tests {
             near: Vec::new(),
             coverage: Coverage::default().said(),
             refused: Some("the semantic lane is off".to_string()),
+            asking: None,
             shortlisted: None,
         };
         assert!(answer.near.is_empty());

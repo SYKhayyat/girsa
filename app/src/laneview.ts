@@ -106,6 +106,17 @@ export class LaneColumn {
     const measured = document.createElement("p");
     measured.className = "lane-measured";
     measured.textContent = answer.measured;
+    // And the specific one, where it applies. `measured` says the lane is poor
+    // at questions under *every* answer, which is where to start and not where
+    // to stop: a reader who has just typed one is reading a general caveat with
+    // ten plausible-looking rows under it. Composed in Rust like the other
+    // four, so the window, the terminal and an agent cannot word it three ways.
+    if (answer.asking) {
+      const asking = document.createElement("p");
+      asking.className = "lane-asking";
+      asking.textContent = answer.asking;
+      box.append(asking);
+    }
     box.append(measured);
 
     // What is in the index and what is not. Drawn whether or not anything was
