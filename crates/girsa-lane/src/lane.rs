@@ -119,13 +119,28 @@ pub fn reads_as_a_question(text: &str) -> bool {
     if text.contains('?') || text.contains('\u{061F}') {
         return true;
     }
-    // The interrogatives, Hebrew and English. `אם` is not here and neither is
-    // `is`: both are ordinary words far more often than they open a question.
-    const ASKING: [&str; 21] = [
+    // The interrogatives, Hebrew and English.
+    //
+    // **`במה` is deliberately absent**, and it is the best argument for keeping
+    // this list short and by hand rather than reaching for a pattern: `במה
+    // דברים אמורים` — בד"א — is one of the commonest *statement* openers in
+    // halachic literature, and a rule that caught it would put a wrong caveat
+    // over exactly the kind of half-remembered line this lane is good at. `אם`
+    // and `is` are out for the same reason: ordinary words far more often than
+    // openings.
+    //
+    // `מהו` and `מהי` were missed by the first draft, which had `מה` and
+    // assumed the rest followed. They do not — `מהו הדין` is the commonest way
+    // anybody asks a question here, and it is a different word.
+    const ASKING: [&str; 27] = [
         "מה",
         "ומה",
+        "מהו",
+        "מהי",
         "מי",
         "ומי",
+        "מיהו",
+        "מיהי",
         "מתי",
         "למה",
         "מדוע",
@@ -133,7 +148,9 @@ pub fn reads_as_a_question(text: &str) -> bool {
         "איך",
         "האם",
         "היכן",
+        "מהיכן",
         "איפה",
+        "לאן",
         "כמה",
         "מנין",
         "מניין",
@@ -786,6 +803,13 @@ mod tests {
         // near each other in its space.
         for asking in [
             "מה הדין בקריאת שמע של ערבית",
+            // The commonest way anybody asks one, and the first draft of the
+            // list missed it: it had `מה` and assumed the rest followed.
+            "מהו הדין בברכת המזון",
+            "מהי הברכה על הפירות",
+            "מיהו החייב בתפילה",
+            "מהיכן למדנו את זה",
+            "לאן הולכת הברכה",
             "מתי זמן קריאת שמע",
             "האם מותר לאכול קודם התפילה",
             "למה תיקנו תפילת ערבית",
@@ -808,6 +832,12 @@ mod tests {
             // `מה` mid-sentence, which is the false positive a looser rule
             // would produce: only the first word is looked at.
             "וכל מה שיוכל להוסיף יוסיף",
+            // **The one that argues for the whole design.** `במה דברים אמורים`
+            // opens like a question and is one of the commonest statement
+            // openers in halachic literature — a rule built out of a pattern
+            // rather than a list would catch it, and put a wrong caveat over
+            // exactly the kind of line this lane is good at.
+            "במה דברים אמורים בזמן שבית המקדש היה קיים",
             "the line about standing up like a lion",
         ] {
             assert!(
