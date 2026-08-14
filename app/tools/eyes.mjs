@@ -307,8 +307,44 @@ function ownPort() {
  * the reason for anything. Filtering it would mean deciding which of somebody
  * else's diagnostics matter, which is the mistake `trouble.ts` is about. It is
  * the browser's own words, printed whole, for a person to read.
+ *
+ * # The page, and not a page
+ *
+ * This took the **first** target of type `page` and handed it back, on the
+ * assumption that a browser started with one URL on its command line has one
+ * page. It does not always. A fresh profile can list an `about:blank` beside
+ * the file it was told to open, and which of the two comes first in
+ * `/json/list` is not a thing anything promises.
+ *
+ * When it came back blank, everything downstream did exactly what it should:
+ * `settled` refused to measure, spent its whole sixty seconds waiting for a
+ * `.pane-body` that was never going to appear in an empty document, and
+ * reported *no .pane-body after 60s*. Which reads as a slow machine, and is why
+ * this clock had already been raised twice — both times for a wait that was
+ * real and once, at least, for a page that was never the right one. Three CI
+ * runs in a row died here, and the sixty-second budget is not the finding.
+ *
+ * So the target is chosen **by its URL**. Anything else is *a* page, and this
+ * tool is not about a page, it is about one file it wrote itself. A run that
+ * lists pages and none of them ours says so, and names what it did find.
  */
-async function pageOf(port, said = () => "", alive = () => true) {
+/**
+ * Whether a target's URL is the file this script wrote.
+ *
+ * Exact first, because `pathToFileURL` and Chrome agree about a file URL almost
+ * always. The fallback is the **file name**, which is enough here and is not a
+ * loose match dressed up as a strict one: the name is `specimens.html` inside a
+ * directory `mkdtemp` just minted, so nothing else on the machine can be
+ * wearing it. It exists because a browser is entitled to normalise a URL it was
+ * handed — a drive letter's case on Windows, a percent-encoding — and a check
+ * that went red over that would be this same bug with the sides swapped.
+ */
+function isWanted(url, wanted) {
+  if (typeof url !== "string") return false;
+  return url === wanted || url.endsWith(`/${path.basename(wanted)}`);
+}
+
+async function pageOf(port, wanted, said = () => "", alive = () => true) {
   // The last thing the port did, not a transcript of it starting up: a failure
   // wants the state it gave up in. Every branch below overwrites this, so what
   // survives to the throw is the most informative thing that ever happened.
@@ -318,12 +354,21 @@ async function pageOf(port, said = () => "", alive = () => true) {
       const answer = await fetch(`http://127.0.0.1:${port}/json/list`);
       const list = await answer.json().catch(() => null);
       if (Array.isArray(list)) {
-        const page = list.find((t) => t.type === "page");
+        const pages = list.filter((t) => t.type === "page");
+        const page = pages.find((t) => isWanted(t.url, wanted));
         if (page?.webSocketDebuggerUrl) return page;
         const types = list.map((t) => t.type).join(", ");
-        heard = list.length
-          ? `it is listening on port ${port} and lists no page, only: ${types}`
-          : `it is listening on port ${port} and lists no targets at all`;
+        if (!list.length) {
+          heard = `it is listening on port ${port} and lists no targets at all`;
+        } else if (!pages.length) {
+          heard = `it is listening on port ${port} and lists no page, only: ${types}`;
+        } else {
+          // The failure that wore a timeout's clothes: pages, and not the one
+          // this script wrote. Named, because "no page" would be a lie.
+          heard =
+            `it is listening on port ${port} and lists ${pages.length} page(s), ` +
+            `none of them the specimens: ${pages.map((t) => t.url).join(", ")}`;
+        }
       } else {
         heard = `something answered on port ${port}, and it was not a target list`;
       }
@@ -479,7 +524,7 @@ async function main() {
 
   try {
     const alive = () => child.exitCode === null && child.signalCode === null;
-    const target = await pageOf(port, () => complained, alive);
+    const target = await pageOf(port, pathToFileURL(page).href, () => complained, alive);
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.addEventListener("open", resolve);
