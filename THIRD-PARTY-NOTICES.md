@@ -1,6 +1,6 @@
 # Third-party notices
 
-Girsa itself is dual-licensed MIT OR Apache-2.0 (see `LICENSE`). This file
+Girsa itself is dual-licensed MIT OR Apache-2.0 (see `COPYRIGHT`). This file
 covers everything else that ships inside a Girsa installer.
 
 It exists because it has to. What is listed here is **bundled into the

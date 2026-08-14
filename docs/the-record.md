@@ -91,7 +91,7 @@ pages.
 
 ## Licence
 
-MIT OR Apache-2.0 — see [`../LICENSE`](../LICENSE). Forced by crate-sharing with
+MIT OR Apache-2.0 — see [`../COPYRIGHT`](../COPYRIGHT). Forced by crate-sharing with
 Ksav. No corpus text is committed here; texts are downloaded at first run and each
 carries its own source and licence.
 

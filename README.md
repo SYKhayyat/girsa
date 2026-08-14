@@ -408,7 +408,7 @@ one, which is everybody reading it on GitHub.
 
 ## Licence
 
-MIT or Apache-2.0, at your option — [`LICENSE`](LICENSE).
+MIT or Apache-2.0, at your option — [`COPYRIGHT`](COPYRIGHT).
 
 The corpus is not this repository's to license: Sefaria's texts and Otzaria's
 carry their own terms, and [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) is
