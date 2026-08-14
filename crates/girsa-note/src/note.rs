@@ -32,6 +32,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use girsa_corpus::era;
 use girsa_corpus::import::{Segment, SegmentKind};
 use girsa_corpus::segment::{Ordinal, SegmentId};
 use girsa_corpus::standing::Standing;
@@ -344,8 +345,18 @@ impl Note {
             origin: path_in(personal, self.name()),
             schema: None,
             author: (!self.who.trim().is_empty()).then(|| self.who.clone()),
-            era: None,
-            comp_date: None,
+            // The one work in this library whose date is known rather than
+            // estimated. Sefaria's schemas say `c.1065  – c.1115 CE`; a note
+            // says the second it was saved, and `when` has carried it since
+            // the file format existed — it was simply never copied onto the
+            // catalogue entry, so the timeline could not place a note and the
+            // chain could not walk into one.
+            //
+            // Dated from `when` and not `edited`: a chain asks when a thing
+            // was written, and rewording a paragraph in 2030 does not move a
+            // note behind the sefer it was answering.
+            era: Some(era::Era::Contemporary.code().to_string()),
+            comp_date: Some(era::written_at(self.when)),
             version: Some(Version {
                 edition: "your own note".to_string(),
                 provenance: None,
@@ -1032,6 +1043,47 @@ pub(crate) mod tests {
             again.get("מאימתי").map(|n| n.title.clone()),
             Some("מאימתי קורין".to_string())
         );
+        let _ = std::fs::remove_dir_all(&personal);
+    }
+
+    #[test]
+    fn a_note_is_placed_in_time_by_the_second_it_was_saved() {
+        // W27 shipped with `era: None, comp_date: None` on a note's catalogue
+        // entry, and the chain's own record wrote the consequence down: a note
+        // is `Unknown` against everything and is never a hop, *which is the
+        // truthful answer, and not a useful one.*
+        //
+        // It was not the truthful answer. `when` has been on every note since
+        // the format existed, and it is the one date anywhere in this corpus
+        // that is known to the second instead of estimated to the century.
+        // Sefaria's dates are `c.1065  – c.1115 CE`; this one is not a `c.`.
+        let personal = scratch("dated");
+        let (mut notes, _) = Notes::open(&personal);
+        let note = note();
+        let slug = note.slug.clone();
+        let when = note.when;
+        notes.write(note).expect("takes");
+
+        let read = girsa_corpus::import::read_back(&personal, &slug).expect("reads back");
+        assert_eq!(
+            read.work.comp_date.as_deref(),
+            Some(girsa_corpus::era::written_at(when).as_str()),
+            "the catalogue carries the year the note was saved"
+        );
+        assert_eq!(
+            read.work.era.as_deref(),
+            Some(girsa_corpus::era::Era::Contemporary.code()),
+            "and the era a reader recognises, so a facet can name it"
+        );
+
+        // The claim that matters: the timeline can place it now.
+        let mut timeline = girsa_corpus::era::Timeline::default();
+        timeline.load(&personal).expect("a catalogue to read");
+        assert!(
+            timeline.when(&slug).is_placed(),
+            "a note the timeline cannot place is a note no chain can walk into"
+        );
+        assert_eq!(timeline.undated(), 0);
         let _ = std::fs::remove_dir_all(&personal);
     }
 

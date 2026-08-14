@@ -169,9 +169,44 @@ answering the other, which is a different thing.
 - **A fork is one hop wide on each side.** Two readings joined through an
   intermediate sefer are not found, and the ones that are found are bounded by
   `--width` with the drop counted.
-- **Nothing walks into your own layer's dates.** A note has no `comp_date`, so it
-  is `Unknown` against everything and is never a hop — which is the truthful
-  answer, and not a useful one.
+
+### Your own layer's dates, and the comment that was not an instruction
+
+This section used to carry a third line — *nothing walks into your own layer's
+dates; a note has no `comp_date`, so it is `Unknown` against everything and is
+never a hop, which is the truthful answer and not a useful one.* It was neither
+truthful nor one problem. It was two, and the second was the real one.
+
+**A note's date was never unknown.** `when` has been on every note since the
+format existed, and it is the only date in this library that is known to the
+second rather than estimated to the century — Sefaria's schemas say
+`c.1065  – c.1115 CE`, and a note says exactly when you saved it. It simply was
+not copied onto the catalogue entry, which went out with `era: None,
+comp_date: None`. It now carries `CO` and the year, written by
+`girsa_corpus::era::written_at` — which lives beside `parse_comp_date`, the
+function that reads it back, so the round trip is a test rather than a hope.
+
+Dated from `when` and not `edited`: a chain asks when a thing was *written*, and
+rewording a paragraph in 2030 should not move a note behind the sefer it was
+answering.
+
+**And it would still have been `Unknown` here.** `Timeline::load` has carried
+the note *call it again per root to merge in your own layer* since the type was
+written. Four callers build a timeline — this command, the MCP server, the
+lane's `ask`, and the window — and **all four** read the corpus root alone. So
+even a dated note was invisible to every one of them.
+
+That is the more useful finding, and it is not about notes at all: an
+instruction that lives only in a doc comment is not an instruction. It is a hope
+with syntax highlighting. The fix is `Timeline::across(root, personal)`, which
+is what the four callers use now, because the way to stop the fifth caller
+getting it wrong is a function that cannot be called the wrong way — not a
+louder comment above the one that can.
+
+A dropped-in PDF is still undated, and deliberately: the day you obtained a
+sefer is not the year it was written, and `Unknown` beats a confident wrong
+answer. The distinction that matters is between what you *wrote* and what you
+*acquired*.
 
 ---
 

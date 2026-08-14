@@ -99,7 +99,11 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let timeline = match Timeline::of(&root) {
+    // Both roots. This walked the corpus's catalogue alone for as long as it
+    // has existed, so a note of yours was `Unknown` against every sefer on the
+    // shelf and could never be a hop — which went on the record as a fact about
+    // notes when it was a fact about this line.
+    let timeline = match Timeline::across(&root, &personal) {
         Ok(timeline) => timeline,
         Err(e) => {
             eprintln!(

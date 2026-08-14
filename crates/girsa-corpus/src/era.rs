@@ -275,7 +275,11 @@ impl Timeline {
         Ok(())
     }
 
-    /// Read one root, in one call.
+    /// Read **one** root, in one call.
+    ///
+    /// For a root with no personal layer beside it, which in practice means a
+    /// fixture. Anything a reader will use wants [`Timeline::across`] — see
+    /// the note there for why this is worth saying twice.
     ///
     /// # Errors
     ///
@@ -283,6 +287,33 @@ impl Timeline {
     pub fn of(root: &Path) -> Result<Self, std::io::Error> {
         let mut timeline = Self::default();
         timeline.load(root)?;
+        Ok(timeline)
+    }
+
+    /// Read the corpus's catalogue **and yours**.
+    ///
+    /// [`Timeline::load`] has said *call it again per root to merge in your own
+    /// layer* since the day this type was written, and every one of the four
+    /// callers read the corpus root alone: `girsa-chain`, the MCP server, the
+    /// lane's `ask`, and the window. So a work of yours was undated everywhere
+    /// — and `the chain does not walk into your own layer's dates` went on the
+    /// record as a fact about notes when it was a fact about this call.
+    ///
+    /// An instruction in a doc comment is not an instruction. It is a hope with
+    /// syntax highlighting, and the fix for one is a function rather than a
+    /// louder comment.
+    ///
+    /// A personal layer with no catalogue is a reader who has written nothing,
+    /// which is not an error and is not worth a warning. A corpus root with no
+    /// catalogue is an import that never ran, which is.
+    ///
+    /// # Errors
+    ///
+    /// As [`Timeline::load`], for the corpus root only.
+    pub fn across(root: &Path, personal: &Path) -> Result<Self, std::io::Error> {
+        let mut timeline = Self::default();
+        timeline.load(root)?;
+        let _ = timeline.load(personal);
         Ok(timeline)
     }
 
@@ -345,6 +376,55 @@ pub fn parse_comp_date(text: &str) -> Option<(i32, i32)> {
     // are negative. A pair that is still the wrong way round is put in order
     // rather than rejected: the corpus means a span either way.
     Some((from.min(to), from.max(to)))
+}
+
+/// The `comp_date` for something written at a moment this machine watched
+/// happen.
+///
+/// The inverse of [`parse_comp_date`], and it lives beside it for the reason
+/// every other reader-and-writer pair in this repository does: two halves of
+/// one format in two files drift, and the round trip is a test you can only
+/// write where both of them are.
+///
+/// **Only for your own writing.** A note is dated by this because
+/// `girsa_personal` stamped the second it was saved, so the year is not an
+/// estimate — it is the one date in this entire corpus that is known exactly. A
+/// PDF you dropped on the shelf is *not* dated by this: the day you obtained a
+/// sefer is not the year it was written, and `Unknown` beats a confident wrong
+/// answer every time (BUILDER.md rule 6).
+#[must_use]
+pub fn written_at(seconds: u64) -> String {
+    format!("{} CE", year_of(seconds))
+}
+
+/// The calendar year at a moment, from seconds since the epoch.
+///
+/// Howard Hinnant's civil-from-days, with the year shifted to start in March so
+/// that the leap day is the last day of it and the century rules fall out of
+/// the division instead of needing a table.
+///
+/// The tempting version is `1970 + seconds / 31_556_952`, and it is wrong for
+/// the last hours of most years — a defect that can only appear in a note
+/// written late on 31 December, would be reported as *the chain put my note in
+/// the wrong order* months later, and would be blamed on the chain.
+fn year_of(seconds: u64) -> i32 {
+    // Days since the epoch. `u64` seconds cannot exceed `i64` days by a factor
+    // of 86,400, so the conversion is total; the fallback is unreachable and is
+    // written rather than unwrapped because a panic in a catalogue entry would
+    // take the shelf down with it.
+    let Ok(days) = i64::try_from(seconds / 86_400) else {
+        return 1970;
+    };
+    let z = days + 719_468;
+    let era = z / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    // The month, in the shifted year: 0 is March and 10 and 11 are January and
+    // February, which belong to the next civil year.
+    let shifted_month = (5 * doy + 2) / 153;
+    let year = yoe + era * 400 + i64::from(shifted_month >= 10);
+    i32::try_from(year).unwrap_or(1970)
 }
 
 /// A range into its two halves, or the whole string twice for a single year.
@@ -539,6 +619,58 @@ mod tests {
         assert_eq!(parse_comp_date("c.50 BCE  – c.100 CE"), Some((-50, 100)));
         assert_eq!(parse_comp_date("1815  – 1870 CE"), Some((1815, 1870)));
         assert_eq!(parse_comp_date("c.1200 CE"), Some((1200, 1200)));
+    }
+
+    #[test]
+    fn what_is_written_now_is_read_back_as_now() {
+        // The round trip, which is the whole reason the writer sits in this
+        // file: `girsa-note` writes a catalogue entry with `written_at` and
+        // `Timeline::load` reads it with `parse_comp_date`, and nothing else
+        // would notice the day those two stopped agreeing.
+        for seconds in [0_u64, 1_000_000_000, 1_704_067_200, 1_786_665_600] {
+            let written = written_at(seconds);
+            let year = year_of(seconds);
+            assert_eq!(
+                parse_comp_date(&written),
+                Some((year, year)),
+                "{written} has to be a shape the corpus reads"
+            );
+        }
+    }
+
+    #[test]
+    fn the_year_is_the_calendar_year_and_not_an_averaged_one() {
+        assert_eq!(year_of(0), 1970);
+        // 2026-08-14, the day this was written.
+        assert_eq!(year_of(1_786_665_600), 2026);
+        // 2000-02-29. A leap day in a century that is a leap year only because
+        // 400 divides it — the case a table gets wrong and this arithmetic
+        // does not.
+        assert_eq!(year_of(951_782_400), 2000);
+        // The second either side of a new year: 2023-12-31T23:59:59Z and
+        // 2024-01-01T00:00:00Z. `1970 + seconds / 31_556_952` calls the first
+        // of these 2024, which is the defect this is written to avoid and the
+        // only place it is visible.
+        assert_eq!(year_of(1_704_067_199), 2023);
+        assert_eq!(year_of(1_704_067_200), 2024);
+    }
+
+    #[test]
+    fn a_note_written_today_is_after_every_sefer_on_the_shelf() {
+        // The point of dating a note at all. Before this, `When::default()`
+        // made it Unknown against a Rishon, and Unknown is the answer that
+        // stops a chain rather than extending it.
+        let note = When {
+            era: Era::from_code(Era::Contemporary.code()),
+            years: parse_comp_date(&written_at(1_786_665_600)),
+        };
+        let rashi = When {
+            era: Some(Era::Rishonim),
+            years: parse_comp_date("c.1065  – c.1115 CE"),
+        };
+        assert_eq!(order(&note, &rashi), Order::After);
+        assert_eq!(order(&rashi, &note), Order::Before);
+        assert!(note.is_placed());
     }
 
     #[test]

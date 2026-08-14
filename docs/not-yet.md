@@ -4,8 +4,8 @@ Every tier in [`../spec.md`](../spec.md) is built and each one is asserted on
 something — [`../BUILDER.md`](../BUILDER.md), *What holds, per work order*, has
 the twenty rows. That is a true sentence and on its own it is a misleading one,
 because seven of the twelve pages in [`the-record.md`](the-record.md) carry a
-section — eight sections in all — saying what the thing just described still
-cannot do, and those sections are the only honest account of where this stands.
+section saying what the thing just described still cannot do, and those sections
+are the only honest account of where this stands.
 
 They were written where the work was argued, which is the right place to argue
 them and the wrong place to find them. This page is the same eight lists in one
@@ -37,7 +37,6 @@ which is a different and generally harder problem than either piece was.
 | **Nothing rebuilds the index when you write.** Your own seforim and notes are searchable as of the last build, and a 5,000,545-segment rebuild is four minutes. Until tantivy is written incrementally, that gap is real. | [your own layer](record/your-own-layer.md#what-this-does-not-do) |
 | **Your own seforim are not in the resolver's lexicon**, so one is opened and filed by title and cannot yet be *cited* by name. | [corrections](record/corrections.md#what-corrections-do-not-reach-yet) |
 | **OCR text does not reach the OCR-error queue.** A word tesseract got wrong is not ranked beside a word Otzaria's scanner got wrong. Same machinery, same shape, never joined. | [scans](record/scans.md#the-job-is-one-page-at-a-time-and-that-is-the-promise) |
-| **Your notes are never a hop in the chain.** A note has no `comp_date`, so it is `Unknown` against everything — the truthful answer, and not a useful one. | [the chain](record/the-chain.md#what-the-chain-does-not-do-yet) |
 | **A note's own words are not linkified.** W19's linkify runs over Ksav documents; a citation typed into a note is text. The same gap holds for a `.ksav` read onto the shelf. | [your own layer](record/your-own-layer.md#what-this-does-not-do) · [a document of yours](record/a-document-of-yours.md#what-a-document-does-not-carry-yet) |
 | **Nothing merges two people's layers.** Corrections have `girsa-fix merge`; notes, marks and folders do not, and two copies of `personal/` are two copies. | [your own layer](record/your-own-layer.md#what-this-does-not-do) |
 

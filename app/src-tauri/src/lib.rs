@@ -1072,7 +1072,7 @@ fn open_corpus(
     // never asked drew a blank, which is not.
     let timeline = shelf
         .as_ref()
-        .and_then(|shelf| girsa_corpus::era::Timeline::of(shelf.root()).ok());
+        .and_then(|shelf| girsa_corpus::era::Timeline::across(shelf.root(), personal).ok());
     let (bar, no_search) = open_bar_for(&shelf);
     let lexicon = shelf.as_ref().and_then(|shelf| read_lexicon(shelf.root()));
     // The lane, once. With it off — the default — this opens nothing and reads

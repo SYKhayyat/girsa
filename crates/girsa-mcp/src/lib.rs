@@ -98,7 +98,9 @@ impl Server {
     /// which reads to a caller like an empty library.
     pub fn open(root: &Path, personal: &Path, index: &Path) -> Result<Self, OpenError> {
         let shelf = Shelf::open(root, personal).map_err(|e| OpenError::Shelf(e.to_string()))?;
-        let timeline = Timeline::of(root)
+        // Both roots, so a work of yours is dated to a caller the same way it
+        // is to a reader. This read the corpus alone, like the other three.
+        let timeline = Timeline::across(root, personal)
             .map_err(|e| OpenError::Catalogue(root.join("works/index.jsonl"), e.to_string()))?;
         let search = SearchIndex::open(index)
             .map_err(|e| OpenError::Index(index.to_path_buf(), e.to_string()))?;

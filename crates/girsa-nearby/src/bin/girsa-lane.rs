@@ -81,7 +81,7 @@ fn main() -> std::process::ExitCode {
             // half-remember, and *when* is most of deciding whether it is the
             // one — the column existed in two of the four composers and this
             // was one of the two that did without it.
-            let timeline = girsa_corpus::era::Timeline::of(&root).ok();
+            let timeline = girsa_corpus::era::Timeline::across(&root, &personal).ok();
             let names = Names::new(
                 &shelf,
                 timeline.as_ref(),
