@@ -324,9 +324,13 @@ function ownPort() {
  * real and once, at least, for a page that was never the right one. Three CI
  * runs in a row died here, and the sixty-second budget is not the finding.
  *
- * So the target is chosen **by its URL**. Anything else is *a* page, and this
- * tool is not about a page, it is about one file it wrote itself. A run that
- * lists pages and none of them ours says so, and names what it did find.
+ * So the target is chosen **by its URL** where there is one to choose. A run
+ * that lists pages and none of them ours says so and names what it did find —
+ * and then takes one anyway, because the caller navigates it. Choosing by URL
+ * alone left the failure exactly where it was on a runner that lists our URL
+ * and serves an empty document; what fixes that is not picking better but
+ * **opening the page ourselves** rather than trusting a command line. See
+ * `main`.
  */
 /**
  * Whether a target's URL is the file this script wrote.
@@ -354,21 +358,15 @@ async function pageOf(port, wanted, said = () => "", alive = () => true) {
       const answer = await fetch(`http://127.0.0.1:${port}/json/list`);
       const list = await answer.json().catch(() => null);
       if (Array.isArray(list)) {
-        const pages = list.filter((t) => t.type === "page");
-        const page = pages.find((t) => isWanted(t.url, wanted));
-        if (page?.webSocketDebuggerUrl) return page;
+        const pages = list.filter((t) => t.webSocketDebuggerUrl && t.type === "page");
+        // Ours by name, or any page — the caller navigates whichever it gets,
+        // so a blank one is a usable handle rather than a wrong answer.
+        const page = pages.find((t) => isWanted(t.url, wanted)) ?? pages[0];
+        if (page) return page;
         const types = list.map((t) => t.type).join(", ");
-        if (!list.length) {
-          heard = `it is listening on port ${port} and lists no targets at all`;
-        } else if (!pages.length) {
-          heard = `it is listening on port ${port} and lists no page, only: ${types}`;
-        } else {
-          // The failure that wore a timeout's clothes: pages, and not the one
-          // this script wrote. Named, because "no page" would be a lie.
-          heard =
-            `it is listening on port ${port} and lists ${pages.length} page(s), ` +
-            `none of them the specimens: ${pages.map((t) => t.url).join(", ")}`;
-        }
+        heard = list.length
+          ? `it is listening on port ${port} and lists no page, only: ${types}`
+          : `it is listening on port ${port} and lists no targets at all`;
       } else {
         heard = `something answered on port ${port}, and it was not a target list`;
       }
@@ -453,10 +451,21 @@ async function settled(eye) {
     await new Promise((r) => setTimeout(r, SETTLED_EVERY));
   }
   // Whatever it last saw, so the failure names the state rather than the wait.
+  //
+  // **And what state.** This used to say only `no .pane-body after 60s`, which
+  // is a sentence about a clock, and three CI runs in a row were read as a slow
+  // machine because of it — the tool spent its whole budget looking at a
+  // document it could have described in one evaluation. A wait that ends in
+  // nothing should hand back the page it was waiting on: where the browser
+  // actually is, whether it finished loading, and how much markup arrived. A
+  // blank document and a slow one do not look alike once anybody says so.
   const waited = (SETTLED_TRIES * SETTLED_EVERY) / 1000;
   return eye.look(`(() => {
     const body = document.querySelector('.pane-body');
-    return body ? getComputedStyle(body).overflowY : 'no .pane-body after ${waited}s';
+    if (body) return getComputedStyle(body).overflowY;
+    const html = document.documentElement?.innerHTML?.length ?? 0;
+    return 'no .pane-body after ${waited}s — at ' + location.href +
+      ', readyState ' + document.readyState + ', ' + html + ' characters of markup';
   })()`);
 }
 
@@ -524,7 +533,8 @@ async function main() {
 
   try {
     const alive = () => child.exitCode === null && child.signalCode === null;
-    const target = await pageOf(port, pathToFileURL(page).href, () => complained, alive);
+    const wanted = pathToFileURL(page).href;
+    const target = await pageOf(port, wanted, () => complained, alive);
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.addEventListener("open", resolve);
@@ -533,6 +543,19 @@ async function main() {
     const eye = new Eye(socket);
     await eye.send("Runtime.enable");
     await eye.send("Page.enable");
+
+    // **Open the page, rather than trusting that the browser did.**
+    //
+    // The URL is on the command line and this is the same URL again, so on a
+    // healthy machine it is a reload costing a few milliseconds. It is here
+    // because on a CI runner it was not a reload: the target listed our file
+    // and served an empty document, and `settled` then spent sixty seconds
+    // proving that an empty document has no `.pane-body`. Whatever the runner
+    // does with a URL argument — a first-run interstitial, a restored session,
+    // a navigation that lost a race with the debugger attaching — asking for
+    // the page explicitly makes it not matter. This tool wrote the file; it can
+    // open it.
+    await eye.send("Page.navigate", { url: wanted });
 
     // The stylesheet has to have arrived, or every measurement below is a
     // measurement of unstyled HTML and all of them pass.
