@@ -630,6 +630,13 @@ that sorts **before** every one already held, and every byte that was in the fil
 is still in the file, in the same place. True of an append, false of a rewrite,
 and false even when the rewrite lands a file of identical length.
 
+*Amended again: the overlay reaches the search index. Every surface a reader
+looks at read through it except the one that finds anything, so a typo fixed
+this morning was findable by the typo and not by the word. `girsa-index` reads
+the layer once per build and indexes the segment as you read it — never the
+text, and a rebuildable cache over the corpus and over what you have said about
+it. See `record/corrections.md`.*
+
 ### W21 · OCR-error detection
 
 A word appearing once in the corpus, one edit-distance from a word appearing ten

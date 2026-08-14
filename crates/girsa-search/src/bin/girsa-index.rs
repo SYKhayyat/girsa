@@ -35,6 +35,7 @@ use girsa_ref::resolve::Context;
 use girsa_search::bar::{Answer, Bar, Results};
 use girsa_search::chips::{Chips, Skips, Sounding};
 use girsa_search::citation::{Landing, NearMiss};
+use girsa_search::corrected::Corrections;
 use girsa_search::facets::{Catalogue, Dimension, Facets, Links};
 use girsa_search::index::{BuildReport, Hit, Paging, SearchIndex, Stamp, CACHE_STAMP};
 use girsa_search::ladder::{Offers, Rung, Standing, Widened};
@@ -333,6 +334,16 @@ struct Tally {
     /// **wrong**, and wrong in a way that produces a facet column indistinguish-
     /// able from a correct one. Named per work, because the fix is per work.
     links_stale: Vec<String>,
+    /// Segments indexed as the reader corrected them rather than as the corpus
+    /// has them (W20).
+    corrected: usize,
+    /// Corrections whose words the work no longer has, so nothing was applied.
+    ///
+    /// Counted and reported, never swallowed. A stale correction is the
+    /// reader's to decide about — `girsa_fix::Corrected::stale` says the same
+    /// thing to the reading pane and to an export, and a build that dropped
+    /// them quietly would be the one surface where they vanished.
+    stale_fixes: usize,
 }
 
 fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitCode {
@@ -369,6 +380,19 @@ fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitC
 
     let mut tally = Tally::default();
     let mut since_commit = 0usize;
+
+    // Your corrections, read once for the whole build. The index is a
+    // rebuildable cache over the corpus **and** what you have said about it:
+    // until this, a typo you fixed this morning was findable by the typo and
+    // not by the word, because the pane, a copied quote and an export all read
+    // through the overlay and the indexer did not.
+    let (corrections, trouble) = Corrections::of(roots);
+    for line in trouble {
+        eprintln!("{line}");
+    }
+    if corrections.count() > 0 {
+        eprintln!("{} corrections of yours to apply", corrections.count());
+    }
 
     for root in roots {
         let root = PathBuf::from(root);
@@ -443,6 +467,25 @@ fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitC
             }
             let mut page = 0;
 
+            // What you have corrected in this sefer, if anything (W20). Both
+            // halves of the evidence for a `Standing` are gathered per work and
+            // only for a work a correction actually touches, so a shelf of
+            // 7,189 works pays for this on the handful somebody has edited: the
+            // live names, so a cut can be told from an insertion, and
+            // `redirects.jsonl` backwards, so a name upstream moved leads home.
+            let fixes_here = corrections.touch(&work.slug);
+            let (live, back) = if fixes_here {
+                (
+                    ids.iter().cloned().collect(),
+                    girsa_corpus::standing::redirected_here(&imported.redirects),
+                )
+            } else {
+                (
+                    std::collections::BTreeSet::new(),
+                    std::collections::BTreeMap::new(),
+                )
+            };
+
             for (at, segment) in imported.segments.iter().enumerate() {
                 let kinds: Vec<girsa_link::EdgeType> =
                     by_segment.get(at).copied().unwrap_or_default().kinds();
@@ -456,9 +499,30 @@ fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitC
                 } else {
                     None
                 };
-                let outcome = match &read {
-                    Some(read) => writer.add_page(segment, &kinds, read),
-                    None => writer.add(segment, &kinds),
+                // A page of a scan is corrected on the photograph, by ink, and
+                // `words.page` above has already applied those. The overlay
+                // here is the other kind — a span of characters in a line — and
+                // the two never meet on one segment.
+                let corrected = if fixes_here && read.is_none() {
+                    let standing = girsa_corpus::standing::Standing::derived(
+                        &segment.id,
+                        |name| live.contains(name),
+                        |name| back.get(name).cloned().unwrap_or_default(),
+                    );
+                    corrections.text(&standing, &segment.text)
+                } else {
+                    None
+                };
+                if let Some(reading) = &corrected {
+                    if reading.applied > 0 {
+                        tally.corrected += 1;
+                    }
+                    tally.stale_fixes += reading.stale;
+                }
+                let outcome = match (&read, &corrected) {
+                    (Some(read), _) => writer.add_page(segment, &kinds, read),
+                    (None, Some(reading)) => writer.add_saying(segment, &kinds, &reading.text),
+                    (None, None) => writer.add(segment, &kinds),
                 };
                 if let Err(e) = outcome {
                     eprintln!("cannot index {}: {e}", segment.id);
@@ -468,7 +532,13 @@ fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitC
                     tally.pages_read += 1;
                     tally.scanned_words += read.words.len();
                 }
-                if read.is_none() && girsa_hebrew::normalize(&segment.text).is_empty() {
+                // Asked of what went in, which for a corrected line is the
+                // corrected words: the count is *segments with nothing to find*,
+                // and what is findable is what was indexed.
+                let indexed = corrected
+                    .as_ref()
+                    .map_or(segment.text.as_str(), |reading| reading.text.as_str());
+                if read.is_none() && girsa_hebrew::normalize(indexed).is_empty() {
                     tally.wordless += 1;
                 }
                 if segment.kind == girsa_corpus::import::SegmentKind::Page && read.is_none() {
@@ -533,6 +603,22 @@ fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitC
         "  wordless           {}   (empty headings, and scans not yet OCR'd)",
         tally.wordless
     );
+    if corrections.count() > 0 {
+        println!(
+            "  your corrections   {} segments indexed as you read them",
+            tally.corrected
+        );
+        if tally.stale_fixes > 0 {
+            // Said out loud for the same reason an export's header says it: a
+            // correction whose words are no longer there is not applied, the
+            // file is fine, and this is the moment nobody would otherwise hear
+            // about it.
+            println!(
+                "                     {} corrections did not apply — the words they were made from are not there any more",
+                tally.stale_fixes
+            );
+        }
+    }
     println!("  in the index       {}", index.count());
     println!(
         "  link types from    {} works{}",

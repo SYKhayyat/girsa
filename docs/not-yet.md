@@ -32,7 +32,6 @@ which is a different and generally harder problem than either piece was.
 
 | | Where it is argued |
 |---|---|
-| **Corrections do not reach the search index.** A typo you fixed this morning is findable by the typo and not by the correction. The reading pane, a quote sent to Ksav and a regenerated citation all show your fix; a search result shows what was scanned, because `girsa-index` reads the corpus and knows nothing about your layer. Rebuilding per correction is not the answer and neither is a second index — this wants the overlay taught to the indexer. | [corrections](record/corrections.md#what-corrections-do-not-reach-yet) |
 | **Nothing rebuilds the index when you write.** Your own seforim and notes are searchable as of the last build, and a 5,000,545-segment rebuild is four minutes. Until tantivy is written incrementally, that gap is real. | [your own layer](record/your-own-layer.md#what-this-does-not-do) |
 
 ## Built narrower than the name suggests

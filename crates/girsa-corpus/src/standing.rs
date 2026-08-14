@@ -50,7 +50,7 @@
 //!
 //! Both halves land in one set of names, and one membership test over it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::segment::SegmentId;
 
@@ -196,6 +196,39 @@ impl Standing {
     pub fn is_empty(&self) -> bool {
         false
     }
+}
+
+/// `redirects.jsonl` read backwards: for each name a work still has, the dead
+/// ones that lead to it.
+///
+/// The file answers *where did these words go*, which is what a stale id needs
+/// in order to find text. Standing on a line and asking *what was this called
+/// before* is the other direction, and it is the one every anchored thing
+/// needs — a link, a note, a highlight, a folder and a correction are all
+/// stored under the name the place had when they were written. It is the
+/// second half of the evidence [`Standing::derived`] takes.
+///
+/// Here rather than in `girsa-app` because there are now two callers with
+/// nothing in common but this: the window, which holds a sefer open, and the
+/// indexer, which holds five million segments and no shelf. It was written
+/// once in each until the second one needed it.
+///
+/// A row with nowhere to point — `Why::Gone` — appears in neither direction.
+/// An anchor on it names no words here, which is the honest answer and not the
+/// same as an id nobody ever minted.
+#[must_use]
+pub fn redirected_here(
+    redirects: &[crate::import::Redirect],
+) -> BTreeMap<SegmentId, Vec<SegmentId>> {
+    let mut back: BTreeMap<SegmentId, Vec<SegmentId>> = BTreeMap::new();
+    for row in redirects.iter().filter(|row| !row.to.is_empty()) {
+        for target in &row.to {
+            back.entry(target.clone())
+                .or_default()
+                .push(row.from.clone());
+        }
+    }
+    back
 }
 
 #[cfg(test)]

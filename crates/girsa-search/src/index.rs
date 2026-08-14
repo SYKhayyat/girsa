@@ -1816,6 +1816,32 @@ impl Writer {
     ///
     /// If tantivy will not take the document.
     pub fn add(&mut self, segment: &Segment, touching: &[EdgeType]) -> Result<(), IndexError> {
+        self.add_saying(segment, touching, &segment.text)
+    }
+
+    /// Index one segment saying something other than what is on disk (W20).
+    ///
+    /// The one thing that says it: **the reader's corrections**. A typo fixed
+    /// this morning showed up in the reading pane, in a quote copied to Ksav
+    /// and in an export, and not in a search — the index was built from the
+    /// corpus files and the corpus files are the sefer as it was scanned, so
+    /// the line was findable by its typo and not by its word.
+    ///
+    /// The correction stays an overlay and the base text stays exactly where it
+    /// is on disk (spec.md §4.1 — *never the text*). What crosses this boundary
+    /// is one already-corrected string, worked out by `girsa_fix::Layer::apply_at`
+    /// in the caller, because which patches apply to which place under which
+    /// `Showing` is that crate's question and not this one's.
+    ///
+    /// # Errors
+    ///
+    /// If tantivy will not take the document.
+    pub fn add_saying(
+        &mut self,
+        segment: &Segment,
+        touching: &[EdgeType],
+        text: &str,
+    ) -> Result<(), IndexError> {
         let work = segment.id.work();
         if !self.replaced.contains(work) {
             self.writer
@@ -1830,7 +1856,7 @@ impl Writer {
         for kind in touching {
             doc.add_text(self.fields.link, kind.as_str());
         }
-        doc.add_text(self.fields.text, &segment.text);
+        doc.add_text(self.fields.text, text);
         doc.add_text(self.fields.by, "");
         self.writer.add_document(doc)?;
         Ok(())

@@ -1162,15 +1162,13 @@ impl Open {
         // Keyed the same way, and for the same reason: a redirect row names
         // the place by the address it had *then*, and the ordinal is what makes
         // the two records one place.
-        self.redirected_from = BTreeMap::new();
-        for (from, to) in &self.redirects {
-            for target in to {
-                self.redirected_from
-                    .entry(target.clone())
-                    .or_default()
-                    .push(from.clone());
-            }
-        }
+        //
+        // The inversion itself is `girsa_corpus`'s, beside the `Standing` it is
+        // half the evidence for. It was written here and nowhere else until the
+        // indexer needed the same table to apply your corrections at build time
+        // (W20), and two copies of *which dead names lead here* is exactly the
+        // kind of pair that drifts silently.
+        self.redirected_from = girsa_corpus::standing::redirected_here(redirects);
         self
     }
 

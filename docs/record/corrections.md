@@ -214,15 +214,57 @@ what the importer reads. So the test is a **round trip**: export the sefer,
 re-import the file with the same reader a dropped Word file goes through, and
 the corrected words and both headings come back.
 
-### What corrections do not reach yet
+### The overlay, taught to the indexer
 
-**The search index is built from the printed text.** A typo you fixed this
-morning is still findable by its typo and not yet by its correction, because
-`girsa-index` reads the corpus and knows nothing about your layer. The reading
-pane, a quote copied to Ksav and a citation regenerated from a ref all show the
-corrected words; a search result shows what was scanned. Rebuilding the index
-per correction is not the answer and neither is a second index — this wants the
-overlay taught to the indexer, and it is not built.
+Every surface a reader looks at went through the corrections overlay except the
+one that finds anything. The pane drew the fix, a quote copied to Ksav carried
+it, an export wrote it and said in its header that it had — and a search
+answered out of the corpus files, which are the sefer as it was scanned. So a
+typo you fixed this morning was findable **by the typo and not by the word**,
+which is the one place a correction looked like it had never been made.
+
+Rebuilding per correction is not the answer and neither is a second index. What
+it wanted was the third thing: `girsa-index` reads the layer once at the start
+of a build and hands tantivy the segment as you read it. `spec.md` §4.1 is
+untouched — **never the text**. Nothing writes to `corpus/`; the base text on
+disk is exactly what it was, and the index is a rebuildable cache over the
+corpus *and* over what you have said about it.
+
+Four decisions, and the tests in
+`girsa-search/tests/a_typo_you_fixed_is_findable_by_the_word.rs` are one each:
+
+- **`Showing::Fixed`, the pane's own default.** Scanning errors repaired; girsa
+  variants noted and not applied. A variant is a claim about what the text
+  *should* read and an index is about what it does read — and a search that
+  found words the pane does not draw is a result a reader cannot see when they
+  arrive at it. A segment carrying nothing but variants does not even reach the
+  corrected path, so its index entry is bit-identical to one built with no layer
+  at all.
+- **Asked by `Standing`, not by segment id.** A correction made before upstream
+  cut the se'if it was on is stored under a name the work no longer has.
+  `Layer::on` takes exact equality and would have missed it in silence, which is
+  the failure `Layer::at` exists downstream of. The two halves of the evidence —
+  which names are still segments, and `redirects.jsonl` backwards — are gathered
+  per work, and the inversion is now `girsa_corpus::standing::redirected_here`
+  rather than a second copy of the window's.
+- **A stale correction is counted and said.** Its words are not in the line any
+  more, so nothing is applied and the corpus text goes in unchanged; the build's
+  report names how many. Same reason the export header does: this is the moment
+  a correction that stopped applying would otherwise vanish without a word.
+- **It costs nothing.** `Corrections::touch` is one question per work, and a
+  work nobody has corrected skips the standing derivation and the apply
+  entirely. On a real shelf that is 7,189 works minus a handful.
+
+The layers are a list rather than one, because a build is handed every root and
+is not told which is personal — and could not work it out from the sefer
+either, since a correction to a Sefaria work lives under `personal/` while the
+work lives under `corpus/`.
+
+What is still open is the other half, and it is `spec.md` §9.7's, not this
+section's: a correction made **since** the last build is not in the index until
+the next one. That is reported rather than silent — the results header counts
+it, `girsa_note::since::Unindexed` composes the sentence — and closing it means
+writing tantivy incrementally.
 
 ### What has not been checked
 
