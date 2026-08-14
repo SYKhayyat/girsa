@@ -22,6 +22,7 @@
 //! cargo run -p girsa-desk --bin girsa-notes -- corpus personal folder thursday "חבורה יום ה" mishnah-berakhot 1:1
 //! cargo run -p girsa-desk --bin girsa-notes -- corpus personal tags
 //! cargo run -p girsa-desk --bin girsa-notes -- corpus personal export /tmp/my-layer
+//! cargo run -p girsa-desk --bin girsa-notes -- corpus personal merge /tmp/their-layer
 //! ```
 //!
 //! A place is given as `<slug> <address>` — the way a person says it — and the
@@ -73,7 +74,8 @@ usage: girsa-notes [corpus] [personal] [command]
   folder <name> <title> <slug> <address>
   folders
   tags
-  export <directory>
+  export <directory>                    your layer, as plain files
+  merge <directory>                     take somebody else's. Never overwrites yours
   documents                             the .ksav files Girsa knows about
   document <path> [--name n]            tell it about one. --forget to undo
   cites <ref>                           which of your documents cite a place
@@ -128,6 +130,7 @@ fn main() -> std::process::ExitCode {
         "folders" => folders(&shelf),
         "tags" => tags(&shelf),
         "export" => export(&shelf, rest),
+        "merge" => merge(&mut shelf, rest),
         "documents" => documents(&shelf),
         "document" => document(&shelf, &args, rest),
         "cites" => cites(&shelf, rest),
@@ -518,6 +521,48 @@ fn export(shelf: &Shelf, rest: &[String]) -> Result<(), String> {
         .map(|(kind, count)| format!("{count} {}", kind.as_str()))
         .collect();
     println!("{}: {}", into.display(), said.join(" · "));
+    Ok(())
+}
+
+/// Take somebody else's layer into yours (spec.md §11).
+///
+/// The report is per kind and not a total, because the three numbers mean
+/// different things per kind and a reader deciding whether the merge did what
+/// they wanted needs to see which: nine marks taken and one folder refused is a
+/// good outcome, and one line saying `10` hides the only part worth reading.
+///
+/// The refusals are named rather than counted alone — a folder called `ברכות`
+/// that was not taken is a thing to go and look at, and *1 refused* is not
+/// somewhere to look.
+fn merge(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
+    let from = PathBuf::from(rest.first().ok_or("merge <directory>")?);
+    if !from.is_dir() {
+        return Err(format!("{}: not a directory", from.display()));
+    }
+    let took = girsa_note::merge(&mut shelf.layer_mut(), &from).map_err(|e| e.to_string())?;
+    for kind in girsa_note::Taggable::ALL {
+        let one = took.of(*kind);
+        if one.taken == 0 && one.already_had == 0 && one.refused == 0 {
+            continue;
+        }
+        println!(
+            "{}: {} taken · {} already had · {} refused",
+            kind.as_str(),
+            one.taken,
+            one.already_had,
+            one.refused
+        );
+    }
+    let all = took.all();
+    if all.taken == 0 && all.already_had == 0 && all.refused == 0 {
+        println!("{}: nothing of that shape in there", from.display());
+    }
+    if all.refused > 0 {
+        // The sentence that keeps this honest. A merge that refused something
+        // has not merged, and the reader has to know which way round it went:
+        // what is on this shelf is still theirs.
+        println!("what was refused is yours, and is untouched");
+    }
     Ok(())
 }
 

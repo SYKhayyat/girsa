@@ -317,14 +317,15 @@ impl girsa_personal::Store for Layer {
 }
 
 /// What a merge did.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Merged {
-    pub taken: usize,
-    /// Corrections that were already here. Counted rather than ignored: taking
-    /// the same patch file twice has to be visibly a no-op.
-    pub already_had: usize,
-    pub refused: usize,
-}
+///
+/// This crate was the first store that could take somebody else's and is no
+/// longer the only one, so the three counts moved to `girsa-personal` beside the
+/// [`girsa_personal::Store::merge`] that produces them for marks, saved
+/// questions and folders. Corrections keep a merge of their own — a patch can
+/// clash with one of yours without sharing its key, because two people can
+/// correct the same letters under two different ids — and it reports in the
+/// same three numbers.
+pub use girsa_personal::Merged;
 
 /// Where the corrections live under a personal layer.
 ///

@@ -620,6 +620,58 @@ kind of thing you own that is *already* a grouping and could not be reached from
 a tag. A tab is how you get out, because a reader finished with `ברכות` wants a
 drawer and not an empty one with the filter still on.
 
+### Two people's layers, and the merge that refuses
+
+`spec.md` §11 puts *optional, off by default, encrypted sync of the personal
+layer only* on the table, and `BUILDER.md` §0.1 says a runtime network
+dependency is not a decision a work order takes on its own. That ruling is still
+yours to make. What did not need a ruling, and was missing anyway, is the thing
+two people actually do: put a chaburah together. Corrections have had
+`girsa-fix merge` since W20. Notes, marks, saved questions and folders had
+nothing, so two copies of `personal/` were two copies and the only way to
+combine them was to pick one.
+
+```
+$ girsa-notes corpus personal merge /media/stick/his-layer
+note: 4 taken · 1 already had · 1 refused
+mark: 12 taken · 0 already had · 0 refused
+query: 1 taken · 0 already had · 1 refused
+what was refused is yours, and is untouched
+```
+
+**The refusal is the feature.** Every store applies one rule: take a key you do
+not hold, count a key you hold whose record is identical, and *refuse* a key you
+hold whose record differs. Two people learning one sugya will both have a note
+called מאימתי and a folder called ברכות, and last-one-wins — which is exactly
+right *within* one layer, where the later line is the same person changing their
+mind — is exactly wrong across two. It would replace a morning's writing with a
+stranger's and leave nothing on the screen to say so, in the one kind of
+material in this library that nobody else has a copy of. It is the same call
+`girsa-fix` already makes when two corrections claim the same letters: the
+system does not choose between two people.
+
+The rule is written once, on `girsa_personal::Store` — the trait the six stores
+already shared for *open, replay, hold, compact* — so marks, saved questions and
+folders got a merge without one of them growing a method. Notes could not use
+it, because a note is a file and not a line in a log; they have the same rule
+over a directory instead, and a note that is taken goes through `Notes::write`,
+so it arrives with its `work.json`, its `segments.jsonl` and its catalogue line.
+A note of theirs is a sefer on your shelf exactly as one of yours is, and
+`a_note_of_theirs_arrives_as_a_sefer_on_your_shelf` fails if a merge ever
+becomes a file copy.
+
+*Identical* is compared as the serialized line, and for notes as the text the
+file would be written with. That is not a shortcut around `PartialEq` — the file
+**is** what is being merged, and two records that write the same line are the
+same record by the only definition this layer has.
+
+`merge` reads exactly what `export` writes. The four names come from one
+`where_it_goes`, which is why an export directory and a `personal/` root are the
+same shape: handing somebody the directory and handing them an export arrive at
+the same door, and neither needs a format.
+`an_export_is_a_layer_a_merge_can_read` is the guard, and it is the sentence
+*exportable as plain files* meaning something.
+
 ### What this does not do
 
 - **No sync.** `spec.md` §11 offers *optional, off by default, encrypted sync of
@@ -648,8 +700,6 @@ drawer and not an empty one with the filter still on.
   rebuild is four minutes. Until tantivy is written to incrementally, your own
   writing is on the shelf and in the search only as of the last build, and that
   gap is real.
-- **Nothing merges two people's layers.** Corrections have `girsa-fix merge`;
-  notes, marks and folders do not, and two copies of `personal/` are two copies.
 
 ---
 

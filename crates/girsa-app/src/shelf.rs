@@ -416,6 +416,21 @@ impl Shelf {
         }
     }
 
+    /// The same four, to be written to — what taking somebody else's layer
+    /// needs (`girsa_note::merge`).
+    ///
+    /// The four stores borrowed mutably at once, which is why this is one
+    /// method and not four `_mut` accessors called in a row: those are four
+    /// separate borrows of `self` and the merge wants all four alive together.
+    pub fn layer_mut(&mut self) -> girsa_note::LayerMut<'_> {
+        girsa_note::LayerMut {
+            notes: &mut self.notes,
+            marks: &mut self.marks,
+            queries: &mut self.queries,
+            collections: &mut self.collections,
+        }
+    }
+
     /// Write a note down, and put it on the shelf as a sefer.
     ///
     /// The catalogue entry goes into `works` here as well as onto the disk, so

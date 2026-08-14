@@ -764,6 +764,87 @@ impl Notes {
         Ok(true)
     }
 
+    /// Take somebody else's notes (spec.md §11).
+    ///
+    /// `theirs` is their **personal root** — the directory, not a file, because
+    /// unlike every other thing in your layer a note is not a line in a log. It
+    /// is a file, one per note, which is the decision §11 is built on and the
+    /// reason *exportable as plain files* needed no exporter. So a merge here
+    /// is a directory read and not a replay.
+    ///
+    /// The rule is the one [`girsa_personal::Store::merge`] applies to the
+    /// three log-backed stores, and it has to be, or a merge would mean two
+    /// things:
+    ///
+    /// | | |
+    /// |---|---|
+    /// | a note whose name I do not have | **taken** |
+    /// | a note I have, whose file is theirs to the letter | already had |
+    /// | a note I have, whose file differs | **refused** |
+    ///
+    /// Two people learning one sugya both call the note `מאימתי`. Taking theirs
+    /// would overwrite a morning's writing with a stranger's, silently, with
+    /// nothing on the screen afterwards to say it had happened — and yours is
+    /// the one kind of material in this library that nobody else has a copy of.
+    ///
+    /// Compared as the text of the file, which is the same definition of *the
+    /// same record* the log-backed stores use. It includes the `when:` line, so
+    /// two people who wrote the identical words at different moments are two
+    /// notes and this refuses; that is the safe direction to be wrong in.
+    ///
+    /// A note that is taken goes through [`Notes::write`], so it gets its file,
+    /// its `work.json`, its `segments.jsonl` and its catalogue line — a note of
+    /// theirs is a sefer on your shelf exactly as one of yours is.
+    ///
+    /// # Errors
+    ///
+    /// If a note that is being taken will not write. Their directory not being
+    /// there at all is not an error — it is a layer with no notes in it, which
+    /// is what a layer starts as.
+    pub fn merge(&mut self, theirs: &Path) -> Result<girsa_personal::Merged, NoteError> {
+        let mut merged = girsa_personal::Merged::default();
+        let Ok(entries) = std::fs::read_dir(dir_in(theirs)) else {
+            return Ok(merged);
+        };
+        // Sorted, so two runs of the same merge report in the same order and a
+        // failure part-way through is a failure at a nameable place.
+        let mut files: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|e| e == "md"))
+            .collect();
+        files.sort();
+
+        for path in files {
+            let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Ok(body) = std::fs::read_to_string(&path) else {
+                merged.refused += 1;
+                continue;
+            };
+            let slug = format!("{SHELF}/{name}");
+            let (note, said) = Note::parse(&slug, &body);
+            if !said.is_empty() {
+                merged.refused += 1;
+                continue;
+            }
+            match self.by_slug.get(&slug) {
+                // Compared as their file against what mine would write, rather
+                // than against the bytes on my disk: a note of mine written by
+                // an older version differs from the same note in whitespace,
+                // and that is not a disagreement about anything.
+                Some(mine) if mine.to_text() == note.to_text() => merged.already_had += 1,
+                Some(_) => merged.refused += 1,
+                None => {
+                    self.write(note)?;
+                    merged.taken += 1;
+                }
+            }
+        }
+        Ok(merged)
+    }
+
     /// The notes about a place.
     ///
     /// Asked of a [`Standing`] and not of an id, because a note is anchored

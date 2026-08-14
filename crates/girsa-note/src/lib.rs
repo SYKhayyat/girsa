@@ -379,6 +379,132 @@ pub fn export(layer: &Layer<'_>, into: &Path) -> Result<Exported, ExportError> {
     Ok(written)
 }
 
+/// The four stores of your own layer, borrowed to be written to.
+///
+/// [`Layer`] is `Copy` and every field is a shared reference, which is right
+/// for the six callers that ask questions of a whole layer and useless for the
+/// one that changes it. Two types rather than a lifetime trick, because the
+/// difference between *reading your layer* and *writing to it* is worth being
+/// unable to get wrong.
+#[derive(Debug)]
+pub struct LayerMut<'a> {
+    pub notes: &'a mut Notes,
+    pub marks: &'a mut Marks,
+    pub queries: &'a mut Queries,
+    pub collections: &'a mut Collections,
+}
+
+/// What a merge took, per kind.
+///
+/// Indexed by [`Taggable`], the same array [`Exported`] uses, so a fifth
+/// taggable noun is a variant and not a field here.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Merges {
+    took: [girsa_personal::Merged; Taggable::HOW_MANY],
+}
+
+impl Merges {
+    #[must_use]
+    pub const fn of(&self, kind: Taggable) -> girsa_personal::Merged {
+        self.took[kind.at()]
+    }
+
+    /// The three numbers added across the four kinds — what a one-line report
+    /// says.
+    #[must_use]
+    pub fn all(&self) -> girsa_personal::Merged {
+        let mut sum = girsa_personal::Merged::default();
+        for kind in Taggable::ALL {
+            let one = self.of(*kind);
+            sum.taken += one.taken;
+            sum.already_had += one.already_had;
+            sum.refused += one.refused;
+        }
+        sum
+    }
+}
+
+/// Why a merge stopped.
+#[derive(Debug, thiserror::Error)]
+pub enum MergeError {
+    #[error("taking {path}: {source}")]
+    Io {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{0}")]
+    Refused(String),
+}
+
+/// Take somebody else's layer into yours (spec.md §11).
+///
+/// **The inverse of [`export`], and it reads what `export` writes** — the same
+/// four names from [`where_it_goes`], which are the stores' own file names,
+/// which is why an export directory and a `personal/` root are the same shape.
+/// So the two ways of getting a layer to somebody else — hand them the
+/// directory, or hand them an export of it — arrive at the same door here, and
+/// neither needs a format.
+///
+/// This is what §11 offers *instead of* sync. The spec puts optional encrypted
+/// sync on the table and `BUILDER.md` §0.1 says a runtime network dependency is
+/// not a decision a work order takes on its own; a merge needs no ruling,
+/// because two people who can each copy a directory can already do this. It is
+/// also strictly more useful for the thing people actually do, which is not
+/// keeping one person's two machines in step but putting two people's chaburah
+/// into one place.
+///
+/// # What it will not do
+///
+/// **It never overwrites anything of yours.** Each store applies the same rule
+/// — take a key you do not hold, count a key you hold with identical content,
+/// and *refuse* a key you hold whose content differs. Two people learning one
+/// sugya will both have a note called `מאימתי` and a folder called `ברכות`, and
+/// the merge that quietly kept one of them is the merge that loses a morning's
+/// writing with nothing on the screen to say so. See
+/// [`girsa_personal::Store::merge`] for the table and [`Notes::merge`] for the
+/// same rule over files.
+///
+/// Corrections are **not** in here. They have had their own merge since W20
+/// (`girsa_fix::Layer::merge`), with a rule this one cannot express: two people
+/// can correct the same letters under two different ids, so a clash there is
+/// about overlapping spans rather than about a shared key. `girsa-fix merge` is
+/// still the door for those, and it reports in the same three numbers.
+///
+/// # Errors
+///
+/// If one of their files cannot be read, or one of yours cannot be written.
+pub fn merge(layer: &mut LayerMut<'_>, from: &Path) -> Result<Merges, MergeError> {
+    let mut merges = Merges::default();
+    let refused = |e: girsa_personal::LogError| MergeError::Io {
+        path: e.path,
+        source: e.source,
+    };
+
+    merges.took[Taggable::Note.at()] = layer
+        .notes
+        .merge(from)
+        .map_err(|e| MergeError::Refused(e.to_string()))?;
+
+    // A file that is not there is a layer with none of that kind in it, which
+    // is what a layer starts as — not a failure, and not something to make a
+    // reader go and create four empty files to be told they have nothing.
+    for kind in [Taggable::Mark, Taggable::Query, Taggable::Collection] {
+        let path = from.join(where_it_goes(kind));
+        if !path.exists() {
+            continue;
+        }
+        merges.took[kind.at()] = match kind {
+            Taggable::Mark => layer.marks.merge(&path),
+            Taggable::Query => layer.queries.merge(&path),
+            Taggable::Collection => layer.collections.merge(&path),
+            Taggable::Note => unreachable!("notes are files, and are taken above"),
+        }
+        .map_err(refused)?;
+    }
+    Ok(merges)
+}
+
 /// What one store is exported as. `Taggable::Note` is a directory of files.
 ///
 /// Spelled out rather than made up from the variant: `marks.jsonl` and

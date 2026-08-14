@@ -1977,17 +1977,18 @@ overlay taught to the indexer, and the README rules out both easy answers. B7's
 honest notice is what makes shipping this incrementally safe and is not a
 substitute for it.
 
-**B22 · The rest of the personal layer.** Four pieces, and three are now closed.
-A note carries a `comp_date` and the timeline reads both roots, so a note is a
-hop in the chain; your own seforim are in the resolver's lexicon, so one can be
-cited by name and not only opened by it; and a mekor typed into a note is a link
-in the pane — linkify moved from `girsa-desk` down to `girsa-app`, which is the
-only reason the pane could reach it at all. All three argued in
-[`docs/record/your-own-layer.md`](docs/record/your-own-layer.md). What is left is
-`girsa-notes merge` (there is no `merge` in that binary) — the substitute for the
-sync that was ruled against, and `girsa-personal::Log` now makes it nearly free:
-two append-only files replayed in one pass, which is what `Layer::merge` already
-became.
+**B22 · The rest of the personal layer. Closed.** All four pieces. A note
+carries a `comp_date` and the timeline reads both roots, so a note is a hop in
+the chain; your own seforim are in the resolver's lexicon, so one can be cited
+by name and not only opened by it; a mekor typed into a note is a link in the
+pane, which needed linkify moved from `girsa-desk` down to `girsa-app` before
+the pane could reach it; and `girsa-notes merge` takes somebody else's layer
+without ever overwriting anything of yours — the rule written once on
+`girsa_personal::Store`, so the three log-backed stores got it without any of
+them growing a method. All four argued in
+[`docs/record/your-own-layer.md`](docs/record/your-own-layer.md). The sync §11
+offers is still yours to rule on, and the merge is what makes not having it
+survivable.
 
 **B23 · `.ksav` on the shelf.** The containment is flat and nothing writes back.
 The second half needs a decision about what editing a `.ksav` from the shelf means

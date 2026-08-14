@@ -36,10 +36,33 @@
 //! when bloated, report rather than fail. So the trait says what a store must be
 //! able to answer, and [`open`] is the procedure, once.
 
+use std::collections::BTreeMap;
+use std::path::Path;
+
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::log::{Log, LogError};
+
+/// What taking somebody else's layer took, and what it would not take.
+///
+/// Three numbers rather than one, because *nothing happened* has three
+/// different meanings and a reader deciding whether the merge worked needs to
+/// know which one they are looking at: everything was already here, everything
+/// clashed, or the file was not what it claimed to be.
+///
+/// It lived in `girsa-fix`, which was the first store to be mergeable and is no
+/// longer the only one. `girsa_fix::Merged` re-exports this.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Merged {
+    pub taken: usize,
+    /// Records that were already here, to the letter. Counted rather than
+    /// ignored: taking the same file twice has to be visibly a no-op.
+    pub already_had: usize,
+    /// Records that would have overwritten something of yours — and lines that
+    /// would not parse, which are refused for the same reason.
+    pub refused: usize,
+}
 
 /// A personal-layer store: an index over a log, which knows how to rebuild
 /// itself from one.
@@ -106,6 +129,86 @@ pub trait Store: Sized {
     /// the same call [`Log::rewrite`] makes and for the same reason: the
     /// alternative is a reader whose entire file will not write because of one
     /// line in it.
+    /// Take somebody else's file of these (spec.md §11).
+    ///
+    /// The same shape `girsa-fix` has had for corrections since W20, on the
+    /// trait rather than in each store, because *what to do with a record
+    /// somebody else made* has one answer for a mark, a saved question and a
+    /// chaburah folder and it is this one:
+    ///
+    /// | | |
+    /// |---|---|
+    /// | a key I do not hold | **taken** |
+    /// | a key I hold, and their record is mine to the letter | already had |
+    /// | a key I hold, and their record differs | **refused** |
+    ///
+    /// The third row is the whole of it. Two people's saved questions are both
+    /// called `שאלה` and are two different questions; two chaburah folders are
+    /// both called `ברכות` and hold different lines. Last-one-wins is right
+    /// *within* a layer, where the later line is the same person changing their
+    /// mind, and it is exactly wrong across two — it would silently replace
+    /// your folder with theirs, and nothing on the screen afterwards would say
+    /// so. This is the same call `girsa-fix` makes when two corrections claim
+    /// the same letters: the system does not choose between two people.
+    ///
+    /// *Mine to the letter* is compared as the serialized line rather than with
+    /// `PartialEq`, so no record type has to derive anything. The file is what
+    /// is being merged, and two records that write the same line are the same
+    /// record by the only definition this layer has.
+    ///
+    /// Idempotent, and their tombstones stop at their own file: their log is
+    /// replayed, so a mark they made and took back is not one they are
+    /// offering, and what is taken is what they hold — never a deletion of what
+    /// you hold.
+    ///
+    /// # Errors
+    ///
+    /// If their file cannot be read, or yours cannot be appended to.
+    fn merge(&mut self, file: &Path) -> Result<Merged, LogError> {
+        let named = file.display().to_string();
+        let body = std::fs::read_to_string(file).map_err(|source| LogError {
+            path: named.clone(),
+            source,
+        })?;
+        let theirs = crate::replay::<Self::Record>(&body, &named, Self::WHAT, Self::key_of);
+        let mut merged = Merged {
+            refused: theirs.trouble.len(),
+            ..Merged::default()
+        };
+        // Mine, once, as lines. Built up front rather than scanned per record:
+        // a layer with a thousand marks taking a file of a thousand more is a
+        // million comparisons the other way, for no reason.
+        let mine: BTreeMap<String, String> = self
+            .records()
+            .into_iter()
+            .map(|record| {
+                (
+                    Self::key_of(record),
+                    serde_json::to_string(record).unwrap_or_default(),
+                )
+            })
+            .collect();
+
+        let mut taking: Vec<Self::Record> = Vec::new();
+        for record in theirs.records {
+            let line = serde_json::to_string(&record).unwrap_or_default();
+            match mine.get(&Self::key_of(&record)) {
+                Some(held) if *held == line => merged.already_had += 1,
+                Some(_) => merged.refused += 1,
+                None => taking.push(record),
+            }
+        }
+        // One append for the whole file, and held only once it is down — so a
+        // machine that stops mid-merge has a layer whose index and whose file
+        // say the same thing.
+        self.log().append_all(taking.iter())?;
+        for record in taking {
+            self.hold(record);
+            merged.taken += 1;
+        }
+        Ok(merged)
+    }
+
     #[must_use]
     fn to_text(&self) -> String {
         let mut body = String::new();
