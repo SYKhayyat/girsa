@@ -370,3 +370,91 @@ fn pdf_of_two_blank_pages() -> Vec<u8> {
     doc.save_to(&mut out).expect("the pdf writes");
     out
 }
+
+#[test]
+fn a_list_inside_a_list_item_is_inside_it() {
+    // W29's remaining flatness, and it is the class of mistake W6 is about:
+    // what a reader could see was not what the address said. A nested item was
+    // drawn with an em-space and addressed as a **sibling** of the item it sits
+    // under — so `girsa:note/חבורה/ראיות:1` covered the point and none of its
+    // sub-points, and a chaburah folder holding "point 1" did not hold them
+    // either.
+    let dir = scratch("girsa-mine-ksav-nested");
+    let personal = dir.join("personal");
+    let markup = "#כותרת1[ראיות]
+
+#ממוספרת(
+  פריט[ראיה ראשונה #ממוספרת(פריט[ומכאן], פריט[ומכאן עוד],)],
+  פריט[ראיה שנייה],
+)
+";
+    let file = write(&dir, "חבורה.ksav", markup.as_bytes());
+    let added = import::mine::add(&personal, &file, None).expect("it is added");
+
+    let path_of = |words: &str| -> Vec<String> {
+        added
+            .segments
+            .iter()
+            .find(|s| s.text.contains(words))
+            .unwrap_or_else(|| panic!("{words} is on the shelf"))
+            .id
+            .path()
+            .to_vec()
+    };
+
+    // The top-level items are where they always were — a line number in their
+    // section — so nothing anchored to a document with no nesting in it moves.
+    assert_eq!(path_of("ראיה ראשונה"), ["ראיות", "1"]);
+    assert_eq!(path_of("ראיה שנייה"), ["ראיות", "2"]);
+
+    // And the two under the first one are *under* it.
+    assert_eq!(path_of("ומכאן עוד"), ["ראיות", "1", "2"]);
+    assert_eq!(path_of("ומכאן"), ["ראיות", "1", "1"]);
+
+    // Which is the point: containment is now a question the address answers.
+    let parent = added
+        .segments
+        .iter()
+        .find(|s| s.text.contains("ראיה ראשונה"))
+        .expect("the point")
+        .id
+        .clone();
+    let child = added
+        .segments
+        .iter()
+        .find(|s| s.text.contains("ומכאן עוד"))
+        .expect("the sub-point")
+        .id
+        .clone();
+    let sibling = added
+        .segments
+        .iter()
+        .find(|s| s.text.contains("ראיה שנייה"))
+        .expect("the next point")
+        .id
+        .clone();
+    assert!(
+        parent.address() < child.address(),
+        "a sub-point sorts inside its point: {} then {}",
+        parent.address(),
+        child.address()
+    );
+    assert!(
+        child.address() < sibling.address(),
+        "and before the point after it"
+    );
+
+    // The em-space stays in the text, because that is what a nested list looks
+    // like in a surface that draws lines rather than lists. The address says
+    // what contains what; the text says what it looks like.
+    let nested = added
+        .segments
+        .iter()
+        .find(|s| s.text.contains("ומכאן עוד"))
+        .expect("the sub-point");
+    assert!(
+        nested.text.starts_with('\u{2003}'),
+        "still drawn as nested: {:?}",
+        nested.text
+    );
+}

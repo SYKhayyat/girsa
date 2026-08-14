@@ -331,6 +331,31 @@ fn io(path: &Path) -> impl Fn(std::io::Error) -> MineError + '_ {
 /// draws between a correction and a girsa variant), and importing one as a line
 /// of the sefer would put a note-to-self into the corpus as though the author
 /// had written it.
+///
+/// # A list inside a list item is inside it
+///
+/// A nested item used to be a **sibling** of the item it sits under, drawn with
+/// an em-space so a reader could see the nesting and addressed as though there
+/// were none. That is the same class of mistake W6 is about: what a reader can
+/// see was not what the address said, so `girsa:note/חבורה/מבוא:4` covered the
+/// item and nothing under it, and a chaburah folder holding "point 4" did not
+/// hold its three sub-points.
+///
+/// So the depth goes into the **address**: item 4's second sub-point is
+/// `…/מבוא:4:2`. Containment is then structural — `SegmentId::covers` answers
+/// it, a note anchored to the parent is found from the child, and a pane can
+/// fold what it can already draw.
+///
+/// **A top-level item still takes a line number like any other block**, and
+/// that is deliberate rather than incidental: it means a document with no
+/// nested lists in it has exactly the addresses it had before, so nothing
+/// already anchored to a `.ksav` on somebody's shelf moves. The nesting is
+/// spelled *below* the number rather than instead of it.
+///
+/// The em-space stays in the text. It is what a nested list looks like in a
+/// plain rendering, the way a tab is what a table row looks like, and a surface
+/// that draws lines rather than lists still needs it — the address says what
+/// contains what, and the text says what it looks like.
 #[must_use]
 pub fn from_ksav(blocks: &[girsa_ksav::Block]) -> Vec<RawSegment> {
     use girsa_ksav::Block;
@@ -342,6 +367,10 @@ pub fn from_ksav(blocks: &[girsa_ksav::Block]) -> Vec<RawSegment> {
     // How many lines each section has had, so a line's number is its number
     // *within* its section.
     let mut lines: Vec<usize> = vec![0];
+    // Where in the list we are, as the address components below the section:
+    // `["4"]` at the top level and `["4", "2"]` inside item four. Empty when
+    // nothing is open, which is what ends a list.
+    let mut list: Vec<String> = Vec::new();
 
     for block in blocks {
         if let Block::Heading { level, text } = block {
@@ -354,6 +383,10 @@ pub fn from_ksav(blocks: &[girsa_ksav::Block]) -> Vec<RawSegment> {
             let label = unique(&crate::work::section_label_of(text), &taken);
             open.push((level, label));
             lines.push(0);
+            // A heading ends whatever list was open. It also starts a new
+            // section, so the numbers below would restart anyway — this is
+            // saying it once rather than relying on that.
+            list.clear();
             out.push(RawSegment {
                 path: open.iter().map(|(_, label)| label.clone()).collect(),
                 kind: SegmentKind::Heading,
@@ -394,12 +427,58 @@ pub fn from_ksav(blocks: &[girsa_ksav::Block]) -> Vec<RawSegment> {
         if text.trim().is_empty() {
             continue;
         }
-        let nth = lines.last_mut().map_or(1, |n| {
-            *n += 1;
-            *n
-        });
         let mut path: Vec<String> = open.iter().map(|(_, label)| label.clone()).collect();
-        path.push(nth.to_string());
+        match block {
+            Block::Item { depth, .. } => {
+                let depth = *depth as usize;
+                if depth == 0 || list.is_empty() {
+                    // A new list, or a new item at the top of one: a line
+                    // number, like every other block in the section.
+                    let nth = lines.last_mut().map_or(1, |n| {
+                        *n += 1;
+                        *n
+                    });
+                    list = vec![nth.to_string()];
+                    // A document whose first item is already indented. Padded
+                    // rather than flattened: the writer meant a level, and the
+                    // level it is at is the one they wrote.
+                    while list.len() <= depth {
+                        list.push("1".to_string());
+                    }
+                } else if list.len() == depth + 1 {
+                    // A sibling of the item before it.
+                    let next = list[depth].parse::<usize>().unwrap_or(0) + 1;
+                    list[depth] = next.to_string();
+                } else {
+                    // Deeper. Padded where a level was skipped, for the reason
+                    // above.
+                    list.truncate(depth + 1);
+                    while list.len() < depth {
+                        list.push("1".to_string());
+                    }
+                    list.push("1".to_string());
+                }
+                path.extend(list.iter().cloned());
+            }
+            // A note hangs off the block before it and does not end a list — an
+            // item with a footnote on it is still an item, and the item after
+            // it is still its sibling.
+            Block::Note { .. } => {
+                let nth = lines.last_mut().map_or(1, |n| {
+                    *n += 1;
+                    *n
+                });
+                path.push(nth.to_string());
+            }
+            _ => {
+                list.clear();
+                let nth = lines.last_mut().map_or(1, |n| {
+                    *n += 1;
+                    *n
+                });
+                path.push(nth.to_string());
+            }
+        }
         out.push(RawSegment { path, kind, text });
     }
     out

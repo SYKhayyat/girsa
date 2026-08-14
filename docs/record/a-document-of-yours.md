@@ -83,13 +83,42 @@ text and headings and nothing else, so **no sefer but yours changes shape**. The
 page draws each as itself — a row's cells in columns, an item indented by its
 depth, a note in small type, a quote against a rule.
 
+### A list inside a list item is inside it
+
+A nested item used to be a **sibling** of the item it sits under: drawn with an
+em-space so a reader could see the nesting, and addressed as though there were
+none. That is the class of mistake W6 is about — what a reader can see was not
+what the address said. `girsa:note/חבורה/ראיות:1` covered the point and none of
+its sub-points, so a chaburah folder holding *point 1* did not hold them, a note
+anchored to the point was not found from a sub-point, and nothing could fold
+what the pane was already drawing indented.
+
+So the depth goes into the **address**: point 1's second sub-point is
+`…/ראיות:1:2`. Containment is then structural, which means it is answered by the
+machinery that already answers it everywhere else — `SegmentId::covers`, and
+`Standing` above it.
+
+**A top-level item still takes a line number like any other block**, and that is
+deliberate rather than incidental: a document with no nested lists in it has
+exactly the addresses it had before, so nothing already anchored to a `.ksav` on
+somebody's shelf moves. The nesting is spelled *below* the number rather than
+instead of it. A list that opens already indented — a writer who started at the
+second level — is padded rather than flattened, because the level they wrote is
+the level they meant.
+
+The em-space stays in the text. It is what a nested list looks like in a plain
+rendering, the way a tab is what a table row looks like, and a surface that
+draws lines rather than lists still needs it: **the address says what contains
+what, and the text says what it looks like.** Both are asserted in
+`your_own_seforim.rs`.
+
 ### What a document does not carry yet
 
-- **The containment is flat.** A list inside a list item is two items at two
-  depths and not a tree; you can see the nesting and you cannot fold it.
-- **Nothing writes back.** Reading a `.ksav` into segments does not make the
-  shelf able to *edit* one; the file is still the truth and Ksav is still what
-  writes it.
+- **Nothing writes back, and that is a boundary rather than a gap.** Reading a
+  `.ksav` into segments does not make the shelf able to *edit* one. The file is
+  the truth and Ksav is what writes it — Girsa's own writing pane produces a
+  `.ksav` in your layer, which is the door that exists; turning the shelf into a
+  second editor for the same format would be two applications writing one file.
 - **A table has no header row unless it says so.** The header is the run of
   `כותרת_תא` cells, and a table written entirely of `תא` has none — which is
   what the document said.
