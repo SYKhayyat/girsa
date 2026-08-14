@@ -1007,17 +1007,21 @@ fn find_scope_drop(shared: tauri::State<'_, Shared>, at: usize) -> Result<ScopeV
     find_scope(shared)
 }
 
-/// The lexicon `girsa-import` wrote, both halves of it.
+/// The lexicon `girsa-import` wrote, both halves of it, and your own seforim.
 ///
 /// Without it linkify finds nothing — which is the right failure: a citation
 /// this build cannot resolve is a citation it must not link.
-fn read_lexicon(corpus: &std::path::Path) -> Option<girsa_ref::Lexicon> {
-    let mut body = std::fs::read_to_string(corpus.join("lexicon.tsv")).ok()?;
-    if let Ok(more) = std::fs::read_to_string(corpus.join("lexicon-otzaria.tsv")) {
-        body.push('\n');
-        body.push_str(&more);
-    }
-    Some(girsa_ref::Lexicon::from_tsv(&body))
+///
+/// Across both roots (G1). Linkify turns a mareh makom a reader **typed** into
+/// a link, and a sefer they put on their own shelf is one of the things they
+/// may have typed.
+fn read_lexicon(
+    corpus: &std::path::Path,
+    personal: &std::path::Path,
+) -> Option<girsa_ref::Lexicon> {
+    girsa_corpus::lexicon::Titles::across(corpus, personal)
+        .ok()
+        .map(|titles| titles.lexicon())
 }
 
 /// Everything that comes out of a corpus, opened once.
@@ -1074,7 +1078,9 @@ fn open_corpus(
         .as_ref()
         .and_then(|shelf| girsa_corpus::era::Timeline::across(shelf.root(), personal).ok());
     let (bar, no_search) = open_bar_for(&shelf);
-    let lexicon = shelf.as_ref().and_then(|shelf| read_lexicon(shelf.root()));
+    let lexicon = shelf
+        .as_ref()
+        .and_then(|shelf| read_lexicon(shelf.root(), personal));
     // The lane, once. With it off — the default — this opens nothing and reads
     // nothing; with it on it loads the side-loaded model, which is why it
     // happens here and not on the first query.
@@ -1157,7 +1163,13 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
     // clicking one could narrow anything.
     let (notes, _) = girsa_note::note::Notes::open(shelf.personal());
     let catalogue = catalogue.tagged(&notes);
-    (Some(Bar::new(index, catalogue, corpus)), None)
+    // With your own layer, so citation mode resolves a sefer you put on the
+    // shelf yourself by the name you gave it (G1) and then reads its segments
+    // from the root that holds them.
+    (
+        Some(Bar::new(index, catalogue, corpus, Some(shelf.personal()))),
+        None,
+    )
 }
 
 /// The shelf, as a tree — the shipped taxonomy with your arrangement on top.

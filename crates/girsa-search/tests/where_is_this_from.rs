@@ -92,7 +92,7 @@ impl Shelf {
                 link_types: true,
             })
             .expect("declaring what went in");
-        Bar::new(index, Catalogue::of(&self.works), &self.root)
+        Bar::new(index, Catalogue::of(&self.works), &self.root, None)
     }
 }
 

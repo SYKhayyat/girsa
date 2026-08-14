@@ -257,6 +257,11 @@ usage:
 <root> is the corpus or personal root that `find` reads its catalogue,
 corrections and shelf from. It is required.
 
+  --personal DIR     your own layer, so --citation can name a sefer of yours.
+                     A value option and not a second positional: `find <index>
+                     corpus personal \u{5d9}\u{5ea}\u{5d2}\u{5d1}\u{5e8}` once read `personal` as a
+                     word to search for, and answered zero in 5,000,847.
+
 how \u{2014} the chips of spec.md \u{a7}9.5, as options. Nothing else is applied.
 An option that takes a value takes it either way round: --near 5 and --near=5.
 
@@ -634,7 +639,16 @@ fn where_from(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
         }
     };
     let (notes, _) = girsa_note::note::Notes::open(&root);
-    let bar = Bar::new(index, Catalogue::of(&works).tagged(&notes), &root);
+    // `--personal DIR`, or nothing. Citation mode names a sefer of yours only
+    // when it has been told where your seforim are; unlike the window, this
+    // command takes one root and cannot infer the other.
+    let mine = args.value("--personal").map(std::path::PathBuf::from);
+    let bar = Bar::new(
+        index,
+        Catalogue::of(&works).tagged(&notes),
+        &root,
+        mine.as_deref(),
+    );
     let found = match girsa_search::mekoros::where_from(&bar, &phrase, except.as_deref(), 8) {
         Ok(found) => found,
         Err(why) => {
@@ -698,6 +712,7 @@ const SWITCHES: &[&str] = &[
 /// the usage line said `--near N`. And a value option at the end of the line
 /// with nothing after it became the empty string and was searched for.
 const VALUES: &[&str] = &[
+    "--personal",
     "--near",
     "--rung",
     "--instrument",
@@ -845,7 +860,16 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
         }
     };
     let (notes, _) = girsa_note::note::Notes::open(&root);
-    let bar = Bar::new(index, Catalogue::of(&works).tagged(&notes), &root);
+    // `--personal DIR`, or nothing. Citation mode names a sefer of yours only
+    // when it has been told where your seforim are; unlike the window, this
+    // command takes one root and cannot infer the other.
+    let mine = args.value("--personal").map(std::path::PathBuf::from);
+    let bar = Bar::new(
+        index,
+        Catalogue::of(&works).tagged(&notes),
+        &root,
+        mine.as_deref(),
+    );
 
     // The scope chip, set the way a facet click sets it — through the same
     // functions, so the command line cannot narrow by a rule the window does

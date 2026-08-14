@@ -97,6 +97,10 @@ pub mod era;
 pub mod fetch;
 pub mod import;
 pub mod index;
+// Six hand-written copies of "read `lexicon.tsv`, then append the Otzaria
+// half", two of which joined the files with nothing between them — and not one
+// of the six had heard of your own seforim.
+pub mod lexicon;
 // A permanent id that names 1.2 MB of text names a volume, not a place (B12).
 // Counting them, and cutting them into places that anchors on the parent still
 // cover.

@@ -469,6 +469,80 @@ Two honest edges: a scope narrowed by three facet clicks comes back as one
 clause over the same seforim — it matches the same segments and no longer
 remembers the three clicks; and the link-type scope of W14 is not saved at all.
 
+### Six copies of nine lines, and none of them had heard of you
+
+A sefer of yours could be opened by title and filed by title and **not cited by
+name**. Typing its name into the citation bar answered *that is not a place on
+this shelf*, about a sefer sitting on the shelf.
+
+The resolver's vocabulary is two files: `corpus/lexicon.tsv`, every spelling of
+every work Sefaria ships a schema for, and `corpus/lexicon-otzaria.tsv`, the 978
+works Sefaria never had. Read the first, append the second. Nine lines — and
+there were **six hand-written copies** of them:
+
+```
+app/src-tauri/src/lib.rs              read_lexicon, for linkify
+crates/girsa-search/src/citation.rs   Citations::open, the citation bar
+crates/girsa-link/src/bin/girsa-link-import.rs
+crates/girsa-link/examples/why-dropped.rs
+crates/girsa-app/examples/send.rs
+crates/girsa-desk/examples/write.rs
+```
+
+Six copies of one paragraph is the shape this repository has diagnosed before —
+*six correct solutions to one problem*, in the personal log — and they had
+already drifted. Four joined the two files with a newline between them and two
+concatenated them bare, so a `lexicon.tsv` not ending in a newline would have
+glued its last title onto Otzaria's first and lost a work at each end.
+`build-lexicon` does end its file with a newline, which makes those two correct
+by luck; luck is not a property anything can check.
+
+So it is one loader now, in `girsa-corpus`, and the seventh copy was not
+written. It comes in two shapes, and which one a caller wants is a real
+question rather than a default:
+
+- **`Titles::of(corpus)`** — the corpus alone, for `girsa-link-import` and the
+  `why-dropped` run that measures it. Those two resolve *Sefaria's own
+  citations against Sefaria's own corpus*: no row in `links0.csv` names a sefer
+  of yours, and a title of yours colliding with one of Sefaria's would turn a
+  lookup that resolved into one that is ambiguous — which **drops the edge**.
+  Your layer there is not an improvement; it is noise with a cost.
+- **`Titles::across(corpus, personal)`** — both, for every caller where a
+  person typed the title. The citation bar, linkify, and the two examples that
+  send a mareh makom to the pen.
+
+Everything in `personal/works/index.jsonl` goes in: a file you dropped, a
+`.ksav` read onto the shelf, and a note — which this library holds to be a sefer
+of yours and not a lesser thing, so it is one here too.
+
+**A title of yours does not shadow a masechta.** Call a sefer ברכות and the
+lexicon returns two works, and the bar draws a choice. That is not new
+behaviour bolted on for this; it is what the resolver has always done for
+או"ח, which is Orach Chayim in the Shulchan Arukh and in the Tur. The rule is
+that ambiguity is shown as ambiguity, and nothing here was allowed to become
+the exception.
+
+The second half is the one that would have been easy to declare finished
+without. A resolved citation is a slug, and the next thing any caller does is
+read that work's segments — and your sefer's `segments.jsonl` is not under the
+corpus root. Left there, the lexicon would have known the name and the shelf
+would have answered *not on the shelf* about it, which is worse than never
+knowing the name at all. `Titles` therefore reports which slugs came out of your
+layer, and the resolver reads each work from the root that actually holds it —
+from the catalogue that was read, not by trying one root and falling back,
+because a fallback cannot tell *your sefer* from *a corpus sefer that failed to
+load* and would report the second as the first.
+
+From a terminal, which is where a claim like this gets checked:
+
+```
+girsa-index find index corpus --personal personal --citation "חבורה על הסוגיא ב"
+```
+
+`--personal` is a value option and not a second positional, deliberately:
+`find <index> corpus personal יתגבר` once read `personal` as a word to search
+for and answered zero in 5,000,847 segments.
+
 ### What this does not do
 
 - **No sync.** `spec.md` §11 offers *optional, off by default, encrypted sync of

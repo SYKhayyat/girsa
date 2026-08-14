@@ -158,6 +158,13 @@ impl Landing {
 #[derive(Debug)]
 pub struct Citations {
     root: PathBuf,
+    /// Your own layer, when one was named. A sefer of yours is in the lexicon
+    /// (W3, G1) and its text is not under the corpus root, so resolving its
+    /// name and then reading its segments are two questions with two answers.
+    personal: Option<PathBuf>,
+    /// Which slugs came out of your layer, so [`Citations::segments_of`] reads
+    /// each work from the root that actually holds it.
+    mine: std::collections::BTreeSet<String>,
     lexicon: Lexicon,
     /// Every spelling in the lexicon, for the near-miss list. Kept beside the
     /// lexicon rather than asked of it: the resolver's job is exact lookup, and
@@ -183,25 +190,26 @@ impl Citations {
     ///
     /// If the lexicon is not there. Without it every citation is unresolved,
     /// which would look exactly like a shelf that does not have the sefer.
-    pub fn open(root: &Path) -> Result<Self, CitationError> {
-        let path = root.join("lexicon.tsv");
-        let mut body =
-            std::fs::read_to_string(&path).map_err(|source| CitationError::NoLexicon {
-                path: path.display().to_string(),
-                source,
-            })?;
-        // The 978 Otzaria-only works have no Sefaria schema, so they are in a
-        // second file (W8). A shelf without it can still resolve everything
-        // Sefaria has, so it is optional — and a citation into one of those
-        // seforim simply does not resolve, which is the honest outcome.
-        if let Ok(more) = std::fs::read_to_string(root.join("lexicon-otzaria.tsv")) {
-            body.push('\n');
-            body.push_str(&more);
+    pub fn open(root: &Path, personal: Option<&Path>) -> Result<Self, CitationError> {
+        // Both shipped halves and, when a personal root was named, the seforim
+        // in it. The 978 Otzaria-only works have no Sefaria schema and are in a
+        // second file (W8); a shelf without it can still resolve everything
+        // Sefaria has, and a citation into one of those seforim simply does not
+        // resolve, which is the honest outcome.
+        let titles = match personal {
+            Some(personal) => girsa_corpus::lexicon::Titles::across(root, personal),
+            None => girsa_corpus::lexicon::Titles::of(root),
         }
-        let spellings = read_spellings(&body);
+        .map_err(|source| CitationError::NoLexicon {
+            path: root.join("lexicon.tsv").display().to_string(),
+            source,
+        })?;
+        let spellings = read_spellings(titles.tsv());
         Ok(Self {
             root: root.to_path_buf(),
-            lexicon: Lexicon::from_tsv(&body),
+            personal: personal.map(Path::to_path_buf),
+            mine: titles.mine().clone(),
+            lexicon: titles.lexicon(),
             spellings,
             known: Mutex::new(BTreeMap::new()),
         })
@@ -298,8 +306,18 @@ impl Citations {
     /// One work's addresses, read back once.
     fn segments_of(&self, slug: &str) -> Option<WorkSegments> {
         let mut known = self.known.lock().ok()?;
+        // The root that holds this work's text, not the root the resolver was
+        // opened at. A sefer of yours resolves out of the same lexicon as a
+        // sefer of Sefaria's and its `segments.jsonl` is somewhere else
+        // entirely — read from the corpus it would come back missing, and a
+        // missing work is reported as *not on the shelf*, which is the one
+        // sentence a sefer sitting on your shelf must never produce.
+        let from = match self.personal.as_deref() {
+            Some(personal) if self.mine.contains(slug) => personal,
+            _ => &self.root,
+        };
         let entry = known.entry(slug.to_string()).or_insert_with(|| {
-            WorkSegments::load(&self.root, slug)
+            WorkSegments::load(from, slug)
                 .ok()
                 .filter(|w| !w.is_empty())
         });
@@ -429,7 +447,7 @@ mod tests {
     #[test]
     fn a_mareh_makom_lands_on_the_segments_it_names() {
         let root = shelf("girsa-citation-jump");
-        let bar = Citations::open(&root).expect("a lexicon");
+        let bar = Citations::open(&root, None).expect("a lexicon");
         let landing = bar.look_up("שוע אוח א ב", &Context::default());
         let place = landing.only().expect("one place");
         assert_eq!(
@@ -444,7 +462,7 @@ mod tests {
         // `או"ח` is the Orach Chayim of the Shulchan Arukh and of the Tur.
         // BUILDER.md rule 6: the honest answer is both.
         let root = shelf("girsa-citation-choice");
-        let bar = Citations::open(&root).expect("a lexicon");
+        let bar = Citations::open(&root, None).expect("a lexicon");
         let landing = bar.look_up("אוח א א", &Context::default());
         assert!(matches!(landing.resolution, Resolution::Ambiguous(_)));
         assert!(landing.is_a_choice());
@@ -463,7 +481,7 @@ mod tests {
         // The failure this whole mode is arranged against: it parses, it
         // resolves, it opens a page, and the page is the wrong one.
         let root = shelf("girsa-citation-nowhere");
-        let bar = Citations::open(&root).expect("a lexicon");
+        let bar = Citations::open(&root, None).expect("a lexicon");
         let landing = bar.look_up("שוע אוח תתקצט א", &Context::default());
         assert!(landing.places.is_empty(), "{:?}", landing.places);
         assert!(
@@ -483,7 +501,7 @@ mod tests {
         // cannot mean anything else — the reader supplied the context by being
         // there.
         let root = shelf("girsa-citation-context");
-        let bar = Citations::open(&root).expect("a lexicon");
+        let bar = Citations::open(&root, None).expect("a lexicon");
         let context = Context {
             work: Some(vec!["shulchan-arukh".into(), "orach-chayim".into()]),
             address: girsa_ref::Address::parse("2:1"),
@@ -499,7 +517,7 @@ mod tests {
     #[test]
     fn nothing_resolved_offers_spellings_and_applies_none_of_them() {
         let root = shelf("girsa-citation-nearmiss");
-        let bar = Citations::open(&root).expect("a lexicon");
+        let bar = Citations::open(&root, None).expect("a lexicon");
         let landing = bar.look_up("ברכ", &Context::default());
         assert!(landing.places.is_empty());
         assert!(

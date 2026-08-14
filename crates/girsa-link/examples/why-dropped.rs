@@ -23,7 +23,6 @@ use std::path::{Path, PathBuf};
 use girsa_corpus::csv::{fields, link_columns};
 use girsa_corpus::index::SegmentIndex;
 use girsa_link::sefaria::{Resolved, Resolver};
-use girsa_ref::Lexicon;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
@@ -34,11 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = PathBuf::from(root);
     let limit: usize = args.next().and_then(|n| n.parse().ok()).unwrap_or(400_000);
 
-    let mut tsv = std::fs::read_to_string(root.join("lexicon.tsv"))?;
-    if let Ok(extra) = std::fs::read_to_string(root.join("lexicon-otzaria.tsv")) {
-        tsv.push_str(&extra);
-    }
-    let lexicon = Lexicon::from_tsv(&tsv);
+    // The corpus alone, the same vocabulary `girsa-link-import` resolves with —
+    // this measures that run, so reading a wider lexicon than the run had would
+    // measure something else.
+    let lexicon = girsa_corpus::lexicon::Titles::of(&root)?.lexicon();
 
     eprintln!("indexing the shelf …");
     let (index, _) = SegmentIndex::load(&root)?;

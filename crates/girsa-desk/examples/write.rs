@@ -32,7 +32,7 @@ fn main() -> ExitCode {
     let root = PathBuf::from(root);
     let personal = PathBuf::from(personal);
 
-    let Ok(lexicon) = lexicon(&root) else {
+    let Ok(lexicon) = lexicon(&root, &personal) else {
         eprintln!("no lexicon under {}", root.display());
         return ExitCode::FAILURE;
     };
@@ -88,11 +88,10 @@ fn main() -> ExitCode {
     }
 }
 
-fn lexicon(root: &std::path::Path) -> std::io::Result<Lexicon> {
-    let mut body = std::fs::read_to_string(root.join("lexicon.tsv"))?;
-    if let Ok(more) = std::fs::read_to_string(root.join("lexicon-otzaria.tsv")) {
-        body.push('\n');
-        body.push_str(&more);
-    }
-    Ok(Lexicon::from_tsv(&body))
+/// Both halves of what the corpus shipped, and your own seforim on top.
+///
+/// Across both roots: the citation is an argument somebody typed, and a sefer
+/// they put on their own shelf is one of the answers.
+fn lexicon(root: &std::path::Path, personal: &std::path::Path) -> std::io::Result<Lexicon> {
+    Ok(girsa_corpus::lexicon::Titles::across(root, personal)?.lexicon())
 }

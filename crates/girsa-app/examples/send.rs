@@ -53,8 +53,14 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let root = PathBuf::from(root);
+    // Read before the lexicon and not after it. A sefer of yours is in the
+    // resolver's vocabulary now, so the personal root is part of answering
+    // *what does this citation name*, and not only part of reading the text
+    // once that is settled.
+    let personal =
+        std::env::var("GIRSA_PERSONAL").map_or_else(|_| root.join("../personal"), PathBuf::from);
 
-    let lexicon = match lexicon(&root) {
+    let lexicon = match lexicon(&root, &personal) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("no lexicon under {}: {e}", root.display());
@@ -76,8 +82,6 @@ fn main() -> ExitCode {
         }
     };
 
-    let personal =
-        std::env::var("GIRSA_PERSONAL").map_or_else(|_| root.join("../personal"), PathBuf::from);
     let shelf = match Shelf::open(&root, &personal) {
         Ok(s) => s,
         Err(e) => {
@@ -134,14 +138,13 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// The lexicon `girsa-import` wrote, both halves of it.
-fn lexicon(root: &Path) -> std::io::Result<Lexicon> {
-    let mut body = std::fs::read_to_string(root.join("lexicon.tsv"))?;
-    if let Ok(more) = std::fs::read_to_string(root.join("lexicon-otzaria.tsv")) {
-        body.push('\n');
-        body.push_str(&more);
-    }
-    Ok(Lexicon::from_tsv(&body))
+/// The lexicon `girsa-import` wrote, both halves of it, and your own seforim.
+///
+/// Across both roots, because the citation on this command line was typed by a
+/// person — and somebody who put a sefer on their own shelf and then typed its
+/// name meant that sefer.
+fn lexicon(root: &Path, personal: &Path) -> std::io::Result<Lexicon> {
+    Ok(girsa_corpus::lexicon::Titles::across(root, personal)?.lexicon())
 }
 
 fn flag(args: &mut Vec<String>, name: &str) -> Option<usize> {

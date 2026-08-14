@@ -24,6 +24,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use girsa_corpus::index::SegmentIndex;
+use girsa_corpus::lexicon::Titles;
 use girsa_corpus::work::{Source, Work};
 use girsa_link::otzaria::{LineMap, OtzariaTally, TitleIndex};
 use girsa_link::sefaria::{Resolver, Tally};
@@ -244,15 +245,23 @@ fn print_tally(tally: &Tally) {
 
 /// The resolver's vocabulary: Sefaria's schemas, plus the 978 works that have
 /// no schema and would otherwise be unciteable.
+///
+/// **The corpus alone**, by [`girsa_corpus::lexicon::Titles::of`] and not
+/// `across`. This resolves Sefaria's own citations against Sefaria's own
+/// corpus: no row in `links0.csv` names a sefer of yours, and a title of yours
+/// that collided with one of Sefaria's would turn a lookup that resolved into
+/// one that is ambiguous — which drops the edge. The nine lines this used to
+/// carry itself also appended the Otzaria half with no separator, so a
+/// `lexicon.tsv` that did not end in a newline would have lost a row from each
+/// file.
 fn load_lexicon(root: &Path) -> Result<Lexicon, std::io::Error> {
-    let mut tsv = std::fs::read_to_string(root.join("lexicon.tsv"))?;
+    let titles = Titles::of(root)?;
     // Written by girsa-import. Missing is survivable — it costs the Otzaria
     // half of the graph, and the run says so rather than quietly halving.
-    match std::fs::read_to_string(root.join("lexicon-otzaria.tsv")) {
-        Ok(extra) => tsv.push_str(&extra),
-        Err(e) => eprintln!("no Otzaria lexicon ({e}) — links into those 978 will not resolve"),
+    if let Err(e) = std::fs::metadata(root.join("lexicon-otzaria.tsv")) {
+        eprintln!("no Otzaria lexicon ({e}) — links into those 978 will not resolve");
     }
-    Ok(Lexicon::from_tsv(&tsv))
+    Ok(titles.lexicon())
 }
 
 fn load_works(root: &Path) -> Result<Vec<Work>, std::io::Error> {

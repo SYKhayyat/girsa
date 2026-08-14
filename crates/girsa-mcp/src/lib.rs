@@ -118,7 +118,7 @@ impl Server {
         }
         Ok(Self {
             root: root.to_path_buf(),
-            bar: Bar::new(search, catalogue, root),
+            bar: Bar::new(search, catalogue, root, Some(personal)),
             shelf,
             timeline,
             lane,

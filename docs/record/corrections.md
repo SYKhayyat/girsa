@@ -281,12 +281,7 @@ back into the library (W19) — is **built**; the status table above is the one 
 read. This paragraph said *"still to come"* a thousand lines below that table for
 long enough that a 2026-07-30 audit found the contradiction (D-1).
 
-Two things W10 leaves for the orders that own them. A sefer of yours is **not in
-the resolver's lexicon**, so it is opened and filed by title and not yet cited
-by one. W14 wired the resolver into the query bar and did not change that: the
-lexicon is `corpus/lexicon.tsv` and the 978 Otzaria titles beside it, both
-written by the import, and a sefer you dropped in this morning is in neither. It
-is searchable like anything else and it is not citable by name. And a PDF has pages and no words,
+One thing W10 leaves for the order that owns it. A PDF has pages and no words,
 which is W26's to change; the index already carries them as `page` segments so
 that §9.7's *"4 PDFs on this shelf aren't searchable yet"* is a count somebody
 can take, rather than a silent gap.

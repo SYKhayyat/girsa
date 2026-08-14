@@ -144,6 +144,10 @@ pub struct Bar {
     /// mode. Four of them never look at it.
     citations: std::sync::OnceLock<Option<Citations>>,
     root: PathBuf,
+    /// Your own layer, where the caller has one. Citation mode resolves a sefer
+    /// of yours by name only if it was told where your seforim are (G1); every
+    /// other mode reads the index and does not care.
+    personal: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for Bar {
@@ -163,13 +167,27 @@ impl Bar {
     /// shelf without one still searches — every other mode is the index alone —
     /// and citation then refuses **with the reason** rather than resolving
     /// nothing and looking like an empty library.
+    ///
+    /// `personal` is where your own seforim are, and it is an `Option` rather
+    /// than a path because two of the callers genuinely do not have one:
+    /// `girsa-index find` takes a single root by design and it may itself *be*
+    /// the personal root. Spelling that as `None` at the call site makes it a
+    /// decision somebody wrote down, which is the difference between this and
+    /// `Timeline::load`'s *call it again per root* — an instruction that lived
+    /// in a doc comment while all four of its callers ignored it.
     #[must_use]
-    pub fn new(index: SearchIndex, catalogue: Catalogue, root: &Path) -> Self {
+    pub fn new(
+        index: SearchIndex,
+        catalogue: Catalogue,
+        root: &Path,
+        personal: Option<&Path>,
+    ) -> Self {
         Self {
             index,
             catalogue,
             citations: std::sync::OnceLock::new(),
             root: root.to_path_buf(),
+            personal: personal.map(Path::to_path_buf),
         }
     }
 
@@ -180,7 +198,7 @@ impl Bar {
     /// than resolving nothing and looking like an empty library.
     fn citations(&self) -> Option<&Citations> {
         self.citations
-            .get_or_init(|| Citations::open(&self.root).ok())
+            .get_or_init(|| Citations::open(&self.root, self.personal.as_deref()).ok())
             .as_ref()
     }
 

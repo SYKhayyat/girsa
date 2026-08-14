@@ -1977,10 +1977,13 @@ overlay taught to the indexer, and the README rules out both easy answers. B7's
 honest notice is what makes shipping this incrementally safe and is not a
 substitute for it.
 
-**B22 · The rest of the personal layer.** Four pieces: linkify over notes,
-`girsa-notes merge` (there is no `merge` in that binary), a `comp_date` on a note
-so it can be a hop in the chain, and your own sefer in the resolver's lexicon at
-import. **The merge first** — it is the substitute for the sync that was ruled
+**B22 · The rest of the personal layer.** Four pieces, and two are now closed.
+A note carries a `comp_date` and the timeline reads both roots, so a note is a
+hop in the chain; and your own seforim are in the resolver's lexicon, so one can
+be cited by name and not only opened by it — both argued in
+[`docs/record/your-own-layer.md`](docs/record/your-own-layer.md). What is left
+is linkify over notes and `girsa-notes merge` (there is no `merge` in that
+binary). **The merge first** — it is the substitute for the sync that was ruled
 against, and `girsa-personal::Log` now makes it nearly free: two append-only files
 replayed in one pass, which is what `Layer::merge` already became.
 

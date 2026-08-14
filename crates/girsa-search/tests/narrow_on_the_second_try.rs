@@ -146,6 +146,7 @@ fn bar(link_types: bool) -> Bar {
         loaded(link_types),
         Catalogue::of(&shelf()),
         std::path::Path::new("no-corpus-here"),
+        None,
     )
 }
 
@@ -311,6 +312,7 @@ fn a_hit_in_a_sefer_the_catalogue_does_not_have_is_counted_out_loud() {
         index,
         Catalogue::of(&shelf()),
         std::path::Path::new("no-corpus-here"),
+        None,
     );
     let (total, facets) = ask(&bar, &Chips::default(), Paging::first());
     assert_eq!(total, 1);
