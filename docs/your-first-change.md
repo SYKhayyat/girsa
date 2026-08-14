@@ -163,6 +163,38 @@ that is ordinary work: the window asks *what did they mean* and does it.
 
 ---
 
+## 4½ · Look at it
+
+Tests are not eyes. Two ways to see the change, and they are not equivalent:
+
+```sh
+npm --prefix app run tauri dev     # the real thing
+```
+
+The first one compiles the BERT and tantivy and takes about **fifteen minutes**;
+every run after that is seconds. This is the only way to see anything that gets
+**stored** — a ticked mefaresh, a note, a rebinding.
+
+```sh
+cargo run -p girsa-app --example dev-fixtures -- corpus app/public/dev
+npm --prefix app run dev           # the browser build, at localhost:5174
+```
+
+Faster, and honest about layout, typography, Hebrew and nikud, RTL and the shape
+of a panel. **Reads are real out here; writes are no-ops** — the fixture layer
+answers *tick a mefaresh* with the same unchanged list it answers *read the list*
+with, so the box reverts a moment later and nothing appears in the console.
+
+For the change in this walkthrough it matters twice over: the resolved shortcut
+table is served out of `state.json`, which `dev-fixtures` **generated** — so your
+new row is not in the browser build until you re-run that command. Nothing tells
+you; the key simply does nothing.
+
+`../CONTRIBUTING.md` §2 has the rest of what the browser build will and will not
+tell you the truth about.
+
+---
+
 ## 5 · The generated page
 
 Now the surprise. Run:

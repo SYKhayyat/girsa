@@ -95,6 +95,39 @@ That second one is not in the gate, because it is not a check — it is a window
 Use it anyway. It found four defects in ten minutes that all nine gate steps had
 passed over, three of them in code committed an hour earlier.
 
+### What the browser build cannot do
+
+It is the same `app/src`, the same stylesheet and real text off the shelf — but
+served by Vite over static JSON instead of by the shell over IPC. **Reads are
+real. Writes are no-ops**, and they fail silently rather than refusing.
+
+The one you will meet first: `app/src/api.ts` maps *tick a mefaresh* and *read
+the list* to the same fixture file.
+
+```ts
+case "mefarshim":
+case "choose_mefaresh":
+  return json<Mefarshim>(`/dev/mefarshim-${flatten(slug!)}.json`)
+```
+
+So the window ticks a box, calls `choose_mefaresh`, gets the unchanged list back,
+and redraws from it — the box reverts about a millisecond later, with nothing in
+the console. *Open the ticked ones* then has nothing to open, because the marked
+set out here is permanently empty. Neither is a defect: the picker is faithfully
+redrawing from what the command returned, which is what `picker.ts` says it is
+for, and in the shell `choose_mefaresh` writes to the session and answers with the
+new list.
+
+**The rule: if the thing you changed is state, check it in `tauri dev`.** Layout,
+typography, Hebrew and nikud rendering, RTL and the shape of a panel are all
+honest in the browser. Anything that has to be stored is not.
+
+Two things that *are* served, in case they mislead you the way they misled the
+author of this page: the resolved shortcut table ships in `state.json`, so
+shortcuts work; and Escape closes the mefarshim picker only while focus is still
+in its filter box, which is where `show()` puts it — click a row first and Escape
+stops reaching the handler. Both look like bridge failures and neither is.
+
 ---
 
 ## 3 · Before you decide anything

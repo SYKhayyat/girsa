@@ -35,15 +35,18 @@ Three of the pictures worth having are still missing, and each is missing for a
 reason rather than for want of trying.
 
 **A daf with mefarshim ticked and the `◆` markers in the margin.** The panel
-opens and the rows tick, and the marks do not persist: writing a ticked set goes
-through a command the fixture build does not serve, so the footer still reads
+opens and the rows do not stay ticked. `app/src/api.ts` answers *tick a mefaresh*
+with the same static file it answers *read the list* with, so the box reverts the
+moment the picker redraws from the reply and the footer still reads
 *לא סימנת אף אחד*. This is the picture that explains the application, and it needs
-the shell.
+the shell, where `choose_mefaresh` writes to the session and answers with the new
+list.
 
-**The shortcut rows in settings.** The מקשים section renders its header and its
-hint and no rows. The table comes from `girsa_app::keys::ACTIONS` over the same
-bridge. The card in [`../shortcuts.md`](../shortcuts.md) is generated from that
-exact table, so the information is not lost — only the picture of it.
+**The shortcut rows in settings.** They are below the fold of the panel, which
+scrolls, and `settings.png` does not reach them. Not a limit of the browser build
+— the resolved table ships in `state.json` — just a screenshot that stops too
+early. [`../shortcuts.md`](../shortcuts.md) is generated from the same table and
+has all of them.
 
 **Girsa and Ksav side by side, the same mekor in both, right after
 `Ctrl+Shift+C`.** This is the one picture nothing else in the world can take, and
