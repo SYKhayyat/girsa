@@ -277,10 +277,30 @@ function ownPort() {
  * Fifteen seconds is plenty for a warm desktop and not always enough for a cold
  * runner starting Chrome for the first time.
  *
- * Thirty seconds now, and — the part that matters more — it stops waiting the
- * moment the browser **dies**. Polling a port for fifteen seconds after the
- * process has exited is fifteen seconds spent proving something already known,
- * and it reports a timeout for what was a crash.
+ * **Sixty seconds, not thirty**, and the reason is a fourth red run on this same
+ * clock. Run 31747194527 failed here on a commit whose only change was one
+ * markdown file, and the re-run of that identical commit fifteen hours later was
+ * green — so nothing in the repository was the cause, and the machine was. The
+ * browser's own first line of stderr is stamped **twenty seconds after it was
+ * spawned**: twenty seconds to get as far as failing to find a session bus.
+ * Thirty is not a comfortable margin over twenty. A budget costs a warm machine
+ * nothing, because it returns the moment the thing it wants is true; the only
+ * thing a larger one buys is that a slow machine stops being reported as a
+ * broken one.
+ *
+ * It also stops waiting the moment the browser **dies**. Polling a port for the
+ * remaining minute after the process has exited is a minute spent proving
+ * something already known, and it reports a timeout for what was a crash.
+ *
+ * # Three failures wearing one sentence
+ *
+ * *The browser never opened a page* was true of all of these and useful about
+ * none of them: nothing ever answered on the port; or something answered and it
+ * was not a browser, which is what a colliding `ownPort` would look like from
+ * here; or the browser answered and listed targets with no page among them.
+ * Telling them apart meant reading stderr timestamps and guessing, which is how
+ * the run above was diagnosed. `heard` keeps the last thing the port actually
+ * did, so the sentence names it instead.
  *
  * The stderr it prints is raw, and on Linux it is mostly `Failed to connect to
  * the bus` — noise Chrome emits on any machine with no session D-Bus, and not
@@ -289,19 +309,34 @@ function ownPort() {
  * the browser's own words, printed whole, for a person to read.
  */
 async function pageOf(port, said = () => "", alive = () => true) {
-  for (let tries = 0; tries < 120; tries += 1) {
+  // The last thing the port did, not a transcript of it starting up: a failure
+  // wants the state it gave up in. Every branch below overwrites this, so what
+  // survives to the throw is the most informative thing that ever happened.
+  let heard = `nothing ever answered on port ${port}`;
+  for (let tries = 0; tries < 240; tries += 1) {
     try {
-      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-      const page = list.find((t) => t.type === "page");
-      if (page?.webSocketDebuggerUrl) return page;
+      const answer = await fetch(`http://127.0.0.1:${port}/json/list`);
+      const list = await answer.json().catch(() => null);
+      if (Array.isArray(list)) {
+        const page = list.find((t) => t.type === "page");
+        if (page?.webSocketDebuggerUrl) return page;
+        const types = list.map((t) => t.type).join(", ");
+        heard = list.length
+          ? `it is listening on port ${port} and lists no page, only: ${types}`
+          : `it is listening on port ${port} and lists no targets at all`;
+      } else {
+        heard = `something answered on port ${port}, and it was not a target list`;
+      }
     } catch {
-      // Not up yet.
+      // Not up yet, which is the ordinary case for the first second or so.
     }
     if (!alive()) break;
     await new Promise((r) => setTimeout(r, 250));
   }
   const why = said().trim();
-  const what = alive() ? "never opened a page" : "started and then exited";
+  // A browser that exited has its own explanation on stderr, and the port never
+  // had anything to say about a process that was not there to answer.
+  const what = alive() ? `never opened a page — ${heard}` : "started and then exited";
   throw new Error(why ? `the browser ${what}. It said:\n${why}` : `the browser ${what}`);
 }
 
@@ -327,6 +362,17 @@ async function pageOf(port, said = () => "", alive = () => true) {
  * .pane-body after 4s`. There is no reason for the two budgets to differ; both
  * are *how long a cold machine might take*, and neither costs anything on a warm
  * one, because both return the moment the thing they want is true.
+ *
+ * They differ now, and the paragraph above is the reason they may. `pageOf` was
+ * raised to sixty because what it waits for is a **process starting cold** —
+ * disk, dynamic linking, a profile directory that does not exist yet — which is
+ * the part a loaded runner makes slow, and which has now gone red four times.
+ * This clock starts after all of that has already happened: the browser is up
+ * and warm, and what it is waiting for is one local file to parse and one
+ * stylesheet to apply. Thirty seconds is an enormous budget for that, and no run
+ * has ever spent it. Raising it too would be symmetry for its own sake, which is
+ * not a reason — if this one ever does go red on the wait, that is evidence, and
+ * evidence is what moved the other one.
  */
 async function settled(eye) {
   for (let tries = 0; tries < 300; tries += 1) {
