@@ -84,13 +84,31 @@ states that number, and a sentence is not a measurement.
 ```sh
 cargo run --release -p girsa-corpus --example measure-continuity   # would a re-import keep every id?
 cargo run --release -p girsa-corpus --example measure-oversized    # segments that name a volume, not a place
-cargo run --release -p girsa-corpus --example measure-resolver     # the resolver against real citations
+cargo run --release -p girsa-corpus --example measure-resolver  corpus/lexicon.tsv corpus/sefaria/links   # the resolver against real citations
 cargo run --release -p girsa-corpus --example measure-ids          # what reading a work's ids costs
 cargo run --release -p girsa-app    --example measure-standing     # what asking the shelf costs
 cargo run --release -p girsa-app    --example measure-opening      # what opening a sefer costs the window
-cargo run --release -p girsa-lane   --example measure              # the lane against a real model
+cargo run --release -p girsa-lane   --example measure  corpus personal <slug> <model-dir>   # the lane against a real model
 cargo run --release -p girsa-link   --example why-the-panel-waits  # where the half-second goes
 ```
+
+Six of the eight take their roots from where you are standing and the other two
+do not, which is not a style this page can tidy away: `measure-resolver` scores
+the resolver against Sefaria's own link CSVs and has to be told where they are,
+and the lane's `measure` needs a **slug to measure and a model to measure it
+with**. `<model-dir>` is the side-loaded BERT of spec.md §9.9, which is a setting
+on a reader's machine and not a release, and `<slug>` is a work the lane has
+actually embedded — one whose name is a path, not a title:
+
+```sh
+cargo run --release -p girsa-lane --example measure \
+    corpus personal mishneh-torah/prayer-and-the-priestly-blessing ~/berel
+```
+
+Both of those lines, and the two below them, printed a usage line and did
+nothing until they were given their arguments — the same failure the five
+build-the-shelf commands had, one namespace over, because the check that caught
+it there read `--bin` and not `--example`. It reads both now.
 
 ## Looking at one thing that went wrong
 
@@ -107,14 +125,22 @@ between *4,102 links were dropped* and *here is one, and here is why*.
 ```sh
 cargo run -p girsa-app  --example send             # a source, in its three flavours
 cargo run -p girsa-app  --example fixture-packet   # the packet Ksav's test asserts against
-cargo run -p girsa-desk --example write            # a buffer, written the way the window writes it
+cargo run -p girsa-desk --example write  corpus personal <buffer-name> <citation>   # a buffer, written the way the window writes it
 ```
+
+`write` takes the citation you would have sent, because that is what a buffer is
+made of — `cargo run -p girsa-desk --example write corpus personal chaburah "ברכות ב."`
+writes one the way the window writes one.
 
 ## Rebuilding something generated
 
 ```sh
-cargo run -p girsa-corpus --example build-lexicon   # the resolver's lexicon, from Sefaria's schemas
+cargo run -p girsa-corpus --example build-lexicon  corpus/sefaria/schemas corpus/lexicon.tsv   # the resolver's lexicon, from Sefaria's schemas
 ```
+
+It reads Sefaria's schemas and writes the `.tsv` — both named, because it
+overwrites the second one and a generator that guessed its own output path is a
+generator that overwrites a file you did not name.
 
 Two more are generated and are **not** run by hand: `girsa-card` writes
 `docs/shortcuts.md` (the page says so at the top), and `dev-fixtures` writes

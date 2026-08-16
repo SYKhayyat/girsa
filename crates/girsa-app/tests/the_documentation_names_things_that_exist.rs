@@ -662,8 +662,8 @@ fn every_documented_invocation_carries_the_words_its_tool_requires() {
     let mut wrong = Vec::new();
     for page in documents(&root) {
         let text = read(&page);
-        for (n, line) in text.lines().enumerate() {
-            let Some((tool, given)) = invocation(line) else {
+        for (n, line) in continued(&text) {
+            let Some((tool, given)) = invocation(&line) else {
                 continue;
             };
             let Some(&want) = wants.get(tool.as_str()) else {
@@ -671,10 +671,11 @@ fn every_documented_invocation_carries_the_words_its_tool_requires() {
             };
             if given.len() < want {
                 wrong.push(format!(
-                    "{}:{}: `{tool}` needs {want} word(s) and is given {}: {line}",
+                    "{}:{}: `{tool}` needs {want} word(s) and is given {}: {}",
                     page.display(),
                     n + 1,
                     given.len(),
+                    line.trim(),
                 ));
             }
         }
@@ -688,12 +689,28 @@ fn every_documented_invocation_carries_the_words_its_tool_requires() {
     );
 }
 
-/// How many words each binary requires, read from its own usage line.
+/// How many words each binary and each example requires, read from its own
+/// usage line.
 ///
 /// `girsa-index` is entered by hand at one, because its usage is a block of
 /// subcommands rather than a single line and every one of them starts with a
 /// verb. One word is the claim being made: a documented `girsa-index` must at
 /// least say which of the five things it is doing.
+///
+/// # Examples too, and why they were not here
+///
+/// This walked for `usage: girsa-` and nothing else, so it saw the binaries and
+/// none of the fifteen examples — whose usage lines begin `usage: measure`,
+/// `usage: write`, `usage: build-lexicon`. Four documented `--example` lines
+/// were therefore in exactly the state the `--bin` lines had been in the day
+/// this test was written: they name a tool that exists, call it in a way it
+/// refuses, and print a usage line instead of doing anything.
+///
+/// Keyed `bin:girsa-x` / `example:x`, because the two namespaces are separate —
+/// there is no rule stopping a crate having both, and a collision would silently
+/// hold one to the other's arguments. An example is keyed by its **file stem**,
+/// which is what `--example` takes; the fifteen are checked for uniqueness by
+/// this map being built from paths.
 fn required_words(root: &Path) -> std::collections::BTreeMap<String, usize> {
     let mut wants = std::collections::BTreeMap::new();
     let mut stack = vec![root.join("crates")];
@@ -705,38 +722,100 @@ fn required_words(root: &Path) -> std::collections::BTreeMap<String, usize> {
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                for line in read(&path).lines() {
-                    let Some(rest) = line.split("usage: girsa-").nth(1) else {
-                        continue;
-                    };
-                    let mut words = rest.split_whitespace();
-                    let Some(tool) = words.next() else { continue };
-                    let needed = words
-                        .filter(|w| w.starts_with('<') && !w.contains("--"))
-                        .count();
-                    let tool = format!("girsa-{tool}");
-                    // The first usage line wins, so `girsa-index`'s `build` line
-                    // sets it and its four siblings do not raise it.
-                    wants.entry(tool).or_insert(needed);
-                }
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            // An example is named by its file, and a binary by its usage line —
+            // `src/bin/girsa-x.rs` agrees with `usage: girsa-x`, so the binary
+            // half is left reading the line it always read.
+            let example = path
+                .parent()
+                .is_some_and(|p| p.file_name().is_some_and(|n| n == "examples"))
+                .then(|| path.file_stem().map(|s| s.to_string_lossy().to_string()))
+                .flatten();
+            for line in read(&path).lines() {
+                let Some(rest) = line.split("usage: ").nth(1) else {
+                    continue;
+                };
+                let mut words = rest.split_whitespace();
+                let Some(named) = words.next() else { continue };
+                let needed = words
+                    .filter(|w| w.starts_with('<') && !w.contains("--"))
+                    .count();
+                let key = match &example {
+                    // The usage line has to be this example's own, or a doc
+                    // comment quoting another tool would set its requirement.
+                    Some(stem) if named == stem => format!("example:{stem}"),
+                    Some(_) => continue,
+                    None if named.starts_with("girsa-") => format!("bin:{named}"),
+                    None => continue,
+                };
+                // The first usage line wins, so `girsa-index`'s `build` line
+                // sets it and its four siblings do not raise it.
+                wants.entry(key).or_insert(needed);
             }
         }
     }
     wants
 }
 
+/// A document's lines, with shell continuations joined.
+///
+/// A `cargo run …` too long for one line is written the way anybody writes one,
+/// with a trailing backslash — and a reader copies the whole block, so the
+/// invocation is the joined line and not either half. Read a line at a time,
+/// the first half looks like a command called with one argument and the second
+/// half looks like nothing at all.
+///
+/// The number that comes back is the **first** line's, so a failure points at
+/// where the command starts rather than at where it happened to wrap.
+fn continued(text: &str) -> Vec<(usize, String)> {
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut held: Option<(usize, String)> = None;
+    for (n, line) in text.lines().enumerate() {
+        let more = line.trim_end().ends_with('\\');
+        let piece = line.trim_end().trim_end_matches('\\');
+        match held.take() {
+            Some((first, mut so_far)) => {
+                so_far.push(' ');
+                so_far.push_str(piece.trim());
+                if more {
+                    held = Some((first, so_far));
+                } else {
+                    out.push((first, so_far));
+                }
+            }
+            None if more => held = Some((n, piece.to_string())),
+            None => out.push((n, line.to_string())),
+        }
+    }
+    // A block that ends mid-continuation is still worth checking.
+    if let Some(dangling) = held {
+        out.push(dangling);
+    }
+    out
+}
+
 /// The tool and the words given to it on one documented `cargo run` line.
 ///
-/// A word is anything after `--bin <tool>` that is not an option, not a comment
-/// and not cargo's own `--` separator. `<otzaria>` counts as a word: it is a
-/// placeholder the reader fills in, which is a different thing from an argument
-/// that is not there at all.
+/// A word is anything after `--bin <tool>` or `--example <name>` that is not an
+/// option, not a comment and not cargo's own `--` separator. `<otzaria>` counts
+/// as a word: it is a placeholder the reader fills in, which is a different
+/// thing from an argument that is not there at all.
+///
+/// Returns the key `required_words` files the tool under, so the two cannot
+/// drift into looking each other up by different names.
 fn invocation(line: &str) -> Option<(String, Vec<String>)> {
-    let after = line.split("--bin ").nth(1)?;
+    let (kind, after) = match (line.split("--bin ").nth(1), line.split("--example ").nth(1)) {
+        (Some(after), _) => ("bin", after),
+        (None, Some(after)) => ("example", after),
+        (None, None) => return None,
+    };
     let mut words = after.split_whitespace();
     let tool = words.next()?.to_string();
-    if !tool.starts_with("girsa-") {
+    if kind == "bin" && !tool.starts_with("girsa-") {
         return None;
     }
     let given: Vec<String> = words
@@ -744,7 +823,7 @@ fn invocation(line: &str) -> Option<(String, Vec<String>)> {
         .filter(|w| !w.starts_with('-'))
         .map(ToString::to_string)
         .collect();
-    Some((tool, given))
+    Some((format!("{kind}:{tool}"), given))
 }
 
 /// A tool that writes a cache into the corpus says so, and names it.
