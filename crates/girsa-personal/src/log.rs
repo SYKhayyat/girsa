@@ -63,11 +63,21 @@ pub fn is_tombstone(line: &str) -> bool {
 /// written when the record was made. This reads that and nothing else, so it
 /// deserialises a `Patch`, a `Mark`, a saved question and a folder alike
 /// without any of them being nameable from here.
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct Stamp {
     /// `None` on a record written before the field existed.
     #[serde(default)]
     when: Option<u64>,
+    /// What a tombstone would name, where the record's key **is** its `id`.
+    ///
+    /// Every keyed store in this layer whose key is a field spells it `id`, and
+    /// a tombstone carries that string in `gone`. Where a store's key is
+    /// composed of other things instead — `girsa_link::repair` keys on the pair
+    /// of anchors and the kind of statement — there is nothing here to match on
+    /// and the record is counted as it always was. That is the honest limit,
+    /// and it is why this is `Option` rather than a required field.
+    #[serde(default)]
+    id: Option<String>,
 }
 
 /// How many records a log holds, and how many were written after a moment.
@@ -110,20 +120,62 @@ pub struct Since {
 /// The answer is not to name `Patch`. It is that **counting records in a log is
 /// a fact about the log format**, and the log format is this crate's — the same
 /// argument that already puts [`is_tombstone`] here.
+///
+/// # A tombstone takes its record with it
+///
+/// This skipped the tombstone **line** and went on counting the record the
+/// tombstone had killed. So a correction made and then taken back was counted
+/// twice over as a live correction the index had not seen, and the results
+/// header said *"2 corrections made since then are still findable by the typo
+/// and not by the fix"* about two corrections that no longer existed anywhere.
+///
+/// [`Since::records`] has said *"blank lines and tombstones excluded — a
+/// deletion is not a thing for an index to go and find"* since it was written.
+/// That was the intent; excluding the tombstone line is not the same act as
+/// excluding what it deletes, and nothing here noticed the difference. It
+/// became reachable from a second direction when the MCP end grew `uncorrect`,
+/// which is how it was found.
+///
+/// So the walk is now the same replay [`Log::live`] does, **in order**, and the
+/// order is what makes it right rather than a set difference: a `PatchId` is
+/// content-addressed, so correcting the same words the same way after undoing
+/// produces the *same* key — record, tombstone, record — and that third line is
+/// a live correction. Collecting the tombstoned keys in one pass and subtracting
+/// them in another would drop it.
 #[must_use]
 pub fn since(body: &str, seconds: u64) -> Since {
-    let mut counted = Since::default();
+    // Keyed records, last line for a key winning, exactly as `replay` resolves
+    // them. `None` where the record carries no `id` to key on — those are held
+    // in order and never removed, which is what happened to every record before
+    // this.
+    let mut keyed: BTreeMap<String, bool> = BTreeMap::new();
+    let mut unkeyed: Vec<bool> = Vec::new();
     for line in body.lines() {
-        if line.trim().is_empty() || is_tombstone(line) {
+        if line.trim().is_empty() {
             continue;
         }
+        if let Ok(stone) = serde_json::from_str::<Gone>(line) {
+            keyed.remove(&stone.gone);
+            continue;
+        }
+        let stamp = serde_json::from_str::<Stamp>(line).ok();
+        // No `when`, or a line that will not parse at all. Both are records
+        // this cannot date, and an undated record counts as new.
+        let after = stamp
+            .as_ref()
+            .and_then(|s| s.when)
+            .is_none_or(|when| when > seconds);
+        match stamp.and_then(|s| s.id) {
+            Some(id) => {
+                keyed.insert(id, after);
+            }
+            None => unkeyed.push(after),
+        }
+    }
+    let live = keyed.values().copied().chain(unkeyed);
+    let mut counted = Since::default();
+    for after in live {
         counted.records += 1;
-        let after = match serde_json::from_str::<Stamp>(line) {
-            Ok(Stamp { when: Some(when) }) => when > seconds,
-            // No `when`, or a line that will not parse at all. Both are records
-            // this cannot date, and an undated record counts as new.
-            _ => true,
-        };
         if after {
             counted.after += 1;
         }
@@ -588,12 +640,26 @@ mod tests {
     }
 
     #[test]
-    fn a_tombstone_is_not_a_record() {
-        // Taking a correction back writes a line too, and a line saying a
-        // correction is gone is not something for an index to go and find.
+    fn a_tombstone_is_not_a_record_and_neither_is_what_it_deleted() {
+        // This test said the first half and asserted against the second. Its
+        // comment was already right — "a line saying a correction is gone is
+        // not something for an index to go and find" — and it required
+        // `records: 1` for a body holding one correction and its tombstone.
+        // So the counter skipped the stone, kept the dead record, and the
+        // results header reported corrections that no longer existed.
         let body = "{\"id\":\"a\",\"when\":900}\n{\"gone\":\"a\"}\n";
         assert_eq!(
             since(body, 100),
+            Since {
+                records: 0,
+                after: 0
+            }
+        );
+        // And what the tombstone did not name is untouched.
+        let and_another =
+            "{\"id\":\"a\",\"when\":900}\n{\"gone\":\"a\"}\n{\"id\":\"b\",\"when\":900}\n";
+        assert_eq!(
+            since(and_another, 100),
             Since {
                 records: 1,
                 after: 1
@@ -654,6 +720,60 @@ mod tests {
         assert_eq!(since(body, 500).after, 1);
         let only = "{\"whenever\":900}\n";
         assert_eq!(since(only, 500).after, 1, "undated counts as new");
+    }
+
+    #[test]
+    fn a_record_written_again_after_its_tombstone_is_live() {
+        // Why this replays in order instead of subtracting a set of dead keys.
+        // A `PatchId` is content-addressed, so correcting the same words the
+        // same way after undoing produces the **same** key — and the third line
+        // is a correction that exists. Collecting the stones in one pass and
+        // removing them in another would delete it.
+        let body = concat!(
+            "{\"id\":\"a\",\"when\":900}\n",
+            "{\"gone\":\"a\"}\n",
+            "{\"id\":\"a\",\"when\":950}\n",
+        );
+        assert_eq!(
+            since(body, 500),
+            Since {
+                records: 1,
+                after: 1
+            }
+        );
+    }
+
+    #[test]
+    fn saying_the_same_record_twice_is_one_record() {
+        // The other half of last-line-wins, which `replay` has always had and
+        // this counter did not: a store that appends rather than rewrites can
+        // hold a key twice, and two lines about one correction are one
+        // correction.
+        let body = "{\"id\":\"a\",\"when\":100}\n{\"id\":\"a\",\"when\":900}\n";
+        assert_eq!(
+            since(body, 500),
+            Since {
+                records: 1,
+                after: 1
+            },
+            "the later line is the one that stands, and it is after"
+        );
+    }
+
+    #[test]
+    fn a_record_with_no_id_is_counted_as_it_always_was() {
+        // The honest limit. A store whose key is composed rather than a field —
+        // `girsa_link::repair` keys on the pair of anchors and the kind of
+        // statement — has nothing here to match a tombstone against, so nothing
+        // is removed and nothing is worse than before.
+        let body = "{\"when\":900}\n{\"gone\":\"whatever\"}\n{\"when\":900}\n";
+        assert_eq!(
+            since(body, 500),
+            Since {
+                records: 2,
+                after: 2
+            }
+        );
     }
 
     #[test]
