@@ -16,6 +16,7 @@ import {
   whenFilesDropped,
   type AppState,
   type Asked,
+  type Luach,
   type Mefarshim,
   type PaneId,
   type Presence,
@@ -26,6 +27,8 @@ import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
 import { ChainView } from "./chainview.ts";
 import { TocView } from "./tocview.ts";
+import { FindHere } from "./findhere.ts";
+import { printSection } from "./printview.ts";
 import { LinksView } from "./linksview.ts";
 import { PaneView } from "./pane.ts";
 import { ScanView } from "./scanview.ts";
@@ -71,6 +74,10 @@ const yoursview = new YoursView();
 const lanepanel = new LanePanel();
 /** The settings panel Girsa did not have (B13). */
 const settingsview = new SettingsView();
+// Ctrl+F, over whichever pane the reader is standing in. One bar and not one
+// per pane: the reader is looking for a phrase, not opening a tool, and two
+// bars with two counts in two panes is a question nobody asked.
+const findhere = new FindHere();
 const views = new Map<PaneId, PaneView>();
 /** Panes holding a scan (W25). A second map rather than a union: a scan has no
  * lines, so none of the questions asked of a reading pane — what is
@@ -190,6 +197,74 @@ async function main(): Promise<void> {
 async function whenAskedFor(landing: Asked): Promise<void> {
   await openFound(landing.slug, landing.id);
   announce(`${say("opened")} — ${landing.ref}`, false);
+}
+
+/** Put the section the reader is standing in onto paper. */
+async function printHere(): Promise<void> {
+  const open = tab();
+  const pane = open ? views.get(open.focused) : undefined;
+  const at = pane?.here();
+  if (!pane || !at) {
+    announce(say("printNothingOpen"), true);
+    return;
+  }
+  try {
+    const what = await printSection(at);
+    // Said out loud, because a print dialogue tells the reader that something
+    // happened and not what — and on a machine whose printer is a PDF writer,
+    // the file lands under a name nobody chose.
+    announce(`${say("printReady")} — ${what}`, false);
+  } catch (e) {
+    announce(trouble(e, "print").said, true);
+  }
+}
+
+/**
+ * Today's luach, asked with **this machine's own date**.
+ *
+ * `new Date()` and not a clock in Rust: `std::time` knows the seconds since
+ * 1970 and nothing about which day that is where the reader is sitting, and a
+ * UTC answer is the previous evening in New York.
+ */
+async function todaysLuach(): Promise<Luach | null> {
+  const now = new Date();
+  try {
+    return await api.luach(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  } catch {
+    // A shelf that will not open is already said elsewhere; a toolbar button
+    // is not the place to report it a second time.
+    return null;
+  }
+}
+
+/** Put today's daf on the button, or leave the button hidden. */
+async function sayTodaysDaf(on: HTMLElement): Promise<void> {
+  const luach = await todaysLuach();
+  const daf = luach?.today.find((l) => l.key === "daf-yomi");
+  if (!luach || !daf) return;
+  on.textContent = `${say("dafYomi")} · ${daf.place}`;
+  // The Hebrew date and where the cycle stands, on hover — the two facts a
+  // reader wants beside the daf and neither of which is worth a second line of
+  // toolbar.
+  const tomorrow = luach.tomorrow.find((l) => l.key === "daf-yomi");
+  const lines = [`${luach.weekday}, ${luach.hebrew}`, `${daf.day} / ${daf.of}`];
+  if (tomorrow) lines.push(`${say("tomorrow")}: ${tomorrow.place}`);
+  if (!daf.here) lines.push(say("dafYomiNotHere"));
+  on.title = lines.join(" · ");
+  on.hidden = false;
+  on.classList.toggle("is-quiet", !daf.here);
+}
+
+/** Open today's daf, by the same road a citation takes. */
+async function openTodaysDaf(): Promise<void> {
+  const luach = await todaysLuach();
+  const daf = luach?.today.find((l) => l.key === "daf-yomi");
+  if (!daf) return;
+  if (!daf.here) {
+    announce(`${daf.place} — ${say("dafYomiNotHere")}`, true);
+    return;
+  }
+  await goToCitation(daf.reference);
 }
 
 /**
@@ -1062,6 +1137,21 @@ function toolBar(): HTMLElement {
   });
   theme.classList.add("tool-wide");
 
+  // **Today's daf, one click from wherever you are standing.**
+  //
+  // The commonest reason a person opens a Shas in the morning, and this
+  // application had no concept of *today* at all — not the daf, not the Hebrew
+  // date. Otzaria has had both since its first release.
+  //
+  // Drawn empty and filled in when the answer comes back, rather than held up
+  // while the toolbar waits on a round trip: the luach is arithmetic and it is
+  // fast, but a toolbar that draws late is a toolbar that flickers on every
+  // reload. The button hides itself if there is no daf to name.
+  const daf = button(say("dafYomi"), say("dafYomiWhy"), () => void openTodaysDaf());
+  daf.classList.add("tool-wide", "is-quiet");
+  daf.hidden = true;
+  void sayTodaysDaf(daf);
+
   const smaller = button(say("smaller"), say("smallerWhy"), () => resize(-10));
   const bigger = button(say("bigger"), say("biggerWhy"), () => resize(10));
 
@@ -1085,7 +1175,7 @@ function toolBar(): HTMLElement {
   // settings rather than gestures, and a toolbar that carried one of the two
   // taught a reader that the other did not exist.
   const setup = button(say("settings"), say("settingsWhy"), () => void settingsview.toggle());
-  bar.append(theme, nikud, showing, smaller, bigger, setup, where);
+  bar.append(daf, theme, nikud, showing, smaller, bigger, setup, where);
 
   // Presence (spec.md §10.6): the affordance is never offered when it would
   // fail. Live, it is a button; not live, it is a word saying which of the two
@@ -1708,6 +1798,16 @@ const PANELS: readonly Held[] = Object.freeze([
     // not `reading`: a reader looking for סימן פ"ט types `פ` and would
     // otherwise turn the page under the panel.
     { panel: tocview, keyboard: "typing", escape: "anywhere" },
+    // The find bar sits **over the pane**, so a typed letter is its and
+    // Escape closes it wherever the caret is. `toggle` so a second Ctrl+F
+    // reaches it while it is open, which is how a reader re-opens the box on
+    // the phrase they already typed.
+    {
+      panel: findhere,
+      keyboard: "all",
+      escape: "anywhere",
+      toggle: "find-here",
+    },
     // Your own layer docks the moment it opens, so it is never over the
     // reading — the sibling of finding 3, cleared by moving it off `inside`.
     // Its boxes still own what is typed into them; its buttons do not own the
@@ -1762,6 +1862,25 @@ function shortcut(event: KeyboardEvent): void {
       event.preventDefault();
       search();
       return;
+    case "print": {
+      event.preventDefault();
+      void printHere();
+      return;
+    }
+    case "find-here": {
+      event.preventDefault();
+      const open = tab();
+      const pane = open ? views.get(open.focused) : undefined;
+      // Nothing to find in: no pane, or a pane holding a scan, which has no
+      // text to fold. Said rather than swallowed — a key that silently does
+      // nothing reads as a broken window.
+      if (!pane) {
+        announce(say("findHereNothingOpen"), true);
+        return;
+      }
+      findhere.openOn(pane);
+      return;
+    }
     case "shelf":
       event.preventDefault();
       browseShelf();

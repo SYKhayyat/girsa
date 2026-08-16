@@ -435,6 +435,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
     Ok(girsa_app::view::Opening {
         workspace: state.session.workspace.clone(),
         pointing: state.session.pointing,
+        shemos: state.session.shemos,
         text_size: state.session.text_size,
         positions: state.session.positions.clone(),
         works: state.shelf.as_ref().map_or(0, |s| s.works().len()),
@@ -574,6 +575,7 @@ fn hit_row(
     marker: &girsa_search::bar::Marker,
     names: Option<&girsa_app::Names<'_>>,
     pointing: girsa_app::session::Pointing,
+    shemos: girsa_app::shemos::Shemos,
 ) -> HitRow {
     let (page, by, guessed) = scanned(hit);
     HitRow {
@@ -591,7 +593,7 @@ fn hit_row(
             },
             |names| AtRow::of(&names.of(&hit.id)),
         ),
-        runs: shown(hit, marker, pointing),
+        runs: shown(hit, marker, pointing, shemos),
         page,
         by,
         guessed,
@@ -612,9 +614,21 @@ fn shown(
     hit: &girsa_search::index::Hit,
     marker: &girsa_search::bar::Marker,
     pointing: girsa_app::session::Pointing,
+    shemos: girsa_app::shemos::Shemos,
 ) -> Vec<display::Run> {
+    // The marks are byte ranges into `hit.text`, which is why the shemos go on
+    // **after** them and the nikud comes off after that. Every substitution is
+    // one letter for one letter, so a mark placed on the text as the engine
+    // saw it still covers the same word once a shem has been rewritten — which
+    // is the whole reason that invariant is asserted in `girsa_app::shemos`.
     display::unpointed(
-        display::runs_marking(&hit.text, &marker.marks(hit)),
+        display::runs_marking(&hit.text, &marker.marks(hit))
+            .into_iter()
+            .map(|run| display::Run {
+                text: girsa_app::shemos::written(&run.text, shemos).into_owned(),
+                ..run
+            })
+            .collect(),
         pointing,
     )
 }
@@ -678,6 +692,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
     let (chips, _) = state.chips.read(&query);
     state.chips = chips;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     // How a place is printed, from the reader's own setting.
     let style = state.session.cite;
     let chips = state.chips.clone();
@@ -722,7 +737,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                 hits: results
                     .hits
                     .iter()
-                    .map(|hit| hit_row(hit, &results.marker, names.as_ref(), pointing))
+                    .map(|hit| hit_row(hit, &results.marker, names.as_ref(), pointing, shemos))
                     .collect(),
                 total: results.total,
                 page: page.max(1),
@@ -875,6 +890,7 @@ fn find_rung(
     let (chips, text) = state.chips.read(&query);
     state.chips = chips.clone();
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let Some(rung) = girsa_search::ladder::Rung::named(&rung) else {
         return Err(girsa_app::trouble::refuse(
             girsa_app::trouble::Code::NoSuch,
@@ -922,7 +938,7 @@ fn find_rung(
         hits: found
             .hits
             .iter()
-            .map(|hit| hit_row(hit, &marker, names.as_ref(), pointing))
+            .map(|hit| hit_row(hit, &marker, names.as_ref(), pointing, shemos))
             .collect(),
         total: found.total,
         page: page.max(1),
@@ -1514,6 +1530,7 @@ fn mefarshim_at(
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     // How a place is printed, from the reader's own setting — one formatter
     // for the margin and for the citation. See `sending::printed_address`.
     let style = state.session.cite;
@@ -1547,7 +1564,7 @@ fn mefarshim_at(
                 .map_or(first, |to| to.max(first));
             sefer.segments[first..=last]
                 .iter()
-                .map(|s| Line::of(sefer, s, pointing, style, lexicon))
+                .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
                 .collect()
         };
         let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
@@ -1588,6 +1605,7 @@ const A_WINDOW: usize = 600;
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     // How a place is printed, from the reader's own setting — one formatter
     // for the margin and for the citation. See `sending::printed_address`.
     let style = state.session.cite;
@@ -1609,7 +1627,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         work: Card::of(&sefer.work),
         lines: sefer.segments[from..to]
             .iter()
-            .map(|s| Line::of(sefer, s, pointing, style, lexicon))
+            .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
             .collect(),
         from,
         total,
@@ -1631,6 +1649,7 @@ fn sefer_lines(
 ) -> Result<Vec<Line>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     // How a place is printed, from the reader's own setting — one formatter
     // for the margin and for the citation. See `sending::printed_address`.
     let style = state.session.cite;
@@ -1639,7 +1658,7 @@ fn sefer_lines(
     let to = from.saturating_add(count).min(sefer.segments.len());
     Ok(sefer.segments[from..to]
         .iter()
-        .map(|s| Line::of(sefer, s, pointing, style, lexicon))
+        .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
         .collect())
 }
 
@@ -2217,6 +2236,7 @@ fn fix(
     let kind = girsa_fix::Kind::named(&kind).ok_or_else(|| format!("no such kind: {kind}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     // How a place is printed, from the reader's own setting — one formatter
     // for the margin and for the citation. See `sending::printed_address`.
     let style = state.session.cite;
@@ -2255,7 +2275,7 @@ fn fix(
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, pointing, style, lexicon),
+        line: Line::of(sefer, segment, pointing, shemos, style, lexicon),
         said: format!("{was} → {now}"),
     })
 }
@@ -2266,6 +2286,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     // How a place is printed, from the reader's own setting — one formatter
     // for the margin and for the citation. See `sending::printed_address`.
     let style = state.session.cite;
@@ -2293,7 +2314,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
         .get(position)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
     Ok(Fixed {
-        line: Line::of(sefer, segment, pointing, style, lexicon),
+        line: Line::of(sefer, segment, pointing, shemos, style, lexicon),
         said: "הוחזר כפי שנדפס".to_string(),
     })
 }
@@ -2364,6 +2385,7 @@ fn links(
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let lens = lens.filter(|key| !key.is_empty());
 
     // The line itself, as the pane drew it, because a span is in those
@@ -2413,7 +2435,7 @@ fn links(
     Ok(Links {
         links: links
             .iter()
-            .map(|l| LinkRow::of(l, language, first_words(&state, l, pointing)))
+            .map(|l| LinkRow::of(l, language, first_words(&state, l, pointing, shemos)))
             .collect(),
         incoming_unknown: touching.incoming_unknown,
         types: girsa_app::links::kinds(),
@@ -2466,12 +2488,12 @@ fn first_words(
     state: &State,
     link: &girsa_app::Link,
     pointing: girsa_app::session::Pointing,
+    shemos: girsa_app::shemos::Shemos,
 ) -> Option<String> {
     let sefer = state.open.peek(&link.work)?;
     let nth = sefer.position_of(&link.other.from)?;
-    let text = display::Shown::of(&sefer.segments.get(nth)?.text, pointing)
-        .text()
-        .to_string();
+    let said = girsa_app::shemos::written(&sefer.segments.get(nth)?.text, shemos);
+    let text = display::Shown::of(&said, pointing).text().to_string();
     Some(girsa_app::enough::first_words(&text))
 }
 
@@ -2626,6 +2648,7 @@ fn export_sefer(
         girsa_export::Format::named(&format).ok_or_else(|| format!("no such format: {format}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let showing = state.session.showing;
     let personal = state
         .shelf
@@ -2654,8 +2677,8 @@ fn export_sefer(
         .ok_or("there is no shelf here")?
         .fixes();
     let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let done =
-        girsa_export::export(sefer, fixes, format, pointing, &to).map_err(|e| e.to_string())?;
+    let done = girsa_export::export(sefer, fixes, format, pointing, shemos, &to)
+        .map_err(|e| e.to_string())?;
     Ok(Written {
         said: format!(
             "{} · {} · {}",
@@ -2819,6 +2842,13 @@ fn suspect_at(
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    // **No `shemos` here, and that is deliberate.** This is the correction
+    // path: what it shows the reader is the word as the corpus has it, and
+    // what they type goes back into their own layer as a claim about that
+    // word. A box that offered `יקוק` for correction would be inviting a
+    // reader to write a substitution into the corpus, which is the one place
+    // this setting must not reach. `girsa_app::fixing` is silent about it for
+    // the same reason.
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let (queue, _) = girsa_fix::suspect::Queue::open(shelf.personal());
     let suspect = queue.get(&id).ok_or("there is no such candidate")?.clone();
@@ -2978,6 +3008,7 @@ fn copy(
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
     let selection = girsa_app::Selection {
@@ -2986,8 +3017,8 @@ fn copy(
         from_char,
         to_char,
     };
-    let sent =
-        girsa_app::send(sefer, &selection, style, pointing, note).map_err(|e| e.to_string())?;
+    let sent = girsa_app::send(sefer, &selection, style, pointing, shemos, note)
+        .map_err(|e| e.to_string())?;
     Ok(Copied {
         display: sent.display().to_string(),
         reference: sent.packet.reference.clone(),
@@ -3097,6 +3128,7 @@ fn source_markup(
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
     let selection = girsa_app::Selection {
@@ -3105,8 +3137,8 @@ fn source_markup(
         from_char,
         to_char,
     };
-    let sent =
-        girsa_app::send(sefer, &selection, style, pointing, None).map_err(|e| e.to_string())?;
+    let sent = girsa_app::send(sefer, &selection, style, pointing, shemos, None)
+        .map_err(|e| e.to_string())?;
     Ok(girsa_ksav::to_ksav(
         &sent.packet,
         girsa_ksav::CitationPlacement::Mekor,
@@ -3241,6 +3273,7 @@ fn send_to_ksav(
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let style = state.session.cite;
     let sefer = state.sefer(from.work())?;
     let selection = girsa_app::Selection {
@@ -3249,8 +3282,8 @@ fn send_to_ksav(
         from_char,
         to_char,
     };
-    let sent =
-        girsa_app::send(sefer, &selection, style, pointing, note).map_err(|e| e.to_string())?;
+    let sent = girsa_app::send(sefer, &selection, style, pointing, shemos, note)
+        .map_err(|e| e.to_string())?;
     let packet = sent.packet.to_json().map_err(|e| e.to_string())?;
     girsa_post::send(girsa_post::App::Ksav, "/insert", Some(&packet)).map_err(|e| e.to_string())?;
     Ok(Copied {
@@ -3433,6 +3466,140 @@ fn set_pointing(shared: tauri::State<'_, Shared>, pointing: String) -> Result<()
     Ok(())
 }
 
+/// A sheet of paper: what the reader is standing in, ready to print.
+///
+/// > *Print the daf for the shiur.* — which, before this, meant export to
+/// > `.docx`, open Word, and print from there.
+///
+/// **The section and not the sefer.** A siman, an amud, a perek — see
+/// [`girsa_app::printing`] for why that is found from the address rather than
+/// by counting lines. The whole sefer on paper is what the export is for.
+///
+/// The lines come back as ordinary [`Line`]s, which is the point: the reader's
+/// corrections are already applied, the pointing is theirs, and the shemos are
+/// written the way they asked — so what prints is what is on the screen, and
+/// nothing has a second idea of what the sefer says.
+#[tauri::command]
+fn sefer_sheet(shared: tauri::State<'_, Shared>, at: String, whole: bool) -> Result<Sheet, String> {
+    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
+    let style = state.session.cite;
+    let (sefer, lexicon) = state.reading(at.work())?;
+    let how = if whole {
+        girsa_app::printing::Sheet::Chosen
+    } else {
+        girsa_app::printing::Sheet::Section
+    };
+    let (from, to) = girsa_app::printing::run_of(sefer, &at, how)
+        .ok_or_else(|| format!("{at} is not in this sefer"))?;
+    let lines: Vec<Line> = sefer.segments[from..to]
+        .iter()
+        .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
+        .collect();
+    Ok(Sheet {
+        title: girsa_app::printing::header(sefer),
+        address: lines.first().map(|l| l.address.clone()).unwrap_or_default(),
+        to_address: lines.last().map(|l| l.address.clone()).unwrap_or_default(),
+        lines,
+    })
+}
+
+/// A printable run of a sefer, with what has to be on the page beside it.
+#[derive(Serialize)]
+struct Sheet {
+    /// The sefer, the edition and the terms — spec.md §13, on paper.
+    title: Vec<String>,
+    /// Where the sheet starts and where it ends, printed the reader's way.
+    address: String,
+    to_address: String,
+    lines: Vec<Line>,
+}
+
+/// Find a phrase **inside one sefer** (`girsa_app::inside`).
+///
+/// The gesture every application has and this one did not. Not the search bar
+/// narrowed to one work: the whole sefer is scanned, in reading order, and what
+/// comes back is every place with the offsets the pane can highlight.
+///
+/// Scanned per keystroke rather than indexed, and that is a measured choice
+/// rather than laziness: the largest sefer on the shelf is Mishnah Berurah at
+/// 17,418 segments, and folding that many short strings is well under the
+/// frame a reader would notice. An index would have to be invalidated by every
+/// correction the reader makes, which is a second copy of a problem
+/// `girsa-fix` already solved once.
+#[tauri::command]
+fn sefer_find(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    query: String,
+) -> Result<girsa_app::inside::Inside, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
+    let style = state.session.cite;
+    let (sefer, _) = state.reading(&slug)?;
+    Ok(girsa_app::inside::find(
+        sefer, &query, pointing, shemos, style,
+    ))
+}
+
+/// What day it is, and what is being learned on it (`girsa_app::luach`).
+///
+/// **The window says which day**, and that is the whole of why this takes three
+/// numbers instead of reading a clock. `std::time` knows the number of seconds
+/// since 1970 and nothing at all about the reader's timezone; a Rust-side
+/// `today` would be UTC, which is the previous evening in New York and three in
+/// the morning in Yerushalayim. The webview has the machine's own calendar, so
+/// it is asked.
+///
+/// Each limud is marked for whether its sefer is actually on this shelf, so the
+/// window can offer the daf without promising a sefer nobody imported.
+#[tauri::command]
+fn luach(
+    shared: tauri::State<'_, Shared>,
+    year: i32,
+    month: u32,
+    day: u32,
+) -> Result<girsa_app::luach::Luach, String> {
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let mut luach = girsa_app::luach::of(girsa_app::luach::Civil { year, month, day });
+    if let Some(shelf) = state.shelf.as_ref() {
+        for limud in luach.today.iter_mut().chain(luach.tomorrow.iter_mut()) {
+            limud.here = shelf.work(&limud.slug).is_some();
+        }
+    }
+    Ok(luach)
+}
+
+/// How the shemos are written (`girsa_app::shemos`).
+///
+/// > *"i would like if you could add a feature that every יהוה or אל or אלהים
+/// > or anything like that could optionally not be written as a shem hashem."*
+///
+/// A page with a shem on it may not be thrown away, and neither may a printout
+/// of one. Every sefer solves it by changing a letter, and so does this — on
+/// the page, in the search results, in a quote and in an export, which is three
+/// surfaces more than Otzaria's own setting covers.
+#[tauri::command]
+fn set_shemos(shared: tauri::State<'_, Shared>, shemos: String) -> Result<(), String> {
+    let Some(shemos) = girsa_app::shemos::Shemos::named(&shemos) else {
+        // Refused by name rather than defaulted, for the reason `set_pointing`
+        // gives: a window sending a spelling this project does not write has a
+        // wiring bug, and quietly drawing the shemos as they stand is how it
+        // would never be found.
+        return Err(girsa_app::trouble::refuse(
+            girsa_app::trouble::Code::NoSuch,
+            format!("no such setting for the shemos: {shemos}"),
+        ));
+    };
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state.session.shemos = shemos;
+    state.save();
+    Ok(())
+}
+
 #[tauri::command]
 fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
@@ -3440,6 +3607,7 @@ fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
     let bound = girsa_app::keys::Bound::of(&session.keys);
     Ok(SettingsView {
         pointing: session.pointing,
+        shemos: session.shemos,
         text_size: session.text_size,
         language: session.language,
         interface: session.interface,
@@ -4256,6 +4424,10 @@ pub fn run() {
             set_follows,
             set_ratio,
             set_pointing,
+            set_shemos,
+            luach,
+            sefer_find,
+            sefer_sheet,
             set_language,
             set_interface,
             settings,
@@ -4405,7 +4577,10 @@ fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> 
         (text, sefer.standing(&at))
     };
     let pointing = state.session.pointing;
-    let drawn = display::Shown::of(&base, pointing).text().to_string();
+    let shemos = state.session.shemos;
+    let drawn = display::Shown::of(&girsa_app::shemos::written(&base, shemos), pointing)
+        .text()
+        .to_string();
 
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     let found = girsa_app::yours(shelf, &standing, &drawn);
@@ -4599,6 +4774,7 @@ fn mark_here(
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let base = {
         let sefer = state.sefer(at.work())?;
         sefer
@@ -4607,7 +4783,9 @@ fn mark_here(
             .map(|segment| segment.text.clone())
             .unwrap_or_default()
     };
-    let drawn = display::Shown::of(&base, pointing).text().to_string();
+    let drawn = display::Shown::of(&girsa_app::shemos::written(&base, shemos), pointing)
+        .text()
+        .to_string();
 
     let who = girsa_app::who();
     let mut made = match (from_char, to_char) {
@@ -4662,6 +4840,7 @@ fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, S
 fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRow>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let drawn: HashMap<String, String> = {
         let sefer = state.sefer(&slug)?;
         sefer
@@ -4670,9 +4849,12 @@ fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRo
             .map(|segment| {
                 (
                     segment.id.to_string(),
-                    display::Shown::of(&segment.text, pointing)
-                        .text()
-                        .to_string(),
+                    display::Shown::of(
+                        &girsa_app::shemos::written(&segment.text, shemos),
+                        pointing,
+                    )
+                    .text()
+                    .to_string(),
                 )
             })
             .collect()

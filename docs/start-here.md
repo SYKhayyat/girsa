@@ -129,6 +129,23 @@ That is the loop. Everything else is detail.
 
 ---
 
+## The four a bachur reaches for first
+
+Not part of the five minutes above, because none of them needs a Ksav or a
+compile — they are what an ordinary morning is made of.
+
+| | |
+|---|---|
+| **Today's daf** | The button at the left of the toolbar says it — `דף היומי · ברכות ב'` — and opens it. Hover for the Hebrew date, where the cycle stands, and tomorrow's, because the daf turns over at nightfall and a button turns it over at midnight. |
+| **Find in this sefer** | `Ctrl+F`. The whole sefer, not the lines on screen; type bare and it finds the menukad words. `Ctrl+Shift+F` is the search across the whole shelf, which is a different question. |
+| **Print the siman** | `Ctrl+P` prints the section you are standing in — the siman, the amud, the perek — with the sefer, the printed edition and the terms at the head of it. `.docx` is still there for the whole sefer. |
+| **A page you can throw away** | Settings → `שמות הקודש`. The shemos are written with a letter changed — `יקוק`, `אלקים`, `קל` — on the page, in the search results, in what you copy and in what you print. |
+
+Type a mekor at the search bar and it opens: `שבת לא.`, `שו"ע יו"ד סימן א`,
+`רמב"ם הלכות שחיטה א`, and — as of now — `טור או"ח סימן א` and `ערוך השולחן
+יורה דעה א`, which the branch works could not do before their chalakim had names
+anything could read.
+
 ## What to read next
 
 | You are coming from | Read |

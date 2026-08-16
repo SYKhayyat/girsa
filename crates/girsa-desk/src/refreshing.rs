@@ -219,6 +219,7 @@ mod tests {
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            girsa_app::shemos::Shemos::AsWritten,
             None,
         )
         .expect("sends");
@@ -232,6 +233,7 @@ mod tests {
             },
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            girsa_app::shemos::Shemos::AsWritten,
             None,
         )
         .expect("sends");
@@ -251,6 +253,7 @@ mod tests {
                 range,
                 CiteStyle::HebrewFull,
                 Pointing::Plain,
+                girsa_app::shemos::Shemos::AsWritten,
             )
             .map_err(|e| e.to_string())
         })

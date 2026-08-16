@@ -89,6 +89,14 @@ pub struct Session {
     /// one beside it.
     #[serde(default)]
     pub pointing: Pointing,
+    /// Whether the shemos are written as the corpus has them, or with a letter
+    /// changed so a printout may be discarded (`crate::shemos`).
+    ///
+    /// One setting for the window, for the same reason the pointing is: a
+    /// reader who turned this on wants a page they can throw away, and a
+    /// second pane that did not get the message is a page they cannot.
+    #[serde(default)]
+    pub shemos: crate::shemos::Shemos,
     /// A session written when this was a bool, read once and folded into
     /// [`Session::pointing`] by [`Session::sane`].
     ///
@@ -465,6 +473,7 @@ impl Default for Session {
             chosen: BTreeMap::new(),
             alongside: BTreeMap::new(),
             pointing: Pointing::default(),
+            shemos: crate::shemos::Shemos::default(),
             was_nikud: None,
             text_size: hundred(),
             cite: full(),

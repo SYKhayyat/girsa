@@ -974,6 +974,25 @@ export class PaneView {
     return range.getBoundingClientRect();
   }
 
+  /**
+   * Go to a place in this sefer and put the selection on the words.
+   *
+   * For the find bar (Ctrl+F). `markWord` already scrolls and selects and is
+   * what the correction box uses; the only thing it cannot do is reach a line
+   * outside the window the pane is holding, which is most of a sefer. So the
+   * lines are loaded first, exactly as `goToId` does it, and then the words are
+   * marked.
+   */
+  async goToWords(id: string, fromChar: number, toChar: number): Promise<boolean> {
+    if (!this.byId.has(id)) {
+      const at = await api.seferIndexOf(this.slug, id);
+      if (at === null) return false;
+      await this.load(Math.max(0, at - WINDOW / 2), WINDOW);
+      if (!this.byId.has(id)) return false;
+    }
+    return this.markWord(id, fromChar, toChar) !== null;
+  }
+
   /** A word about who this pane is following, in its header. */
   setFollowing(label: string): void {
     let chip = this.element.querySelector<HTMLElement>(".pane-follows");
@@ -987,7 +1006,10 @@ export class PaneView {
   }
 }
 
-function lineElement(line: Line): HTMLElement {
+// Exported for the print sheet, which draws the same lines with the same
+// function on purpose: a printer path with its own idea of a line would be a
+// second answer to what the sefer says, and the two would drift.
+export function lineElement(line: Line): HTMLElement {
   // A line of your own .ksav knows what it is — a footnote, a list item, a row
   // of a table, a block quote — and is drawn as that rather than as one more
   // paragraph. Nothing else in the corpus has these kinds, so nothing else

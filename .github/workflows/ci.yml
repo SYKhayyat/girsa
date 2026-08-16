@@ -239,6 +239,64 @@ jobs:
   #
   # So the row in `docs/not-yet.md` narrows and does not close: nikud rendering
   # on WebKit is still unknown, and *unknown* is the word rather than *fine*.
+  # ── NixOS ───────────────────────────────────────────────────────────────────
+  #
+  # `flake.nix` claims Girsa builds on NixOS. It was written by reading the
+  # Debian package list in this file and translating it, and for a while that
+  # was the whole of the evidence — a claim about a platform nobody had run it
+  # on, which is the kind of sentence `docs/not-yet.md` exists to hold.
+  #
+  # This job is the evidence. It runs **inside `nixos/nix`**, not on
+  # `ubuntu-latest` with Nix bolted on, and the difference is the entire point:
+  # Ubuntu has `/usr/lib`, so a build that quietly links against a system
+  # library there succeeds and then fails on a machine that has no `/usr/lib` at
+  # all. The container has no FHS, so anything the flake forgot to declare has
+  # nowhere to come from.
+  #
+  # Two failures it is here to catch, both of which are what actually goes wrong
+  # for a NixOS reader:
+  #
+  # 1. **`pkg-config` finding nothing.** Without the declared environment the
+  #    first `cargo build` dies inside `webkit2gtk-sys` with a message about a
+  #    `.pc` file, which reads as a Rust problem and is a packaging one.
+  # 2. **npm's prebuilt binaries.** `esbuild` and `rollup` ship linked ELF
+  #    executables with `/lib64/ld-linux-x86-64.so.2` as their interpreter, and
+  #    that path does not exist on NixOS. `autoPatchelf` in the shellHook is the
+  #    fix, and this is the job that proves it is needed and that it works.
+  nixos:
+    runs-on: ubuntu-latest
+    container:
+      image: nixos/nix:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Girsa
+
+      # The container ships Nix with neither flag on, and `nix develop` is both
+      # of them.
+      - name: Flakes
+        run: |
+          mkdir -p /etc/nix
+          echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+
+      # Evaluates every attribute the flake names. A package renamed out of
+      # nixpkgs — which is how this file will most likely break — fails here,
+      # in seconds, rather than on a reader's machine after a long download.
+      - name: The flake evaluates
+        run: nix flake check --no-build
+        working-directory: Girsa
+
+      # And then the shell is actually entered and the gate is actually run.
+      # `nix develop --command` rather than `nix-shell`: the flake declares a
+      # `devShells.default` and that is what a reader types.
+      - name: The gate, inside the shell the flake declares
+        run: nix develop --command bash -c "cd app && npm ci && npm test && npm run build"
+        working-directory: Girsa
+
+      - name: The workspace compiles against Nix's libraries
+        run: nix develop --command cargo build --workspace
+        working-directory: Girsa
+
   macos:
     runs-on: macos-latest
     steps:

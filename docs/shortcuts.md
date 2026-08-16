@@ -15,7 +15,8 @@ there rebinds by pressing the keys you want. `↺` puts one back.
 |---|---|---|
 | `Ctrl+O` | Open a sefer | פתח ספר |
 | `Ctrl+B` | Browse the shelf | עיין במדף |
-| `Ctrl+F` | Search the whole shelf | חפש בכל המדף |
+| `Ctrl+F` | Find in this sefer | חפש בספר הזה |
+| `Ctrl+Shift+F` | Search the whole shelf | חפש בכל המדף |
 | `Ctrl+E` | Open the writing pane | פתח את הכתיבה |
 | `Ctrl+\` | Mefarshim, or a sefer alongside | מפרשים / ספר לצד |
 | `Ctrl+L` | Links on this line | קישורים על השורה |
@@ -36,6 +37,7 @@ there rebinds by pressing the keys you want. `↺` puts one back.
 | `Alt+N` | Nikud | ניקוד |
 | `Ctrl+=` | Larger | הגדל |
 | `Ctrl+-` | Smaller | הקטן |
+| `Ctrl+P` | Print this section | הדפס את הסימן |
 | `Ctrl+,` | Settings | הגדרות |
 
 ## Not on this card

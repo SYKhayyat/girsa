@@ -271,6 +271,7 @@ mod tests {
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            girsa_app::shemos::Shemos::AsWritten,
             None,
         )
         .expect("sends");
@@ -296,6 +297,7 @@ mod tests {
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewShort,
             Pointing::Plain,
+            girsa_app::shemos::Shemos::AsWritten,
             None,
         )
         .expect("sends");

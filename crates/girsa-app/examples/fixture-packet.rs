@@ -166,6 +166,7 @@ fn main() -> ExitCode {
         &selection,
         CiteStyle::HebrewFull,
         Pointing::Plain,
+        girsa_app::shemos::Shemos::AsWritten,
         None,
     ) {
         Ok(sent) => sent,

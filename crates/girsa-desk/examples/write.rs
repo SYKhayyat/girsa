@@ -57,6 +57,7 @@ fn main() -> ExitCode {
                 None,
                 CiteStyle::HebrewFull,
                 Pointing::Plain,
+                girsa_app::shemos::Shemos::AsWritten,
             ) {
                 Ok(sent) => sent,
                 Err(e) => {

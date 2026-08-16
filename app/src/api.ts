@@ -549,6 +549,7 @@ export type CiteStyleName = "hebrew-full" | "hebrew-short" | "english";
 /** The whole settings surface, in one call (B13). */
 export interface Settings {
   pointing: Pointing;
+  shemos: Shemos;
   text_size: number;
   /** Which language the **seforim** are named in. */
   language: Language;
@@ -678,9 +679,91 @@ export interface Writing {
  */
 export type Pointing = "full" | "nikud" | "plain";
 
+/**
+ * How the shemos are written — `girsa_app::shemos::Shemos`.
+ *
+ * > *"i would like if you could add a feature that every יהוה or אל or אלהים
+ * > or anything like that could optionally not be written as a shem hashem."*
+ *
+ * A page with a shem on it may not be thrown away. `changed` writes each one
+ * with a letter swapped — `יקוק`, `אלקים` — which is what every sefer does and
+ * which, being one letter for one letter, leaves every mark, link and search
+ * hit on the page exactly where it was drawn.
+ */
+export type Shemos = "as-written" | "changed";
+
+/** A printable run of a sefer, with what has to be on the page beside it. */
+export interface Sheet {
+  /** The sefer, the edition and the terms — spec.md §13, on paper. */
+  title: string[];
+  /** Where the sheet starts and where it ends, printed the reader's way. */
+  address: string;
+  to_address: string;
+  lines: Line[];
+}
+
+/** One place in a sefer that a find found — `girsa_app::inside::Found`. */
+export interface Found {
+  id: string;
+  /** Which line of the sefer, so the pane can go there without asking again. */
+  at: number;
+  address: string;
+  /** Where the match is in the **drawn** text, in characters — the coordinate
+   * the pane highlights in. */
+  from: number;
+  to: number;
+}
+
+/** What a find inside one sefer found — `girsa_app::inside::Inside`. */
+export interface Inside {
+  places: Found[];
+  /** How many there are, which is not `places.length` once the list was cut. */
+  total: number;
+}
+
+/** One limud of one day — `girsa_app::luach::Limud`. */
+export interface Limud {
+  /** `daf-yomi`, and room for the others. */
+  key: string;
+  /** What the limud is called. */
+  said: string;
+  /** The place, said — `ברכות ב'`. */
+  place: string;
+  slug: string;
+  /** The address inside the sefer, absent where this shelf does not address
+   * that masechta by daf — Shekalim, Kinnim, Middos. */
+  address: string | null;
+  /** The ref to open, so the daf takes the same road a citation takes. */
+  reference: string;
+  cycle: number;
+  day: number;
+  of: number;
+  /** Whether the sefer is on this shelf. */
+  here: boolean;
+}
+
+/**
+ * What day it is, and what is being learned on it — `girsa_app::luach::Luach`.
+ *
+ * `tomorrow` is not padding: the daf turns over at nightfall and this turns it
+ * over at midnight, so the daf a person is sitting down to *tonight* is the one
+ * under `tomorrow` for a few hours every evening. Offering it is honest;
+ * guessing at nightfall from a timezone is not.
+ */
+export interface Luach {
+  civil: { year: number; month: number; day: number };
+  /** The Hebrew date, said — `כ״ז אב תשפ״ו`. */
+  hebrew: string;
+  /** The day of the week, said — `יום שלישי`. */
+  weekday: string;
+  today: Limud[];
+  tomorrow: Limud[];
+}
+
 export interface AppState {
   workspace: Workspace;
   pointing: Pointing;
+  shemos: Shemos;
   text_size: number;
   /** Which language the seforim are named in (W41). */
   language: Language;
@@ -1153,6 +1236,18 @@ export const api = {
     call<void>("set_follows", { pane, leader }),
   setRatio: (pane: PaneId, ratio: number) => call<void>("set_ratio", { pane, ratio }),
   setPointing: (pointing: Pointing) => call<void>("set_pointing", { pointing }),
+  setShemos: (shemos: Shemos) => call<void>("set_shemos", { shemos }),
+  /** **The window says which day.** `std::time` knows seconds since 1970 and
+   * nothing about this machine's timezone; `new Date()` knows both. */
+  luach: (year: number, month: number, day: number) =>
+    call<Luach>("luach", { year, month, day }),
+  /** Find a phrase inside one sefer — Ctrl+F. The whole sefer, not the lines
+   * the pane happens to be holding. */
+  seferFind: (slug: string, query: string) =>
+    call<Inside>("sefer_find", { slug, query }),
+  /** The section a line is in, ready to print. `whole: false` is the section;
+   * `true` is the one line, which is what a highlight prints. */
+  seferSheet: (at: string, whole: boolean) => call<Sheet>("sefer_sheet", { at, whole }),
   setLanguage: (language: Language) => call<void>("set_language", { language }),
   /** What the **window** says, as against what the seforim are called. */
   setInterface: (language: Language) => call<void>("set_interface", { language }),
@@ -1670,6 +1765,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     fixtureState = kept ?? (await json<AppState>("/dev/state.json").catch((): AppState => ({
       workspace: { tabs: [], active: 0 },
       pointing: "full",
+      shemos: "as-written",
       text_size: 100,
       // The same numbers `girsa_app::workspace` holds. This literal is the
       // browser's last resort when even the fixture will not load, so it is not
@@ -1968,6 +2064,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "settings":
       return {
         pointing: fixtureState.pointing,
+        shemos: fixtureState.shemos,
         text_size: fixtureState.text_size,
         language: fixtureState.language,
         interface: fixtureState.interface,
@@ -2006,6 +2103,26 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       fixtureState.showing = (args?.showing as Showing) ?? "fixed";
       keep();
       return undefined as T;
+    case "set_shemos":
+      fixtureState.shemos = (args?.shemos as Shemos) ?? "as-written";
+      keep();
+      return undefined as T;
+    // The luach is arithmetic over a fixed epoch and needs no corpus at all,
+    // which is exactly why the browser build cannot do it: the arithmetic is in
+    // Rust and there is no Rust out here. Refused rather than faked — a daf
+    // this file invented would be a wrong daf on a screen somebody is looking
+    // at to decide whether the feature works.
+    case "luach":
+      throw new Error("the luach is the shell's");
+    // Same: the fold that makes `שהחיינו` match `שֶׁהֶחֱיָנוּ` is in Rust, and a
+    // second one written here would be a second answer to *what matches*.
+    case "sefer_find":
+      return { places: [], total: 0 } as T;
+    // Printing needs the run of the section, and which lines those are is a
+    // question about the whole sefer — the fixtures are a few hundred lines of
+    // it. Refused, like the search.
+    case "sefer_sheet":
+      throw new Error("printing is the shell's");
     // The scope is the shell's: it lives beside the index, and there is no
     // index out here. An empty one is the honest answer — the whole shelf —
     // rather than a panel that looks editable and forgets every click.

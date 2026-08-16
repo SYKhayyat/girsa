@@ -53,7 +53,18 @@ pub struct Action {
 pub const ACTIONS: &[Action] = &[
     Action { id: "open", he: "פתח ספר", en: "Open a sefer", default: "Ctrl+O" },
     Action { id: "shelf", he: "עיין במדף", en: "Browse the shelf", default: "Ctrl+B" },
-    Action { id: "search", he: "חפש בכל המדף", en: "Search the whole shelf", default: "Ctrl+F" },
+    // **Ctrl+F is the sefer in front of you, and Ctrl+Shift+F is the shelf.**
+    //
+    // It used to be the other way round, with nothing at all bound to the first
+    // one, and that was the whole of the reader's complaint about search:
+    // *"narrowing a global search by facet is not the same gesture as Ctrl+F in
+    // the Mishnah Berurah in front of you."* He is right, and so is every other
+    // application ever written — an editor finds in the file on Ctrl+F and
+    // across the project on Ctrl+Shift+F, and a reader's fingers already know
+    // that. A reader who rebound `search` keeps their binding; this changes what
+    // the two ship as.
+    Action { id: "find-here", he: "חפש בספר הזה", en: "Find in this sefer", default: "Ctrl+F" },
+    Action { id: "search", he: "חפש בכל המדף", en: "Search the whole shelf", default: "Ctrl+Shift+F" },
     Action { id: "write", he: "פתח את הכתיבה", en: "Open the writing pane", default: "Ctrl+E" },
     Action { id: "beside", he: "מפרשים / ספר לצד", en: "Mefarshim, or a sefer alongside", default: "Ctrl+\\" },
     Action { id: "links", he: "קישורים על השורה", en: "Links on this line", default: "Ctrl+L" },
@@ -86,6 +97,9 @@ pub const ACTIONS: &[Action] = &[
     Action { id: "nikud", he: "ניקוד", en: "Nikud", default: "Alt+N" },
     Action { id: "bigger", he: "הגדל", en: "Larger", default: "Ctrl+=" },
     Action { id: "smaller", he: "הקטן", en: "Smaller", default: "Ctrl+-" },
+    // Paper. `girsa-export` writes a `.docx` and this puts the siman in your
+    // hand, which are two different mornings.
+    Action { id: "print", he: "הדפס את הסימן", en: "Print this section", default: "Ctrl+P" },
     Action { id: "settings", he: "הגדרות", en: "Settings", default: "Ctrl+," },
 ];
 
@@ -283,7 +297,15 @@ mod tests {
     #[test]
     fn out_of_the_box_the_shortcuts_are_the_ones_that_were_hardcoded() {
         let bound = Bound::of(&BTreeMap::new());
-        assert_eq!(bound.what(&press("f", true, false, false)), Some("search"));
+        // **Ctrl+F is the sefer in front of you now, and Ctrl+Shift+F is the
+        // shelf.** This asserted the other way round, and the assertion was
+        // right about the table and wrong about the reader — see the note on
+        // `find-here` in `ACTIONS`.
+        assert_eq!(
+            bound.what(&press("f", true, false, false)),
+            Some("find-here")
+        );
+        assert_eq!(bound.what(&press("f", true, true, false)), Some("search"));
         assert_eq!(bound.what(&press("b", true, false, false)), Some("shelf"));
         assert_eq!(bound.what(&press("\\", true, false, false)), Some("beside"));
         assert_eq!(bound.what(&press("c", true, true, false)), Some("send"));
@@ -301,24 +323,24 @@ mod tests {
     #[test]
     fn a_reader_can_rebind_one() {
         let mut changed = BTreeMap::new();
-        changed.insert("search".to_string(), "Ctrl+Shift+F".to_string());
+        changed.insert("search".to_string(), "Ctrl+Alt+F".to_string());
         let bound = Bound::of(&changed);
-        assert_eq!(bound.what(&press("f", true, true, false)), Some("search"));
-        assert_eq!(bound.on("search").as_deref(), Some("Ctrl+Shift+F"));
+        assert_eq!(bound.what(&press("f", true, false, true)), Some("search"));
+        assert_eq!(bound.on("search").as_deref(), Some("Ctrl+Alt+F"));
         // And the key they took it off is free, not still theirs.
-        assert_eq!(bound.what(&press("f", true, false, false)), None);
+        assert_eq!(bound.what(&press("f", true, true, false)), None);
     }
 
     #[test]
     fn a_readers_binding_displaces_the_default_that_held_that_key() {
-        // Bind the shelf to Ctrl+F and search loses it. The alternative is two
-        // actions answering one key with the list order deciding, which is a bug
-        // nobody can see and nobody can fix.
+        // Bind the shelf to Ctrl+F and the find loses it. The alternative is
+        // two actions answering one key with the list order deciding, which is
+        // a bug nobody can see and nobody can fix.
         let mut changed = BTreeMap::new();
         changed.insert("shelf".to_string(), "Ctrl+F".to_string());
         let bound = Bound::of(&changed);
         assert_eq!(bound.what(&press("f", true, false, false)), Some("shelf"));
-        assert_eq!(bound.on("search"), None, "search still claims Ctrl+F");
+        assert_eq!(bound.on("find-here"), None, "find-here still claims Ctrl+F");
     }
 
     #[test]

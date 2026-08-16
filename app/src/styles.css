@@ -434,6 +434,9 @@ body {
   min-height: 0;
   background: var(--page-raised);
   border: 1px solid transparent;
+  /* So the find bar can sit over the text without pushing the line the reader
+   * is looking at. See `.find-here`. */
+  position: relative;
 }
 
 .pane.is-focused {
@@ -479,6 +482,45 @@ body {
  * column the header ran out of room and clipped it at the edge — the one label
  * on the header whose whole job is to name the pane this one follows. It
  * shrinks and ellipsises instead, and keeps its full text on hover. */
+/* The find bar (Ctrl+F), over the pane it belongs to.
+ *
+ * `position: absolute` inside the pane rather than a row in its header: a bar
+ * that pushed the text down would move the very line the reader is looking at,
+ * every time it opened, which is the one thing a find must not do. The pane is
+ * already a positioned ancestor by way of `.pane { position: relative }` below.
+ *
+ * `inset-inline-end` and not `right`: this window is right-to-left and the bar
+ * belongs in the corner the scrollbar is not in, whichever side that is. */
+.find-here {
+  position: absolute;
+  top: 2.6rem;
+  inset-inline-end: 0.6rem;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.4rem;
+  background: var(--page-raised);
+  border: 1px solid var(--mark-quiet);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+
+.find-here-box {
+  min-width: 12rem;
+  font-size: 13px;
+}
+
+.find-here-count {
+  font-size: 11px;
+  opacity: 0.7;
+  min-width: 4.5rem;
+  text-align: center;
+  /* The digits line up as the reader walks the matches, instead of the bar
+   * shivering every time the number gets wider. */
+  font-variant-numeric: tabular-nums;
+}
+
 .pane-follows {
   font-size: 11px;
   opacity: 0.65;
@@ -3895,4 +3937,92 @@ body {
   font-size: 11px;
   line-height: 1.7;
   color: var(--mark);
+}
+
+/* ── Paper ──────────────────────────────────────────────────────────────────
+ *
+ * The sheet is in the document all the time and off the screen all the time.
+ * It is built into `.print-sheet` by `printview.ts` and is the only thing
+ * `@media print` leaves standing.
+ *
+ * `position: absolute; left: -10000px` and not `display: none`: a hidden
+ * element has no layout, and a printer asked to lay out a page that has never
+ * been laid out gets it wrong in a way that shows up only on paper. Off to the
+ * side it is measured like everything else and nobody sees it.
+ *
+ * `aria-hidden` on the element keeps it out of the reading order; this keeps it
+ * out of the way. */
+.print-sheet {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 18cm;
+}
+
+.print-head {
+  margin-bottom: 1.2em;
+  border-bottom: 1pt solid #000;
+  padding-bottom: 0.6em;
+}
+
+.print-title {
+  font-family: var(--hebrew);
+  font-size: 15pt;
+  margin: 0;
+}
+
+/* The edition and the terms. On the page because spec.md §13 asks for them,
+ * small because nobody is reading them — they are there for the person who
+ * finds the sheet in a year and wants to know which printing it is. */
+.print-provenance {
+  font-family: var(--plain);
+  font-size: 8pt;
+  margin: 0.2em 0 0;
+  opacity: 0.75;
+}
+
+.print-where {
+  font-family: var(--hebrew);
+  font-size: 10pt;
+  margin: 0.4em 0 0;
+}
+
+@media print {
+  /* Ink on paper. The reader's theme is a decision about a lit screen in a
+   * room, and it has nothing to say about a sheet of paper — a dark theme sent
+   * to a printer is a black page, which is both unreadable and an act of
+   * violence against a toner cartridge. */
+  body.is-printing {
+    background: #fff;
+    color: #000;
+  }
+
+  /* Everything that is the application rather than the sefer. */
+  body.is-printing > *:not(.print-sheet) {
+    display: none !important;
+  }
+
+  body.is-printing .print-sheet {
+    position: static;
+    left: auto;
+    width: auto;
+    color: #000;
+  }
+
+  /* The margin address stays — it is what makes a sheet citable once it is off
+   * the screen — and goes grey, because on paper it is apparatus and the words
+   * are the text. */
+  body.is-printing .line-address {
+    color: #555;
+  }
+
+  /* A siman that runs over a page break should break between its se'ifim and
+   * not through the middle of one. */
+  body.is-printing .line {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 1.6cm;
+  }
 }

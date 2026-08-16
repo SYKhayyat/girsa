@@ -88,6 +88,7 @@ fn main() {
                     &sefer,
                     s,
                     Pointing::Full,
+                    girsa_app::shemos::Shemos::AsWritten,
                     girsa_cite::CiteStyle::HebrewShort,
                     None,
                 )
@@ -111,6 +112,7 @@ fn main() {
                     &sefer,
                     s,
                     Pointing::Full,
+                    girsa_app::shemos::Shemos::AsWritten,
                     girsa_cite::CiteStyle::HebrewShort,
                     None,
                 )

@@ -1059,6 +1059,8 @@ pub struct Writing {
 #[derive(Serialize)]
 pub struct SettingsView {
     pub pointing: crate::session::Pointing,
+    /// How the shemos are written — see [`crate::shemos`].
+    pub shemos: crate::shemos::Shemos,
     pub text_size: u16,
     /// Which language the **seforim** are named in.
     pub language: crate::session::Language,
@@ -1271,6 +1273,9 @@ pub struct HitRow {
 pub struct Opening {
     pub workspace: crate::Workspace,
     pub pointing: crate::session::Pointing,
+    /// How the shemos are written — see [`crate::shemos`]. Sent with the state
+    /// because the pane redraws when it changes, exactly like the pointing.
+    pub shemos: crate::shemos::Shemos,
     pub text_size: u16,
     /// Where you were in each sefer.
     pub positions: std::collections::BTreeMap<String, girsa_corpus::segment::SegmentId>,
@@ -1361,6 +1366,7 @@ impl Line {
         sefer: &crate::Open,
         segment: &girsa_corpus::import::Segment,
         pointing: crate::session::Pointing,
+        shemos: crate::shemos::Shemos,
         style: girsa_cite::CiteStyle,
         lexicon: Option<&girsa_ref::Lexicon>,
     ) -> Self {
@@ -1369,7 +1375,13 @@ impl Line {
         // Not `segment.text`: taking the nikud out shortens the string, and a
         // citation found in the pointed text and reported against the stored
         // text lands a few letters to the left of the words it was about.
-        let shown = display::pointed(&segment.text, pointing);
+        // **The shemos first, then the pointing.** The rule that tells `אֵל`
+        // from `אֶל` is the nikud on the alef, so a page drawn without nikud
+        // would lose the only evidence there is. Every substitution is one
+        // letter for one letter (`crate::shemos`), so doing it first costs
+        // nothing: every offset below still lands where it did.
+        let said = crate::shemos::written(&segment.text, shemos);
+        let shown = display::pointed(&said, pointing);
         let cites = match lexicon {
             Some(lexicon) if sefer.work.source == girsa_corpus::work::Source::Mine => {
                 crate::linkify(lexicon, &shown)
@@ -1402,9 +1414,12 @@ impl Line {
                     .collect()
             }),
             printed: corrected.map(|_| {
-                display::Shown::of(sefer.as_printed(&segment.id), pointing)
-                    .text()
-                    .to_string()
+                display::Shown::of(
+                    &crate::shemos::written(sefer.as_printed(&segment.id), shemos),
+                    pointing,
+                )
+                .text()
+                .to_string()
             }),
         }
     }

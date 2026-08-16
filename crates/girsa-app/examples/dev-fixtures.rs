@@ -81,6 +81,7 @@ fn main() -> std::process::ExitCode {
     let state = Opening {
         workspace,
         pointing: girsa_app::session::Pointing::Full,
+        shemos: girsa_app::shemos::Shemos::AsWritten,
         interface: girsa_app::session::Language::Hebrew,
         text_size: 100,
         positions: session.positions.clone(),
@@ -191,6 +192,7 @@ fn main() -> std::process::ExitCode {
                         sefer,
                         s,
                         girsa_app::session::Pointing::Full,
+                        girsa_app::shemos::Shemos::AsWritten,
                         girsa_cite::CiteStyle::HebrewShort,
                         None,
                     )

@@ -111,6 +111,7 @@ pub fn export(
     fixes: &Layer,
     format: Format,
     pointing: girsa_app::session::Pointing,
+    shemos: girsa_app::shemos::Shemos,
     to: &Path,
 ) -> Result<Exported, ExportError> {
     let mut done = Exported {
@@ -141,7 +142,10 @@ pub fn export(
         .iter()
         .map(|segment| Line {
             heading: segment.kind == girsa_corpus::import::SegmentKind::Heading,
-            words: display::Shown::of(&segment.text, pointing)
+            // The shemos as the reader asked for them — and this is the file
+            // that made the setting worth having. An export is printed, and a
+            // printed page with a shem on it may not be thrown away.
+            words: display::Shown::of(&girsa_app::shemos::written(&segment.text, shemos), pointing)
                 .text()
                 .to_string(),
         })

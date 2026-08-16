@@ -171,6 +171,7 @@ fn a_quote_on_its_way_to_ksav_carries_the_edition_it_came_from() {
         &selection,
         CiteStyle::HebrewFull,
         Pointing::Plain,
+        girsa_app::shemos::Shemos::AsWritten,
         None,
     )
     .expect("it sends");

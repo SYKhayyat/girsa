@@ -53,6 +53,7 @@ fn drawn(
         open,
         open.segments.first().expect("one line"),
         pointing,
+        girsa_app::shemos::Shemos::AsWritten,
         girsa_cite::CiteStyle::HebrewShort,
         lex,
     )

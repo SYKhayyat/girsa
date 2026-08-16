@@ -42,6 +42,16 @@
   # `libsoup_3` is in the list and not in Debian's, because on Debian it arrives
   # as a dependency of `libwebkit2gtk-4.1-dev` and Nix does not hand you a
   # library's dependencies to link against.
+  #
+  # ## What proves any of this
+  #
+  # `.github/workflows/ci.yml` has a `nixos` job, and it runs **inside the
+  # `nixos/nix` container** rather than on `ubuntu-latest` with Nix installed
+  # beside apt. That distinction is the whole value of the job: Ubuntu has a
+  # `/usr/lib`, so a build there can quietly link against a system library this
+  # file never declared and pass, and then fail on a machine that has no
+  # `/usr/lib` at all. The container has no FHS. Anything missing from the two
+  # lists below has nowhere to come from, and the job says so.
   description = "Girsa — a Torah library that reads like a sefer";
 
   inputs = {
@@ -98,6 +108,10 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = libraries ++ tools;
+          # `autoPatchelf` is a shell function this hook puts on the path. It is
+          # here for `node_modules`, not for anything Nix builds — see the note
+          # in `shellHook`.
+          nativeBuildInputs = [ pkgs.autoPatchelfHook ];
 
           # WebKitGTK on NixOS composites through its own sandbox and cannot
           # reach the store paths it needs from inside one. Every Tauri
@@ -109,6 +123,34 @@
           shellHook = ''
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath libraries}:$LD_LIBRARY_PATH
             export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS
+
+            # ── The half that has nothing to do with Tauri ──────────────────
+            #
+            # `npm ci` downloads **prebuilt ELF executables** — esbuild's and
+            # rollup's, which Vite runs — and every one of them names
+            # `/lib64/ld-linux-x86-64.so.2` as its interpreter. That path does
+            # not exist on NixOS. What a reader sees is `npm run build` failing
+            # with `No such file or directory` about a file that is plainly
+            # there, which is the least searchable error message in computing.
+            #
+            # So `npm ci` is wrapped: install, then rewrite the interpreter of
+            # everything it just unpacked. Wrapped rather than printed as an
+            # instruction, because an instruction in a shell banner is an
+            # instruction somebody does not read.
+            npm() {
+              command npm "$@"
+              status=$?
+              case "$1" in
+                ci|install|i)
+                  if [ $status -eq 0 ] && [ -d node_modules ]; then
+                    echo "girsa: patching node_modules for a machine with no /lib64"
+                    autoPatchelf node_modules 2>/dev/null || true
+                  fi
+                  ;;
+              esac
+              return $status
+            }
+
             echo "Girsa: cargo and node are here. Build the window with"
             echo "  cd app && npm ci && npm run tauri build"
             echo "and run the gate with"

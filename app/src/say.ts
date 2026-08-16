@@ -74,6 +74,38 @@ const WORDS = {
   biggerWhy: ["הגדל את הקריאה (Ctrl+=)", "larger reading (Ctrl+=)"] as Both,
   /** The three pointing settings, named after what they draw. The control
    * prints the **next** one, because that is what clicking it does. */
+  /** How the shemos are written. Two settings, and the second is the one a
+   * reader asked for by name: a page that can be thrown away. */
+  /** The daf yomi button, and what it says when the sefer is not here. */
+  /** The find bar — Ctrl+F, in the sefer in front of you. */
+  /** Printing (Ctrl+P): the section in front of you, on paper. */
+  print: ["הדפס", "Print"] as Both,
+  printWhy: ["הדפס את הסימן או את העמוד שאתה עומד בו", "Print the section you are standing in"] as Both,
+  printNothingOpen: ["אין ספר פתוח להדפיס", "no sefer is open to print"] as Both,
+  printReady: ["מוכן להדפסה", "ready to print"] as Both,
+  findHere: ["חפש בספר הזה", "Find in this sefer"] as Both,
+  findHereWhy: ["חפש מילה או ביטוי בספר הפתוח", "Find a word or a phrase in the open sefer"] as Both,
+  findHerePlaceholder: ["מילה או ביטוי", "a word or a phrase"] as Both,
+  findHereNext: ["הבא", "next"] as Both,
+  findHerePrevious: ["הקודם", "previous"] as Both,
+  findHereClose: ["סגור", "close"] as Both,
+  findHereNone: ["אין", "none"] as Both,
+  /** Said beside the count when the list was cut and the count was not. */
+  findHereCut: ["(מוצגים הראשונים)", "(first shown)"] as Both,
+  findHereNothingOpen: ["אין ספר פתוח לחפש בו", "no sefer is open to find in"] as Both,
+  dafYomi: ["דף היומי", "Daf Yomi"] as Both,
+  dafYomiWhy: ["פתח את דף היומי", "Open today's daf"] as Both,
+  dafYomiNotHere: ["המסכת אינה על המדף", "that masechta is not on this shelf"] as Both,
+  /** The daf turns over at nightfall and the button turns it over at midnight,
+   * so the next one is named beside it rather than guessed at. */
+  tomorrow: ["מחר", "tomorrow"] as Both,
+  settingsShemos: ["שמות הקודש", "Holy names"] as Both,
+  shemosAsWritten: ["ככתבם", "as written"] as Both,
+  shemosChanged: ["בשינוי אות", "with a letter changed"] as Both,
+  shemosAbout: [
+    "בשינוי אות — יקוק, אלקים, קל — כדי שאפשר יהיה לגנוז דף מודפס. חל על הדף, על תוצאות החיפוש, על ההעתקה ועל הייצוא. שמות שאין להם שינוי של אות אחת נשארים ככתבם.",
+    "With a letter changed — יקוק, אלקים, קל — so a printed page may be discarded. Applies to the page, to search results, to what you copy and to an export. Shemos with no one-letter convention are left as written.",
+  ] as Both,
   pointingFull: ["ניקוד וטעמים", "nikud and te'amim"] as Both,
   pointingNikud: ["ניקוד בלי טעמים", "nikud, no te'amim"] as Both,
   pointingPlain: ["בלי ניקוד", "no nikud"] as Both,
@@ -1088,6 +1120,7 @@ const WORDS = {
   doingWriteNote: ["כתיבת הרשומה", "writing the note"] as Both,
   doingFix: ["התיקון", "the correction"] as Both,
   doingExport: ["הכתיבה לקובץ", "writing to the file"] as Both,
+  doingPrint: ["בהדפסה", "printing"] as Both,
   doingMark: ["הסימון", "the mark"] as Both,
   doingKeepQuery: ["שמירת החיפוש", "keeping the query"] as Both,
   doingCopySource: ["העתקת המקור", "copying the source"] as Both,

@@ -300,6 +300,7 @@ pub fn send(
     selection: &Selection,
     style: CiteStyle,
     pointing: Pointing,
+    shemos: crate::shemos::Shemos,
     note: Option<String>,
 ) -> Result<Sent, SendError> {
     let first = sefer
@@ -325,7 +326,7 @@ pub fn send(
         .iter()
         .enumerate()
     {
-        let shown = shown(&segment.text, pointing);
+        let shown = shown(&segment.text, pointing, shemos);
         let head = if at == 0 { from_char } else { 0 };
         let tail = if first + at == last { to_char } else { None };
         let line = slice(&shown, head, tail);
@@ -404,6 +405,7 @@ pub fn quote(
     range: Option<Range>,
     style: CiteStyle,
     pointing: Pointing,
+    shemos: crate::shemos::Shemos,
 ) -> Result<Sent, SendError> {
     if reference.work_slug() != sefer.work.slug {
         return Err(SendError::NotThisSefer {
@@ -440,14 +442,26 @@ pub fn quote(
         },
         style,
         pointing,
+        shemos,
         None,
     )
 }
 
-/// A segment as it was shown: markup off, and as much pointing as the reader
-/// has on.
-fn shown(text: &str, pointing: Pointing) -> String {
-    display::pointed(&display::plain(text), pointing)
+/// A segment as it was shown: markup off, the shemos written the way the reader
+/// asked for them, and as much pointing as the reader has on.
+///
+/// The shemos before the pointing, for the reason `view::Line::of` gives: the
+/// only thing that tells `אֵל` from `אֶל` is the nikud on it, so a quote taken
+/// off a page drawn without nikud would have nothing left to decide on. The
+/// substitution is one letter for one letter, so the order costs nothing.
+///
+/// **A quote carries the setting the reader was reading under.** That is the
+/// point of it: what this hands back goes into a document and onto paper, and
+/// paper with a shem on it cannot be thrown away.
+fn shown(text: &str, pointing: Pointing, shemos: crate::shemos::Shemos) -> String {
+    let plain = display::plain(text);
+    let said = crate::shemos::written(&plain, shemos);
+    display::pointed(&said, pointing)
 }
 
 /// `text[from_char..to_char]`, counted in characters and clamped.
@@ -555,6 +569,7 @@ mod tests {
             None,
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            crate::shemos::Shemos::AsWritten,
         );
         assert!(
             matches!(refused, Err(SendError::NotThisSefer { .. })),
@@ -574,6 +589,7 @@ mod tests {
             selection,
             CiteStyle::HebrewFull,
             pointing,
+            crate::shemos::Shemos::AsWritten,
             None,
         )
         .expect("sends")
@@ -677,6 +693,7 @@ mod tests {
             &Selection::whole(sefer.segments[0].id.clone()),
             CiteStyle::HebrewShort,
             Pointing::Plain,
+            crate::shemos::Shemos::AsWritten,
             None,
         )
         .expect("sends");
@@ -735,6 +752,7 @@ mod tests {
             &Selection::whole(id(1)),
             CiteStyle::HebrewShort,
             Pointing::Plain,
+            crate::shemos::Shemos::AsWritten,
             Some("צריך עיון".into()),
         )
         .expect("sends");
@@ -778,6 +796,7 @@ mod tests {
             None,
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            crate::shemos::Shemos::AsWritten,
         )
         .expect("quotes");
         assert_eq!(sent.packet.text, "שויתי ה' לנגדי תמיד");
@@ -829,6 +848,7 @@ mod tests {
             first.packet.range,
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            crate::shemos::Shemos::AsWritten,
         )
         .expect("quotes");
         assert_eq!(again.packet.text, first.packet.text);
@@ -851,6 +871,7 @@ mod tests {
             None,
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            crate::shemos::Shemos::AsWritten,
         )
         .expect("quotes");
         assert_eq!(sent.packet.text, "יתגבר כארי לעמוד בבקר לעבודת בוראו");
@@ -870,6 +891,7 @@ mod tests {
             None,
             CiteStyle::HebrewFull,
             Pointing::Plain,
+            crate::shemos::Shemos::AsWritten,
         )
         .expect("quotes");
         assert_eq!(again.packet.text, whole.packet.text);
@@ -888,7 +910,8 @@ mod tests {
                 &reference,
                 None,
                 CiteStyle::HebrewFull,
-                Pointing::Plain
+                Pointing::Plain,
+                crate::shemos::Shemos::AsWritten
             ),
             Err(SendError::NoSuchPlace { .. })
         ));
@@ -906,7 +929,8 @@ mod tests {
                 &reference,
                 None,
                 CiteStyle::HebrewFull,
-                Pointing::Plain
+                Pointing::Plain,
+                crate::shemos::Shemos::AsWritten
             ),
             Err(SendError::NoSuchPlace { .. })
         ));
@@ -926,6 +950,7 @@ mod tests {
                 &selection,
                 CiteStyle::HebrewShort,
                 Pointing::Plain,
+                crate::shemos::Shemos::AsWritten,
                 None
             )
             .err(),
@@ -942,6 +967,7 @@ mod tests {
                 &Selection::whole(stranger),
                 CiteStyle::HebrewShort,
                 Pointing::Plain,
+                crate::shemos::Shemos::AsWritten,
                 None
             )
             .err(),

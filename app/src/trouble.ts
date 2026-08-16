@@ -54,6 +54,10 @@ export type Doing =
   // attempted before it could be said in Hebrew.
   | "fix"
   | "export"
+  // Putting the section on paper (`printview.ts`). Its own name because its
+  // commonest failure is not the export's: the sefer is open and the line the
+  // reader is standing on is not in it any more, after a correction re-cut it.
+  | "print"
   | "mark"
   | "keep_query"
   | "copy_scan"
@@ -92,6 +96,7 @@ const DOING: Record<Doing, string> = {
   write_note: say("doingWriteNote"),
   fix: say("doingFix"),
   export: say("doingExport"),
+  print: say("doingPrint"),
   mark: say("doingMark"),
   keep_query: say("doingKeepQuery"),
   copy_scan: say("doingCopySource"),

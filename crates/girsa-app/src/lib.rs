@@ -34,9 +34,11 @@ pub mod display;
 pub mod enough;
 pub mod fixing;
 pub mod held;
+pub mod inside;
 pub mod keys;
 pub mod lens;
 pub mod links;
+pub mod luach;
 pub mod markup;
 pub mod mefarshim;
 pub mod notes;
@@ -44,6 +46,7 @@ pub mod notes;
 // for; `cargo test -p girsa-app` asks for it by being a test.
 #[cfg(any(test, feature = "pretend"))]
 pub mod pretend;
+pub mod printing;
 // A search hit, a lane result, an MCP answer and a printed line each invented
 // "a segment, described for a surface", and the four disagreed about the title
 // language, the address and the date.
@@ -53,6 +56,7 @@ pub mod scanning;
 pub mod sending;
 pub mod session;
 pub mod shelf;
+pub mod shemos;
 pub mod spans;
 pub mod taxonomy;
 // The window turned an error into a Hebrew sentence by matching 21 regexes

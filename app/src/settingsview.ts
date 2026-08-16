@@ -31,9 +31,10 @@ import {
   type CiteStyleName,
   type Pointing,
   type Settings,
+  type Shemos,
   type Shortcut,
 } from "./api.ts";
-import { announces, button, choice as pick, field, glyph, region } from "./controls.ts";
+import { about, announces, button, choice as pick, field, glyph, region } from "./controls.ts";
 import { OneKey } from "./capture.ts";
 import { said } from "./keys.ts";
 import type { Language } from "./names.ts";
@@ -57,6 +58,12 @@ const POINTING: { value: Pointing; label: () => string }[] = [
   { value: "full", label: () => say("pointingFull") },
   { value: "nikud", label: () => say("pointingNikud") },
   { value: "plain", label: () => say("pointingPlain") },
+];
+
+/** The two settings for the shemos — `girsa_app::shemos::Shemos::ALL`. */
+const SHEMOS: { value: Shemos; label: () => string }[] = [
+  { value: "as-written", label: () => say("shemosAsWritten") },
+  { value: "changed", label: () => say("shemosChanged") },
 ];
 
 /**
@@ -252,6 +259,21 @@ export class SettingsView {
         },
       ),
     );
+
+    // How the shemos are written. Beside the pointing rather than off in a
+    // corner of its own: they are the same kind of setting — *how the letters
+    // on the page are drawn* — and a reader looking for one finds the other.
+    this.body.append(
+      this.choice(
+        say("settingsShemos"),
+        SHEMOS.map((s) => ({ value: s.value, label: s.label() })),
+        s.shemos,
+        (value) => {
+          void api.setShemos(value as Shemos).then(() => this.changed());
+        },
+      ),
+    );
+    this.body.append(about(say("shemosAbout")));
 
     // The citation style, which `start-here.md` has promised since the first
     // draft "reformats every citation" — and which no view called, so the

@@ -113,7 +113,14 @@ fn main() -> ExitCode {
         to_char,
     };
 
-    let sent = match send(&sefer, &selection, style, pointing, None) {
+    let sent = match send(
+        &sefer,
+        &selection,
+        style,
+        pointing,
+        girsa_app::shemos::Shemos::AsWritten,
+        None,
+    ) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{e}");
