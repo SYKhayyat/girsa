@@ -13,7 +13,7 @@
 // opinion about the mesorah, kept in a stylesheet.
 
 import { api, type Chain, type Forked, type Hop, type LeftOut, type Seen, type Side } from "./api.ts";
-import { button, shut } from "./controls.ts";
+import { about, button, shut } from "./controls.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { fill, say } from "./say.ts";
@@ -64,7 +64,7 @@ export class ChainView {
     this.tabs.className = "chain-ways";
     this.list = document.createElement("div");
     this.list.className = "chain-list";
-    this.element.append(head, this.tabs, this.list);
+    this.element.append(head, about(say("chainAbout")), this.tabs, this.list);
     this.drawTabs();
   }
 

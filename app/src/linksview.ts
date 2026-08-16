@@ -29,7 +29,7 @@ function said(kinds: LinkKind[], key: string): string {
   return kinds.find((kind) => kind.key === key)?.title ?? key;
 }
 import { sayTrouble } from "./trouble.ts";
-import { button, choice, shut } from "./controls.ts";
+import { about, button, choice, shut } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
@@ -67,7 +67,7 @@ export class LinksView {
 
     this.list = document.createElement("div");
     this.list.className = "links-list";
-    this.element.append(head, this.list);
+    this.element.append(head, about(say("linksAbout")), this.list);
   }
 
   onOpen(goTo: (work: string, at: string) => Promise<void>): void {

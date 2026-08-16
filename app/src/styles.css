@@ -818,6 +818,13 @@ body {
  */
 .links {
   position: fixed;
+  /* A column, so the list takes whatever the head and the sentence above it
+   * leave — it was `height: calc(100% - 44px)`, a number that had to be kept in
+   * step with the height of a header nothing measures, and the sentence that
+   * says what this panel is for would have pushed the bottom of the list off
+   * the screen. */
+  display: flex;
+  flex-direction: column;
   /* Logical, not physical: `left: 0` in an RTL window puts a drawer on the
    * trailing edge, the far side of the text from the line it is about. The dock
    * had the same bug and it is the same fix - see `--dock`. */
@@ -855,8 +862,28 @@ body {
   color: var(--ink-quiet);
 }
 
+/* What a panel is for, under its title.
+ *
+ * The reader, asked what the chain panel and the links panel showed him:
+ * *"All of it — I don't know what I'm looking at."* Both panels already carried
+ * good sentences explaining exactly this, on `title` — which is to say, on a
+ * tooltip you have to already suspect is there. See `controls.ts` `about()`. */
+.panel-about {
+  flex: none;
+  margin: 0;
+  padding: 8px 14px 10px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--hebrew);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-quiet);
+}
+
 .links-list {
-  height: calc(100% - 44px);
+  flex: 1;
+  /* A flex item will not shrink below its content without this, so a long list
+   * would push the panel taller than the window instead of scrolling. */
+  min-height: 0;
   overflow-y: auto;
   padding: 6px 0;
 }
@@ -1698,6 +1725,40 @@ body {
 
 .shelf-work-aside.is-mine {
   color: var(--mark);
+}
+
+/* Open this one **into the tab I am already in**, beside what I am reading.
+ *
+ * Quiet until the row is under the pointer, because the row's own click is
+ * still the ordinary way to open a sefer and a second face competing with it on
+ * every one of two hundred rows would read as two equal choices. It is not
+ * `display: none` when idle: a control that is not in the layout moves the row
+ * when it appears, and it has to be reachable by keyboard, which is what
+ * `:focus-visible` is doing here. */
+.shelf-work-here {
+  margin-inline-start: 6px;
+  width: 22px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink-quiet);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 0;
+  opacity: 0;
+}
+
+.shelf-work:hover .shelf-work-here,
+.shelf-work-here:focus-visible {
+  opacity: 1;
+}
+
+.shelf-work-here:hover {
+  color: var(--mark);
+  border-color: var(--mark-quiet);
+  background: var(--mark-quiet);
 }
 
 .shelf-empty {
@@ -3259,6 +3320,30 @@ body {
   accent-color: var(--mark);
 }
 
+/* The same control in the *open a sefer* door: this one into the tab I am
+ * already in. Drawn like `.picker-pick`, because it is the same kind of thing
+ * — a press, not a tick — and two controls that do comparable jobs should not
+ * have to be told apart by their tooltips. */
+.picker-here {
+  width: 20px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink-quiet);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.picker-here:hover,
+.picker-here:focus-visible {
+  color: var(--mark);
+  border-color: var(--mark-quiet);
+  background: var(--mark-quiet);
+}
+
 /* ── An English interface around a Hebrew sefer ─────────────────────────────
  *
  * The chrome turns; **the reading does not**. `speakInterface` puts
@@ -3368,6 +3453,10 @@ body {
  * beside the reading like every other panel, never over it. */
 .chain {
   position: fixed;
+  /* The same column as `.links`, and it had the same magic number — 92px, for a
+   * header and a row of three buttons. */
+  display: flex;
+  flex-direction: column;
   inset-block: 0;
   inset-inline-start: 0;
   width: 0;
@@ -3416,7 +3505,8 @@ body {
 }
 
 .chain-list {
-  height: calc(100% - 92px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 6px 0 14px;
 }

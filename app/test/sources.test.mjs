@@ -188,4 +188,34 @@ export async function run() {
   check("`trouble.ts` has readers", importsTrouble.length > 0, true);
   const importsPresence = files.filter(([f, b]) => f !== "presence.ts" && /from "\.\/presence(\.ts)?"/.test(b));
   check("`presence.ts` has readers", importsPresence.length > 0, true);
+
+  // ------------------------------- a panel whose subject a reader cannot guess
+  //
+  // Asked what he could see in the chain panel and in the links panel, the
+  // reader answered both times: *"All of it — I don't know what I'm looking
+  // at."* Later, plainer: *"idk what links is."*
+  //
+  // Neither panel was missing an explanation. `say.ts` carries `chainForwardWhy`,
+  // `chainBackWhy`, `chainForksWhy`, `linksShowWork` — four good sentences,
+  // every one of them written to answer this — and all four are on `title`,
+  // which is to say on a tooltip a reader has to already suspect is worth
+  // hovering for. An explanation nobody can find is not an explanation.
+  //
+  // These two and not every panel: the bookcase and the search box announce
+  // their own subject by being a bookcase and a search box. What earns a
+  // sentence is a panel whose **subject** is not obvious from looking at it,
+  // and the two the reader named are exactly those.
+  const ABSTRACT = ["chainview.ts", "linksview.ts"];
+  const unexplained = files
+    .filter(([f]) => ABSTRACT.includes(f))
+    .filter(([, b]) => !/\babout\(say\(/.test(b))
+    .map(([f]) => f);
+  check("a panel a reader cannot name says what it is for, on the screen", unexplained, []);
+  // …and it is the shared control, so the sentence is styled and placed once.
+  const owner = files.find(([f]) => f === "controls.ts");
+  check(
+    "`about()` is in controls.ts with the rest of the furniture",
+    !!owner && /export function about\(/.test(owner[1]),
+    true,
+  );
 }

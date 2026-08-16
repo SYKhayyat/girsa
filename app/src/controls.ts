@@ -54,7 +54,15 @@ export function button(label: string, title: string, click: () => void): HTMLBut
  * `name` is what it is called, and it goes on `aria-label`, because `−` is not a
  * name and `title` is a tooltip rather than an accessible name in every reader.
  */
-export function glyph(face: string, name: string, click: () => void): HTMLButtonElement {
+export function glyph(
+  face: string,
+  name: string,
+  // The event, for the one case that needs it: a glyph **inside a row that is
+  // itself clickable** has to stop the click reaching the row. Callers that do
+  // not care still pass `() => void`, which TypeScript accepts for a handler
+  // taking an argument.
+  click: (event: MouseEvent) => void,
+): HTMLButtonElement {
   const out = document.createElement("button");
   out.type = "button";
   out.textContent = face;
@@ -88,6 +96,33 @@ export function glyph(face: string, name: string, click: () => void): HTMLButton
 export function shut(click: () => void): HTMLButtonElement {
   const out = glyph("×", say("close"), click);
   out.className = "panel-shut";
+  return out;
+}
+
+/**
+ * The sentence under a panel's title that says what the panel answers.
+ *
+ * # Why a panel needs one
+ *
+ * Asked what the chain panel and the links panel show him, the reader answered
+ * both times: *"All of it — I don't know what I'm looking at."* Later, plainer:
+ * *"idk what links is."*
+ *
+ * Neither panel was missing an explanation. `say.ts` already carries
+ * `chainForwardWhy`, `chainBackWhy`, `chainForksWhy`, `linksShowWork` — good
+ * sentences, every one of them written to explain exactly this. They are on
+ * `title`, so they are **tooltips**: they appear if you hold a pointer still
+ * over the right control for a second, having already guessed that the control
+ * is the thing you do not understand. A reader who does not know what a panel is
+ * has no reason to hover over anything in it.
+ *
+ * So the sentence goes on the screen, under the title, where the question *what
+ * am I looking at* is asked. It costs one line of a panel that is a column tall.
+ */
+export function about(sentence: string): HTMLElement {
+  const out = document.createElement("p");
+  out.className = "panel-about";
+  out.textContent = sentence;
   return out;
 }
 

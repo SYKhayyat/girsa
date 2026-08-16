@@ -42,6 +42,12 @@ const WORDS = {
   // --- the toolbar and the tab strip ---------------------------------------
   openSefer: ["פתח ספר", "Open a sefer"] as Both,
   openSeferKey: ["Ctrl+O", "Ctrl+O"] as Both,
+  // A sefer into the tab you are already in, beside what you are reading —
+  // rather than into a tab of its own, which is what a click has always meant.
+  openHere: [
+    "פתח כאן, לצד מה שאני קורא (Ctrl+Enter)",
+    "open here, beside what I am reading (Ctrl+Enter)",
+  ] as Both,
   browseShelf: ["מדף", "Shelf"] as Both,
   browseShelfWhy: ["עיין במדף (Ctrl+B)", "browse the bookcase (Ctrl+B)"] as Both,
   search: ["חפש", "Search"] as Both,
@@ -487,6 +493,13 @@ const WORDS = {
 
   // --- the links panel -----------------------------------------------------
   linksTitle: ["קישורים", "Links"] as Both,
+  // What the panel answers, on the screen rather than on a tooltip. The reader,
+  // asked what he could see in it: *"All of it — I don't know what I'm looking
+  // at."* And plainer: *"idk what links is."*
+  linksAbout: [
+    "כל מקום בספרייה שקשור לשורה שאתה עומד עליה — מי מצטט אותה ולאן היא מפנה. כל שורה אומרת מאין הקישור בא וכמה לסמוך עליו.",
+    "every place in the library joined to the line you are standing on — who quotes it and what it points to. Each row says where the link came from and how much to trust it.",
+  ] as Both,
   linksNone: ["אין קישורים", "no links"] as Both,
   linksOnWords: ["על המילים שסימנת", "on the words you highlighted"] as Both,
   linksReading: ["קורא…", "reading…"] as Both,
@@ -906,6 +919,12 @@ const WORDS = {
   // have existed since W28; nothing drew them, so the whole tier was a feature
   // you had to leave the window to see.
   chainTitle: ["שלשלת המסירה", "The chain"] as Both,
+  // The same answer as `linksAbout`, for the same reason: three good sentences
+  // already existed here and all three were tooltips on the three buttons.
+  chainAbout: [
+    "הדרך שהשורה הזאת עשתה: קדימה — מי הביא אותה ומי פסק כמותה; אחורה — מאין באה; ולחוד, שני ראשונים שקראו אותה בשתי דרכים.",
+    "the road this line travelled: forward — who quoted it and who ruled from it; back — where it came from; and, on its own, two rishonim who read it two ways.",
+  ] as Both,
   chainWhy: [
     "מן השורה הזאת: לאן הגיעה, ומאין באה (Ctrl+Shift+M)",
     "from this line: where it went, and where it came from (Ctrl+Shift+M)",
