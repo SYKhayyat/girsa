@@ -297,7 +297,28 @@ fn link(shelf: &Shelf, repaired: Repaired, outgoing: bool) -> Link {
     let he_title = named.map_or_else(|| work.clone(), |w| w.he_title.clone());
     let en_title = named.map_or_else(|| work.clone(), |w| w.en_title.clone());
     Link {
-        address: other.from.address(),
+        // **Through the one formatter**, like the margin of a line and like a
+        // chain hop. This was `SegmentId::address()` — the id's own spelling of
+        // where it is, which `sending::printed_address` exists to stop anybody
+        // showing a person — so a links panel on Yoreh De'ah listed
+        // `טור yoreh_deah:1:1` and `טורי זהב על שולחן ערוך אבן העזר 156:2`:
+        // Latin digits and a colon in a Hebrew panel, on every row.
+        //
+        // The style is the reader's, and it is not reachable here: `Link` is
+        // built from the graph and the shelf, neither of which holds a
+        // preference. `HebrewFull` is what the margin of every line already
+        // uses, so a row and the line it points at say the place the same way.
+        address: named.map_or_else(
+            || other.from.address(),
+            |work| {
+                crate::sending::printed_address_in(
+                    work,
+                    Some(&shelf.sections(&work.slug)),
+                    &other.from,
+                    girsa_cite::CiteStyle::HebrewFull,
+                )
+            },
+        ),
         other,
         work,
         he_title,
@@ -406,10 +427,17 @@ mod tests {
         let repaired = repairs.apply(vec![edge.clone()]).remove(0);
         let outgoing = link(&shelf, repaired.clone(), true);
         assert_eq!(outgoing.work, "rambam/berakhot");
-        assert_eq!(outgoing.address, "1:5");
+        // **Printed, not spelled.** This asserted `"1:5"` — the id's own
+        // spelling of where it is, which `sending::printed_address` exists to
+        // keep away from a reader, and which put `טור yoreh_deah:1:1` and
+        // `טורי זהב על שולחן ערוך אבן העזר 156:2` on every row of a Hebrew
+        // panel. A work whose schema names no level, as this fixture's does
+        // not, still gets its numbers said in Hebrew letters, because that is
+        // what every other surface in the application says.
+        assert_eq!(outgoing.address, "א' ה'");
 
         let incoming = link(&shelf, repaired, false);
         assert_eq!(incoming.work, "mishnah/berakhot");
-        assert_eq!(incoming.address, "1:1");
+        assert_eq!(incoming.address, "א' א'");
     }
 }

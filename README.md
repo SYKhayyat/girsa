@@ -154,6 +154,17 @@ looks beside its session file in the app's data directory.
 Not `libappindicator3-dev` — it conflicts with the ayatana package, apt exits
 100, and the job never reaches a compiler.
 
+**On NixOS**, `nix develop` puts you where the `apt-get` line above puts a
+Debian reader — `flake.nix` declares the same libraries under their Nix names,
+and everything after this section is the same on both. It is a shell and not a
+package on purpose: the build is `npm ci` then `cargo tauri build`, and
+packaging that means vendoring a `node_modules` and a Cargo registry for a
+repository whose gate is `tools/verify.mjs`.
+
+The flake also sets `WEBKIT_DISABLE_COMPOSITING_MODE`, which every Tauri
+application on NixOS needs and nobody finds by searching: without it the window
+opens white and reports nothing.
+
 ### Clone and build
 
 ```sh
