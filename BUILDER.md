@@ -826,6 +826,20 @@ through an intermediate sefer was not a fork at all. Witnesses now go as deep as
 asked, and how far each one is travels with it, because *argued out on one page*
 and *both somewhere above a sefer six hops down* are different claims.*
 
+*Amended: the three that write have three that take it back — `forget_note`,
+`undraw_link`, `uncorrect`. The reason the record gave for their absence was
+that deleting is a decision and this end cannot show you what you are about to
+delete. That is a true constraint and it was the wrong conclusion: a window asks
+*are you sure* by **showing** you the thing, and a screenless end has lost that
+one way of asking, not the requirement behind it. Each undo takes an argument
+that cannot be supplied without having read what is about to go — the note's own
+words, the link's current type, the words the correction reads — a mismatch is
+refused with the thing left standing, and the refusal does not print the right
+answer. `undraw_link` refuses an edge the corpus shipped. Found on the way:
+`correct`'s offsets were into a string `read` did not return, so a call could
+name four characters and move four others and come back successful. See
+`record/answering-a-program.md`.*
+
 *Amended: the chain has a panel. It shipped as a library and a terminal tool,
 which meant the whole of `spec.md` §8 was a tier a reader could only see by
 leaving the application — §0.3 says that is not built. The walk is unchanged and
@@ -2024,12 +2038,24 @@ why `inbound`'s cache holds whole edge rows rather than a summary and why
 memory shape of the feature every reader uses.** Building the panel is what makes
 that trade honest; not building it is what makes it a cost with no payer.
 
-**B20 · Nothing rebuilds the index incrementally — half done.** `Writer` can now
-`delete_term` a work and re-add it, so *a work* is replaceable. What is still a
-four-minute full rebuild is a note or a correction: the corrections half needs the
-overlay taught to the indexer, and the README rules out both easy answers. B7's
-honest notice is what makes shipping this incrementally safe and is not a
-substitute for it.
+**B20 · Nothing rebuilds the index incrementally — the note half is closed.**
+`Writer` can `delete_term` a work and re-add it, so *a work* is replaceable, and
+`girsa_search::building::absorb` is the caller: the shell takes a note in when
+you write one, when you edit one, and a sefer when you drop one. A note is one
+segment, so that is milliseconds against four minutes.
+
+What is still a four-minute full rebuild is **a correction**. Nothing absorbs on
+`fix`, so the words you corrected are findable by the typo until the next build;
+the corrections half needs the overlay taught to the indexer, and the README
+rules out both easy answers.
+
+B7's honest notice is what makes shipping this incrementally safe and is not a
+substitute for it — and closing the note half moved the notice, which had been
+answering *what has the index not seen* by comparing against when it was
+**built**. Absorbing does not build, so a note that had just come back from a
+search was reported missing in the same breath. What each index has taken in is
+now recorded per work beside it. The corrections clause still answers to the
+stamp, deliberately and narrowly; `docs/not-yet.md` carries that half.
 
 **B22 · The rest of the personal layer. Closed.** All four pieces. A note
 carries a `comp_date` and the timeline reads both roots, so a note is a hop in

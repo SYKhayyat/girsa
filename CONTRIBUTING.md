@@ -66,14 +66,20 @@ through the real importer, in about two seconds. Twenty-eight works, a link
 graph, both caches, a tantivy index. That is `girsa-fixture`, and it is a
 dev-dependency only.
 
-Ten checks genuinely need the 11 GB download — *Orach Chayim is 697 simanim of
-4,171 se'ifim* is a fact about a Sefaria release and no fixture can stand in for
-it. They are `#[ignore]`d, so they read as `10 ignored` instead of ten green
-ticks:
+Nineteen checks genuinely need the 11 GB download — *Orach Chayim is 697 simanim
+of 4,171 se'ifim* is a fact about a Sefaria release and no fixture can stand in
+for it. They are `#[ignore]`d, so a run without the corpus reads as `ignored`
+rather than as green ticks:
 
 ```sh
-cargo test -- --ignored      # on a machine that has run girsa-import
+cargo test -- --ignored --list     # which ones, and where they live
+cargo test -- --ignored            # on a machine that has run girsa-import
 ```
+
+`--list` first, because the count above is the sort of number that goes stale
+quietly and the command does not — it had said *ten* for long enough to be wrong
+by nine. A full run reports **22** ignored; the other three are doc-tests that
+illustrate rather than assert, and they are ignored for their own reason.
 
 If you do want a corpus, [`docs/tools.md`](docs/tools.md) has the order to build
 it in.
@@ -137,7 +143,7 @@ Read, in this order:
 1. **[`spec.md`](spec.md) §2 (Ground truth) and §3 (The landmine).** §2 is
    verified fact about the real data, not documentation. §3 is the one decision
    that cannot be retrofitted.
-2. **[`spec.md`](spec.md) §16 (Decisions settled)** — 19 rows, closed. Do not
+2. **[`spec.md`](spec.md) §16 (Decisions settled)** — 20 rows, closed. Do not
    reopen one silently.
 3. **[`docs/architecture.md`](docs/architecture.md)**, for where the seams are
    and why.
@@ -306,13 +312,20 @@ and it is the one the workspace build does not see.
 
 ## 7 · Continuous integration
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml), three jobs:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml), four jobs:
 
-| Job | What it holds |
-|---|---|
-| `rust` | build, test, clippy, fmt — plus two generate-and-diff checks: the shortcut card, and the packet Ksav's own test asserts against |
-| `shell` | the window: `npm test`, `npm run eyes` with a browser **required**, then the frontend build and the Tauri crate's own clippy and fmt |
-| `bundle` | on a `v*` tag or manual dispatch: the real Windows installer, attached to the release |
+| Job | Runs on | What it holds |
+|---|---|---|
+| `rust` | ubuntu | build, test, clippy, fmt — plus two generate-and-diff checks: the shortcut card, and the packet Ksav's own test asserts against |
+| `shell` | ubuntu | the window: `npm test`, `npm run eyes` with a browser **required**, then the frontend build and the Tauri crate's own clippy and fmt |
+| `macos` | macos | the library half again, and `cargo check` on the shell against macOS's own webview bindings — what it catches is platform-conditional code that does not exist on Linux |
+| `bundle` | windows | on a `v*` tag or manual dispatch: the real Windows installer, attached to the release |
+
+The `macos` job is a second **operating system**, not a second rendering engine,
+and [`docs/not-yet.md`](docs/not-yet.md) says so where it matters: the eyes tool
+drives Chrome, and Chrome on macOS is the same Blink it is on Windows. What the
+shipped window there uses is Safari's WebKit, and nothing here has rendered
+nikud on it.
 
 Two of these exist because of the same finding twice. `npm test` had been defined
 since the window's test runner was written and no gate had ever called it. And
