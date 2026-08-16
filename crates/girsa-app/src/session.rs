@@ -58,6 +58,32 @@ pub struct Session {
     /// are not the ones you follow on Chullin.
     #[serde(default)]
     pub chosen: BTreeMap<String, Vec<String>>,
+    /// Sefer → seforim the **reader** says run alongside it.
+    ///
+    /// # Why the corpus is not the last word on this
+    ///
+    /// `taxonomy::Keeping` settles *parallel seforim* from what the graph shows:
+    /// twenty-five or more simanim joined to the siman of the same number. It is
+    /// exact, and it is only as good as the links — and there is a case that
+    /// proves it. **The Shulchan Arukh HaRav is written on Orach Chayim's
+    /// simanim**, and of the 505 of its simanim the graph joins to Orach Chayim,
+    /// two land on their own number: Sefaria's links between those two are
+    /// citations, not the structural mapping. So the corpus does not say they
+    /// run alongside each other, and nothing in this application will say it on
+    /// the corpus's behalf.
+    ///
+    /// The reader knows. *"The user can add"* is his answer to exactly this, and
+    /// it is the right one: a claim about two seforim that a person made is a
+    /// better thing to keep than a claim this code inferred.
+    ///
+    /// # Read both ways
+    ///
+    /// Stored once, under whichever sefer he was standing on. Parallel is
+    /// **symmetric** — if the Shulchan Arukh HaRav runs alongside Orach Chayim
+    /// then Orach Chayim runs alongside it — so [`Session::alongside_of`] reads
+    /// the map in both directions and the reader never has to say it twice.
+    #[serde(default)]
+    pub alongside: BTreeMap<String, Vec<String>>,
     /// How much of the pointing is shown. One setting for the window, because a
     /// reader who turns it off wants it off — not off in this pane and on in the
     /// one beside it.
@@ -437,6 +463,7 @@ impl Default for Session {
             corpus: None,
             positions: BTreeMap::new(),
             chosen: BTreeMap::new(),
+            alongside: BTreeMap::new(),
             pointing: Pointing::default(),
             was_nikud: None,
             text_size: hundred(),
@@ -562,6 +589,55 @@ impl Session {
     pub fn chosen_for(&self, slug: &str) -> &[String] {
         self.chosen.get(slug).map_or(&[], Vec::as_slice)
     }
+
+    /// Say — or unsay — that two seforim keep the same order.
+    ///
+    /// Recorded once, under `slug`, and read back in both directions. Unsaying
+    /// it clears whichever direction holds it, so a pair the reader made
+    /// standing on the Shulchan Arukh can be undone standing on the Tur.
+    pub fn pair(&mut self, slug: &str, other: &str, on: bool) {
+        // A sefer does not run alongside itself, and a reader who manages to
+        // ask should get nothing rather than a row naming the sefer he is in.
+        if slug == other {
+            return;
+        }
+        if on {
+            let list = self.alongside.entry(slug.to_string()).or_default();
+            if !list.iter().any(|w| w == other) {
+                list.push(other.to_string());
+            }
+            return;
+        }
+        for (here, there) in [(slug, other), (other, slug)] {
+            if let Some(list) = self.alongside.get_mut(here) {
+                list.retain(|w| w != there);
+                if list.is_empty() {
+                    self.alongside.remove(here);
+                }
+            }
+        }
+    }
+
+    /// The seforim the reader has said run alongside this one, both ways round.
+    ///
+    /// Sorted and deduplicated, because the two directions can name the same
+    /// sefer — a reader who paired A with B and later B with A meant it once.
+    #[must_use]
+    pub fn alongside_of(&self, slug: &str) -> Vec<String> {
+        let mut out: std::collections::BTreeSet<String> = self
+            .alongside
+            .get(slug)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        for (here, there) in &self.alongside {
+            if there.iter().any(|w| w == slug) {
+                out.insert(here.clone());
+            }
+        }
+        out.into_iter().collect()
+    }
 }
 
 #[cfg(test)]
@@ -576,6 +652,50 @@ mod tests {
         format!("girsa:{work}/2a:{n}#{n}")
             .parse()
             .expect("a segment id")
+    }
+
+    #[test]
+    fn a_pair_the_reader_made_is_read_from_either_sefer() {
+        // A6. The corpus settles *parallel seforim* from the graph, and the
+        // Shulchan Arukh HaRav is the case it cannot: it is written on Orach
+        // Chayim's simanim and two of the 505 the graph joins land on their own
+        // number, because Sefaria's links between them are citations rather
+        // than the structural mapping. So the reader says it.
+        //
+        // Said once, standing on one of them — and true standing on the other,
+        // because parallel is symmetric and asking him to say it twice is
+        // asking him to keep a list in two places.
+        let mut session = Session::default();
+        session.pair("shulchan-arukh/orach-chayim", "shulchan-arukh-harav", true);
+        assert_eq!(
+            session.alongside_of("shulchan-arukh/orach-chayim"),
+            vec!["shulchan-arukh-harav".to_string()]
+        );
+        assert_eq!(
+            session.alongside_of("shulchan-arukh-harav"),
+            vec!["shulchan-arukh/orach-chayim".to_string()],
+            "the pair reads from the other end too"
+        );
+
+        // Saying it twice is saying it once.
+        session.pair("shulchan-arukh/orach-chayim", "shulchan-arukh-harav", true);
+        assert_eq!(session.alongside_of("shulchan-arukh-harav").len(), 1);
+
+        // And it can be undone **from either end**, which is the other half of
+        // reading it both ways: a pair you can make from here and only unmake
+        // from there is a pair a reader will think is stuck.
+        session.pair("shulchan-arukh-harav", "shulchan-arukh/orach-chayim", false);
+        assert!(session
+            .alongside_of("shulchan-arukh/orach-chayim")
+            .is_empty());
+        assert!(
+            session.alongside.is_empty(),
+            "and nothing empty is left behind"
+        );
+
+        // A sefer does not run alongside itself.
+        session.pair("tur", "tur", true);
+        assert!(session.alongside_of("tur").is_empty());
     }
 
     #[test]
