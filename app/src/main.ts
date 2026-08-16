@@ -25,6 +25,7 @@ import {
 import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
 import { ChainView } from "./chainview.ts";
+import { TocView } from "./tocview.ts";
 import { LinksView } from "./linksview.ts";
 import { PaneView } from "./pane.ts";
 import { ScanView } from "./scanview.ts";
@@ -52,7 +53,7 @@ import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
 import { codeOf, sayTrouble, trouble } from "./trouble.ts";
 import { whatKey, type Pressed } from "./keys.ts";
-import { announces, ask, button, glyph, region } from "./controls.ts";
+import { announces, ask, button, choice, glyph, region } from "./controls.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
@@ -63,6 +64,7 @@ const fixbox = new FixBox();
 const suspects = new SuspectsView();
 const linksview = new LinksView();
 const chainview = new ChainView();
+const tocview = new TocView();
 const yoursview = new YoursView();
 /** The semantic lane's settings (spec.md §9.9, W30). Off in a fresh install,
  * and off costs nothing — so the panel is always reachable and never nags. */
@@ -160,6 +162,7 @@ async function main(): Promise<void> {
   suspects.onOpen(openSuspect);
   linksview.onOpen(openFound);
   chainview.onOpen(openFound);
+  tocview.onOpen(openFound);
   linksview.onHere(whereIAm);
   linksview.onPinTo(whatIsHighlighted);
   // The drawer asks the window for a source, because which pane is focused is
@@ -509,6 +512,7 @@ async function openMefarshim(id: PaneId): Promise<void> {
       await openBeside(id, opened);
     },
     tick: (work, on) => void tickMefaresh(slug, work, on),
+    pair: (work, on) => void pairAlongside(slug, work, on),
   });
 }
 
@@ -565,6 +569,26 @@ async function openBeside(id: PaneId, seforim: string[]): Promise<void> {
  */
 async function tickMefaresh(slug: string, work: string, on: boolean): Promise<void> {
   const now = await api.chooseMefaresh(slug, work, on);
+  mefarshimOf.set(slug, now);
+  picker.refreshMefarshim(slug, now);
+  for (const view of views.values()) {
+    if (view.slug === slug) await drawMefarshim(view);
+  }
+}
+
+/**
+ * The reader's own claim that two seforim keep the same order (A6).
+ *
+ * > *"1, plus the user can add."*
+ *
+ * The same shape as a tick, and for the same reason: Rust answers with the
+ * **whole** list, because the window patching its own copy is how a list drifts
+ * from what Rust holds — which is the bug `refreshMefarshim` exists to close.
+ * The row moves out of *ספרים מקושרים* and under *על סדר הספר* because Rust put
+ * it there, not because this function moved it.
+ */
+async function pairAlongside(slug: string, work: string, on: boolean): Promise<void> {
+  const now = await api.pairAlongside(slug, work, on);
   mefarshimOf.set(slug, now);
   picker.refreshMefarshim(slug, now);
   for (const view of views.values()) {
@@ -731,6 +755,11 @@ function addControls(view: PaneView, id: PaneId): void {
   const chain = button(say("chainTitle"), say("chainWhy"), () => {
     void showChain();
   });
+  // The sefer's own contents (A3), beside the two panels that answer questions
+  // *about* a line — this one answers where the lines are.
+  const contents = button(say("tocTitle"), say("tocWhy"), () => {
+    void showContents();
+  });
   // W22: base text + your patches → a file. On the pane, because what is
   // written out is the sefer this pane is reading, corrections and all — and it
   // asks **where**, which it did not.
@@ -748,6 +777,9 @@ function addControls(view: PaneView, id: PaneId): void {
   view.addControl(scrollLink(id));
   view.addControl(links);
   view.addControl(chain);
+  view.addControl(contents);
+  const move = moveToTab(id);
+  if (move) view.addControl(move);
   view.addControl(save);
   view.addControl(close);
 }
@@ -783,6 +815,14 @@ function addScanControls(view: ScanView, id: PaneId): void {
 async function whenMoved(pane: PaneId, at: string): Promise<void> {
   if (!at || reported.get(pane) === at) return;
   reported.set(pane, at);
+  // …and the table of contents follows the reader down the sefer (A3). Only
+  // the focused pane's: a window can hold four seforim and the contents are of
+  // one, which `TocView.moved` checks by slug rather than trusting the caller.
+  const here = tab();
+  if (here?.focused === pane) {
+    const slug = here.panes.find((p) => p.id === pane)?.slug ?? null;
+    tocview.moved(slug, views.get(pane)?.lineIndex() ?? 0);
+  }
   const moves = await api.moved(pane, at);
   for (const move of moves) {
     views.get(move.pane)?.goTo(move.place, move.relation);
@@ -1281,6 +1321,109 @@ async function showChain(): Promise<void> {
   await chainview.toggle(at);
 }
 
+/**
+ * Go to the next place you marked in the sefer you are reading (A15).
+ *
+ * > *"the ability to leave a mark in a sefer — like here is my place, so it is
+ * > visible and jumpable (many should be available)."*
+ *
+ * *Many* is why it is *next* and not *the* place: a reader with four marks in
+ * Mishnah Berurah pressing the key four times walks them, and pressing it once
+ * more comes back to the first. The drawer is still there for choosing one by
+ * name; this is for the one thing a keyboard route is good at, which is going
+ * somewhere without looking for it.
+ *
+ * Says so when there is nowhere to go, rather than doing nothing — a key that
+ * silently does nothing is a key a reader concludes is not bound.
+ */
+async function goToMyPlace(): Promise<void> {
+  const open = tab();
+  const view = open ? views.get(open.focused) : undefined;
+  if (!view) return;
+  if (!(await view.goToNextPlace())) announce(say("noPlaceMarked"), false);
+}
+
+/**
+ * Move this pane into another tab (A12).
+ *
+ * > *"make me be able to move from tab into another tab."*
+ *
+ * A `<select>` rather than a button, because *which tab* is a question with as
+ * many answers as there are tabs, and a button that cycles through them is a
+ * control a reader has to press four times while watching the window to find
+ * out what it does. The tabs are named the way the strip names them, so the row
+ * a reader picks is the tab they can see.
+ *
+ * **`null` when there is nowhere to go** — one tab holding one pane — and the
+ * control is not drawn at all rather than drawn dead. A menu whose only entry
+ * is *stay here* teaches a reader that the menus in this application do
+ * nothing.
+ */
+function moveToTab(id: PaneId): HTMLElement | null {
+  const tabs = state?.workspace.tabs ?? [];
+  const here = tabs.findIndex((open) => open.panes.some((pane) => pane.id === id));
+  if (here < 0) return null;
+  const alone = tabs.length === 1 && (tabs[0]?.panes.length ?? 0) === 1;
+  if (alone) return null;
+
+  const box = choice(say("moveToTab"), "pane-move");
+  // The first option is where it already is, so the control opens saying the
+  // truth and a reader who opens it and changes their mind can put it back.
+  const stay = document.createElement("option");
+  stay.value = "";
+  stay.textContent = say("moveToTab");
+  box.append(stay);
+  tabs.forEach((open, at) => {
+    if (at === here) return;
+    const row = document.createElement("option");
+    row.value = String(at);
+    row.textContent = tabLabel(open);
+    box.append(row);
+  });
+  // A tab of its own — offered only when the pane is not already the whole of
+  // its tab, which `Workspace::move_pane` refuses for the same reason: it would
+  // close one tab and open an identical one.
+  if ((tabs[here]?.panes.length ?? 0) > 1) {
+    const fresh = document.createElement("option");
+    fresh.value = "new";
+    fresh.textContent = say("moveToNewTab");
+    box.append(fresh);
+  }
+  box.title = say("moveToTabWhy");
+  box.addEventListener("change", () => {
+    const picked = box.value;
+    if (picked === "") return;
+    void (async () => {
+      await api.movePane(id, picked === "new" ? null : Number(picked));
+      // The pane is a different pane in its new tab — `split` mints an id — so
+      // the view keyed by the old one is stale. Dropped rather than moved: the
+      // sefer is redrawn from Rust, which is where the arrangement now lives.
+      views.delete(id);
+      scans.delete(id);
+      await reload();
+    })();
+  });
+  return box;
+}
+
+/**
+ * The table of contents of the sefer in front of you (A3).
+ *
+ * The **focused pane's** sefer and the line it is on, because a table of
+ * contents is about one sefer and a window can hold four. Which is also why it
+ * is handed the line index rather than working it out: `PaneView` knows where
+ * it is scrolled to, and a second answer to that question in the panel would
+ * drift from the first.
+ */
+async function showContents(): Promise<void> {
+  const open = tab();
+  if (!open) return;
+  const pane = open.panes.find((p) => p.id === open.focused);
+  const view = views.get(open.focused);
+  if (!pane || !view) return;
+  await tocview.toggle(pane.slug, view.lineIndex());
+}
+
 /** The highlight in the focused pane, as offsets in its line. */
 function whatIsHighlighted(): [number, number] | null {
   const open = tab();
@@ -1560,6 +1703,11 @@ const PANELS: readonly Held[] = Object.freeze([
     // reading shortcuts stay live behind them.
     { panel: linksview, keyboard: "reading", escape: "anywhere" },
     { panel: chainview, keyboard: "reading", escape: "anywhere" },
+    // The contents of the sefer (A3). A drawer like its neighbours — but its
+    // filter box owns what is typed into it, which is why it is `typing` and
+    // not `reading`: a reader looking for סימן פ"ט types `פ` and would
+    // otherwise turn the page under the panel.
+    { panel: tocview, keyboard: "typing", escape: "anywhere" },
     // Your own layer docks the moment it opens, so it is never over the
     // reading — the sibling of finding 3, cleared by moving it off `inside`.
     // Its boxes still own what is typed into them; its buttons do not own the
@@ -1662,6 +1810,14 @@ function shortcut(event: KeyboardEvent): void {
     case "chain":
       event.preventDefault();
       void showChain();
+      return;
+    case "contents":
+      event.preventDefault();
+      void showContents();
+      return;
+    case "my-place":
+      event.preventDefault();
+      void goToMyPlace();
       return;
     case "lane":
       event.preventDefault();

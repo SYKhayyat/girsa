@@ -34,6 +34,10 @@ export interface Beside {
   /** Tick or untick one. The caller redraws the markers and hands the refreshed
    * list back through [`Picker.refreshMefarshim`]. */
   tick: (work: string, on: boolean) => void;
+  /** Say — or unsay — that a sefer runs alongside this one (A6). Answered the
+   * same way a tick is: with the whole list, through
+   * [`Picker.refreshMefarshim`]. */
+  pair: (work: string, on: boolean) => void;
 }
 
 export class Picker {
@@ -50,6 +54,8 @@ export class Picker {
     works: [], alongside: [], folders: [], listed: [], marked: {}, touched: 0, unbuilt: null,
   };
   private tick: (work: string, on: boolean) => void = () => {};
+  /** Say that a sefer keeps this one's order, or take it back (A6). */
+  private pairs: (work: string, on: boolean) => void = () => {};
   /**
    * The seforim picked to open, in the order they were picked.
    *
@@ -136,6 +142,7 @@ export class Picker {
     this.chosen = open.chosen;
     this.mefarshim = open.mefarshim;
     this.tick = open.tick;
+    this.pairs = open.pair;
     this.heading.textContent = `${say("mefarshimOf")} · ${open.title}`;
     this.show();
   }
@@ -294,6 +301,24 @@ export class Picker {
         box.addEventListener("pointerdown", (event) => event.stopPropagation());
         node.append(box);
       }
+      // *This sefer keeps the same order as the one I am reading* (A6) — the
+      // reader's own claim, where the corpus has not made it. `girsa-companions`
+      // settles it from the graph and the Shulchan Arukh HaRav is the case it
+      // cannot: it is written on Orach Chayim's simanim and Sefaria's links
+      // between the two are citations, so the graph shows two of 505 landing on
+      // their own number. A person knows.
+      if (this.beside && row.pair) {
+        const on = row.pair.on;
+        const said = glyph(on ? "≡" : "≢", `${say("pairAlongside")} — ${row.title}`, (event) => {
+          event.stopPropagation();
+          this.pairs(row.slug, !on);
+        });
+        said.className = "picker-pair" + (on ? " is-on" : "");
+        said.title = on ? say("pairAlongsideOff") : say("pairAlongsideWhy");
+        said.setAttribute("aria-pressed", String(on));
+        said.addEventListener("pointerdown", (event) => event.stopPropagation());
+        node.append(said);
+      }
       // Pick for opening — the multi-select half. A separate control from the
       // tick, because they are different questions: *mark what this one says on
       // my daf* and *put it in a column beside me* are the two things the door
@@ -409,6 +434,13 @@ interface Row {
   why?: string;
   /** Present on a row that can be ticked, with whether it is (W43). */
   tick?: { on: boolean };
+  /** Present on a row the reader can declare **runs alongside** this sefer, with
+   * whether he already has (A6). See `girsa_app::session::Session::alongside`.
+   *
+   * Not on a mefaresh: a commentary is not a parallel sefer, and offering the
+   * pairing there would let a reader file Rashi as running alongside the
+   * Gemara, which is a different claim and a wrong one. */
+  pair?: { on: boolean };
   /** Present on a folder heading rather than a sefer (W44). */
   heading?: { depth: number; count: number };
   /** How far in a sefer under a folder is drawn. */
@@ -478,6 +510,15 @@ function companionRow(companion: Choice, twice = false): Row {
     aside: `${relatedSaid(companion)}${from}`,
     why: relatedWhy(companion),
     tick: companion.tickable ? { on: companion.chosen } : undefined,
+    // *"1, plus the user can add."* Offered on the rows where the claim could
+    // be true and the corpus has not made it — a sefer the graph merely links,
+    // or one already running alongside so the reader can take it back. Never on
+    // a mefaresh or on the sefer this one comments on: those are settled, and
+    // they are a different claim.
+    pair:
+      companion.stands === "on" || companion.stands === "base"
+        ? undefined
+        : { on: companion.stands === "alongside" },
   };
 }
 

@@ -37,6 +37,21 @@ export async function run() {
   notOk("stale does not offer the send", stale.canSend);
   ok("stale is trouble", stale.trouble);
 
+  // A8. *"it says ksav is registered but not answering. i have no clue if that
+  // is right."* It was right, and it said so in a way nobody could act on: a
+  // state, with no cause and no remedy. A sentence a reader cannot act on is
+  // the same defect as a state nobody can tell from another — one level up.
+  //
+  // The property, and it is not a restatement of the string: the sentence
+  // carries the **same verb the affordance carries**. `writingOpenInKsav` is
+  // *פתח {ksav}*, and a reader told that the sibling is not answering should be
+  // told the thing they would otherwise have to be told twice.
+  ok(
+    "stale says what to do about it and not only what it is",
+    stale.said.includes("פתח"),
+    stale.said,
+  );
+
   // The finding, stated: the transport's English string is not the message.
   notOk("stale's sentence does not carry the transport string", stale.said.includes(OBSERVED));
   notOk("stale's sentence has no Latin in it at all", LATIN.test(stale.said));

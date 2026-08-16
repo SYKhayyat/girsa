@@ -139,6 +139,9 @@ body {
    * carries a sefer, a place, a date and what the link claims on one line, and
    * the tree indents them. */
   --chain-wide: min(680px, 52vw);
+  /* Narrower than the chain and the links: a row of contents is an address
+   * and a short title, not a paragraph of evidence. */
+  --toc-wide: min(420px, 38vw);
   --suspects-wide: min(560px, 46vw);
   --yours-wide: min(680px, 55vw);
   --lane-wide: min(560px, 46vw);
@@ -548,7 +551,31 @@ body {
  * not asked; centred when set, because a column pinned to one edge of a wide pane
  * reads worse than a narrow one in the middle. */
 .pane-body > .line,
-.pane-body > .line-said {
+.pane-body > /* The way out of a long comment, at its foot (A14). Quiet, centred, and the
+ * full width of the block, so it reads as the end of the block rather than as
+ * one more control competing with the words above it. */
+.said-shut {
+  display: block;
+  width: 100%;
+  margin-block-start: 0.5em;
+  padding: 2px 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--mark) 22%, transparent);
+  background: none;
+  color: var(--ink-quiet);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.said-shut:hover,
+.said-shut:focus-visible {
+  color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 8%, transparent);
+}
+
+.line-said {
   max-width: var(--measure);
   margin-inline: auto;
 }
@@ -630,6 +657,24 @@ body {
  * schema's section name. 1.1em and bold was not enough to read as a heading at
  * all: a heading has to break the column, not merely be a slightly heavier line
  * in it. Otzaria's are unmistakable at a glance and ours were not. */
+/* The siman's own title, which the corpus keeps inside the first se'if.
+ *
+ * > *"it also says מי הם הכשרים לשחוט. ובו י\"ד סעיפים: הכל שוחטין לכתחלה
+ * > אפילו נשים…"*
+ *
+ * Two things in one sentence, because `<b>title</b><br>se'if` was drawn inline
+ * and a `<br>` between two spans in a paragraph is not a break. `display:block`
+ * is, and every character stays inside `.line-text` where the offsets are
+ * counted — see `pane.ts`. */
+.line-opens {
+  display: block;
+  font-size: 1.18em;
+  font-weight: 600;
+  line-height: 1.7;
+  margin-block-end: 0.35em;
+  color: var(--ink);
+}
+
 .line.is-heading .line-text {
   font-weight: 700;
   font-size: 1.28em;
@@ -1452,6 +1497,50 @@ body {
 /* The tick-box (W43). On a row that can carry one — a mefaresh whose comments
  * the link graph can actually place on a line. A row without one still opens
  * that sefer in the column beside you, which is the split. */
+/* *This sefer keeps the same order as the one I am reading* (A6). Drawn like
+ * `.picker-pick` because it is the same kind of gesture — a press, not a tick —
+ * and `≡` / `≢` say *the same* and *not the same* without a word. */
+/* Move this column into another tab (A12). A select and not a button, because
+ * *which tab* has as many answers as there are tabs. Sized like the buttons
+ * beside it so the header does not grow a row. */
+.pane-move {
+  max-width: 130px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink-quiet);
+  font: inherit;
+  font-family: var(--hebrew);
+  font-size: 12px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.pane-move:hover,
+.pane-move:focus-visible {
+  color: var(--mark);
+  border-color: var(--mark-quiet);
+}
+
+.picker-pair {
+  width: 20px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink-quiet);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.picker-pair.is-on {
+  color: var(--mark);
+  border-color: var(--mark-quiet);
+  background: var(--mark-quiet);
+}
+
 .picker-tick {
   flex: 0 0 auto;
   margin: 0;
@@ -3342,6 +3431,130 @@ body {
   color: var(--mark);
   border-color: var(--mark-quiet);
   background: var(--mark-quiet);
+}
+
+
+/* ── The table of contents (A3) ─────────────────────────────────────────────
+ *
+ * > *"there should be a table of contents on the side for each sefer, so you
+ * > can jump around."*
+ *
+ * A column like the other drawers, and the same rule: docked, so the reading is
+ * made narrower rather than covered. */
+.toc {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 0;
+  overflow: hidden;
+  z-index: 30;
+  background: var(--page-raised);
+  border-inline-end: 1px solid var(--rule);
+  transition: width 0.12s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.toc.is-open {
+  width: var(--toc-wide);
+}
+
+.toc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.toc-title {
+  font-family: var(--hebrew);
+  font-size: 17px;
+}
+
+.toc-note {
+  flex: 1;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+/* Otzaria's filter box, which is the thing that makes seven hundred simanim
+ * usable. Named through `field()`, so it is a control a screen reader can find
+ * — the two text fields that were invisible to the accessibility snapshot are
+ * the reason that helper exists. */
+.toc-filter {
+  flex: none;
+  margin: 8px 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--hebrew);
+  font-size: 14px;
+}
+
+.toc-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 14px;
+}
+
+/* One place. The indent is the tree — a Tur's simanim sit under their chelek —
+ * and it is `--depth` rather than nested elements, the same way `.chain-hop`
+ * draws a chain twelve deep without nesting twelve divs to say so. */
+.toc-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 14px;
+  padding-inline-start: calc(14px + var(--depth, 0) * 14px);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.toc-row:hover {
+  background: color-mix(in srgb, var(--mark) 10%, transparent);
+}
+
+/* Where the reader is. Not a hover colour and not a border: the row has to be
+ * findable in a column of seven hundred by looking, which is what the mark
+ * colour is for everywhere else in this window. */
+.toc-row.is-here {
+  background: var(--mark-quiet);
+  color: var(--mark);
+  font-weight: 600;
+}
+
+.toc-row-address {
+  flex: none;
+  font-family: var(--hebrew);
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.toc-row.is-here .toc-row-address {
+  color: var(--mark);
+}
+
+.toc-row-title {
+  font-family: var(--hebrew);
+  font-size: 14px;
+  /* One line. A siman title is a sentence — *מי הם הכשרים לשחוט. ובו י"ד
+   * סעיפים:* — and seven hundred of them wrapped to three lines each is a
+   * column nobody can scan. The whole of it is on the row's `aria-label` and
+   * in the filter, so nothing is lost, only folded. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── An English interface around a Hebrew sefer ─────────────────────────────

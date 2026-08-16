@@ -650,9 +650,18 @@ const WORDS = {
     "{doing} נכשלה · פרטים בהצבה על ההודעה",
     "{doing} failed · details on hovering the message",
   ] as Both,
+  // A8. The reader, on the chip: *"it says ksav is registered but not
+  // answering. i have no clue if that is right."*
+  //
+  // It is right, and it said so in a way nobody could act on. `Presence::Stale`
+  // means *there is a `ksav-endpoint.json` and nothing answered on the port it
+  // names* — which is almost always the sibling having left its marker behind
+  // when it closed, the same defect Girsa fixed on its own side in `run()`. So
+  // the sentence names the likely cause and the remedy, and the transport's own
+  // English stays on the hover where a developer's string belongs.
   ksavStale: [
-    "{ksav} רשום אך אינו עונה — ייתכן שנסגר שלא כשורה",
-    "{ksav} is registered but not answering — it may have closed badly",
+    "{ksav} רשם את עצמו ואינו עונה — כנראה נסגר והשאיר את הרישום. פתח את {ksav} שוב.",
+    "{ksav} registered itself and is not answering — it probably closed and left the registration behind. Open {ksav} again.",
   ] as Both,
 
   /** The writing drawer and the send, which name the sibling. */
@@ -918,6 +927,47 @@ const WORDS = {
   // The transmission chain (spec.md §8, W28). The walk and the terminal tool
   // have existed since W28; nothing drew them, so the whole tier was a feature
   // you had to leave the window to see.
+  // --- the table of contents (A3) ------------------------------------------
+  // The arrow at the foot of an open mefarshim block (A14). Its own way out,
+  // because the way in — clicking the line — is only reachable from the top,
+  // and a long comment is longer than the window.
+  saidShut: ["סגור כאן", "close here"] as Both,
+  // The reader's own claim that two seforim keep the same order (A6).
+  pairAlongside: ["על סדר הספר", "keeps the same order"] as Both,
+  pairAlongsideWhy: [
+    "אמור שהספר הזה הולך על סדר הספר שאתה קורא — כשהקישורים לא מספיקים כדי לדעת",
+    "say this sefer keeps the order of the one you are reading — where the links do not show it",
+  ] as Both,
+  pairAlongsideOff: [
+    "בטל: הספר הזה אינו על סדר הספר שאתה קורא",
+    "take it back: this sefer does not keep the order of the one you are reading",
+  ] as Both,
+  // Moving a pane into another tab (A12).
+  moveToTab: ["העבר ללשונית", "move to a tab"] as Both,
+  moveToTabWhy: [
+    "העבר את הטור הזה ללשונית אחרת, עם המקום שאתה עומד בו",
+    "move this column into another tab, with the place you are at in it",
+  ] as Both,
+  moveToNewTab: ["ללשונית חדשה", "to a new tab"] as Both,
+  moveStay: ["השאר כאן", "stay here"] as Both,
+  // A15: pressed in a sefer with no marks in it. Said, rather than the key
+  // doing nothing — a shortcut that is silent is one a reader stops pressing.
+  noPlaceMarked: [
+    "לא סימנת כאן מקום. Ctrl+Shift+H מסמן את המקום שאתה עומד בו.",
+    "you have not marked a place here. Ctrl+Shift+H marks where you are standing.",
+  ] as Both,
+  tocTitle: ["תוכן הספר", "Contents"] as Both,
+  tocWhy: [
+    "תוכן הספר — סימנים, פרקים ודפים, לקפוץ ביניהם (Ctrl+Shift+T)",
+    "the sefer's contents — simanim, perakim and dapim, to jump between (Ctrl+Shift+T)",
+  ] as Both,
+  tocAbout: [
+    "כל מקום בספר הזה, לפי הכתובת שלו. השורה שאתה עומד בה מסומנת. סנן כדי למצוא סימן בלי לגלול.",
+    "every place in this sefer, by its address. The one you are standing in is marked. Filter to find a siman without scrolling.",
+  ] as Both,
+  tocFilter: ["סנן", "filter"] as Both,
+  tocReading: ["קורא…", "reading…"] as Both,
+  tocNone: ["אין לספר הזה חלוקה להראות", "this sefer has no structure to show"] as Both,
   chainTitle: ["שלשלת המסירה", "The chain"] as Both,
   // The same answer as `linksAbout`, for the same reason: three good sentences
   // already existed here and all three were tooltips on the three buttons.
@@ -1025,6 +1075,7 @@ const WORDS = {
   doingReadLinks: ["קריאת הקישורים", "reading the links"] as Both,
   doingOpenRef: ["פתיחת המראה מקום", "opening the mareh makom"] as Both,
   doingChain: ["מעקב אחר שלשלת המסירה", "following the chain"] as Both,
+  doingContents: ["קריאת תוכן הספר", "reading the sefer's contents"] as Both,
   doingRepairLink: ["תיקון הקישור", "repairing the link"] as Both,
   doingReadLane: ["קריאת נתיב המשמעות", "reading the lane"] as Both,
   doingWriteNote: ["כתיבת הרשומה", "writing the note"] as Both,

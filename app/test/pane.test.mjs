@@ -22,7 +22,7 @@
 // bounded one whatever the bound.
 
 import { check, ok } from "./harness.mjs";
-import { grown } from "../.tmp-test/pane.mjs";
+import { grown, nextPlace } from "../.tmp-test/pane.mjs";
 
 /** Mishnah Berurah, which is the sefer the audit sat with. */
 const MISHNAH_BERURAH = 17_418;
@@ -95,4 +95,24 @@ export function run() {
   const first = grown({ from: 0, to: 400 }, "down", MISHNAH_BERURAH);
   check("the first edge widens the page rather than sliding it", first.from, 0);
   ok("which means it drew more than it had", span(first) > 400);
+
+  // --- the next place of yours to go to (A15) --------------------------------
+  //
+  // > *"a way to leave a mark in a sefer — like here is my place, so it is
+  // > visible and jumpable (many should be available)."*
+  //
+  // *Many* is the whole shape of this: the answer is **next**, not *the* place,
+  // so four marks in Mishnah Berurah are four presses. And it wraps, because a
+  // reader at the end of the sefer pressing it means *the next one* and there is
+  // one — at the top. A key that silently does nothing is a key they conclude is
+  // not bound.
+  check("the next mark after where you are", nextPlace([4, 90, 300], 4), 90);
+  check("…and standing before all of them, the first", nextPlace([4, 90, 300], 0), 4);
+  check("…past the last of them, back to the first", nextPlace([4, 90, 300], 900), 4);
+  check("exactly on one is not that one again", nextPlace([4, 90, 300], 90), 300);
+  // The marks arrive in whatever order the panel holds them; *next* is a
+  // question about reading order, so they are sorted here rather than trusted.
+  check("out of order is still in order", nextPlace([300, 4, 90], 5), 90);
+  check("one mark, and you are on it: it wraps to itself", nextPlace([7], 7), 7);
+  check("no marks at all is the one honest nothing", nextPlace([], 3), null);
 }
