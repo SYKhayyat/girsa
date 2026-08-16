@@ -299,6 +299,20 @@ jobs:
             -e NIX_CONFIG='experimental-features = nix-command flakes' \
             nixos/nix:latest \
             sh -euc '
+              # `repository path "/w" is not owned by current user`, which is
+              # what the job said on its second push. A flake inside a git
+              # working tree is a **git input**, so Nix asks libgit2 to open
+              # the repository — and libgit2 refuses a repository owned by
+              # somebody other than the process, which here is the host runner
+              # user against root in the container. Saying the directory is
+              # safe is the documented remedy and keeps the git input, which is
+              # what makes Nix respect `.gitignore` and not copy `target/`
+              # into the store.
+              # Written rather than set with `git config`, because the image
+              # ships Nix and is not obliged to ship a git binary — and Nix
+              # reads this through libgit2, which reads the file and not the
+              # command.
+              printf "[safe]\n\tdirectory = /w\n" > "$HOME/.gitconfig"
               nix flake check --no-build
               nix develop --command bash -c "
                 cd app && npm ci && npm test && npm run build
