@@ -116,6 +116,24 @@ const RULES = [
     ],
   },
   {
+    // The reader, 16 August, asking for a way to leave his place in a sefer —
+    // and the machinery was all there. `markHere`, `api.bookmarks()`, a row in
+    // the *yours* panel that already jumps to it. What was missing is that
+    // `Pane.paint()` opened with `if (!mark.span) continue`, and a bookmark has
+    // no span by definition (`MarkRow`: *"the characters it is on — absent for
+    // a bookmark"*). So the one function that draws marks on a page skipped
+    // every bookmark ever made, and putting your place down changed nothing you
+    // could see.
+    //
+    // A sweep rather than an edit because the next mark kind with no span — a
+    // note anchored to a whole se'if, a link the reader drew by hand — arrives
+    // at this same line and is skipped the same way.
+    what: "the mark painter does not skip a mark for having no span",
+    where: /^app\/src\/pane\.ts$/u,
+    contains: ["if (!mark.span) continue"],
+    allow: [],
+  },
+  {
     // The reader, 16 August: *"this app has a habit of using close instead of
     // the ×, and that is bad."* Eight panels drew their own dismissal and six
     // spelled it as the word `סגור` on a `.tool` button — chain, links, search,

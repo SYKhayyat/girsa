@@ -654,6 +654,21 @@ body {
  * and *not* in the words on the page (spec.md §7.2). A reader must be able to
  * tell without asking whether they are looking at the printed text.
  */
+/* "Here is my place." A bookmark has no words under it, so it stands in the
+ * gutter beside the line like `.line-fix` does, and unlike a highlight it is
+ * full strength: a reader puts it down precisely so it can be found from across
+ * the page. Many are expected — one per sugya you are in the middle of. */
+.line-place {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  font-family: var(--plain);
+  font-size: 13px;
+  line-height: 2.2;
+  color: var(--mark);
+  cursor: help;
+  user-select: none;
+}
+
 .line-fix {
   flex: 0 0 auto;
   align-self: flex-start;

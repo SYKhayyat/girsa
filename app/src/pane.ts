@@ -435,8 +435,29 @@ export class PaneView {
   private paint(): void {
     this.markMefarshim();
     for (const mark of this.marks) {
-      if (!mark.span) continue;
-      const line = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(mark.at)}"]`);
+      const at = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(mark.at)}"]`);
+      // **A bookmark names a place, not words**, so it has no span — `MarkRow`
+      // says so in as many words: *"the characters it is on — absent for a
+      // bookmark"*. This loop opened with `if (!mark.span) continue`, which is
+      // correct about highlighting and meant that the one function which draws
+      // marks on a page skipped every bookmark ever made. A reader could put his
+      // place down, and the sefer looked exactly the same afterwards; the mark
+      // existed only as a row in the *yours* panel, which is the one place you
+      // are not looking when you are learning.
+      //
+      // Drawn in the gutter beside the line rather than over the words, for the
+      // same reason `.line-fix` is: there are no words it is on, and a highlight
+      // covering a se'if would be a claim about the text that nobody made.
+      if (!mark.span) {
+        if (!at || at.querySelector(`[data-place="${cssEscape(mark.id)}"]`)) continue;
+        const flag = el("span", "line-place");
+        flag.dataset.place = mark.id;
+        flag.textContent = "⚑";
+        flag.title = mark.label ?? say("bookmark");
+        at.prepend(flag);
+        continue;
+      }
+      const line = at;
       const words = line?.querySelector<HTMLElement>(".line-text");
       if (!words || words.querySelector(`[data-mark="${cssEscape(mark.id)}"]`)) continue;
       const range = charRange(words, mark.span[0], mark.span[1]);
