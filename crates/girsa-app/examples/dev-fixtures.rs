@@ -153,6 +153,9 @@ fn main() -> std::process::ExitCode {
             &sefer.work.slug,
             &[],
             girsa_app::session::Language::Hebrew,
+            // No reader here, so no pairs of his — the fixture shows what the
+            // corpus alone says, which is what the browser build is for.
+            &[],
         );
         write(
             &out.join(format!("mefarshim-{}.json", flatten(&sefer.work.slug))),

@@ -1452,8 +1452,39 @@ fn mefarshim_of(state: &mut State, slug: &str) -> Result<Mefarshim, String> {
     // `mefarshim::listed`. Read before the shelf is borrowed; `Language` is
     // `Copy`, so this costs nothing and keeps the borrow checker out of it.
     let language = state.session.language;
+    // The pairs the reader made himself, read both ways round — see
+    // `Session::alongside`, and the Shulchan Arukh HaRav, which is the case that
+    // needs them.
+    let mine = state.session.alongside_of(&slug);
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    Ok(Mefarshim::of(shelf, &marks, &slug, &chosen, language))
+    Ok(Mefarshim::of(
+        shelf, &marks, &slug, &chosen, language, &mine,
+    ))
+}
+
+/// Say — or unsay — that two seforim keep the same order (A6).
+///
+/// > *"1, plus the user can add."*
+///
+/// `taxonomy::Keeping` settles this from the graph and is only as good as the
+/// links. The Shulchan Arukh HaRav is written on Orach Chayim's simanim and the
+/// graph joins two of its 505 to their own number, so the corpus cannot say it
+/// and this application will not say it for the corpus. The reader can.
+///
+/// Answers with the whole list, the same as `choose_mefaresh`: the window used
+/// to patch its own copy after a tick and that is how a list drifts from what
+/// Rust holds.
+#[tauri::command]
+fn pair_alongside(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    work: String,
+    on: bool,
+) -> Result<Mefarshim, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state.session.pair(&slug, &work, on);
+    state.save();
+    mefarshim_of(&mut state, &slug)
 }
 
 /// Tick or untick one mefaresh, and answer with the whole list as it stands
@@ -1610,6 +1641,26 @@ fn sefer_lines(
         .iter()
         .map(|s| Line::of(sefer, s, pointing, style, lexicon))
         .collect())
+}
+
+/// The table of contents of a sefer (A3).
+///
+/// > *"there should be a table of contents on the side for each sefer, so you
+/// > can jump around."*
+///
+/// Built from the segments' own addresses rather than by scanning the text for
+/// headings — see `girsa_app::contents`, which holds the argument. Answered per
+/// sefer and per open, not per keystroke: the filter box in the window filters
+/// the list it already has, the way Otzaria's does.
+#[tauri::command]
+fn sefer_contents(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+) -> Result<Vec<girsa_app::contents::Entry>, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let style = state.session.cite;
+    let (sefer, _) = state.reading(&slug)?;
+    Ok(girsa_app::contents::of(sefer, style))
 }
 
 /// Where a segment sits in its sefer, counted from the start.
@@ -3138,6 +3189,32 @@ fn cite_open(shared: tauri::State<'_, Shared>, reference: String) -> Result<post
 /// crash is not presence. The window uses this to decide whether to *offer*
 /// sending at all, which is the whole point — an affordance that would fail is
 /// never shown.
+/// # A8: the chip is telling the truth, and it is the sibling's truth
+///
+/// > *"it says {ksav} is registered but not answering. i have no clue if that
+/// > is right."*
+///
+/// It is right. `girsa_post::presence` answers `Stale` when there **is** a
+/// `ksav-endpoint.json` and nothing answers on the port it names, which is a
+/// real state and not a guess — the endpoint is asked, over loopback, before
+/// anything is said about it.
+///
+/// What produces it, nearly always, is the sibling leaving its registration
+/// behind when it closes. **Girsa had exactly this bug and fixed it**: see the
+/// note on `run()` below — `Builder::run` never returns on Windows, so
+/// `Desk::drop` was never reached by any exit a reader can perform, and Ksav saw
+/// every ordinary close of Girsa as *registered but not answering*. The fix is
+/// the `RunEvent::Exit` callback that takes the desk out. Ksav's side of the
+/// same defect is Ksav's to fix, and nothing here can reach it.
+///
+/// So this command stays exactly as honest as the crate is, and the **sentence**
+/// changed instead (`say.ts`, `ksavStale`): the reader is told what it means and
+/// what to do, rather than being told a state and left to work out whether it is
+/// a crisis. `girsa_post::Endpoint` carries a `pid` for exactly this — *"so a
+/// stale file can be told from a live one before anything is sent"* — and
+/// `presence()` does not read it; asking whether that pid is alive needs a
+/// process-table dependency on three platforms for one boolean, which is a
+/// worse trade than a sentence that names the cause.
 #[tauri::command]
 fn ksav_presence() -> girsa_post::Presence {
     girsa_post::presence(girsa_post::App::Ksav)
@@ -3271,6 +3348,26 @@ fn split(
     let new = state.session.workspace.split(pane, axis, slug, follow);
     state.save();
     Ok(new)
+}
+
+/// Move a pane into another tab (A12).
+///
+/// > *"make me be able to move from tab into another tab."*
+///
+/// `into` is a tab by index; `null` is a tab of its own. Answers whether
+/// anything moved, so the window can tell *there was nowhere to go* from *it
+/// went* — see `girsa_app::workspace::Workspace::move_pane`, which holds the
+/// two refusals.
+#[tauri::command]
+fn move_pane(
+    shared: tauri::State<'_, Shared>,
+    pane: PaneId,
+    into: Option<usize>,
+) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let moved = state.session.workspace.move_pane(pane, into);
+    state.save();
+    Ok(moved)
 }
 
 #[tauri::command]
@@ -4121,11 +4218,13 @@ pub fn run() {
             companions,
             mefarshim,
             choose_mefaresh,
+            pair_alongside,
             mefarshim_at,
             open_sefer,
             sefer_lines,
             sefer_index_of,
             open_tab,
+            sefer_contents,
             open_set,
             scan,
             scan_at,
@@ -4151,6 +4250,7 @@ pub fn run() {
             scan_copy,
             split,
             close_pane,
+            move_pane,
             close_tab,
             focus,
             set_follows,

@@ -65,6 +65,14 @@ pub const ACTIONS: &[Action] = &[
     // W28's walk, which had a library and a terminal tool and no way in from the
     // window at all.
     Action { id: "chain", he: "שלשלת המסירה", en: "The transmission chain", default: "Ctrl+Shift+M" },
+    // The sefer's own contents (A3), so a reader can jump around inside it
+    // without a mouse. `T` for תוכן, and Shift because Ctrl+T belongs to the
+    // browser everywhere a reader has ever pressed it.
+    Action { id: "contents", he: "תוכן הספר", en: "The sefer's contents", default: "Ctrl+Shift+T" },
+    // *Here is my place*, reachable without opening a drawer (A15). The marks
+    // became visible when the painter stopped skipping every span-less mark;
+    // this is the other half, which was still only true of the `yours` panel.
+    Action { id: "my-place", he: "המקום שסימנתי", en: "The place I marked", default: "Ctrl+Shift+B" },
     Action { id: "close-pane", he: "סגור את הטור", en: "Close this column", default: "Ctrl+W" },
     Action { id: "send", he: "שלח מקור לכתב", en: "Send a source to Ksav", default: "Ctrl+Shift+C" },
     Action { id: "copy", he: "העתק עם מקור", en: "Copy with its citation", default: "Ctrl+C" },

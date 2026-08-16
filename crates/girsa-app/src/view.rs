@@ -310,6 +310,17 @@ pub struct Line {
     /// The words, split by how they are set. Not a string of HTML: see
     /// [`display::runs`].
     pub runs: Vec<display::Run>,
+    /// How many of those runs are the **siman's own title** rather than the
+    /// first words of the se'if — see [`display::opens_a_siman`], which is
+    /// where the whole argument is.
+    ///
+    /// Zero on every line but the first of a siman, and left off the wire
+    /// there. The runs are all still in `runs`, in order, with nothing removed:
+    /// the window draws these ones as a heading above the rest instead of
+    /// inline, and every offset a mark or a link was written against still
+    /// lands where it was meant to.
+    #[serde(skip_serializing_if = "is_none", default)]
+    pub opens: usize,
     /// The corrections on this line (W20). Empty on all but a handful of lines
     /// in a library, so it costs nothing to send.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -323,6 +334,11 @@ pub struct Line {
 /// Whether a line is ordinary prose, and so does not need to say what it is.
 fn is_text(kind: &&'static str) -> bool {
     **kind == *"text"
+}
+
+/// Nothing to say, for a count that is zero on nearly every line there is.
+const fn is_none(n: &usize) -> bool {
+    *n == 0
 }
 
 /// One correction, as the page shows it.
@@ -541,9 +557,21 @@ impl Mefarshim {
         // `mefarshim::listed`. It arrives here rather than being looked up
         // because this type has no session to ask.
         language: crate::session::Language,
+        // …and the pairs the **reader** made, for the same reason: this type has
+        // no session. `Session::alongside_of`, which reads them both ways round
+        // because parallel is symmetric.
+        mine: &[String],
     ) -> Self {
         let commentators = marks.commentators();
-        let alongside = marks.alongside();
+        // The corpus's answer and the reader's, in one list. His comes second
+        // and `listed` deduplicates, so pairing a sefer the corpus already knew
+        // about changes nothing rather than drawing it twice.
+        let mut alongside = marks.alongside();
+        for slug in mine {
+            if !alongside.iter().any(|w| w == slug) {
+                alongside.push(slug.clone());
+            }
+        }
         let works: Vec<girsa_corpus::work::Work> = commentators
             .iter()
             .filter_map(|slug| shelf.work(slug).cloned())
@@ -1273,6 +1301,34 @@ pub struct Opening {
     pub suspects: usize,
 }
 
+/// The siman's title at the head of this segment, if it carries one.
+///
+/// Two halves, and both are needed. [`display::opens_a_siman`] reads the shape
+/// — an opening run closed by a line break, which is `<b>…</b><br>` and is not a
+/// dibur hamatchil. This adds the place: **the first se'if of a siman**, because
+/// that is the only address a siman's title can be at, and it turns a rule that
+/// is right 3,299 times out of 3,300 into one that cannot be wrong at all.
+///
+/// A heading segment already saying it is a heading does not need this, and is
+/// left alone.
+///
+/// Counted over **the runs the line is about to carry**, not over a second
+/// reading of the segment: taking the nikud out can empty a run, and a count
+/// taken from a different list of runs than the one the window receives is a
+/// heading that ends one run early on exactly the menukad seforim.
+fn opens_a_siman(segment: &girsa_corpus::import::Segment, runs: &[display::Run]) -> usize {
+    if segment.kind != girsa_corpus::import::SegmentKind::Text {
+        return 0;
+    }
+    // `["1", "1"]` in the Shulchan Arukh, `["yoreh_deah", "1", "1"]` in the
+    // Tur, which is one work holding four chalakim. Either way the se'if is the
+    // last level, and a siman's title sits on its first.
+    if segment.id.path().len() < 2 || segment.id.path().last().map(String::as_str) != Some("1") {
+        return 0;
+    }
+    display::opens_a_siman(runs)
+}
+
 impl Line {
     /// One line, drawn — corrections and all.
     ///
@@ -1320,6 +1376,7 @@ impl Line {
             }
             _ => Vec::new(),
         };
+        let runs = display::runs_citing(&shown, &[], &cites);
         Self {
             id: segment.id.to_string(),
             // **The margin says what a citation would say.** It used to be
@@ -1330,7 +1387,8 @@ impl Line {
             // formatter now: `crate::sending::printed_address`.
             address: crate::sending::printed_address(&sefer.work, &segment.id, style),
             kind: segment.kind.as_str(),
-            runs: display::runs_citing(&shown, &[], &cites),
+            opens: opens_a_siman(segment, &runs),
+            runs,
             fixed: corrected.map_or_else(Vec::new, |c| {
                 c.applied
                     .iter()

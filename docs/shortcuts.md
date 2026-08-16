@@ -21,6 +21,8 @@ there rebinds by pressing the keys you want. `↺` puts one back.
 | `Ctrl+L` | Links on this line | קישורים על השורה |
 | `Ctrl+Shift+L` | The adjacent language | הלשון הסמוכה |
 | `Ctrl+Shift+M` | The transmission chain | שלשלת המסירה |
+| `Ctrl+Shift+T` | The sefer's contents | תוכן הספר |
+| `Ctrl+Shift+B` | The place I marked | המקום שסימנתי |
 | `Ctrl+W` | Close this column | סגור את הטור |
 | `Ctrl+Shift+C` | Send a source to Ksav | שלח מקור לכתב |
 | `Ctrl+C` | Copy with its citation | העתק עם מקור |

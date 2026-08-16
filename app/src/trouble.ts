@@ -66,6 +66,10 @@ export type Doing =
   // failure is specific and not about links at all: the catalogue could not be
   // read, so nothing knows when any sefer was written.
   | "chain"
+  // Reading a sefer's table of contents (A3). Its own name because its
+  // commonest failure is one a reader can act on — the sefer is not open — and
+  // *reading the sefer* would name the page they are already looking at.
+  | "contents"
   | "general";
 
 export interface Trouble {
@@ -94,6 +98,7 @@ const DOING: Record<Doing, string> = {
   read_suspects: say("doingReadSuspects"),
   open_ref: say("doingOpenRef"),
   chain: say("doingChain"),
+  contents: say("doingContents"),
   general: say("doingSomething"),
 };
 

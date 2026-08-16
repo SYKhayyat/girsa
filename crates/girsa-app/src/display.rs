@@ -468,6 +468,92 @@ pub fn unpointed(runs: Vec<Run>, pointing: Pointing) -> Vec<Run> {
         .collect()
 }
 
+/// How many runs at the head of a line are the **siman's own title** rather
+/// than the first words of the se'if.
+///
+/// # The finding
+///
+/// > *"it also says מי הם הכשרים לשחוט. ובו י״ד סעיפים: הכל שוחטין לכתחלה
+/// > אפילו נשים… (שולחן ערוך, יורה דעה סימן א' סעיף א')."*
+///
+/// The title of siman א is not a segment. It is inside se'if 1, at the front of
+/// it, exactly as Sefaria's file has it:
+///
+/// ```text
+/// <b>מי הם הכשרים לשחוט. ובו י"ד סעיפים:</b><br>הכל שוחטין לכתחלה…
+/// ```
+///
+/// So a reader opening the sefer reads *who is fit to shlacht, and it has 14
+/// se'ifim: everyone may shlacht* as one sentence, and every table of contents
+/// that could be built off the corpus has no titles in it. **Not one Sefaria
+/// work in this corpus carries a single `heading` segment** — the whole
+/// `SegmentKind::Heading` machinery is fed by the Otzaria importer alone.
+///
+/// # Why it is read here and not repaired at import
+///
+/// The obvious fix is to cut the title into a segment of its own at import.
+/// That renumbers every ordinal after it, in every work, which renames
+/// **permanent ids** — and permanent ids are what the reader's notes, marks and
+/// bookmarks are stored under, and what 4.1 million link anchors point at.
+/// spec.md §3's redirects exist for a corpus that has been re-cut upstream, not
+/// as a licence to re-cut it ourselves for a display defect.
+///
+/// The text on disk is also right. That *is* what is printed on the page of a
+/// Shulchan Arukh: the siman's title, then the se'if. What was wrong is that
+/// the window drew it inline, so it read as a sentence.
+///
+/// # The rule, and how exact it is
+///
+/// **The first run is an opening, and a line break follows it before any
+/// ordinary words** — which is the shape `<b>…</b><br>` produces, and nothing
+/// else does. The caller adds the other half: only on the **first se'if of a
+/// siman**, which is where a siman's title can be.
+///
+/// Measured over `corpus/works`, counting lines whose first run is an opening
+/// followed by a break:
+///
+/// | sefer | first se'if of a siman | anywhere else |
+/// |---|---|---|
+/// | Shulchan Arukh, Yoreh De'ah | 395 of 402 | **1** of 3,299 |
+/// | Arukh HaShulchan | 853 of 1,557 | **1** of 23,708 |
+/// | Shach on Yoreh De'ah | 0 | 0 |
+/// | Rashi on Bereshis | 0 | 0 |
+/// | Mishnah Berurah | 0 | 0 |
+/// | Berakhos | 0 | 0 |
+///
+/// A dibur hamatchil is the other thing `<b>` means in this corpus, and it is
+/// not followed by a break — Rashi's opening words run straight into his
+/// comment. That is why the break is in the rule and not just the bold.
+///
+/// # Nothing is removed
+///
+/// It answers **how many runs**, and the caller keeps every one of them. A mark,
+/// a link and a correction are all anchored by character offsets into the line's
+/// text; dropping the title's characters would move every one of them by its
+/// length. The window wraps those runs instead of dropping them, so the title is
+/// its own line and every offset still lands on the letter it was written for.
+#[must_use]
+pub fn opens_a_siman(runs: &[Run]) -> usize {
+    if runs.first().map(|run| run.style) != Some(Style::Opening) {
+        return 0;
+    }
+    for (at, run) in runs.iter().enumerate() {
+        match run.style {
+            // The break closes it, and belongs to the title: it is the reason
+            // the title is a line of its own.
+            Style::Break => return at + 1,
+            // An aside inside the title — `שחיטה <i data-commentator=…></i>אינה
+            // צריכה כוונה` is siman ג's title with a mefaresh's anchor sitting
+            // in the middle of it, which is 6 of Yoreh De'ah's 402.
+            Style::Opening | Style::Quiet => {}
+            // Ordinary words before any break: this is a dibur hamatchil and
+            // the comment has begun.
+            Style::Plain => return 0,
+        }
+    }
+    0
+}
+
 fn style_of(name: &str) -> Option<Style> {
     match name {
         "b" | "strong" | "big" => Some(Style::Opening),
@@ -516,6 +602,44 @@ mod tests {
     // library code, where a panic would take the reader's window with it.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_siman_title_is_told_from_a_dibur_hamatchil_by_the_break_after_it() {
+        // The reader, reading Yoreh De'ah siman א se'if א:
+        //
+        // > *"it also says מי הם הכשרים לשחוט. ובו י״ד סעיפים: הכל שוחטין
+        // > לכתחלה אפילו נשים…"*
+        //
+        // Two things in one sentence. The first is the siman's title, and it is
+        // in the corpus exactly as Sefaria's file has it — inside se'if 1, at
+        // the front, in `<b>` with a `<br>` after it.
+        let siman = runs(r#"<b>מי הם הכשרים לשחוט. ובו י"ד סעיפים:</b><br>הכל שוחטין לכתחלה"#);
+        assert_eq!(
+            opens_a_siman(&siman),
+            2,
+            "the bold and the break that ends it"
+        );
+
+        // And the other thing `<b>` means in this corpus, which must not be
+        // mistaken for it: a dibur hamatchil. Rashi's opening words run
+        // straight into his comment with no break, which is the whole reason
+        // the break is in the rule rather than just the bold.
+        let rashi = runs("<b>מאימתי</b> משעה שהכהנים נכנסים");
+        assert_eq!(opens_a_siman(&rashi), 0);
+
+        // A title with a mefaresh's anchor inside it — Yoreh De'ah siman ג, and
+        // six others of its 402. The aside is part of the title.
+        let with_anchor =
+            runs(r#"<b>שחיטה <i data-commentator="Peleti"></i>אינה צריכה כוונה</b><br>ולכן"#);
+        assert!(
+            opens_a_siman(&with_anchor) >= 2,
+            "an aside inside the title does not end it: {with_anchor:?}"
+        );
+
+        // Ordinary prose, which is nearly every line in the library.
+        assert_eq!(opens_a_siman(&runs("הכל שוחטין לכתחלה")), 0);
+        assert_eq!(opens_a_siman(&[]), 0);
+    }
 
     #[test]
     fn an_era_is_said_in_words_and_an_unknown_code_is_shown_rather_than_dropped() {

@@ -111,10 +111,40 @@ export interface Line {
    * Absent means `text`, which nearly every line is. */
   kind?: "heading" | "text" | "note" | "item" | "row" | "quote" | "page";
   runs: Run[];
+  /** How many runs at the head of this line are the **siman's own title**
+   * rather than the first words of the se'if — see
+   * `girsa_app::display::opens_a_siman`, which holds the whole argument.
+   *
+   * Absent on every line but the first of a siman. The runs are all still in
+   * `runs`, with nothing removed: these ones are drawn as a heading above the
+   * rest, so every character offset a mark or a link was anchored against still
+   * lands where it was written for. */
+  opens?: number;
   /** The corrections on this line. Absent on nearly every line there is. */
   fixed?: FixMark[];
   /** What the line says on disk, where a correction changed it. */
   printed?: string;
+}
+
+/**
+ * One line of a sefer's table of contents (A3).
+ *
+ * Built in Rust from the segments' own addresses — see `girsa_app::contents`,
+ * which says why that is exact where scanning for headings is a guess.
+ */
+export interface TocEntry {
+  /** The segment to open — the first one under this heading. */
+  at: string;
+  /** The address as a citation prints it: `סימן א'`, `דף ב.`. */
+  address: string;
+  /** What the sefer calls it, where it says. Absent is *the sefer does not
+   * say*, never a guess. */
+  title?: string;
+  /** `0` for the outermost level, `1` for what stands inside it. */
+  depth: number;
+  /** Where this place begins, counted in segments from the start — what says
+   * which entry the reader is inside without asking anything. */
+  from: number;
 }
 
 /** A correction, and the line it landed on — redrawn, so the window replaces
@@ -1085,6 +1115,10 @@ export const api = {
    * tick-count at zero and clicking a line did nothing. */
   chooseMefaresh: (slug: string, work: string, on: boolean) =>
     call<Mefarshim>("choose_mefaresh", { slug, work, on }),
+  /** Say — or unsay — that two seforim keep the same order (A6). Answers with
+   * the whole list, the same as a tick. */
+  pairAlongside: (slug: string, work: string, on: boolean) =>
+    call<Mefarshim>("pair_alongside", { slug, work, on }),
   mefarshimAt: (slug: string, at: string) => call<Comments>("mefarshim_at", { slug, at }),
   /** A **window** of a sefer, with how long the sefer is. Not the whole of it:
    * see `girsa_app::view::Text`, and `examples/measure-opening.rs` for the 7.7 MB
@@ -1097,12 +1131,19 @@ export const api = {
    * which a link can honestly be. */
   seferIndexOf: (slug: string, at: string) =>
     call<number | null>("sefer_index_of", { slug, at }),
+  /** The sefer's table of contents, built from its addresses (A3). One call per
+   * sefer: the filter box filters the list it already has. */
+  seferContents: (slug: string) => call<TocEntry[]>("sefer_contents", { slug }),
   /** Open a sefer — **or go to it**, where it is already open. */
   openTab: (slug: string) => call<PaneId>("open_tab", { slug }),
   /** Every sefer that is open, most recently read first. Not the tab strip: a
    * tab holding a Gemara, its Rashi and its Tosafos is one entry in the strip
    * and three seforim that are open. */
   openSet: () => call<OpenSefer[]>("open_set"),
+  /** Move a pane into another tab (A12). `null` is a tab of its own; the answer
+   * is whether anything moved. */
+  movePane: (pane: PaneId, into: number | null) =>
+    call<boolean>("move_pane", { pane, into }),
   split: (pane: PaneId, axis: "vertical" | "horizontal", slug: string, follow: boolean) =>
     call<PaneId | null>("split", { pane, axis, slug, follow }),
   closePane: (pane: PaneId) => call<void>("close_pane", { pane }),
@@ -1706,6 +1747,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // tick that looks like it landed.
     case "mefarshim":
     case "choose_mefaresh":
+    case "pair_alongside":
       return json<Mefarshim>(`/dev/mefarshim-${flatten(slug!)}.json`).catch(() => ({
         works: [], alongside: [], folders: [], listed: [], marked: {},
         touched: 0, unbuilt: null,
@@ -1725,6 +1767,35 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       const whole = await loadFixtureText(flatten(slug!));
       const at = whole.lines.findIndex((l) => l.id === String(args?.at));
       return (at < 0 ? null : at) as T;
+    }
+    // Out here the contents are derived from the fixture the same way Rust
+    // derives them from the corpus: the address with its last level off. Not
+    // the same code, and it does not have to be — what this build is for is
+    // looking at the panel, and a preview that answered `[]` would show an
+    // empty one.
+    case "sefer_contents": {
+      const whole = await loadFixtureText(flatten(slug!));
+      const out: TocEntry[] = [];
+      let open: string[] = [];
+      whole.lines.forEach((line, index) => {
+        const path = (line.id.split("#")[0] ?? "").split("/").pop()?.split(":") ?? [];
+        if (path.length < 2) return;
+        const container = path.slice(0, -1);
+        let same = 0;
+        while (same < open.length && same < container.length && open[same] === container[same]) {
+          same += 1;
+        }
+        open = open.slice(0, same);
+        for (let level = same; level < container.length; level += 1) {
+          out.push({ at: line.id, address: line.address, depth: level, from: index });
+          open.push(container[level]!);
+        }
+        const last = out[out.length - 1];
+        if (last && line.opens && !last.title) {
+          last.title = line.runs.slice(0, line.opens).map((r) => r.text).join("").trim();
+        }
+      });
+      return out as T;
     }
     case "open_sefer": {
       const whole = pointed(await loadFixtureText(flatten(slug!)));

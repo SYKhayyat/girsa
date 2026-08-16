@@ -29,6 +29,7 @@ pub mod beside;
 // see.
 pub mod chaining;
 pub mod citing;
+pub mod contents;
 pub mod display;
 pub mod enough;
 pub mod fixing;

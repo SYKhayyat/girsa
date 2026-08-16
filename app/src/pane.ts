@@ -6,7 +6,7 @@
 
 import { api } from "./api.ts";
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
-import { toolStrip } from "./controls.ts";
+import { glyph, toolStrip } from "./controls.ts";
 import { everywhereSaid, marking } from "./mefarshim.ts";
 import { alsoCalled, sefer } from "./names.ts";
 import { fill, say } from "./say.ts";
@@ -64,6 +64,31 @@ export function grown(have: Drawn, where: "up" | "down", total: number): Drawn {
   }
   const from = Math.max(0, have.from - STEP);
   return { from, to: Math.min(have.to, from + KEEP) };
+}
+
+/**
+ * The next place of yours to go to, from where you are standing.
+ *
+ * > *"a way to leave a mark in a sefer — like here is my place, so it is
+ * > visible and jumpable (many should be available)."*
+ *
+ * The marks became visible when `paint()` stopped skipping every span-less
+ * mark. **Jumpable** was still only true of the *yours* panel — a reader with
+ * four places in Mishnah Berurah had to open a drawer, find the row, and click
+ * it, which is not what *here is my place* is for.
+ *
+ * The rule: **the next one after where you are, wrapping to the first.** Wrapping
+ * rather than stopping, because a reader pressing the key at the end of the
+ * sefer means *the next one* and there is one — at the top — and a key that
+ * silently does nothing is indistinguishable from a key that is not bound.
+ *
+ * `null` only when there are no places at all, which is the one case where
+ * nothing is the honest answer.
+ */
+export function nextPlace(places: number[], from: number): number | null {
+  if (places.length === 0) return null;
+  const order = [...places].sort((a, b) => a - b);
+  return order.find((at) => at > from) ?? order[0] ?? null;
 }
 
 /**
@@ -429,6 +454,25 @@ export class PaneView {
       }
       box.append(block);
     }
+    // **Shut it from where you finished reading it** (A14).
+    //
+    // > *"a way to collapse a mefarshim block from its bottom (a little
+    // > arrow)."*
+    //
+    // The gesture that opens a block is clicking its line, and clicking that
+    // line again closes it — which is right, and is only reachable from the
+    // top. A Kaf HaChayim on one se'if is longer than the window, so a reader
+    // who has read to the end of it has to scroll back past everything they
+    // just read to put the daf back. This is the same act, at the other end.
+    const shutIt = glyph("▴", say("saidShut"), () => {
+      box.remove();
+      // Back to the line it was about, or the reader is left looking at
+      // whatever was underneath — which on a long block is a different se'if
+      // and reads as the page having jumped.
+      row.scrollIntoView({ block: "nearest" });
+    });
+    shutIt.className = "said-shut";
+    box.append(shutIt);
     row.after(box);
   }
 
@@ -656,6 +700,37 @@ export class PaneView {
     return lines[low] ?? null;
   }
 
+  /**
+   * Go to the next place of yours in this sefer (A15).
+   *
+   * Indices, not ids, because *next* is a question about reading order and an
+   * id does not carry one. A mark on a line this pane has never loaded is
+   * looked up — `sefer_index_of`, the same call a search hit and a link use —
+   * rather than being skipped, which would make the key work on the places you
+   * have already scrolled past and not on the ones you have not.
+   */
+  async goToNextPlace(): Promise<boolean> {
+    // Index **and** id together, because the answer is chosen by index and
+    // reached by id. Keeping only the indices meant looking the id up again
+    // afterwards, and looking it up again is what produced a `find` over a
+    // promise — always truthy, so the first mark in the list was jumped to
+    // whichever one was next.
+    const places: { at: number; id: string }[] = [];
+    for (const mark of this.marks) {
+      const known = this.byId.get(mark.at) ?? (await api.seferIndexOf(this.slug, mark.at));
+      if (known !== null && known !== undefined) places.push({ at: known, id: mark.at });
+    }
+    const next = nextPlace(
+      places.map((place) => place.at),
+      this.lineIndex(),
+    );
+    if (next === null) return false;
+    const going = places.find((place) => place.at === next);
+    if (!going) return false;
+    await this.goToId(going.id, true);
+    return true;
+  }
+
   /** Move this pane because the pane it follows moved. */
   goTo(place: Place, relation: Relation): void {
     this.note.className = "pane-note";
@@ -780,6 +855,24 @@ export class PaneView {
   /** The line the reader is standing on — the whole-line case for a copy. */
   here(): string | null {
     return this.topLine()?.dataset.id ?? null;
+  }
+
+  /**
+   * …and **where** that line is, counted in segments from the start of the
+   * sefer (A3).
+   *
+   * The table of contents needs a number and not an id: *which siman am I in*
+   * is *which entry began at or before me*, and an id would make the panel
+   * search the sefer to find out. This pane already holds the answer —
+   * `byId` is filled as lines arrive and `text.from` is where its window
+   * begins — so handing it over costs a lookup rather than a scan.
+   *
+   * `0` when there is no line yet, which is the top of the sefer and is where
+   * a pane with nothing drawn in it is.
+   */
+  lineIndex(): number {
+    const here = this.here();
+    return (here ? this.byId.get(here) : undefined) ?? 0;
   }
 
   /**
@@ -924,6 +1017,22 @@ function lineElement(line: Line): HTMLElement {
       box.textContent = cell;
       words.append(box);
     }
+  } else if (line.opens) {
+    // The siman's own title, which the corpus keeps **inside** the first se'if
+    // — see `girsa_app::display::opens_a_siman`. Drawn as its own block above
+    // the words instead of running into them, which is what a printed Shulchan
+    // Arukh does and what this window did not: siman א of Yoreh De'ah read
+    // *"who is fit to shlacht, and it has 14 se'ifim: everyone may shlacht…"*
+    // as one sentence.
+    //
+    // **Wrapped, not moved.** Every run is still here, in order, so the
+    // characters a mark, a link or a correction were anchored against are
+    // exactly where they were — `spanIn` counts `.line-text` from its start,
+    // and lifting the title out of it would shift every offset in the se'if by
+    // the length of the title.
+    const title = el("span", "line-opens");
+    title.append(...line.runs.slice(0, line.opens).map(runElement));
+    words.append(title, ...line.runs.slice(line.opens).map(runElement));
   } else {
     words.append(...line.runs.map(runElement));
   }
