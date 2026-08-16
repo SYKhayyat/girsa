@@ -284,22 +284,96 @@ jobs:
   # convincing executable with no application in it.
   #
   # This is the other half: the build that *is* real, run by a machine, with the
-  # installer attached to the tag. Windows because that is the platform this ships
-  # to first — the shell registers a `girsa://` URL scheme in HKCU, WebView2 is
-  # the engine every measurement was taken on, and the audit's binary is
-  # `girsa-shell.exe`.
+  # installers attached to the tag.
   #
-  # Not on every push: a release build of tantivy and candle on a Windows runner
-  # is tens of minutes, and the thing that has to be true on every push is that
-  # the code compiles — which the two jobs above already say. What has to be true
+  # Not on every push: a release build of tantivy and candle is tens of minutes
+  # per platform, and the thing that has to be true on every push is that the
+  # code compiles — which the three jobs above already say. What has to be true
   # on every *tag* is that a reader can download something, and that is this.
+  #
+  # ## Why this is a matrix and not a flag
+  #
+  # It ran only on `windows-latest`, and the reason given was that Windows is
+  # where this ships first. That was true and it hid a second fact: **a Tauri
+  # application cannot be built for one platform from another, at all.** The
+  # window is the host's own webview — WebView2 here, WebKitGTK there,
+  # WebKit.framework on macOS — and every installer is cut by a tool that runs
+  # only on its own platform: WiX and NSIS on Windows, `hdiutil` for a `.dmg`,
+  # `linuxdeploy` for an AppImage. So there was no cross-compile anybody had
+  # declined to set up. There was simply nowhere a macOS or Linux build could
+  # have come from, and none had ever existed.
+  #
+  # The `shell` and `macos` jobs above establish that the code *compiles* on
+  # Linux and macOS. This establishes that it *bundles*, which is a different
+  # claim on a different day: `cargo check` never runs a bundler, and a bundler
+  # is where the icons, the licence file, the deep-link scheme registration and
+  # the resource list are read for the first time.
+  #
+  # ## What it still does not establish
+  #
+  # That the window *looks right* on either. `docs/not-yet.md` says nikud
+  # rendering on Safari's WebKit is unknown, and a green job here does not
+  # narrow that by a millimetre — it produces a `.dmg` nobody has opened. Same
+  # caution, one platform over, for WebKitGTK. Producing an artifact and having
+  # looked at one are the two claims this repository exists to keep apart.
   bundle:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
     permissions:
       contents: write
+    strategy:
+      # A `.dmg` that fails to build is not a reason to throw away a Windows
+      # installer that succeeded — and on a tag, that installer is the half of
+      # this that has readers waiting for it.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            slug: windows-x86_64
+            ext: .exe
+            bundles: |-
+              target/release/bundle/nsis/*.exe
+              target/release/bundle/msi/*.msi
+          # `macos-latest` is Apple Silicon, so this is an arm64 disk image and
+          # it is named as one rather than as "macos". An Intel build is one
+          # more row on an Intel runner; it is left out rather than guessed at,
+          # because nobody here has the hardware to open the result on, and an
+          # installer nobody has opened is the kind of thing this repository
+          # writes down instead of shipping quietly.
+          #
+          # Unsigned, and therefore stopped by Gatekeeper on any Mac but the one
+          # that built it. Signing needs a paid developer identity and
+          # notarisation needs a round trip to Apple; neither exists here, and
+          # saying so is better than a download that silently refuses to open.
+          - os: macos-latest
+            slug: macos-arm64
+            ext: ""
+            bundles: |-
+              target/release/bundle/dmg/*.dmg
+          # Linked against the runner's glibc, which is a floor on where these
+          # will run: a distribution older than the runner image refuses them
+          # with a loader error and no useful message. Worth stating, because
+          # "the Linux build" reads as one artifact for all of Linux and is
+          # really this one.
+          - os: ubuntu-latest
+            slug: linux-x86_64
+            ext: ""
+            bundles: |-
+              target/release/bundle/appimage/*.AppImage
+              target/release/bundle/deb/*.deb
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # The same list the `shell` job installs, for the same reason, including
+      # why `libappindicator3-dev` is absent from it. Read that note before
+      # adding anything here.
+      - name: Tauri's system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev librsvg2-dev patchelf \
+            libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev
 
       - uses: actions/setup-node@v4
         with:
@@ -332,16 +406,17 @@ jobs:
           cargo build --release -p girsa-corpus --bin girsa-fetch --bin girsa-import
           cargo build --release -p girsa-search --bin girsa-index
           mkdir -p tools-out
-          cp target/release/girsa-fetch.exe target/release/girsa-import.exe target/release/girsa-index.exe tools-out/
+          cp target/release/girsa-fetch${{ matrix.ext }} \
+             target/release/girsa-import${{ matrix.ext }} \
+             target/release/girsa-index${{ matrix.ext }} tools-out/
           cp README.md tools-out/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: girsa-windows
+          name: girsa-${{ matrix.slug }}
           path: |
-            target/release/bundle/nsis/*.exe
-            target/release/bundle/msi/*.msi
-            target/release/girsa-shell.exe
+            ${{ matrix.bundles }}
+            target/release/girsa-shell${{ matrix.ext }}
             tools-out/*
           if-no-files-found: error
 
@@ -350,12 +425,29 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
+          # Three jobs now reach this line at once and two of them lose the
+          # race to create the release. `|| true` is the loser's path — what
+          # has to hold is that the release exists before anybody uploads, and
+          # after this line it does, whichever job made it.
           gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME" || true
-          7z a girsa-tools-windows.zip ./tools-out/*
-          gh release upload "$GITHUB_REF_NAME" \
-            target/release/bundle/nsis/*.exe \
-            target/release/bundle/msi/*.msi \
-            girsa-tools-windows.zip \
-            --clobber
+
+          # `7z` is on the Windows runner and not the others; `tar` is on the
+          # others and would produce something a Windows reader has to go
+          # looking for a program to open. One archive per platform, named for
+          # it, so three uploads never collide on one filename.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            tools="girsa-tools-${{ matrix.slug }}.zip"
+            7z a "$tools" ./tools-out/*
+          else
+            tools="girsa-tools-${{ matrix.slug }}.tar.gz"
+            tar -czf "$tools" -C tools-out .
+          fi
+
+          # Quoted on the way in so the newlines between the patterns survive,
+          # unquoted on the way out so the shell splits them back into words
+          # and expands each glob. The matrix holds one list, and it is the
+          # same list the artifact upload above reads.
+          bundles="${{ matrix.bundles }}"
+          gh release upload "$GITHUB_REF_NAME" $bundles "$tools" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
