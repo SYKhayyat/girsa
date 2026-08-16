@@ -170,7 +170,7 @@ fn a_word_file_comes_out_and_girsa_can_read_it_back() {
     assert_eq!(headings, ["משנה ברורה", "סימן א"], "{words:?}");
     // And the provenance line is in the file rather than only in the count.
     assert!(
-        words.iter().any(|line| line.contains("הוחלו תיקון אחד")),
+        words.iter().any(|line| line.contains("הוחל תיקון אחד")),
         "{words:?}"
     );
 }

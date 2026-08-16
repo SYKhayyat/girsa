@@ -188,26 +188,70 @@ fn header(sefer: &Open, done: &Exported) -> Vec<String> {
 /// Counted in words rather than digits for the small numbers, because this is a
 /// line a person reads at the top of a sefer and `1 תיקונים` is not Hebrew.
 fn what_was_done(done: &Exported) -> String {
-    let mut said = format!("הוחלו {}", how_many(done.corrections, "תיקון", "תיקונים"));
+    let mut said = format!(
+        "{} {}",
+        if done.corrections == 1 {
+            "הוחל"
+        } else {
+            "הוחלו"
+        },
+        how_many(done.corrections, "תיקון", "תיקונים", Gender::Masculine),
+    );
     if done.noted > 0 {
         said.push_str(&format!(
-            " · {} שנרשמו ולא הוחלו",
-            how_many(done.noted, "גרסה", "גרסאות")
+            " · {} {}",
+            how_many(done.noted, "גרסה", "גרסאות", Gender::Feminine),
+            if done.noted == 1 {
+                "שנרשמה ולא הוחלה"
+            } else {
+                "שנרשמו ולא הוחלו"
+            },
         ));
     }
     if done.stale > 0 {
         said.push_str(&format!(
-            " · {} שלא חל, משום שהטקסט שתוקן אינו שם עוד",
-            how_many(done.stale, "תיקון", "תיקונים")
+            " · {} {}, משום שהטקסט שתוקן אינו שם עוד",
+            how_many(done.stale, "תיקון", "תיקונים", Gender::Masculine),
+            if done.stale == 1 { "שלא חל" } else { "שלא חלו" },
         ));
     }
     said
 }
 
-fn how_many(n: usize, one: &str, many: &str) -> String {
+/// Which set of number words a noun takes.
+///
+/// Hebrew numerals are gendered and this file counts two different nouns with
+/// one function, so `גרסה` — feminine — was being handed `אחד` and `שני`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Gender {
+    Masculine,
+    Feminine,
+}
+
+/// A count, in Hebrew, agreeing with what it counts.
+///
+/// The comment above [`what_was_done`] already argued the small half of this:
+/// `1 תיקונים` is not Hebrew, so one and two are words. Two more agreements were
+/// wrong underneath it and both are the same mistake — a form written once and
+/// applied to everything.
+///
+/// **The numeral agrees with the noun's gender.** `תיקון` is masculine and takes
+/// `אחד` and `שני`; `גרסה` is feminine and takes `אחת` and `שתי`. One function
+/// handing the masculine forms to both wrote `גרסה אחד` and `שני גרסאות`.
+///
+/// **And the verb agrees with the count**, which is [`what_was_done`]'s half:
+/// `הוחלו תיקון אחד` is *were applied one correction*, and it was the first line
+/// of every exported sefer that carried exactly one correction. Its own test
+/// asserted it, which is how it survived — a guard written to match the code
+/// rather than the language.
+fn how_many(n: usize, one: &str, many: &str, gender: Gender) -> String {
+    let (a, two) = match gender {
+        Gender::Masculine => ("אחד", "שני"),
+        Gender::Feminine => ("אחת", "שתי"),
+    };
     match n {
-        1 => format!("{one} אחד"),
-        2 => format!("שני {many}"),
+        1 => format!("{one} {a}"),
+        2 => format!("{two} {many}"),
         _ => format!("{n} {many}"),
     }
 }
@@ -354,11 +398,19 @@ mod tests {
             stale,
             noted,
         };
-        assert_eq!(what_was_done(&done(1, 0, 0)), "הוחלו תיקון אחד");
+        // The verb agrees with the count. This line read `הוחלו תיקון אחד` —
+        // *were applied one correction* — at the top of every exported sefer
+        // carrying exactly one, and this assertion is where it was kept alive.
+        assert_eq!(what_was_done(&done(1, 0, 0)), "הוחל תיקון אחד");
         assert_eq!(what_was_done(&done(2, 0, 0)), "הוחלו שני תיקונים");
         assert_eq!(what_was_done(&done(7, 0, 0)), "הוחלו 7 תיקונים");
-        assert!(what_was_done(&done(1, 1, 0)).contains("תיקון אחד שלא חל"));
+        assert!(what_was_done(&done(1, 1, 0)).contains("תיקון אחד שלא חל,"));
+        assert!(what_was_done(&done(1, 2, 0)).contains("שני תיקונים שלא חלו"));
         assert!(what_was_done(&done(1, 0, 3)).contains("3 גרסאות שנרשמו"));
+        // And the numeral agrees with the noun's gender: `גרסה` is feminine and
+        // was being handed `אחד` and `שני`.
+        assert!(what_was_done(&done(1, 0, 1)).contains("גרסה אחת שנרשמה ולא הוחלה"));
+        assert!(what_was_done(&done(1, 0, 2)).contains("שתי גרסאות שנרשמו ולא הוחלו"));
     }
 
     #[test]
