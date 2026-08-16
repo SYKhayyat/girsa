@@ -55,7 +55,7 @@
 //! derive macros, shell completion or coloured help. When they do, this is the
 //! one place that would have to change.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 /// What a binary exits with when it was **invoked** wrongly, as opposed to
@@ -231,25 +231,90 @@ impl Argv {
 /// **Defaulted, everywhere.** Four binaries defaulted these to the literal
 /// strings and three required them, and defaulting is the one of the two that
 /// breaks no invocation anybody is already typing.
+///
+/// # The default that only worked when nothing was typed
+///
+/// The first version of this read word 0 and word 1 and defaulted each when it
+/// was absent, and every usage line was written to match: `girsa-lane [corpus]
+/// [personal] <command>`, brackets and all. A word is absent only when the line
+/// ends before it, so the roots defaulted for `girsa-shelf` with no arguments
+/// at all, and for nothing else. Every other invocation the usage lines
+/// advertise bound the **command** as the corpus root:
+///
+/// ```text
+/// $ girsa-lane state
+/// no shelf at state — has the import run?
+/// $ girsa-read girsa:bavli/berakhot/2a:1
+/// no shelf at girsa:bavli/berakhot/2a:1 — has the import run?
+/// ```
+///
+/// Six binaries, and the error names the mis-bound word every time without
+/// anybody reading it as one. The message is even honest — there really is no
+/// shelf at `state` — which is why it reads as *the import has not run* rather
+/// than *your first word went somewhere you did not mean*.
+///
+/// So the prefix has to be **recognised** rather than counted, and the only
+/// thing that separates `corpus` from `state` is that one of them is a
+/// directory and the other is not. Hence [`Roots::of`], which is the single
+/// place in this crate that touches the filesystem, and [`Roots::read`], which
+/// is the same rule with the question passed in so it can be tested without
+/// one.
+///
+/// It is a heuristic, and the shape of its failure is worth stating plainly: a
+/// tool run beside a directory that happens to share a name with one of its own
+/// commands binds that command as a root and lands back on exactly the error
+/// above. That is a coincidence rather than a certainty, which is the whole of
+/// the improvement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Roots {
     pub corpus: PathBuf,
     pub personal: PathBuf,
+    /// Where the words after the prefix start — 0, 1 or 2, depending on how
+    /// much of it was typed.
+    ///
+    /// This was `const AFTER: usize = 2`, which is the number the prefix
+    /// occupies when it is written out in full and the wrong number every other
+    /// time. A constant cannot be told that a word was not there.
+    pub after: usize,
 }
 
 impl Roots {
-    /// The first two words, or `corpus` and `personal` beside the working
-    /// directory.
+    /// The leading words that name directories, or `corpus` and `personal`
+    /// beside the working directory.
     #[must_use]
     pub fn of(argv: &Argv) -> Self {
-        Self {
-            corpus: PathBuf::from(argv.word(0).unwrap_or("corpus")),
-            personal: PathBuf::from(argv.word(1).unwrap_or("personal")),
-        }
+        Self::read(argv, |word| Path::new(word).is_dir())
     }
 
-    /// Where the words after the prefix start.
-    pub const AFTER: usize = 2;
+    /// The same rule, with *is this a directory* handed in.
+    ///
+    /// Split out so the rule can be tested against a set of names rather than
+    /// against a real filesystem, and so the one impure line in this crate sits
+    /// by itself in [`Roots::of`].
+    ///
+    /// One root may be given without the other: `girsa-daf corpus` is in
+    /// `docs/tools.md` and has to keep working, so the prefix is read greedily
+    /// up to two words and stops at the first one that is not a directory.
+    #[must_use]
+    pub fn read(argv: &Argv, is_dir: impl Fn(&str) -> bool) -> Self {
+        let mut after = 0;
+        while after < 2 && argv.word(after).is_some_and(&is_dir) {
+            after += 1;
+        }
+        Self {
+            corpus: PathBuf::from(if after >= 1 {
+                argv.word(0).unwrap_or("corpus")
+            } else {
+                "corpus"
+            }),
+            personal: PathBuf::from(if after >= 2 {
+                argv.word(1).unwrap_or("personal")
+            } else {
+                "personal"
+            }),
+            after,
+        }
+    }
 }
 
 /// Print the usage and refuse, with the code that means *you typed it wrong*.
@@ -374,20 +439,72 @@ mod tests {
         );
     }
 
+    /// The rule with a made-up filesystem: two directories, and everything
+    /// else is a word.
+    fn typed(line: &str) -> (Roots, Argv) {
+        let argv = argv(line, &[], &[]).expect("reads");
+        let roots = Roots::read(&argv, |word| {
+            matches!(word, "/a" | "/b" | "corpus" | "personal")
+        });
+        (roots, argv)
+    }
+
     #[test]
     fn the_prefix_defaults_the_way_four_of_the_seven_did() {
         // Defaulted rather than required, because that is the one of the two
         // that breaks nothing anybody is already typing.
-        let bare = argv("", &[], &[]).expect("reads");
-        let roots = Roots::of(&bare);
+        let (roots, _) = typed("");
         assert_eq!(roots.corpus, PathBuf::from("corpus"));
         assert_eq!(roots.personal, PathBuf::from("personal"));
+        assert_eq!(roots.after, 0);
 
-        let given = argv("/a /b show", &[], &[]).expect("reads");
-        let roots = Roots::of(&given);
+        let (roots, given) = typed("/a /b show");
         assert_eq!(roots.corpus, PathBuf::from("/a"));
         assert_eq!(roots.personal, PathBuf::from("/b"));
-        assert_eq!(given.from(Roots::AFTER), ["show"]);
+        assert_eq!(given.from(roots.after), ["show"]);
+    }
+
+    #[test]
+    fn a_command_is_not_a_root_however_much_it_looks_like_a_word() {
+        // The bug this rule exists for. `girsa-lane state` bound `state` as the
+        // corpus root and reported `no shelf at state — has the import run?`,
+        // and so did every other command-taking binary for every command it
+        // takes. Six of them.
+        for line in [
+            "state",
+            "ask מאימתי",
+            "list",
+            "forward girsa:bavli/berakhot/2a:1",
+        ] {
+            let (roots, argv) = typed(line);
+            assert_eq!(roots.after, 0, "{line}");
+            assert_eq!(roots.corpus, PathBuf::from("corpus"), "{line}");
+            assert_eq!(roots.personal, PathBuf::from("personal"), "{line}");
+            assert_eq!(argv.from(roots.after).len(), argv.words().len(), "{line}");
+        }
+    }
+
+    #[test]
+    fn one_root_may_be_given_without_the_other() {
+        // `girsa-daf corpus` and `girsa-chain corpus` are in `docs/tools.md`,
+        // so the prefix has to be readable one word at a time. The word after
+        // it is not a directory, which is what stops the count.
+        let (roots, argv) = typed("/a show");
+        assert_eq!(roots.corpus, PathBuf::from("/a"));
+        assert_eq!(roots.personal, PathBuf::from("personal"), "still defaulted");
+        assert_eq!(roots.after, 1);
+        assert_eq!(argv.from(roots.after), ["show"]);
+    }
+
+    #[test]
+    fn the_prefix_stops_at_two_even_when_the_third_word_is_a_directory() {
+        // A greedy rule that did not stop would eat an argument that happens to
+        // name a directory — `girsa-notes corpus personal write corpus` is
+        // contrived, but the count is not allowed to depend on what comes after
+        // the prefix at all.
+        let (roots, argv) = typed("/a /b corpus");
+        assert_eq!(roots.after, 2);
+        assert_eq!(argv.from(roots.after), ["corpus"]);
     }
 
     #[test]

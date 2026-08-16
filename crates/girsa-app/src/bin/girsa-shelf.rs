@@ -49,8 +49,12 @@ fn main() -> std::process::ExitCode {
             return argv::refuse(USAGE);
         }
     };
-    let Roots { corpus, personal } = Roots::of(&args);
-    let rest = args.from(Roots::AFTER);
+    let Roots {
+        corpus,
+        personal,
+        after,
+    } = Roots::of(&args);
+    let rest = args.from(after);
 
     let mut shelf = match Shelf::open(&corpus, &personal) {
         Ok(shelf) => shelf,

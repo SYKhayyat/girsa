@@ -78,8 +78,9 @@ fn main() -> std::process::ExitCode {
     let Roots {
         corpus: root,
         personal,
+        after: prefix,
     } = Roots::of(&args);
-    let after = args.from(Roots::AFTER);
+    let after = args.from(prefix);
     let Some((command, arguments)) = after.split_first() else {
         return argv::refuse(USAGE);
     };

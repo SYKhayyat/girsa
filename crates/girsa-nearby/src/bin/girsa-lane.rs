@@ -50,8 +50,9 @@ fn main() -> std::process::ExitCode {
     let Roots {
         corpus: root,
         personal,
+        after,
     } = Roots::of(&args);
-    let rest = args.from(Roots::AFTER);
+    let rest = args.from(after);
 
     let shelf = match Shelf::open(&root, &personal) {
         Ok(shelf) => shelf,
