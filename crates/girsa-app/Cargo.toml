@@ -37,6 +37,11 @@ girsa-source.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# One request, made only when a reader presses a button — see
+# `girsa_app::newer`, and spec.md §14 for why that qualification is the whole
+# design. The same client `girsa-corpus` fetches the export with, and the same
+# `rustls` build, so this adds a feature and not a second TLS stack.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [features]
 # `girsa_app::pretend`: a sefer in memory to test a quote against. Off by

@@ -37,6 +37,7 @@ there rebinds by pressing the keys you want. `↺` puts one back.
 | `Alt+N` | Nikud | ניקוד |
 | `Ctrl+=` | Larger | הגדל |
 | `Ctrl+-` | Smaller | הקטן |
+| `Ctrl+Shift+D` | Named arrangements | שולחנות |
 | `Ctrl+P` | Print this section | הדפס את הסימן |
 | `Ctrl+,` | Settings | הגדרות |
 

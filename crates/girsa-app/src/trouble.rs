@@ -93,6 +93,11 @@ pub enum Code {
     /// The reader has not chosen the thing the command needs — nothing
     /// highlighted, no folder picked. Not a failure: a step not taken.
     NothingChosen,
+    /// The one request this application makes, and it did not land. The
+    /// network is not there, or GitHub is not, or the reader is on a machine
+    /// that has never been on a network — which is a perfectly ordinary way to
+    /// run this and is why the word is *offline* and not *failed*.
+    Offline,
     /// A widening from the ladder was applied, and here is how to go back. Not
     /// a refusal at all — a **note** — and it is in this table because the
     /// window says it, and everything the window says has to come from one
@@ -117,6 +122,7 @@ girsa_corpus::spelled!(Code {
     ClipboardRefused => "clipboard-refused",
     WillNotSerialize => "will-not-serialize",
     NothingChosen => "nothing-chosen",
+    Offline => "offline",
     RungApplied => "rung-applied",
 });
 

@@ -89,6 +89,26 @@ pub struct Session {
     /// one beside it.
     #[serde(default)]
     pub pointing: Pointing,
+    /// Arrangements the reader named, so they can come back to one.
+    ///
+    /// > *Three sugyos at once.*
+    ///
+    /// A workspace here is richer than the tab list Otzaria saves under a name:
+    /// it is the tabs, the panes inside each of them, which pane follows which,
+    /// and how wide each is. All of it is one `Workspace`, so keeping one under
+    /// a name is keeping the struct — there is nothing to flatten and nothing
+    /// to lose.
+    #[serde(default)]
+    pub desks: BTreeMap<String, crate::workspace::Workspace>,
+    /// Which of them the reader is sitting at, when they are sitting at one.
+    ///
+    /// What makes switching non-destructive: opening another desk writes the
+    /// arrangement back to this one first, so *go and look at something else*
+    /// is not *lose what I had set up*. `None` is a reader who has not named
+    /// anything, and their arrangement is the session's own — which is saved on
+    /// every change and always has been.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk: Option<String>,
     /// Whether the shemos are written as the corpus has them, or with a letter
     /// changed so a printout may be discarded (`crate::shemos`).
     ///
@@ -474,6 +494,8 @@ impl Default for Session {
             alongside: BTreeMap::new(),
             pointing: Pointing::default(),
             shemos: crate::shemos::Shemos::default(),
+            desks: BTreeMap::new(),
+            desk: None,
             was_nikud: None,
             text_size: hundred(),
             cite: full(),

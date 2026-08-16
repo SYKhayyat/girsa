@@ -29,6 +29,7 @@ import { ChainView } from "./chainview.ts";
 import { TocView } from "./tocview.ts";
 import { FindHere } from "./findhere.ts";
 import { printSection } from "./printview.ts";
+import { DesksView } from "./desksview.ts";
 import { LinksView } from "./linksview.ts";
 import { PaneView } from "./pane.ts";
 import { ScanView } from "./scanview.ts";
@@ -78,6 +79,7 @@ const settingsview = new SettingsView();
 // per pane: the reader is looking for a phrase, not opening a tool, and two
 // bars with two counts in two panes is a question nobody asked.
 const findhere = new FindHere();
+const desksview = new DesksView();
 const views = new Map<PaneId, PaneView>();
 /** Panes holding a scan (W25). A second map rather than a union: a scan has no
  * lines, so none of the questions asked of a reading pane — what is
@@ -150,6 +152,14 @@ async function main(): Promise<void> {
     views.clear();
     scans.clear();
     void reload();
+  });
+  // Sitting down at another arrangement replaces every tab and every pane, so
+  // nothing the window is holding about the old one is worth keeping — the
+  // same clearing as a settings change, and for a stronger reason.
+  desksview.onChanged(async () => {
+    views.clear();
+    scans.clear();
+    await reload();
   });
   // The one setting that cannot be redrawn into place — see
   // `SettingsView.onInterfaceChanged`. Whatever is in the writing drawer goes to
@@ -1836,6 +1846,15 @@ const PANELS: readonly Held[] = Object.freeze([
     // promise — Escape was the only way to close them that did not work.
     { panel: lanepanel, keyboard: "reading", escape: "anywhere" },
     { panel: settingsview, keyboard: "inside", escape: "anywhere" },
+    // Its box owns what is typed into it — a desk called `סוגיית הכל שוחטין`
+    // is typed, and a reader naming one would otherwise turn the page under
+    // the panel with every letter.
+    {
+      panel: desksview,
+      keyboard: "typing",
+      escape: "anywhere",
+      toggle: "desks",
+    },
   ]);
 
 function shortcut(event: KeyboardEvent): void {
@@ -1861,6 +1880,10 @@ function shortcut(event: KeyboardEvent): void {
     case "search":
       event.preventDefault();
       search();
+      return;
+    case "desks":
+      event.preventDefault();
+      void desksview.toggle();
       return;
     case "print": {
       event.preventDefault();

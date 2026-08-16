@@ -58,6 +58,12 @@ export type Doing =
   // commonest failure is not the export's: the sefer is open and the line the
   // reader is standing on is not in it any more, after a correction re-cut it.
   | "print"
+  // Reading or changing the named arrangements (`desksview.ts`).
+  | "desks"
+  // Asking whether there is a newer Girsa (`girsa_app::newer`). Its own name
+  // because its commonest failure is the one every other action here cannot
+  // have: the machine is offline, which is an ordinary way to run this.
+  | "update"
   | "mark"
   | "keep_query"
   | "copy_scan"
@@ -97,6 +103,8 @@ const DOING: Record<Doing, string> = {
   fix: say("doingFix"),
   export: say("doingExport"),
   print: say("doingPrint"),
+  desks: say("doingDesks"),
+  update: say("doingUpdate"),
   mark: say("doingMark"),
   keep_query: say("doingKeepQuery"),
   copy_scan: say("doingCopySource"),
@@ -163,6 +171,7 @@ const CODED: Record<string, (doing: string) => string> = {
   // wrong* to somebody who pressed Ctrl+C with nothing highlighted is a lie
   // about their own machine.
   "nothing-chosen": () => say("codeNothingChosen"),
+  offline: () => say("codeOffline"),
   // Not a refusal either — the ladder announcing what it applied. It is in this
   // table because the window says it, and everything the window says comes from
   // one place. It used to be a Hebrew sentence written out in `lib.rs`, which

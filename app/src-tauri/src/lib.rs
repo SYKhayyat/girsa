@@ -3466,6 +3466,140 @@ fn set_pointing(shared: tauri::State<'_, Shared>, pointing: String) -> Result<()
     Ok(())
 }
 
+/// Whether there is a newer Girsa — **asked, never volunteered**.
+///
+/// spec.md §14: offline is the product. A window that has not been asked makes
+/// no request, keeps no timer and needs no setting to turn off, which is a
+/// stronger promise than a setting that defaults to off. Otzaria checks on
+/// start; this checks when a reader presses the button, which is the same
+/// information one gesture later.
+///
+/// It does not install anything, and `girsa_app::newer` says why at length:
+/// installing means verifying a signature, and an updater that ran an unsigned
+/// binary off the internet would be the worst thing in the application by a
+/// distance.
+#[tauri::command]
+fn check_for_update() -> Result<girsa_app::newer::Newer, String> {
+    girsa_app::newer::check(env!("CARGO_PKG_VERSION"))
+        .map_err(|e| girsa_app::trouble::refuse(girsa_app::trouble::Code::Offline, e.to_string()))
+}
+
+/// Open the releases page on the machine's own browser.
+///
+/// No argument, on purpose: [`girsa_app::newer::open_releases`] opens one
+/// address, compiled in. A command that opened whatever URL it was handed is a
+/// command that opens whatever a bug hands it.
+#[tauri::command]
+fn open_releases() -> Result<(), String> {
+    girsa_app::newer::open_releases()
+        .map_err(|e| girsa_app::trouble::refuse(girsa_app::trouble::Code::Offline, e.to_string()))
+}
+
+/// A named arrangement, as the panel lists it.
+#[derive(Serialize)]
+struct DeskRow {
+    name: String,
+    /// How many tabs it holds, and how many distinct seforim across them.
+    tabs: usize,
+    seforim: usize,
+    /// Whether this is the one the reader is sitting at.
+    here: bool,
+}
+
+/// Every arrangement the reader has named.
+fn desk_rows(state: &State) -> Vec<DeskRow> {
+    state
+        .session
+        .desks
+        .iter()
+        .map(|(name, workspace)| {
+            let mut slugs: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+            for tab in &workspace.tabs {
+                for pane in &tab.panes {
+                    slugs.insert(pane.slug.as_str());
+                }
+            }
+            DeskRow {
+                name: name.clone(),
+                tabs: workspace.tabs.len(),
+                seforim: slugs.len(),
+                here: state.session.desk.as_deref() == Some(name.as_str()),
+            }
+        })
+        .collect()
+}
+
+/// The arrangements the reader has named (`Session::desks`).
+#[tauri::command]
+fn desks(shared: tauri::State<'_, Shared>) -> Result<Vec<DeskRow>, String> {
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    Ok(desk_rows(&state))
+}
+
+/// Keep how the seforim are laid out right now, under a name.
+///
+/// Overwrites a desk of the same name rather than minting `sugya (2)`: a reader
+/// typing a name they already used means *this one, as it is now*, and a second
+/// desk with a number after it is a thing nobody asked for and has to clean up.
+#[tauri::command]
+fn desk_keep(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskRow>, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(girsa_app::trouble::refuse(
+            girsa_app::trouble::Code::NoSuch,
+            "a desk needs a name".to_string(),
+        ));
+    }
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let now = state.session.workspace.clone();
+    state.session.desks.insert(name.clone(), now);
+    state.session.desk = Some(name);
+    state.save();
+    Ok(desk_rows(&state))
+}
+
+/// Sit down at one.
+///
+/// **The arrangement on screen is written back first.** A switcher that threw
+/// away what you had set up in order to show you something else would be a
+/// switcher nobody uses twice — and the reader who is not sitting at a named
+/// desk loses nothing either, because the session's own arrangement is saved on
+/// every change and is what they come back to.
+#[tauri::command]
+fn desk_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskRow>, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let Some(going_to) = state.session.desks.get(&name).cloned() else {
+        return Err(girsa_app::trouble::refuse(
+            girsa_app::trouble::Code::NoSuch,
+            format!("there is no desk called {name}"),
+        ));
+    };
+    if let Some(here) = state.session.desk.clone() {
+        let now = state.session.workspace.clone();
+        state.session.desks.insert(here, now);
+    }
+    state.session.workspace = going_to;
+    state.session.desk = Some(name);
+    state.save();
+    Ok(desk_rows(&state))
+}
+
+/// Forget one.
+///
+/// The arrangement on screen is untouched, even when it is the desk being
+/// forgotten: *stop keeping this* is not *close everything*, and a reader who
+/// meant the second one can close the panes.
+#[tauri::command]
+fn desk_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskRow>, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state.session.desks.remove(&name);
+    if state.session.desk.as_deref() == Some(name.as_str()) {
+        state.session.desk = None;
+    }
+    state.save();
+    Ok(desk_rows(&state))
+}
+
 /// The words at the other end of a set of links, for one sefer.
 ///
 /// # The finding this closes
@@ -4505,6 +4639,12 @@ pub fn run() {
             sefer_find,
             sefer_sheet,
             link_words,
+            desks,
+            desk_keep,
+            desk_open,
+            desk_forget,
+            check_for_update,
+            open_releases,
             set_language,
             set_interface,
             settings,

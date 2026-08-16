@@ -692,6 +692,27 @@ export type Pointing = "full" | "nikud" | "plain";
  */
 export type Shemos = "as-written" | "changed";
 
+/** What an update check found — `girsa_app::newer::Newer`. */
+export interface Newer {
+  /** What is running. */
+  running: string;
+  /** What the latest release is called, when one could be read. */
+  latest: string | null;
+  /** Where to get it. */
+  at: string | null;
+  newer: boolean;
+}
+
+/** A named arrangement — `girsa_app::session::Session::desks`. */
+export interface DeskRow {
+  name: string;
+  /** How many tabs it holds, and how many distinct seforim across them. */
+  tabs: number;
+  seforim: number;
+  /** Whether this is the one the reader is sitting at. */
+  here: boolean;
+}
+
 /** One end of a link, quoted — `link_words`. */
 export interface Words {
   at: string;
@@ -1261,6 +1282,16 @@ export const api = {
   /** What one sefer says at each of these places — the links panel, once a
    * group is opened. One sefer read, not sixty-one. */
   linkWords: (work: string, ats: string[]) => call<Words[]>("link_words", { work, ats }),
+  /** **Asked, never volunteered.** The one request this application makes, and
+   * it is made when a reader presses a button — see `girsa_app::newer`. */
+  checkForUpdate: () => call<Newer>("check_for_update"),
+  /** The releases page, on the machine's own browser. No argument: one address,
+   * compiled into Rust — see `girsa_app::newer::open_releases`. */
+  openReleases: () => call<void>("open_releases"),
+  desks: () => call<DeskRow[]>("desks"),
+  deskKeep: (name: string) => call<DeskRow[]>("desk_keep", { name }),
+  deskOpen: (name: string) => call<DeskRow[]>("desk_open", { name }),
+  deskForget: (name: string) => call<DeskRow[]>("desk_forget", { name }),
   setLanguage: (language: Language) => call<void>("set_language", { language }),
   /** What the **window** says, as against what the seforim are called. */
   setInterface: (language: Language) => call<void>("set_interface", { language }),
@@ -2141,6 +2172,16 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // keep the sefer and the place, which is what they had before.
     case "link_words":
       return [] as T;
+    // An arrangement is a thing the session holds and there is no session out
+    // here — the browser build's workspace is a fixture. An empty list is the
+    // honest answer: no desks have been named, because none can be.
+    case "desks":
+      return [] as T;
+    // The browser build is a page served off a disk; there is no version of it
+    // to be behind.
+    case "check_for_update":
+    case "open_releases":
+      throw new Error("checking for a newer Girsa is the shell's");
     // The scope is the shell's: it lives beside the index, and there is no
     // index out here. An empty one is the honest answer — the whole shelf —
     // rather than a panel that looks editable and forgets every click.

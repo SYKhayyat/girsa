@@ -97,6 +97,9 @@ pub const ACTIONS: &[Action] = &[
     Action { id: "nikud", he: "ניקוד", en: "Nikud", default: "Alt+N" },
     Action { id: "bigger", he: "הגדל", en: "Larger", default: "Ctrl+=" },
     Action { id: "smaller", he: "הקטן", en: "Smaller", default: "Ctrl+-" },
+    // Arrangements you named. A tab strip answers *what is open*; it cannot
+    // answer *what was I set up for last Tuesday*.
+    Action { id: "desks", he: "שולחנות", en: "Named arrangements", default: "Ctrl+Shift+D" },
     // Paper. `girsa-export` writes a `.docx` and this puts the siman in your
     // hand, which are two different mornings.
     Action { id: "print", he: "הדפס את הסימן", en: "Print this section", default: "Ctrl+P" },

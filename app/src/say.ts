@@ -79,6 +79,39 @@ const WORDS = {
   /** The daf yomi button, and what it says when the sefer is not here. */
   /** The find bar — Ctrl+F, in the sefer in front of you. */
   /** Printing (Ctrl+P): the section in front of you, on paper. */
+  /** Checking for a newer Girsa — a button, never a background check. */
+  update: ["בדוק אם יש גרסה חדשה", "Check for a newer version"] as Both,
+  updateWhy: [
+    "בודק פעם אחת מול GitHub. שום דבר לא נבדק מאליו.",
+    "Asks GitHub once. Nothing is checked on its own.",
+  ] as Both,
+  updateChecking: ["בודק…", "checking…"] as Both,
+  updateNewest: ["זו הגרסה האחרונה ({running})", "This is the newest ({running})"] as Both,
+  updateFound: ["יש גרסה חדשה: {latest} (כאן {running})", "There is a newer one: {latest} (this is {running})"] as Both,
+  updateGet: ["פתח את דף ההורדה", "Open the download page"] as Both,
+  updateAbout: [
+    "אין עדכון אוטומטי, ובכוונה: התקנה של קובץ מהרשת דורשת אימות חתימה, וזה חלק מתהליך ההוצאה ולא מהיישום.",
+    "Nothing installs itself, deliberately: running a file off the internet needs a signature verified, and that belongs to the release process rather than to the application.",
+  ] as Both,
+  /** Named arrangements (Ctrl+Shift+D). */
+  desks: ["שולחנות", "Arrangements"] as Both,
+  desksWhy: ["סדרי ספרים ששמרת בשם", "Layouts you saved under a name"] as Both,
+  desksNone: ["עדיין לא שמרת שולחן", "You have not named an arrangement yet"] as Both,
+  desksCount: ["{desks} שולחנות", "{desks} arrangements"] as Both,
+  desksName: ["שם השולחן", "The arrangement's name"] as Both,
+  desksNamePlaceholder: ["למשל: סוגיית הכל שוחטין", "e.g. hilchos shechitah"] as Both,
+  desksKeep: ["שמור כפי שהוא", "Keep it as it is"] as Both,
+  desksKeepWhy: [
+    "שמור את סדר הספרים שעל המסך תחת השם הזה",
+    "Save the layout on screen under this name",
+  ] as Both,
+  desksOpenWhy: ["שב לשולחן הזה", "Sit down at this one"] as Both,
+  desksForget: ["הסר", "forget"] as Both,
+  desksHolds: ["{tabs} לשוניות · {seforim} ספרים", "{tabs} tabs · {seforim} seforim"] as Both,
+  desksAbout: [
+    "מעבר לשולחן אחר שומר קודם את הסדר שעל המסך, כך שאין מה להפסיד.",
+    "Moving to another arrangement saves the one on screen first, so there is nothing to lose.",
+  ] as Both,
   /** The links panel, opened out: the whole line rather than its first words. */
   linksReadHere: ["הראה את הלשון", "Show what it says"] as Both,
   linksReadHereWhy: [
@@ -518,6 +551,7 @@ const WORDS = {
     "לא נבחר כלום — סמן קודם את מה שאתה מתכוון אליו",
     "nothing is chosen — highlight what you mean first",
   ] as Both,
+  codeOffline: ["אין חיבור לרשת", "there is no network here"] as Both,
   codeRungApplied: [
     "החל — לחזרה, חפש שוב בלי ההצעה",
     "applied — search again without the offer to go back",
@@ -1127,6 +1161,8 @@ const WORDS = {
   doingFix: ["התיקון", "the correction"] as Both,
   doingExport: ["הכתיבה לקובץ", "writing to the file"] as Both,
   doingPrint: ["בהדפסה", "printing"] as Both,
+  doingDesks: ["בשולחנות", "reading the arrangements"] as Both,
+  doingUpdate: ["בבדיקת גרסה", "checking for a newer version"] as Both,
   doingMark: ["הסימון", "the mark"] as Both,
   doingKeepQuery: ["שמירת החיפוש", "keeping the query"] as Both,
   doingCopySource: ["העתקת המקור", "copying the source"] as Both,

@@ -38,7 +38,8 @@ import { about, announces, button, choice as pick, field, glyph, region } from "
 import { OneKey } from "./capture.ts";
 import { said } from "./keys.ts";
 import type { Language } from "./names.ts";
-import { interfaceLanguage, say } from "./say.ts";
+import { fill, interfaceLanguage, say } from "./say.ts";
+import { sayTrouble } from "./trouble.ts";
 import { THEME_ROUND, themeSaid } from "./toolbar.ts";
 
 /**
@@ -260,6 +261,12 @@ export class SettingsView {
       ),
     );
 
+    // Whether there is a newer Girsa. At the foot of the panel and not on the
+    // toolbar, because it is a thing a person does twice a year — and it is a
+    // **button**, because a window that checks on its own is a window making a
+    // request nobody asked for. spec.md §14.
+    this.body.append(this.update());
+
     // How the shemos are written. Beside the pointing rather than off in a
     // corner of its own: they are the same kind of setting — *how the letters
     // on the page are drawn* — and a reader looking for one finds the other.
@@ -387,6 +394,43 @@ export class SettingsView {
 // on this panel is a yes-or-no: the pointing is three settings, the two
 // languages are two of two, and the rest are numbers, fonts and keys. A helper
 // kept for a caller that does not exist is the next reader's ten minutes.
+
+  /** A button, a sentence, and nothing that happens on its own. */
+  private update(): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "settings-row";
+    const answer = document.createElement("span");
+    answer.className = "settings-said";
+    answer.setAttribute("aria-live", "polite");
+    const ask = button(say("update"), say("updateWhy"), () => {
+      answer.replaceChildren(document.createTextNode(say("updateChecking")));
+      void (async () => {
+        try {
+          const found = await api.checkForUpdate();
+          answer.replaceChildren(
+            document.createTextNode(
+              found.newer
+                ? fill("updateFound", { latest: found.latest ?? "", running: found.running })
+                : fill("updateNewest", { running: found.running }),
+            ),
+          );
+          // The way to it, offered only when there is something to go to.
+          if (found.newer) {
+            answer.append(
+              button(say("updateGet"), say("updateGet"), () => void api.openReleases()),
+            );
+          }
+        } catch (e) {
+          answer.replaceChildren();
+          sayTrouble(answer, e, "update");
+        }
+      })();
+    });
+    row.append(ask, answer);
+    const box = document.createElement("div");
+    box.append(row, about(say("updateAbout")));
+    return box;
+  }
 
   private choice(
     label: string,

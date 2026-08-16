@@ -929,6 +929,105 @@ body {
   width: var(--links-wide);
 }
 
+/* Named arrangements. Same drawer as the links panel — one column on the
+ * leading edge, opening to a width — because it is the same kind of thing: a
+ * list you go into, act on, and leave. */
+.desks {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 0;
+  overflow: hidden;
+  z-index: 30;
+  background: var(--page-raised);
+  border-inline-end: 1px solid var(--rule);
+  transition: width 0.12s ease-out;
+}
+
+.desks.is-open {
+  width: var(--links-wide);
+}
+
+.desks-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.desks-title {
+  font-family: var(--hebrew);
+  font-size: 17px;
+  flex: 1;
+}
+
+.desks-note {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
+.desks-keep {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+}
+
+.desks-box {
+  flex: 1;
+  min-width: 0;
+}
+
+.desks-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.desk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 60%, transparent);
+}
+
+.desk.is-here {
+  /* Where you are sitting. A rail rather than a fill: the list is short and a
+   * filled row in a column of four reads as *selected in a menu*, which is not
+   * what this is — you are already at it. */
+  box-shadow: inset 3px 0 0 var(--mark);
+}
+
+.desk-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: start;
+  color: inherit;
+}
+
+.desk-name {
+  font-family: var(--hebrew);
+  font-size: 15px;
+}
+
+.desk-what {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+
 .links-head {
   display: flex;
   align-items: center;
