@@ -680,20 +680,20 @@ the same door, and neither needs a format.
   own. **This one is for you to rule on.** What is built instead is the half
   that needs no ruling and that §11 names first: it is all plain files, and
   `girsa-notes export` puts them where you can copy them.
-- **The results header still counts a note the index already has.** See the
-  section below: your writing goes into the index the moment you write it, but
-  the sentence that says *what the index has not seen* answers by comparing file
-  times against when the index was **built**, and absorbing one work does not
-  make the index newly built. So a note written and indexed a second ago is
-  still counted as outstanding until the next full rebuild.
+- **The corrections clause still counts a correction an absorb has applied.**
+  Narrower than it was — see *The header stopped counting a note the index
+  already had*, below — and this is the half that remains. Absorbing a work
+  re-applies the corrections on it, so the index does hold them; the sentence
+  that counts them compares against the build stamp and still says otherwise.
 
-  Deliberately left over-reporting rather than fixed by re-stamping the index.
-  The stamp is what the *corrections* gap is measured against too, and a note's
-  absorb re-stamping would clear a pending correction's sentence while the index
-  still held the old words. Over-reporting says *there may be something you
-  cannot see*; under-reporting says *you are seeing everything* and is the
-  failure `spec.md` §9.7 exists to prevent. Closing it properly means recording
-  per work what has been absorbed, which is a store this does not have yet.
+  Left over-reporting rather than closed by widening the record, and the reason
+  is a dependency boundary rather than an oversight. `girsa-note` counts
+  correction records through `girsa_personal::since`, which knows a log format
+  and nothing about segment ids; telling which correction belongs to which work
+  means parsing another crate's records by hand, which is the string surgery
+  that counter was rewritten to stop doing. Over-reporting says *there may be
+  something you cannot see*; under-reporting says *you are seeing everything*
+  and is the failure `spec.md` §9.7 exists to prevent.
 
 ### Your writing is in the index before you have finished reading it back
 
@@ -756,6 +756,52 @@ four things that would go quietly wrong: the note is findable and the corpus has
 not moved, taking it twice leaves one copy rather than two (W8 shipped that
 failure once already), an edit replaces rather than accumulates, and a deleted
 note stops being found.
+
+### The header stopped counting a note the index already had
+
+Closing the gap above opened a smaller one directly underneath it, and it was
+the more embarrassing of the two: the reader saved a note, searched for it, got
+it back — and read in the same results header that it was **not searchable
+yet**. Both halves came off the same machinery. `girsa_note::since` answers
+*what has the index not seen* by comparing a note's file against the index's
+build stamp, and `absorb` is precisely the operation that puts a work in without
+building anything.
+
+The one-line repair is to touch the stamp, and it is wrong for a reason worth
+keeping written down. The stamp answers for the whole index, and the corrections
+clause is measured against the same stamp — so re-stamping on one absorbed note
+would clear a pending correction's warning while the index still held the old
+words. That trades an over-report the reader can check for an under-report they
+cannot, which is the direction `spec.md` §9.7 exists to forbid.
+
+So the record is **per work**, in `girsa-absorbed.jsonl` beside the index, and
+it is consulted only for the clause it is about:
+
+| | before | after |
+|---|---|---|
+| a note absorbed a second ago | *1 note … is not searchable yet* | nothing said |
+| a second note, not absorbed | counted | counted |
+| a correction the index still holds by the typo | counted | counted |
+
+What is recorded is **the note file's modification time as it stood when the
+index took it in**, not the moment of absorbing. Those differ by well under a
+second in the normal case, and under a second is the case: writing a note and
+absorbing it happen in one keystroke's worth of time, so a whole-second clock
+would round the two together and the comparison would be a coin toss. Recording
+what was seen rather than when it was seen makes the question exact — *has the
+file changed since?* — with no clock arithmetic in it.
+
+Three things it deliberately is not. It is **not** consulted alone: the answer
+is the later of the stamp and the record, because a full build takes in every
+note and a stale record must not out-vote it. It is **beside the index**, not in
+your layer, because it is a fact about that index and a reader who deletes one
+and rebuilds should not inherit the old one's claims. And a `forget` takes the
+record with it, so a note thrown away and a note written again under the same
+name do not share a claim nothing checked.
+
+Six tests in `girsa-note/src/since.rs` hold it, and the one that matters most is
+`absorbing_one_note_does_not_answer_for_another_or_for_a_correction` — the
+assertion that this is narrower than re-stamping, which is the whole argument.
 
 ---
 

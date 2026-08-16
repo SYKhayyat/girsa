@@ -43,11 +43,33 @@
 //! `girsa-search` already writes a stamp beside the index. Its modification time is
 //! when the index was built. Nothing new is recorded anywhere; a note is newer than
 //! the index or it is not.
+//!
+//! # …except that a work can reach the index without the index being rebuilt
+//!
+//! That paragraph was true when it was written and stopped being true when
+//! `girsa_search::building::absorb` arrived: your writing now goes into the
+//! index **as you write it**, one work at a time, in milliseconds. Absorbing one
+//! work does not make the index newly built, so the comparison above went on
+//! reporting a note the index already held — the reader saved a note, watched
+//! it come back from a search, and was told in the same breath that it was not
+//! searchable yet.
+//!
+//! The obvious repair is to touch the stamp, and it is wrong. The stamp answers
+//! for the whole index: re-stamping on one absorbed note would also silence the
+//! *corrections* clause, and the corrections the index holds would still be the
+//! old words. That trades an over-report anybody can check against an
+//! under-report nobody can.
+//!
+//! So the record is **per work**, in [`ABSORBED_NAME`] beside the index, and it
+//! is only ever consulted for the clause it is about. The stamp still answers
+//! for everything else, including corrections — see [`Unindexed::clauses`].
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use girsa_plain::said::{counted, plural, Clauses};
+use serde::{Deserialize, Serialize};
 
 /// The stamp `girsa-search` writes beside an index.
 ///
@@ -55,6 +77,113 @@ use girsa_plain::said::{counted, plural, Clauses};
 /// it. A shared constant would mean this crate depending on the index, which is
 /// the dependency this module exists to avoid.
 pub const CACHE_STAMP_NAME: &str = "girsa-cache.json";
+
+/// The log beside an index naming the works it has taken in since it was built.
+///
+/// Beside the index rather than in the personal layer, because it is a fact
+/// about *this index* and not about your writing: two indexes over one layer
+/// have absorbed different things, and a reader who deletes an index and
+/// rebuilds it should not inherit the old one's claims. It goes away with the
+/// directory it describes.
+pub const ABSORBED_NAME: &str = "girsa-absorbed.jsonl";
+
+/// One work, in the state an index has already taken in.
+///
+/// The time recorded is **the source file's modification time as it stood when
+/// the index took the work in**, not the moment of absorbing. Those differ by
+/// less than a second in the normal case, and less than a second is exactly the
+/// case: writing a note and absorbing it happen in one keystroke's worth of
+/// time, so a whole-second clock would round the two together and the
+/// comparison would be a coin toss. Recording what was seen rather than when it
+/// was seen makes the question exact — *has the file changed since?* — with no
+/// clock arithmetic in it at all.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Absorbed {
+    /// The work slug, as the shelf names it: `note/my-chaburah`.
+    pub work: String,
+    /// Seconds of the source file's mtime, since the epoch.
+    pub secs: u64,
+    /// …and its nanoseconds, which is the whole point of recording it this way.
+    pub nanos: u32,
+}
+
+impl Absorbed {
+    fn seen(&self) -> SystemTime {
+        UNIX_EPOCH + Duration::new(self.secs, self.nanos)
+    }
+}
+
+/// Where a note's text lives, given its work slug.
+///
+/// `note/<stem>` on the shelf is `personal/notes/<stem>.md` on disk, and that
+/// mapping is spelled here because both halves of this file need it: the writer
+/// stats the file to record what it took in, and the counter stats the same file
+/// to ask whether it has changed. Two spellings of one path is how the two would
+/// come to disagree about which note they are talking about.
+#[must_use]
+pub fn note_file(personal: &Path, work: &str) -> Option<PathBuf> {
+    let stem = work.strip_prefix("note/")?;
+    Some(personal.join("notes").join(format!("{stem}.md")))
+}
+
+/// Record that an index has taken one work in.
+///
+/// Called by `girsa_search::building::absorb` once tantivy has committed and
+/// reloaded — after, never before, because a record written for a commit that
+/// then failed would silence a clause about a note that really is missing.
+///
+/// A work with no file to stat writes nothing and says so by returning `false`.
+/// That is the honest answer for everything that is not a note: a corpus sefer
+/// absorbed by hand has no `.md` behind it, and inventing a time for it would
+/// be recording that something had been checked which nothing had.
+pub fn absorbed(index: &Path, personal: &Path, work: &str) -> bool {
+    let Some(file) = note_file(personal, work) else {
+        return false;
+    };
+    let Ok(seen) = std::fs::metadata(&file).and_then(|m| m.modified()) else {
+        return false;
+    };
+    let Ok(since) = seen.duration_since(UNIX_EPOCH) else {
+        return false;
+    };
+    girsa_personal::Log::at(index.join(ABSORBED_NAME))
+        .append(&Absorbed {
+            work: work.to_string(),
+            secs: since.as_secs(),
+            nanos: since.subsec_nanos(),
+        })
+        .is_ok()
+}
+
+/// Take a work's absorb record back, because the index has dropped the work.
+///
+/// The other half of [`absorbed`], and it exists so the log cannot outlive what
+/// it describes: a note thrown away and a note written again under the same
+/// name are the same slug, and a record left standing from the first would be a
+/// claim about the second that nothing had checked.
+pub fn forgotten(index: &Path, work: &str) -> bool {
+    girsa_personal::Log::at(index.join(ABSORBED_NAME))
+        .took(&[work])
+        .is_ok()
+}
+
+/// What each work looked like when this index last took it in.
+///
+/// Replayed through [`girsa_personal::Log`], so the last line for a work wins
+/// and a line that will not parse costs that work and not the file. A missing
+/// or unreadable log is *nothing has been absorbed*, which is the state a fresh
+/// index is in and is the safe direction: it falls back to the stamp, which is
+/// the over-reporting behaviour this replaced rather than an under-reporting
+/// one.
+#[must_use]
+pub fn absorbed_by(index: &Path) -> BTreeMap<String, SystemTime> {
+    girsa_personal::Log::at(index.join(ABSORBED_NAME))
+        .live::<Absorbed>("an absorbed work", |a| a.work.clone())
+        .records
+        .into_iter()
+        .map(|a| (a.work.clone(), a.seen()))
+        .collect()
+}
 
 /// Whether some part of your own layer has reached the index.
 ///
@@ -119,8 +248,16 @@ impl Unindexed {
     #[must_use]
     pub fn of(index: Option<&Path>, personal: &Path) -> Self {
         let built = index.and_then(built_at);
+        // Read for the notes clause and for nothing else. The corrections and
+        // the scan clauses still answer to the stamp, deliberately: absorbing a
+        // work does re-apply the corrections on it, but this crate cannot tell
+        // which correction belongs to which work without parsing another
+        // crate's records by hand — which is the surgery `fixes_since` below
+        // was written to stop doing. Over-reporting there is the state that was
+        // already documented; it is narrowed in `docs/not-yet.md`, not hidden.
+        let taken = index.map(absorbed_by).unwrap_or_default();
         Self {
-            notes: notes_since(personal, built),
+            notes: notes_since(personal, built, &taken),
             fixes: fixes_since(personal, built),
             scans: scan_fixes_since(personal, built),
         }
@@ -272,8 +409,18 @@ pub fn find_index(corpus: &Path) -> Result<PathBuf, String> {
     ))
 }
 
-/// Notes whose file is newer than the index.
-fn notes_since(personal: &Path, built: Option<SystemTime>) -> Written {
+/// Notes whose file is newer than the last thing that took them in.
+///
+/// Which is the index's build stamp for a note nothing has absorbed, and the
+/// absorb record for one something has. The **later** of the two, not the
+/// absorb record alone: a rebuild takes in every note, so an index built after
+/// a stale record has seen more than the record claims, and reading the record
+/// on its own would report a note as missing that the rebuild had just indexed.
+fn notes_since(
+    personal: &Path,
+    built: Option<SystemTime>,
+    taken: &BTreeMap<String, SystemTime>,
+) -> Written {
     let Some(built) = built else {
         return Written::NoIndex;
     };
@@ -286,7 +433,12 @@ fn notes_since(personal: &Path, built: Option<SystemTime>) -> Written {
         if path.extension().is_none_or(|e| e != "md") {
             continue;
         }
-        if newer_than(&path, built) {
+        let seen = path
+            .file_stem()
+            .and_then(|stem| taken.get(&format!("note/{}", stem.to_string_lossy())))
+            .copied()
+            .map_or(built, |absorbed| built.max(absorbed));
+        if newer_than(&path, seen) {
             n += 1;
         }
     }
@@ -443,6 +595,129 @@ mod tests {
         let at = Unindexed::of(Some(&dir.join("index")), &dir.join("personal"));
         assert_eq!(at.notes, Written::Since(0));
         assert_eq!(at.said(), None);
+    }
+
+    #[test]
+    fn a_note_the_index_has_absorbed_is_not_reported_as_missing() {
+        // The whole finding: the reader saves a note, it goes into the index in
+        // milliseconds, a search finds it — and the header used to say in the
+        // same breath that it was not searchable yet, because absorbing does
+        // not build.
+        let dir = scratch("absorbed");
+        let (index, personal) = (dir.join("index"), dir.join("personal"));
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        note(&personal, "חבורה");
+        assert_eq!(
+            Unindexed::of(Some(&index), &personal).notes,
+            Written::Since(1),
+            "before anything absorbs it, it is missing and says so"
+        );
+
+        assert!(absorbed(&index, &personal, "note/חבורה"));
+        assert_eq!(
+            Unindexed::of(Some(&index), &personal).notes,
+            Written::Since(0),
+            "and once the index has taken it in, it is not"
+        );
+    }
+
+    #[test]
+    fn absorbing_one_note_does_not_answer_for_another_or_for_a_correction() {
+        // The reason this is a per-work record and not a touch of the build
+        // stamp. Re-stamping would have silenced all three of these.
+        let dir = scratch("absorbed-narrow");
+        let (index, personal) = (dir.join("index"), dir.join("personal"));
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        note(&personal, "ראשונה");
+        note(&personal, "שנייה");
+        std::fs::write(
+            personal.join("corrections.jsonl"),
+            "{\"id\":\"a\"}\n{\"id\":\"b\"}\n",
+        )
+        .unwrap();
+
+        assert!(absorbed(&index, &personal, "note/ראשונה"));
+        let at = Unindexed::of(Some(&index), &personal);
+        assert_eq!(at.notes, Written::Since(1), "the other note is still missing");
+        assert_eq!(
+            at.fixes,
+            Written::Since(2),
+            "and the corrections the index still holds by the typo are still said"
+        );
+    }
+
+    #[test]
+    fn a_note_edited_after_it_was_absorbed_is_missing_again() {
+        // The record is what the file looked like, so the question stays
+        // *has it changed since* rather than *was it ever taken in*.
+        let dir = scratch("absorbed-edited");
+        let (index, personal) = (dir.join("index"), dir.join("personal"));
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        note(&personal, "נערכה");
+        assert!(absorbed(&index, &personal, "note/נערכה"));
+        assert_eq!(Unindexed::of(Some(&index), &personal).notes, Written::Since(0));
+
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(personal.join("notes").join("נערכה.md"), "# עוד\n").unwrap();
+        assert_eq!(
+            Unindexed::of(Some(&index), &personal).notes,
+            Written::Since(1),
+            "an edit after the absorb is a gap again"
+        );
+    }
+
+    #[test]
+    fn a_rebuild_answers_for_a_note_whose_record_is_older_than_it() {
+        // `built.max(absorbed)`, not `absorbed` alone. A full build takes in
+        // every note, so a stale record must not out-vote it — reading the
+        // record on its own would report a note the rebuild had just indexed.
+        let dir = scratch("absorbed-rebuilt");
+        let (index, personal) = (dir.join("index"), dir.join("personal"));
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        note(&personal, "ישנה");
+        assert!(absorbed(&index, &personal, "note/ישנה"));
+
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(personal.join("notes").join("ישנה.md"), "# שינוי\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(index.join(CACHE_STAMP_NAME), "{}").unwrap();
+        assert_eq!(
+            Unindexed::of(Some(&index), &personal).notes,
+            Written::Since(0),
+            "the rebuild is newer than the edit, whatever the record says"
+        );
+    }
+
+    #[test]
+    fn forgetting_a_note_takes_its_record_with_it() {
+        // Otherwise a note written again under the same name inherits a claim
+        // about a different note.
+        let dir = scratch("absorbed-forgotten");
+        let (index, personal) = (dir.join("index"), dir.join("personal"));
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        note(&personal, "נזרקה");
+        assert!(absorbed(&index, &personal, "note/נזרקה"));
+        assert!(absorbed_by(&index).contains_key("note/נזרקה"));
+
+        assert!(forgotten(&index, "note/נזרקה"));
+        assert!(!absorbed_by(&index).contains_key("note/נזרקה"));
+        assert_eq!(
+            Unindexed::of(Some(&index), &personal).notes,
+            Written::Since(1),
+            "and the note is missing from the index again, which it is"
+        );
+    }
+
+    #[test]
+    fn a_work_with_no_note_behind_it_records_nothing() {
+        // A corpus sefer absorbed by hand has no `.md` to stat. Inventing a
+        // time for it would record that something had been checked which
+        // nothing had.
+        let dir = scratch("absorbed-not-a-note");
+        let (index, personal) = (dir.join("index"), dir.join("personal"));
+        assert!(!absorbed(&index, &personal, "bavli/berakhot"));
+        assert!(!absorbed(&index, &personal, "note/never-written"));
+        assert!(absorbed_by(&index).is_empty());
     }
 
     #[test]

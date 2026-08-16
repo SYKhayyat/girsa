@@ -238,6 +238,22 @@ pub enum AbsorbError {
 /// uncommitted or unreloaded index would answer *no* to a question it already
 /// knows the answer to.
 ///
+/// # What it writes down, and why that is not the index's stamp
+///
+/// A successful absorb appends the work to `girsa_note::since::ABSORBED_NAME`
+/// beside the index. Without it the reader is told, in the same breath as the
+/// hit they just got back, that what they wrote is not searchable yet — because
+/// *what the index has not seen* was answered by comparing the note's file
+/// against when the index was **built**, and this function does not build it.
+///
+/// Touching the build stamp instead would be one line and would be wrong: the
+/// stamp answers for corrections too, and the corrections in the index would
+/// still be the old words. The record is per work for that reason.
+///
+/// It is written **after** the commit and the reload, so a failure anywhere
+/// above leaves the reader with an over-report, which is the state they can see
+/// through, rather than a silence they cannot.
+///
 /// # Errors
 ///
 /// If the work will not read back off disk, or tantivy will not take it.
@@ -252,6 +268,11 @@ pub fn absorb(
     let done = one_work(&mut writer, root, &imported, corrections)?;
     writer.commit()?;
     index.reload()?;
+    // An index with no directory is one built in memory for a test; there is
+    // nowhere to write the record and nothing that would read it.
+    if let Some(dir) = index.path() {
+        girsa_note::since::absorbed(dir, root, slug);
+    }
     Ok(done)
 }
 
@@ -272,5 +293,11 @@ pub fn forget(index: &SearchIndex, slug: &str) -> Result<(), IndexError> {
     writer.forget(slug);
     writer.commit()?;
     index.reload()?;
+    // And the absorb record with it — see `absorb`. A record left behind would
+    // outlive the thing it describes, and a note written again under the same
+    // name would inherit a claim about a different note.
+    if let Some(dir) = index.path() {
+        girsa_note::since::forgotten(dir, slug);
+    }
     Ok(())
 }
