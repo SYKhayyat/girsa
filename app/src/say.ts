@@ -773,9 +773,32 @@ const WORDS = {
     "3. בנה את המדף: girsa-import corpus <אוצריא>",
     "3. Build the shelf: girsa-import corpus <otzaria>",
   ] as Both,
+  /**
+   * The two steps this screen did not have, and the reason it needs them.
+   *
+   * The list went 1 · fetch, 2 · Otzaria, 3 · import, 4 · index — and a reader
+   * who did all four had a library with **no link graph at all**. No
+   * `corpus/links/`, so no mefarshim on any sefer, so the מפרשים button reads
+   * `לצד` on every daf and the panel `docs/start-here.md` step 2 is about
+   * cannot be opened. The window's own message for it — *I have not been told*
+   * — is the honest sentence for a missing cache and is indistinguishable, to
+   * somebody who was never told to build one, from a sefer nobody wrote on.
+   *
+   * `girsa-link-import` writes the edges and `girsa-link-types` writes the
+   * caches that read them backwards. Both are needed before a mefaresh appears,
+   * and neither was on this screen or in the README's table.
+   */
+  corpusStepLinks: [
+    "4. הקשרים בין הספרים: girsa-link-import corpus <אוצריא>",
+    "4. The links between them: girsa-link-import corpus <otzaria>",
+  ] as Both,
+  corpusStepLinkTypes: [
+    "5. המטמונים שקוראים אותם לאחור: girsa-link-types corpus personal",
+    "5. The caches that read them backwards: girsa-link-types corpus personal",
+  ] as Both,
   corpusStepIndex: [
-    "4. לחיפוש — כ־3.6 ג׳יגה: girsa-index build index corpus personal",
-    "4. For search — about 3.6 GB: girsa-index build index corpus personal",
+    "6. לחיפוש — כ־3.6 ג׳יגה: girsa-index build index corpus personal",
+    "6. For search — about 3.6 GB: girsa-index build index corpus personal",
   ] as Both,
   corpusStepsWhere: [
     "את הכלים מורידים מדף השחרור — girsa-tools-windows.zip",

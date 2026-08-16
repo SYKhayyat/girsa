@@ -105,24 +105,36 @@ job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the real
 Windows build and uploads the NSIS `.exe` and the MSI.
 
 **The installer carries the application and the tools. It does not carry the
-library.** A fresh install is a window with no seforim. Filling it is four
-steps, and the first screen says so too:
+library.** A fresh install is a window with no seforim. Filling it is six steps,
+and the first screen says so too:
 
 | | Step | Command | Size |
 |---|---|---|---|
 | 1 | Fetch Sefaria | `girsa-fetch corpus\sefaria` | ~2.2 GB |
 | 2 | Get Otzaria | **you download this yourself** — nothing here fetches it | |
 | 3 | Build the shelf | `girsa-import corpus <otzaria>` | |
-| 4 | Build search | `girsa-index build index corpus personal` | ~3.6 GB |
+| 4 | The links between them | `girsa-link-import corpus <otzaria>` | |
+| 5 | The caches that read them backwards | `girsa-link-types corpus personal` | |
+| 6 | Build search | `girsa-index build index corpus personal` | ~3.6 GB |
 
-Those three tools are `girsa-tools-windows.zip` on the same release page, a
-separate download on purpose: Tauri validates bundled resources when the shell
-*compiles*, so naming three release binaries there would break `cargo check` for
+**Four of these used to be the whole list, and steps 4 and 5 were the missing
+two.** A reader who did the other four had a shelf with no link graph: no
+mefarshim on any daf, the מפרשים button reading `לצד` on every sefer, and the
+five-minute walkthrough's step 2 — *put Rashi on it* — unreachable. The window
+said *I have not been told*, which is the honest sentence for a missing cache
+and reads, to somebody nobody told to build one, exactly like a sefer nobody
+wrote on.
+
+Those tools are `girsa-tools-windows.zip` on the same release page, a separate
+download on purpose: Tauri validates bundled resources when the shell
+*compiles*, so naming release binaries there would break `cargo check` for
 anybody who had not built them first.
 
-Step 2 is manual and step 3 refuses without it. If you already have a corpus,
-point the window at it — with none it opens on a screen that says all of the
-above and offers a folder picker.
+Step 2 is manual, and steps 3 and 4 both refuse without it. Two more are worth
+running and nothing refuses without them —
+[`docs/tools.md`](docs/tools.md) has them and says what each buys you. If you
+already have a corpus, point the window at it — with none it opens on a screen
+that says all of the above and offers a folder picker.
 
 Set `GIRSA_CORPUS` and `GIRSA_PERSONAL` to move either root; otherwise the window
 looks beside its session file in the app's data directory.

@@ -1360,7 +1360,16 @@ function noCorpus(): HTMLElement[] {
   const title = document.createElement("p");
   title.className = "empty-hint";
   title.textContent = say("corpusStepsTitle");
-  for (const word of ["corpusStepFetch", "corpusStepOtzaria", "corpusStepImport", "corpusStepIndex"] as const) {
+  // Six, not four. The four that were here left a reader with a shelf and no
+  // link graph — see `corpusStepLinks` in say.ts for what that costs them.
+  for (const word of [
+    "corpusStepFetch",
+    "corpusStepOtzaria",
+    "corpusStepImport",
+    "corpusStepLinks",
+    "corpusStepLinkTypes",
+    "corpusStepIndex",
+  ] as const) {
     const step = document.createElement("li");
     step.textContent = say(word);
     steps.append(step);
