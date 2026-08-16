@@ -613,3 +613,136 @@ fn every_tool_the_window_tells_you_to_run_is_one_you_can_be_told_how_to_run() {
         "the window tells a reader to run a command no document explains: {wrong:?}"
     );
 }
+
+/// A documented invocation that the tool it names would refuse.
+///
+/// # What this file checked, and what it did not
+///
+/// Everything above asks whether a thing a document names **exists**. Every one
+/// of them passed while `docs/start-here.md` — the page whose first sentence is
+/// *do this once and the rest will make sense* — opened with four commands, all
+/// four of which print a usage line and do nothing:
+///
+/// ```text
+/// cargo run -p girsa-corpus --bin girsa-fetch          # the seforim
+/// cargo run -p girsa-link  --bin girsa-link-import     # the links between them
+/// cargo run -p girsa-link  --bin girsa-link-types      # the caches that read them backwards
+/// cargo run -p girsa-search --bin girsa-index          # the search index
+/// ```
+///
+/// `girsa-fetch` wants a corpus. `girsa-link-import` wants a corpus **and** an
+/// Otzaria tree, which is a download the reader has to make and which that page
+/// never mentioned. `girsa-index` wants a subcommand before anything. And the
+/// step that turns the download into a shelf — `girsa-import` — was not in the
+/// list at all. A newcomer following the page got four usage lines and no
+/// library. `docs/tools.md` carried the same block with the same holes, under a
+/// heading that says *in this order, once, before anything else*.
+///
+/// The binaries all existed, so every check here was green. Naming a tool and
+/// calling it correctly are two different claims, and only the first was being
+/// made.
+///
+/// # How the requirement is known
+///
+/// From the tool itself. Every binary here prints `usage: girsa-x <a> [b]`, and
+/// the convention is uniform: `<angled>` is required, `[bracketed]` is not. So
+/// the source is scanned for that line, the `<…>` words are counted, and a
+/// documented `--bin girsa-x` line has to carry at least that many words of its
+/// own.
+///
+/// **Words, not correctness.** This cannot tell whether `corpus` is the right
+/// directory, and does not try — it catches the invocation that could not
+/// possibly work, which is the one that had been sitting in the onboarding.
+/// `girsa-index` is the one tool whose usage is a block of subcommands rather
+/// than a line, so it is checked for having a subcommand instead.
+#[test]
+fn every_documented_invocation_carries_the_words_its_tool_requires() {
+    let root = repo();
+    let wants = required_words(&root);
+    let mut wrong = Vec::new();
+    for page in documents(&root) {
+        let text = read(&page);
+        for (n, line) in text.lines().enumerate() {
+            let Some((tool, given)) = invocation(line) else {
+                continue;
+            };
+            let Some(&want) = wants.get(tool.as_str()) else {
+                continue;
+            };
+            if given.len() < want {
+                wrong.push(format!(
+                    "{}:{}: `{tool}` needs {want} word(s) and is given {}: {line}",
+                    page.display(),
+                    n + 1,
+                    given.len(),
+                ));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} documented invocation(s) would print a usage line rather than run:\n{}\n\n\
+         Each one names a tool that exists and calls it in a way it refuses.",
+        wrong.len(),
+        wrong.join("\n"),
+    );
+}
+
+/// How many words each binary requires, read from its own usage line.
+///
+/// `girsa-index` is entered by hand at one, because its usage is a block of
+/// subcommands rather than a single line and every one of them starts with a
+/// verb. One word is the claim being made: a documented `girsa-index` must at
+/// least say which of the five things it is doing.
+fn required_words(root: &Path) -> std::collections::BTreeMap<String, usize> {
+    let mut wants = std::collections::BTreeMap::new();
+    let mut stack = vec![root.join("crates")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                for line in read(&path).lines() {
+                    let Some(rest) = line.split("usage: girsa-").nth(1) else {
+                        continue;
+                    };
+                    let mut words = rest.split_whitespace();
+                    let Some(tool) = words.next() else { continue };
+                    let needed = words
+                        .filter(|w| w.starts_with('<') && !w.contains("--"))
+                        .count();
+                    let tool = format!("girsa-{tool}");
+                    // The first usage line wins, so `girsa-index`'s `build` line
+                    // sets it and its four siblings do not raise it.
+                    wants.entry(tool).or_insert(needed);
+                }
+            }
+        }
+    }
+    wants
+}
+
+/// The tool and the words given to it on one documented `cargo run` line.
+///
+/// A word is anything after `--bin <tool>` that is not an option, not a comment
+/// and not cargo's own `--` separator. `<otzaria>` counts as a word: it is a
+/// placeholder the reader fills in, which is a different thing from an argument
+/// that is not there at all.
+fn invocation(line: &str) -> Option<(String, Vec<String>)> {
+    let after = line.split("--bin ").nth(1)?;
+    let mut words = after.split_whitespace();
+    let tool = words.next()?.to_string();
+    if !tool.starts_with("girsa-") {
+        return None;
+    }
+    let given: Vec<String> = words
+        .take_while(|w| !w.starts_with('#') && *w != ">")
+        .filter(|w| !w.starts_with('-'))
+        .map(ToString::to_string)
+        .collect();
+    Some((tool, given))
+}

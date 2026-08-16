@@ -16,14 +16,21 @@ sense.
 ## Before you start
 
 You need the corpus on disk. It is not in the repository — it is a download, and
-it is about 4 GB of text plus the link graph.
+it is about 4 GB of text plus the link graph. **One step in the middle is yours
+to do by hand**: Sefaria's half is fetched for you and Otzaria's is not, so
+`<otzaria>` below is a path to a copy you downloaded yourself.
 
+```sh
+cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim, ~2.2 GB
+#                            download Otzaria yourself — nothing here fetches it
+cargo run -p girsa-corpus --bin girsa-import      corpus <otzaria>       # onto permanent ids
+cargo run -p girsa-link   --bin girsa-link-import corpus <otzaria>       # the links between them
+cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards
+cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index, ~3.6 GB
 ```
-cargo run -p girsa-corpus --bin girsa-fetch          # the seforim
-cargo run -p girsa-link  --bin girsa-link-import     # the links between them
-cargo run -p girsa-link  --bin girsa-link-types      # the caches that read them backwards
-cargo run -p girsa-search --bin girsa-index          # the search index
-```
+
+Every one of those takes its roots as words on the line, and every one answers
+`--help` if you would rather read it there than here.
 
 Then open Girsa. If it says **there is no shelf here**, it did not find the
 corpus: it looks at `GIRSA_CORPUS`, then beside the executable, then two levels

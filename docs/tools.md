@@ -23,12 +23,16 @@ In this order, once, before anything else. `docs/start-here.md` is the
 walkthrough; this is the list.
 
 ```sh
-cargo run -p girsa-corpus --bin girsa-fetch                # the seforim
-cargo run -p girsa-corpus --bin girsa-import      corpus   # onto permanent ids
-cargo run -p girsa-link   --bin girsa-link-import corpus   # the links between them
-cargo run -p girsa-link   --bin girsa-link-types  corpus   # the caches that read them backwards
-cargo run -p girsa-search --bin girsa-index       corpus   # the search index
+cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim
+cargo run -p girsa-corpus --bin girsa-import      corpus <otzaria>       # onto permanent ids
+cargo run -p girsa-link   --bin girsa-link-import corpus <otzaria>       # the links between them
+cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards
+cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index
 ```
+
+`<otzaria>` is a copy of the Otzaria tree you downloaded yourself — step 2 of
+the four in the README, and the one nothing here fetches for you. The two that
+take it refuse without it.
 
 Two more that are worth running and that nothing refuses without:
 
@@ -62,11 +66,11 @@ place to find out that a mapping is wrong.
 ```sh
 cargo run -p girsa-app    --bin girsa-shelf  corpus personal   # the shelf
 cargo run -p girsa-app    --bin girsa-daf    corpus            # the page→daf mapping
-cargo run -p girsa-app    --bin girsa-chain  corpus            # the transmission chain
+cargo run -p girsa-app    --bin girsa-chain  corpus forward <segment-id>  # the transmission chain
 cargo run -p girsa-app    --bin girsa-read   corpus personal status   # words off a scan
 cargo run -p girsa-desk   --bin girsa-notes  corpus personal   # your own layer
 cargo run -p girsa-nearby --bin girsa-lane   corpus            # the semantic lane
-cargo run -p girsa-search --bin girsa-suspects corpus          # the OCR queue
+cargo run -p girsa-search --bin girsa-suspects index personal  # the OCR queue
 ```
 
 `girsa-read` is the one worth knowing: `words`, `ocr`, `show`, `status` and
