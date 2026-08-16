@@ -1247,44 +1247,12 @@ impl Open {
 
     /// Read this work's schema for what it calls the parts of its address.
     ///
-    /// **Told where the corpus is**, because `Work::schema` is a relative path
-    /// and only `girsa-import` ever read one before — run from the repository
-    /// root, where the relative path happens to work. Resolved against the
-    /// process's own directory it finds nothing, silently, and the margin goes
-    /// back to printing the slug.
-    ///
-    /// # Two tries, because the path is relative to the corpus's *parent*
-    ///
-    /// The catalogue records `corpus\sefaria\schemas\Tur.json` — it already
-    /// carries the corpus directory's own name. Joined to the corpus root that
-    /// is `…/corpus/corpus/sefaria/…`, which is nothing, and the first version
-    /// of this shipped that way and looked exactly like no fix at all.
-    ///
-    /// So the root's parent is tried first, and the root itself after it. Two
-    /// tries rather than stripping a leading component by name: a reader whose
-    /// corpus directory is called something else would have that stripping
-    /// silently do nothing, and *try both and take what exists* cannot be wrong
-    /// about a file that is there.
+    /// The finding and the two tries the path needs are both in
+    /// [`Sections::beside`], which is where the citation bar reads the same
+    /// schema from — one reader of a relative path, not two.
     #[must_use]
     pub fn with_sections_from(mut self, root: &Path) -> Self {
-        let Some(schema) = self.work.schema.as_deref() else {
-            return self;
-        };
-        // An absolute path is taken as it stands: a reader's own corpus, or a
-        // test that wrote a schema in a temporary directory.
-        let tries: Vec<std::path::PathBuf> = if schema.is_absolute() {
-            vec![schema.to_path_buf()]
-        } else {
-            root.parent()
-                .map(|up| up.join(schema))
-                .into_iter()
-                .chain(std::iter::once(root.join(schema)))
-                .collect()
-        };
-        self.sections = tries
-            .iter()
-            .find_map(|path| girsa_corpus::sections::Sections::read(path))
-            .unwrap_or_default();
+        self.sections = Sections::beside(root, self.work.schema.as_deref());
         self
     }
 
@@ -1505,6 +1473,13 @@ impl Open {
             },
             None => address.clone(),
         };
+        // A chelek a person named in Hebrew is the slug the segments carry.
+        // The resolver hands back `אורח חיים:1` and this sefer's ids say
+        // `orach_chayim:1:1`, so without this every branch work on the shelf —
+        // the Tur, the Arukh HaShulchan, the Shulchan Arukh HaRav — is
+        // unreachable by typing its name. A work whose schema names no
+        // sections is handed straight back, which is nearly all of them.
+        let address = &self.sections.slugged(address);
         let path: Vec<String> = self.work.slug.split('/').map(str::to_string).collect();
         let Some(run) = self.index.resolve(&Ref::point(path, address.clone())) else {
             return Vec::new();
@@ -1715,6 +1690,66 @@ pub(crate) mod tests {
         // rounded to the nearest one.
         assert_eq!(at("9"), Vec::<String>::new());
         assert_eq!(at("10"), ["girsa:s/10:1#4"]);
+    }
+
+    #[test]
+    fn a_chelek_named_the_way_a_person_writes_it_finds_the_siman() {
+        // The finding behind this: **every branch work on the shelf was
+        // unreachable by typing its name.** `טור אורח חיים סימן א'`,
+        // `טור יורה דעה סימן א'`, `ערוך השולחן יורה דעה א'` and
+        // `שולחן ערוך הרב אורח חיים א'` all resolved — the resolver is fine —
+        // and then landed nowhere, because what it hands back is
+        // `אורח חיים:1` and what the segments say is `orach_chayim:1:1`.
+        //
+        // Four of the most-cited codes after the Shulchan Arukh, and the same
+        // root cause as the margins that read `orach_chayim א' א'`: the pairing
+        // between a schema's `heTitle` and the slug the importer wrote was
+        // never carried out of the schema.
+        let mut sefer = open(
+            "tur",
+            &[
+                &["orach_chayim", "introduction", "4"],
+                &["orach_chayim", "1", "1"],
+                &["yoreh_deah", "1", "1"],
+            ],
+        );
+        sefer.sections = girsa_corpus::sections::Sections::of(
+            &serde_json::json!({"schema": {
+                "title": "Tur", "heTitle": "טור",
+                "nodes": [
+                    {"key": "Orach Chaim", "title": "Orach Chayim", "heTitle": "אורח חיים",
+                     "nodes": [
+                        {"title": "Introduction", "heTitle": "הקדמה", "heSectionNames": ["פסקה"]},
+                        {"title": "default", "heTitle": "", "heSectionNames": ["סימן", "סעיף"]},
+                     ]},
+                    {"key": "Yoreh Deah", "title": "Yoreh De'ah", "heTitle": "יורה דעה",
+                     "nodes": [{"title": "default", "heTitle": "", "heSectionNames": ["סימן", "סעיף"]}]},
+                ],
+            }})
+            .to_string(),
+        )
+        .expect("the schema reads");
+
+        let at = |a: &str| {
+            sefer
+                .at(&Address::parse(a).expect("an address"))
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(at("אורח חיים:1:1"), ["girsa:tur/orach_chayim:1:1#2"]);
+        assert_eq!(at("או\"ח:1:1"), ["girsa:tur/orach_chayim:1:1#2"]);
+        assert_eq!(at("יורה דעה:1:1"), ["girsa:tur/yoreh_deah:1:1#3"]);
+        // Two section names glued into one level by the resolver, because
+        // nothing said where the chelek ended.
+        assert_eq!(
+            at("אורח חיים הקדמה:4"),
+            ["girsa:tur/orach_chayim:introduction:4#1"]
+        );
+        // And what already worked still works: the address the corpus writes.
+        assert_eq!(at("orach_chayim:1:1"), ["girsa:tur/orach_chayim:1:1#2"]);
+        // A chelek this sefer does not have is not rounded to one it does.
+        assert_eq!(at("חושן משפט:1:1"), Vec::<String>::new());
     }
 
     #[test]

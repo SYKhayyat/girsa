@@ -35,10 +35,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use girsa_corpus::import::{self, Segment};
 use girsa_corpus::index::{Run, WorkSegments};
+use girsa_corpus::sections::Sections;
 use girsa_ref::lexicon::Lexicon;
 use girsa_ref::resolve::{resolve_in_context, Context, Resolution};
 use girsa_ref::Ref;
@@ -181,6 +182,9 @@ pub struct Citations {
     /// Works already read back, by slug. A citation is a jump, not a keystroke,
     /// but a reader typing one asks for the same sefer several times.
     known: Mutex<BTreeMap<String, Option<WorkSegments>>>,
+    /// What each work's schema calls the parts of its address, read the first
+    /// time a citation names that work. See [`Citations::addressed`].
+    schemas: Mutex<BTreeMap<String, Arc<Sections>>>,
 }
 
 impl Citations {
@@ -212,6 +216,7 @@ impl Citations {
             lexicon: titles.lexicon(),
             spellings,
             known: Mutex::new(BTreeMap::new()),
+            schemas: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -242,16 +247,21 @@ impl Citations {
                     reference: reference.clone(),
                     work: slug,
                 }),
-                Some(work) => match work.resolve_in(&slug, reference) {
-                    Some(run) => places.push(Place {
-                        reference: reference.clone(),
-                        run,
-                    }),
-                    None => near.push(NearMiss::AddressNotThere {
-                        reference: reference.clone(),
-                        work: slug,
-                    }),
-                },
+                Some(work) => {
+                    // Addressed the way this work's segments are addressed
+                    // before anything is asked of it, and **carried forward as
+                    // the ref**: a place that answers `אורח חיים:1` and then
+                    // reports itself as `girsa:tur/אורח חיים:1` would open here
+                    // and fail everywhere the ref is stored.
+                    let reference = self.addressed(&slug, reference);
+                    match work.resolve_in(&slug, &reference) {
+                        Some(run) => places.push(Place { reference, run }),
+                        None => near.push(NearMiss::AddressNotThere {
+                            reference,
+                            work: slug,
+                        }),
+                    }
+                }
             }
         }
 
@@ -322,6 +332,53 @@ impl Citations {
                 .filter(|w| !w.is_empty())
         });
         entry.clone()
+    }
+
+    /// The same ref, with a chelek the reader named in Hebrew turned into the
+    /// slug this work's segments are addressed by.
+    ///
+    /// # The finding
+    ///
+    /// Typed into the bar, `טור אורח חיים סימן א'` landed nowhere. So did
+    /// `טור יורה דעה סימן א'`, `ערוך השולחן יורה דעה א'` and `שולחן ערוך הרב
+    /// אורח חיים א'` — four of the most-cited codes after the Shulchan Arukh,
+    /// none of them reachable by typing its name.
+    ///
+    /// The resolver was never the problem: it answers `Exact`, with
+    /// `אורח חיים:1`. The Tur's segments say `orach_chayim:1:1`, and nothing
+    /// between the two knew that `אורח חיים` and `orach_chayim` are one place.
+    /// [`girsa_corpus::sections`] is the pairing, read out of the schema the
+    /// importer already recorded.
+    ///
+    /// A work whose schema names no sections — which is nearly all of them —
+    /// gets its ref back untouched.
+    fn addressed(&self, slug: &str, reference: &Ref) -> Ref {
+        let sections = self.sections_of(slug);
+        if sections.is_empty() {
+            return reference.clone();
+        }
+        let from = sections.slugged(reference.from());
+        match reference.to() {
+            Some(to) => Ref::span(reference.work().to_vec(), from, sections.slugged(to)),
+            None => Ref::point(reference.work().to_vec(), from),
+        }
+    }
+
+    /// What this work's schema calls the parts of its address, read once.
+    ///
+    /// Beside `known` rather than inside it: the segments are read from
+    /// whichever root holds the text and the schema is only ever under the
+    /// corpus, and a sefer of the reader's own has segments and no schema at
+    /// all.
+    fn sections_of(&self, slug: &str) -> Arc<Sections> {
+        if let Some(found) = self.schemas.lock().ok().and_then(|s| s.get(slug).cloned()) {
+            return found;
+        }
+        let read = Arc::new(Sections::of_work(&self.root, slug));
+        if let Ok(mut schemas) = self.schemas.lock() {
+            schemas.insert(slug.to_string(), Arc::clone(&read));
+        }
+        read
     }
 
     /// Spellings that look like what was typed, and how many were not shown.

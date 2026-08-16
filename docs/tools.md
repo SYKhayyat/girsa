@@ -103,9 +103,17 @@ cargo run --release -p girsa-app    --example measure-standing     # what asking
 cargo run --release -p girsa-app    --example measure-opening      # what opening a sefer costs the window
 cargo run --release -p girsa-lane   --example measure  corpus personal <slug> <model-dir>   # the lane against a real model
 cargo run --release -p girsa-link   --example why-the-panel-waits  # where the half-second goes
+cargo run --release -p girsa-search --example measure-branch-citations  corpus   # can a branch work be reached by name?
 ```
 
-Six of the eight take their roots from where you are standing and the other two
+`measure-branch-citations` is the newest and answers a question a reader asked
+by trying it: **can you type a mekor at a sefer that holds its chalakim inside
+itself?** For every work whose schema names its sections it writes the address
+of that section's first segment the way a person writes it — `טור אורח חיים סימן
+א` — and reports whether it lands back on that segment. It landed on none of
+them before `girsa_corpus::sections` learned the way back from a name to a slug.
+
+Seven of the nine take their roots from where you are standing and the other two
 do not, which is not a style this page can tidy away: `measure-resolver` scores
 the resolver against Sefaria's own link CSVs and has to be told where they are,
 and the lane's `measure` needs a **slug to measure and a model to measure it
