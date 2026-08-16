@@ -56,6 +56,19 @@ const HEAP_BYTES: usize = 512 * 1024 * 1024;
 /// rather than nothing — the same promise the fetch makes (spec.md §5).
 const COMMIT_EVERY: usize = 250_000;
 
+/// Which positional word the corpus root is, for the verbs that take one after
+/// the index.
+///
+/// **Named, because two functions got it wrong the same way.** The words are
+/// `command`, then the index directory, then the root: `find index corpus …`
+/// parses as words 0, 1, 2. Both `find` and `where_from` read word **1** under
+/// a comment claiming word 0 was the index directory — so both bound the index
+/// as the root and neither ever looked at the argument the reader typed.
+///
+/// A number written twice is a number that can be wrong twice, and this one
+/// was.
+const ROOT_IS_WORD: usize = 2;
+
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();
     if Argv::wants_help(&typed) {
@@ -662,7 +675,9 @@ fn build(index_dir: &Path, args: &Argv, roots: &[String]) -> std::process::ExitC
 /// One call for both, which is the claim: `--except` is the only difference,
 /// and it is the sefer you are standing in.
 fn where_from(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
-    let Some((root, rest)) = args.from(1).split_first() else {
+    // Word 2, for the reason `find` gives at length: this had the same
+    // off-by-one and died the same way.
+    let Some((root, rest)) = args.from(ROOT_IS_WORD).split_first() else {
         return usage();
     };
     let root = PathBuf::from(root);
@@ -788,9 +803,19 @@ const VALUES: &[&str] = &[
 ];
 
 fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
-    // `find <index-dir> <root> <query…>`. The index directory is word 0 and was
-    // taken by the caller; this reads from word 1.
-    let Some((root, rest)) = args.from(1).split_first() else {
+    // `find <index-dir> <root> <query…>`, and the words are **`command`, index,
+    // root, query…** — so the root is word 2. This read word 1 under a comment
+    // saying *the index directory is word 0*, which is the whole mistake in one
+    // sentence: word 0 is the subcommand. `find` bound the index directory as
+    // the root, never looked at the second positional at all, and every run
+    // died on `cannot read index's work index`.
+    //
+    // It was invisible because nothing tested it: `girsa-index find` is a tool a
+    // person runs, the record shows real output from when it worked, and the
+    // guards written for this exact family of mistake — a query word in root
+    // position — run *after* the catalogue is read, so the honest error never
+    // got the chance to be the confusing one.
+    let Some((root, rest)) = args.from(ROOT_IS_WORD).split_first() else {
         return usage();
     };
     let root = PathBuf::from(root);
@@ -1265,4 +1290,97 @@ fn size_on_disk(dir: &Path) -> String {
     }
     let bytes = walk(dir) as f64;
     format!("{:.1} GB", bytes / 1_073_741_824.0)
+}
+
+#[cfg(test)]
+mod tests {
+    //! What the words on the command line mean.
+    //!
+    //! One test, and it exists because `find` and `where-from` were **both**
+    //! broken for as long as anybody can tell and nothing anywhere noticed.
+    //! They read the root from word 1 under a comment saying the index
+    //! directory was word 0; word 0 is the subcommand. So both bound the index
+    //! directory as the corpus root, never looked at the argument the reader
+    //! typed, and died on `cannot read index's work index` — the whole search
+    //! command line, unusable.
+    //!
+    //! Nothing caught it because nothing could. This is a tool a person runs, so
+    //! the only check on it was somebody running it; the record shows real
+    //! output from when it worked; and the guards written for exactly this
+    //! family of mistake — a query word standing where a root should be — run
+    //! *after* the catalogue is read, so the confusing error always arrived
+    //! first.
+    //!
+    //! A binary with no test module is a binary whose argument parsing is a
+    //! rumour.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    /// The words, parsed the way `main` parses them.
+    fn typed(line: &[&str]) -> Argv {
+        let words: Vec<String> = line.iter().map(|s| (*s).to_string()).collect();
+        Argv::of(
+            words,
+            &[&["--without-link-types"][..], SWITCHES].concat(),
+            &[&["--except"][..], VALUES].concat(),
+        )
+        .expect("the line parses")
+    }
+
+    #[test]
+    fn the_root_is_the_word_after_the_index_and_not_the_index() {
+        // `girsa-index find index corpus מאימתי` — three positionals after the
+        // subcommand's own word, and the middle one is the root.
+        let args = typed(&["find", "index", "corpus", "מאימתי"]);
+        assert_eq!(args.word(0), Some("find"), "word 0 is the subcommand");
+        assert_eq!(args.word(1), Some("index"), "word 1 is the index directory");
+        assert_eq!(args.word(2), Some("corpus"), "and word 2 is the root");
+
+        let (root, query) = args
+            .from(ROOT_IS_WORD)
+            .split_first()
+            .expect("a root and a query");
+        assert_eq!(root, "corpus");
+        assert_eq!(query, ["מאימתי"], "and everything after it is the query");
+    }
+
+    #[test]
+    fn the_same_is_true_of_where_from() {
+        let args = typed(&["where-from", "index", "corpus", "יתגבר", "כארי"]);
+        let (root, phrase) = args
+            .from(ROOT_IS_WORD)
+            .split_first()
+            .expect("a root and a phrase");
+        assert_eq!(root, "corpus");
+        assert_eq!(phrase, ["יתגבר", "כארי"]);
+    }
+
+    #[test]
+    fn an_option_between_the_words_does_not_move_them() {
+        // The failure this shape invites: options and positionals interleaved,
+        // and a parser that counted tokens rather than words would put the
+        // query where the root goes. `Argv` separates them, and this says so.
+        let args = typed(&["find", "index", "corpus", "--phrase", "מאימתי", "קורין"]);
+        let (root, query) = args
+            .from(ROOT_IS_WORD)
+            .split_first()
+            .expect("a root and a query");
+        assert_eq!(root, "corpus");
+        assert_eq!(query, ["מאימתי", "קורין"]);
+        assert!(args.switch("--phrase"));
+    }
+
+    #[test]
+    fn update_takes_the_index_then_the_root_then_the_slugs() {
+        // `update` reads its own words rather than sharing `ROOT_IS_WORD`,
+        // because it takes a list after the root rather than a query. Asserted
+        // so the two cannot drift apart.
+        let args = typed(&["update", "index", "personal", "note/חבורה", "note/שיעור"]);
+        let rest = args.from(1);
+        let (index, and) = rest.split_first().expect("an index and the rest");
+        assert_eq!(index, "index");
+        assert_eq!(and, ["personal", "note/חבורה", "note/שיעור"]);
+        assert_eq!(&and[0], "personal", "the root");
+        assert_eq!(&and[1..], ["note/חבורה", "note/שיעור"], "and the slugs");
+    }
 }
