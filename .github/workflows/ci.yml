@@ -263,39 +263,48 @@ jobs:
   #    executables with `/lib64/ld-linux-x86-64.so.2` as their interpreter, and
   #    that path does not exist on NixOS. `autoPatchelf` in the shellHook is the
   #    fix, and this is the job that proves it is needed and that it works.
+  # **`container:` does not work here, and the reason is worth the four lines.**
+  #
+  # The obvious spelling of this job is `container: nixos/nix`, and it fails
+  # before the first step: `exec /__e/node24/bin/node: no such file or
+  # directory`. Every `uses:` action is a Node program, and the runner injects
+  # **its own glibc Node** into whatever container it was given. `nixos/nix` is
+  # Alpine, which is musl, so that binary cannot start — and neither can
+  # `actions/checkout`.
+  #
+  # So the checkout happens on the host, where the runner's Node lives, and the
+  # Nix half runs in the container by hand with the workspace mounted. What that
+  # keeps is the only property this job is here for: **there is no `/usr/lib`
+  # inside it.** Ubuntu has one, so a build there can quietly link against
+  # something `flake.nix` never declared and pass, and then fail on a machine
+  # that has none.
   nixos:
     runs-on: ubuntu-latest
-    container:
-      image: nixos/nix:latest
     steps:
       - uses: actions/checkout@v4
         with:
           path: Girsa
 
-      # The container ships Nix with neither flag on, and `nix develop` is both
-      # of them.
-      - name: Flakes
+      # One `docker run` for all of it: `nix develop` builds an environment, and
+      # three separate containers would build it three times. `--rm` because the
+      # only thing worth keeping is the exit code.
+      #
+      # `nix flake check` first, on its own line inside the shell script, so a
+      # package renamed out of nixpkgs — which is how this file will most likely
+      # break — is reported as an evaluation failure and not as a compiler one.
+      - name: The flake, entered, inside a machine with no FHS
         run: |
-          mkdir -p /etc/nix
-          echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-
-      # Evaluates every attribute the flake names. A package renamed out of
-      # nixpkgs — which is how this file will most likely break — fails here,
-      # in seconds, rather than on a reader's machine after a long download.
-      - name: The flake evaluates
-        run: nix flake check --no-build
-        working-directory: Girsa
-
-      # And then the shell is actually entered and the gate is actually run.
-      # `nix develop --command` rather than `nix-shell`: the flake declares a
-      # `devShells.default` and that is what a reader types.
-      - name: The gate, inside the shell the flake declares
-        run: nix develop --command bash -c "cd app && npm ci && npm test && npm run build"
-        working-directory: Girsa
-
-      - name: The workspace compiles against Nix's libraries
-        run: nix develop --command cargo build --workspace
-        working-directory: Girsa
+          docker run --rm \
+            -v "$PWD/Girsa:/w" -w /w \
+            -e NIX_CONFIG='experimental-features = nix-command flakes' \
+            nixos/nix:latest \
+            sh -euc '
+              nix flake check --no-build
+              nix develop --command bash -c "
+                cd app && npm ci && npm test && npm run build
+              "
+              nix develop --command cargo build --workspace
+            '
 
   macos:
     runs-on: macos-latest
