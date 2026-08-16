@@ -80,9 +80,14 @@ const FLUSH_BYTES: usize = 256 * 1024 * 1024;
 
 const USAGE: &str = "usage: girsa-link-types <corpus> [personal]
 
-  Counts the edge types the corpus ships, and what each of them is called.
-  With <personal>, the link types you have repaired are counted as you have
-  them — without it, as the corpus shipped them, and the run says which.";
+  Walks the 4.1-million-edge graph once and WRITES TWO CACHES into <corpus>:
+  inbound.jsonl beside each work's edges — around 575 MB in total — and
+  touching.bits, the link-type mask the result facet reads. Both are
+  rebuildable and both are what makes 'who links here' answerable.
+
+  It also reports the edge types it counted on the way past. With <personal>,
+  the types you have repaired are counted as you have them — without it, as
+  the corpus shipped them, and the run says which.";
 
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();

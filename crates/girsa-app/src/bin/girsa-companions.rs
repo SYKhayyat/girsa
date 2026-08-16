@@ -42,8 +42,13 @@ const PER_WORK: usize = 200;
 
 const USAGE: &str = "usage: girsa-companions <corpus>
 
-  Builds the inbound half of the link graph, so a mefaresh can be asked
-  which sugya it is on.";
+  Works out which seforim are worth opening beside which, and WRITES
+  <corpus>/links/companions.jsonl. A commentary declares itself; nothing
+  declares that the Beit Yosef cites Berakhot 815 times, and only the graph
+  knows. Walks all 4.1 million edges, so it takes a while.
+
+  It is a cache and it is allowed to be missing: without it the shelf offers
+  the declared commentaries only, and says which kind of empty it is.";
 
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();

@@ -746,3 +746,102 @@ fn invocation(line: &str) -> Option<(String, Vec<String>)> {
         .collect();
     Some((tool, given))
 }
+
+/// A tool that writes a cache into the corpus says so, and names it.
+///
+/// # What went wrong
+///
+/// Two of the five commands `docs/start-here.md` tells a newcomer to run
+/// described the wrong job in `--help`, and the page invites them to look:
+/// *"every one answers `--help` if you would rather read it there than here."*
+///
+/// - `girsa-link-types` said *"Counts the edge types the corpus ships"*. It
+///   walks 4.1 million edges and writes about 575 MB of `inbound.jsonl` plus
+///   `touching.bits` into the corpus. Counting is what it prints on the way
+///   past.
+/// - `girsa-companions` said *"Builds the inbound half of the link graph"* —
+///   which is `girsa-link-types`' job, not its own. It writes
+///   `companions.jsonl`: which seforim are worth opening beside which.
+///
+/// Both binaries existed, both were named by a document, both took the
+/// arguments their usage lines said they took, and every check above was green.
+/// A reader who did the responsible thing and read `--help` before pointing a
+/// tool at their disk was told what a different tool does.
+///
+/// # The claim this makes, and the one it does not
+///
+/// It makes one claim: **for each artefact below, the binary that writes it
+/// names it in its own usage.** That is exact, it is not satisfiable by adding
+/// a word, and it fails on both of the strings above.
+///
+/// It does **not** check that the rest of a usage line is true. Nothing here
+/// can, and a guard that tried by matching prose against prose would pass by
+/// sharing the word *link*. The table is written out rather than derived for
+/// the same reason: derived, it would have to guess which string literals in a
+/// binary are things it writes rather than things it reads, and a guard that
+/// guesses is a guard that gets edited until it stops complaining.
+///
+/// A new cache with no row here is not caught. That is the honest limit, and it
+/// is why the row is one line next to the code that writes the file.
+#[test]
+fn a_tool_that_writes_a_cache_into_the_corpus_names_it_in_its_usage() {
+    // binary source, relative to `crates/` -> what it writes into the corpus.
+    const WRITES: [(&str, &[&str]); 3] = [
+        (
+            "girsa-link/src/bin/girsa-link-types.rs",
+            &["inbound.jsonl", "touching.bits"],
+        ),
+        (
+            "girsa-app/src/bin/girsa-companions.rs",
+            &["companions.jsonl"],
+        ),
+        (
+            "girsa-link/src/bin/girsa-link-orient.rs",
+            &["links.superseded"],
+        ),
+    ];
+    let crates = repo().join("crates");
+    let mut silent = Vec::new();
+    for (source, artefacts) in WRITES {
+        let path = crates.join(source);
+        let body = read(&path);
+        let usage = usage_line(&body).unwrap_or_else(|| {
+            panic!("{source} has no `usage:` block, so nothing here can be checked")
+        });
+        for artefact in artefacts {
+            if !usage.contains(artefact) {
+                silent.push(format!("{source}: --help never mentions {artefact}"));
+            }
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "{} tool(s) write into the corpus without saying what:\n{}\n\n\
+         A reader who reads --help before running a tool is told what it does to \
+         their disk, or the page that told them to read --help is lying.",
+        silent.len(),
+        silent.join("\n"),
+    );
+}
+
+/// The `USAGE` constant of a binary, whole.
+///
+/// From `const USAGE: &str = "` to the closing quote, so a multi-line usage is
+/// one string. Reading the source rather than running the binary: this test
+/// suite is compiled by the same `cargo test` that would have to build seven
+/// more binaries first, and what is being asserted is what the source says.
+fn usage_line(body: &str) -> Option<String> {
+    let after = body.split("const USAGE: &str = \"").nth(1)?;
+    let mut out = String::new();
+    let mut chars = after.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => {
+                chars.next();
+            }
+            '"' => return Some(out),
+            other => out.push(other),
+        }
+    }
+    None
+}
