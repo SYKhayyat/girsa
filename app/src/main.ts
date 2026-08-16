@@ -30,7 +30,7 @@ import { PaneView } from "./pane.ts";
 import { ScanView } from "./scanview.ts";
 import { Picker } from "./picker.ts";
 import { SearchView } from "./search.ts";
-import { ShelfView } from "./shelf.ts";
+import { landing, ShelfView, type Where } from "./shelf.ts";
 import { LanePanel } from "./laneview.ts";
 import { SettingsView, applyLook } from "./settingsview.ts";
 import { SuspectsView } from "./suspects.ts";
@@ -260,7 +260,7 @@ async function lookForKsav(): Promise<void> {
 /** Files dropped on the window become seforim (spec.md §5). */
 async function whenDropped(paths: string[]): Promise<void> {
   if (paths.length === 0) return;
-  if (!shelf.isOpen) await shelf.show(openTab);
+  if (!shelf.isOpen) await shelf.show(openSeferAt);
   shelf.say(`${say("readingFiles")} ${paths.length} ${say("files")}…`, false);
   const dropped = await api.addMine(paths);
   await shelf.refresh();
@@ -278,9 +278,43 @@ async function whenDropped(paths: string[]): Promise<void> {
   }
 }
 
-async function openTab(slug: string): Promise<void> {
+/**
+ * A sefer the reader picked, put where they asked for it.
+ *
+ * # The tab was the only destination
+ *
+ * > *"add to that a way to open a new sefer in the same tab/workspace."*
+ *
+ * A tab in Girsa is not one sefer: a Gemara with its Rashi and its Tosafos is
+ * **one** tab and three panes, and that is the shape the whole reading side is
+ * built around. But the only way to build it was the mefarshim door, which
+ * offers the seforim the link graph places on the one you are reading — so two
+ * seforim a reader wants side by side, that nothing declares about each other,
+ * could not be put side by side at all. Every other route opened a tab.
+ *
+ * `"here"` splits the focused pane, which is the same call the mefarshim door
+ * makes ([`openBeside`]) and therefore the same following behaviour: the new
+ * pane keeps step with the one it was opened from.
+ *
+ * With nothing open there is no *here*, and it opens a tab rather than refusing
+ * — which is the answer to *put this beside what I am reading* when there is
+ * nothing being read.
+ */
+async function openSeferAt(slug: string, where: Where = "tab"): Promise<void> {
+  const open = tab();
+  const focused = open?.panes.find((pane) => pane.id === open.focused)?.id ?? null;
+  const goes = landing(where, focused);
+  if (goes !== "tab") {
+    await openBeside(goes.beside, [slug]);
+    return;
+  }
   await api.openTab(slug);
   await reload();
+}
+
+/** The plain click, which has always meant a tab of its own. */
+async function openTab(slug: string): Promise<void> {
+  await openSeferAt(slug, "tab");
 }
 
 async function reload(): Promise<void> {
@@ -890,7 +924,7 @@ function tabBar(): HTMLElement {
 }
 
 function browseShelf(): void {
-  void shelf.toggle(openTab);
+  void shelf.toggle(openSeferAt);
 }
 
 function search(): void {

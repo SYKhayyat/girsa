@@ -12,6 +12,7 @@ import { Latest } from "./latest.ts";
 import { sameSeferTwice, sefer } from "./names.ts";
 import { say } from "./say.ts";
 import { ticked } from "./mefarshim.ts";
+import type { Where } from "./shelf.ts";
 import type { Choice, Listed, Source } from "./api.ts";
 
 type Chosen = (slugs: string[]) => void;
@@ -59,6 +60,16 @@ export class Picker {
    * means. This is the other gesture: pick several, then open them together.
    */
   private picked: string[] = [];
+  /**
+   * Where the sefer being opened should land, for the one gesture that is about
+   * to happen.
+   *
+   * Set immediately before `chosen` is called and read inside it, rather than
+   * threaded through `Chosen` — which is shared with the mefarshim door, where
+   * the destination is never in question because a mefaresh always goes beside
+   * the sefer it comments on.
+   */
+  private where: Where = "tab";
   /** The sentence under the list: how much of the sefer has commentary at all. */
   private readonly said: HTMLElement;
   /** One answer at a time — see `latest.ts`. The filter asks per keystroke and a
@@ -99,13 +110,20 @@ export class Picker {
     });
   }
 
-  /** Open a sefer in a new tab. */
-  openTab(chosen: (slug: string) => void): void {
+  /**
+   * Open a sefer — in a tab of its own, or into the tab already open.
+   *
+   * The second destination is the reader's: *"a way to open a new sefer in the
+   * same tab/workspace."* It is the same door and a different landing, so it is
+   * a second argument rather than a second door.
+   */
+  openTab(chosen: (slug: string, where: Where) => void): void {
     this.beside = null;
     this.picked = [];
+    this.where = "tab";
     this.chosen = (slugs) => {
       const first = slugs[0];
-      if (first) chosen(first);
+      if (first) chosen(first, this.where);
     };
     this.heading.textContent = say("openSefer");
     this.show();
@@ -307,6 +325,19 @@ export class Picker {
         pick.addEventListener("pointerdown", (event) => event.stopPropagation());
         node.append(pick);
       }
+      // …and in the *open a sefer* door, the other destination: the tab you are
+      // already in, beside what you are reading. Its own control for the same
+      // reason the tick and the plus above are: a modifier held on a click is a
+      // gesture a reader has to be told about, and nothing tells them.
+      if (!this.beside) {
+        const here = glyph("⊞", `${say("openHere")} — ${row.title}`, (event) => {
+          event.stopPropagation();
+          this.take(row.slug, "here");
+        });
+        here.className = "picker-here";
+        here.addEventListener("pointerdown", (event) => event.stopPropagation());
+        node.append(here);
+      }
       node.append(title, aside);
       node.addEventListener("pointerdown", () => this.take(row.slug));
       this.list.append(node);
@@ -350,11 +381,15 @@ export class Picker {
         return;
       }
       const row = this.rows[this.cursor];
-      if (row) this.take(row.slug);
+      // Ctrl+Enter is the same row into the tab you are already in — the
+      // keyboard half of the `⊞` beside it, so the gesture is reachable without
+      // reaching for the mouse and the two cannot disagree about what they do.
+      if (row) this.take(row.slug, event.ctrlKey || event.metaKey ? "here" : "tab");
     }
   }
 
-  private take(slug: string): void {
+  private take(slug: string, where: Where = "tab"): void {
+    this.where = where;
     this.close();
     this.chosen([slug]);
   }

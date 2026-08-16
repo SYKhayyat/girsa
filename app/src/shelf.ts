@@ -13,13 +13,44 @@
 
 import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
-import { ask, button, confirmThat, field, shut } from "./controls.ts";
+import { ask, button, confirmThat, field, glyph, shut } from "./controls.ts";
 import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
 import { say } from "./say.ts";
 
-type Opened = (slug: string) => void;
+/**
+ * Where a sefer the reader picked off the shelf should land.
+ *
+ * `"tab"` is a tab of its own, which is what a click has always meant.
+ * `"here"` puts it **in the tab you are already in**, beside what you are
+ * reading — a Gemara and its Rashi and its Tosafos are one tab and three panes,
+ * and every way of building that shape went through the mefarshim door. A sefer
+ * that is not a mefaresh on the one beside it could only be opened by leaving
+ * the tab.
+ */
+export type Where = "tab" | "here";
+
+type Opened = (slug: string, where: Where) => void;
+
+/**
+ * Where a sefer actually lands, given where the reader asked for it and what is
+ * open.
+ *
+ * The decision, out of the handler that would otherwise hold it — the same
+ * reason [`dropping`] is a function: `app/test` has no DOM, so an event handler
+ * is the one place in this file nothing can execute, and *which tab does this
+ * sefer go into* is not a thing to decide somewhere unreachable.
+ *
+ * The case worth naming is **asking for `here` with nothing open**. There is no
+ * *here* to open beside, and the answer is a tab rather than a refusal: a reader
+ * who presses *open beside what I am reading* while reading nothing has asked
+ * to open a sefer, and getting nothing at all would read as a broken button.
+ */
+export function landing(where: Where, focused: number | null): { beside: number } | "tab" {
+  if (where === "here" && focused !== null) return { beside: focused };
+  return "tab";
+}
 
 /** What is being dragged: a sefer by slug, or a shelf by key. */
 export interface Held {
@@ -487,14 +518,25 @@ export class ShelfView {
     aside.textContent = card.source === "mine" ? said || say("mine") : said;
     if (card.source === "mine") aside.classList.add("is-mine");
 
-    row.append(title, aside);
-    row.addEventListener("dblclick", () => {
+    // **Into the tab you are already in**, and it is its own control rather
+    // than a modifier on the click. A held key is a thing you have to be told
+    // about, and the reader who asked for this asked for *a way to open a new
+    // sefer in the same tab* — a way, on the row, that can be seen.
+    const here = glyph("⊞", say("openHere"), (event) => {
+      // The row underneath opens a whole tab. Without this the reader gets
+      // both, which is the pane they asked for and a tab they did not.
+      event.stopPropagation();
       this.dock();
-      this.opened(card.slug);
+      this.opened(card.slug, "here");
     });
+    here.className = "shelf-work-here";
+
+    row.append(title, aside, here);
+    // One gesture, once. `dblclick` and `click` both opened the sefer, so a
+    // double click opened it, focused it, and opened it again.
     row.addEventListener("click", () => {
       this.dock();
-      this.opened(card.slug);
+      this.opened(card.slug, "tab");
     });
     row.addEventListener("dragstart", (event) => {
       this.held = { what: "work", id: card.slug, from: this.chosen };

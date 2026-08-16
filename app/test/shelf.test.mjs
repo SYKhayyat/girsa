@@ -21,7 +21,7 @@
 // click through to, is the bug back, whatever the number says.
 
 import { check, ok, notOk } from "./harness.mjs";
-import { countedOn, dropping } from "../.tmp-test/shelf.mjs";
+import { countedOn, dropping, landing } from "../.tmp-test/shelf.mjs";
 
 /** A shelf, with only the fields this decision reads. */
 function branch(key, here, count, children = []) {
@@ -135,4 +135,25 @@ export function run() {
     dropping(shelf("shas", ""), "shas/moed"),
     { what: "shelf", id: "shas", into: "shas/moed" },
   );
+  // --- where a sefer picked off the shelf lands ------------------------------
+  //
+  // > *"add to that a way to open a new sefer in the same tab/workspace."*
+  //
+  // A tab in Girsa holds panes: a Gemara with its Rashi and its Tosafos is one
+  // tab and three panes. Every route to that shape went through the mefarshim
+  // door, which offers only what the link graph places on the sefer you are
+  // reading — so two seforim a reader wants side by side, with nothing declared
+  // between them, could not be put side by side at all. The bookcase and the
+  // picker opened a tab and only a tab.
+  check("a plain pick opens a tab of its own, which is what it always did", landing("tab", 4), "tab");
+  check("and asking for it here splits the pane the reader is in", landing("here", 4), { beside: 4 });
+  // The case the button would otherwise be broken in.
+  check(
+    "asking for here with nothing open opens a tab rather than nothing",
+    landing("here", null),
+    "tab",
+  );
+  // Pane ids start at zero, and `if (focused)` would have sent the first pane
+  // of the first tab a reader ever opens down the no-tab path.
+  check("pane zero is a pane", landing("here", 0), { beside: 0 });
 }
