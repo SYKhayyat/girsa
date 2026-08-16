@@ -210,3 +210,53 @@ export async function run() {
     [],
   );
 }
+
+// The steps on the first screen are numbered, in order, with none missing.
+//
+// This list is the only instruction a reader with no seforim ever gets, and it
+// is hand-numbered in two languages. It said four steps — fetch, Otzaria,
+// import, index — and a reader who did all four had a shelf with **no link
+// graph**: no `corpus/links/`, so no mefarshim on any daf, so the panel
+// `docs/start-here.md` step 2 is about could never be opened. The two missing
+// steps were `girsa-link-import` and `girsa-link-types`.
+//
+// Adding them meant renumbering by hand, twice, and a `4.` where a `5.` belongs
+// is invisible until somebody with an empty corpus reads the screen. So this
+// asserts the shape rather than the wording: the numbers run 1..6 in order, in
+// both languages. What it cannot check is whether the steps are the right ones;
+// that took running them.
+const CORPUS_STEPS = [
+  "corpusStepFetch",
+  "corpusStepOtzaria",
+  "corpusStepImport",
+  "corpusStepLinks",
+  "corpusStepLinkTypes",
+  "corpusStepIndex",
+];
+
+/** The `4.` at the front of a step, or `null` if it does not start with one. */
+function stepNumber(line) {
+  const match = /^(\d+)\./.exec(line.trim());
+  return match ? Number(match[1]) : null;
+}
+
+for (const language of ["hebrew", "english"]) {
+  check(
+    `the first screen's steps are numbered 1..6 in order, in ${language}`,
+    CORPUS_STEPS.map((word) => stepNumber(sayIn(word, language))),
+    [1, 2, 3, 4, 5, 6],
+  );
+}
+
+// And the two that were missing name the tools that build the graph, in both
+// languages, because that is the whole of what they are for.
+for (const language of ["hebrew", "english"]) {
+  ok(
+    `${language} step 4 runs girsa-link-import`,
+    sayIn("corpusStepLinks", language).includes("girsa-link-import"),
+  );
+  ok(
+    `${language} step 5 runs girsa-link-types`,
+    sayIn("corpusStepLinkTypes", language).includes("girsa-link-types"),
+  );
+}
