@@ -365,6 +365,7 @@ fn it_is_still_in_the_budget_with_the_whole_sefer_corrected() {
     );
     assert!(
         took < BUDGET,
-        "correcting one typo among {made} took {took:?}, and spec.md §7.5 says three seconds          is the whole interaction — including the reader"
+        "correcting one typo among {made} took {took:?}, and spec.md §7.5 says three \
+         seconds is the whole interaction — including the reader"
     );
 }

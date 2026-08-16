@@ -1001,9 +1001,10 @@ fn the_reading_workspace_does_not_take_a_dependency_it_reads_nothing_from() {
         ("zip", "girsa-export"),
     ] {
         assert!(
-            !deps.contains(&format!("
-{crate_name}")),
-            "`girsa-app` depends on `{crate_name}` again — that is `{whose}`'s, and the reading              workspace reads nothing from it. Whatever needed it belongs above this crate, not              inside it."
+            !deps.contains(&format!("\n{crate_name}")),
+            "`girsa-app` depends on `{crate_name}` again — that is `{whose}`'s, and the \
+             reading workspace reads nothing from it. Whatever needed it belongs above \
+             this crate, not inside it."
         );
     }
 }
@@ -1310,4 +1311,143 @@ fn the_gate_is_written_down_once_and_the_rule_points_at_it() {
         listed.len(),
         listed,
     );
+}
+
+/// A message carrying the indentation of the source line it was written on.
+///
+/// # The mistake this catches, which was made five times
+///
+/// A long message is written across several source lines with a `\` at the end
+/// of each, and Rust drops the newline **and the leading whitespace of the next
+/// line**. Take the `\` away and the newline goes into the string, and so does
+/// the indentation — twenty or thirty spaces, mid-sentence, in something a
+/// reader is about to be shown:
+///
+/// ```text
+/// this reads as a question, and the lane is measured to be poor at
+///                               those - one in twelve reaches the top ten,
+/// ```
+///
+/// Five literals in this repository were in that state, and every one of them
+/// was a sentence written for a person: the semantic lane's caveat on a
+/// question, `girsa-import`'s results header, and three assertion messages that
+/// would have printed that way on the failure they exist to explain. Nothing
+/// complained, because nothing was wrong — a string is a string, and the
+/// compiler has no opinion about what is inside it.
+///
+/// The backslashes went missing on the way into the files rather than being
+/// deleted on purpose, which is why this is a test and not a line in a style
+/// guide: the mistake is invisible where it is made, invisible in review, and
+/// visible only in output nobody reads until something has already failed.
+///
+/// # Why the rule is this shape
+///
+/// **Three words, then eight or more spaces, then another word.** Wide runs of
+/// spaces are ordinary and deliberate here — every usage line aligns its second
+/// column that way, and so does every table this repository prints. Two things
+/// separate those from the mistake, and the rule needs both:
+///
+/// - a word character on **each side** of the run, which excludes every run
+///   that ends at a `{`, a quote, or the end of the literal — the ordinary
+///   shape of alignment;
+/// - **three or more words before it**, which excludes the rest. A column label
+///   is one word or two, because being short is what makes it a column;
+///   `"  split              none"` is a report and not a broken sentence. What
+///   sits before the run in the real mistake is the first half of a sentence.
+///
+/// The blind spot this leaves, stated rather than discovered: a continuation
+/// mangled after only a word or two would not be caught. That is the price of
+/// not crying wolf over every aligned table in the repository, and it is worth
+/// paying — six hits across the tree, five of them real, and the sixth is the
+/// column that taught the rule its second half.
+#[test]
+fn no_message_carries_the_indentation_of_the_line_it_was_written_on() {
+    let root = repo();
+    let mut found = Vec::new();
+    for (path, text) in sources(&root) {
+        for (n, line) in text.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            for literal in literals(line) {
+                if let Some(run) = indentation_in(literal) {
+                    found.push(format!("{path}:{}: {run}", n + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "{} message(s) carry a run of spaces between two words, which is what a \
+         string continuation leaves behind when its backslash goes missing. Each \
+         of these prints that way:\n{}",
+        found.len(),
+        found.join("\n"),
+    );
+}
+
+/// The string literals on one line of source, contents only.
+///
+/// Deliberately simple: a `"` opens, a `"` closes, and a backslash inside skips
+/// the next character so an escaped quote does not end it. It knows nothing
+/// about raw strings or about a `"` inside a trailing comment, and it does not
+/// need to — over-reading here means looking at a few characters that are not a
+/// literal, and the rule below does not fire on them.
+fn literals(line: &str) -> Vec<&str> {
+    let bytes = line.as_bytes();
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] != b'"' {
+            at += 1;
+            continue;
+        }
+        let from = at + 1;
+        let mut to = from;
+        while to < bytes.len() && bytes[to] != b'"' {
+            to += usize::from(bytes[to] == b'\\') + 1;
+        }
+        let to = to.min(bytes.len());
+        if from <= to {
+            found.extend(line.get(from..to));
+        }
+        at = to + 1;
+    }
+    found
+}
+
+/// A run of eight or more spaces that broke a sentence rather than aligning a
+/// column, if there is one — reported with what surrounds it, so the message
+/// says where to look.
+fn indentation_in(literal: &str) -> Option<String> {
+    let chars: Vec<char> = literal.chars().collect();
+    let mut at = 0;
+    while at < chars.len() {
+        if chars[at] != ' ' {
+            at += 1;
+            continue;
+        }
+        let from = at;
+        while at < chars.len() && chars[at] == ' ' {
+            at += 1;
+        }
+        let wide = at - from >= 8;
+        let between = from > 0
+            && chars[from - 1].is_alphanumeric()
+            && chars.get(at).is_some_and(|c| c.is_alphanumeric());
+        // A label is short because that is what makes it a column. Three words
+        // in front of the run means what broke was a sentence.
+        let sentence = chars[..from]
+            .iter()
+            .collect::<String>()
+            .split_whitespace()
+            .count()
+            >= 3;
+        if wide && between && sentence {
+            let before: String = chars[from.saturating_sub(12)..from].iter().collect();
+            let after: String = chars[at..(at + 12).min(chars.len())].iter().collect();
+            return Some(format!("{before}[{} spaces]{after}", at - from));
+        }
+    }
+    None
 }

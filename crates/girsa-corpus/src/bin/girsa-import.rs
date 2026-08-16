@@ -205,7 +205,13 @@ impl Checks {
     }
 
     fn report(&self) -> std::process::ExitCode {
-        println!("\n  spec.md §2 says          measured");
+        // Padded to the same widths as the rows below, so the two labels sit
+        // over the two numeric columns. This used to be one hand-spaced string
+        // reading `spec.md §2 says          measured`, and the spacing lined up
+        // with nothing: at fifteen characters the first label overflows the
+        // ten-wide field it labels, which pushed `measured` five columns past
+        // the numbers underneath it.
+        println!("\n  {:>10}  {:>10}", "spec.md §2", "measured");
         let mut failed = 0;
         for (what, want, got, ok) in &self.rows {
             println!(

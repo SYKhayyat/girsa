@@ -78,7 +78,9 @@ fn corpus() -> PathBuf {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
     assert!(
         root.join("links").is_dir() && inbound::built(&root),
-        "no link graph with an inbound cache at {} — run girsa-link-import then          girsa-link-types. This check is #[ignore]d so its absence is never read          as a pass.",
+        "no link graph with an inbound cache at {} — run girsa-link-import then \
+         girsa-link-types. This check is #[ignore]d so its absence is never read \
+         as a pass.",
         root.display()
     );
     root

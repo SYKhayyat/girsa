@@ -100,7 +100,10 @@ pub const SHORTLISTED: &str = "ranked from a shortlist rather than by reading ev
 /// having a bad day; BEREL is a masked-language model and not a sentence
 /// encoder, and a question and its answer do not sit near each other in its
 /// space.
-pub const A_QUESTION: &str = "this reads as a question, and the lane is measured to be poor at                               those — one in twelve reaches the top ten, against ten in ten for                               a line you half remember. Try writing the line as you recall it.";
+pub const A_QUESTION: &str = "this reads as a question, and the lane is measured to be \
+                              poor at those — one in twelve reaches the top ten, against \
+                              ten in ten for a line you half remember. Try writing the \
+                              line as you recall it.";
 
 /// Whether a query reads as a question.
 ///

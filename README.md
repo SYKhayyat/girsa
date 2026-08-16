@@ -320,7 +320,7 @@ argument and the table of where each decision went.
 ### The rules are tests
 
 `crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs` is
-**24**<!--=rules--> checks that read this repository's own source and fail when a
+**25**<!--=rules--> checks that read this repository's own source and fail when a
 rule stated in a doc comment stops being true — a slug worked out twice, a query
 prepared twice, a chip family read with a silent fallback, a refusal Rust can
 send that the window has no sentence for.
