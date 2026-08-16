@@ -109,6 +109,7 @@ pub mod oversized;
 // the only one, and what drifted was the separator and the number format
 // between them.
 pub mod roots;
+pub mod sections;
 pub mod segment;
 pub mod span;
 // A dotted name means two opposite things — a piece a cut carved out, or a

@@ -212,7 +212,19 @@ impl<'a> Names<'a> {
             titles.as_ref().map(|(he, en)| (&**he, &**en)),
             when,
             self.language,
-            work.map(|work| crate::sending::printed_address(work, id, self.style)),
+            // **With the schema's own words**, which is what makes a chain
+            // hop into the Tur read `אורח חיים סימן א' סעיף א'` rather than
+            // `orach_chayim א' א'`. The pane had this the moment the sefer was
+            // open; a row about a sefer that is *not* open had nowhere to get
+            // it from until the shelf kept it.
+            work.map(|work| {
+                crate::sending::printed_address_in(
+                    work,
+                    Some(&self.shelf.sections(slug)),
+                    id,
+                    self.style,
+                )
+            }),
         )
     }
 }

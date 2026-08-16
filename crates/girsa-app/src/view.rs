@@ -1385,7 +1385,12 @@ impl Line {
             // `30b:11` and `31a:4` down its side while `girsa_cite` one call
             // away rendered the same place as `שבת דף לא. שורה א'`. One
             // formatter now: `crate::sending::printed_address`.
-            address: crate::sending::printed_address(&sefer.work, &segment.id, style),
+            address: crate::sending::printed_address_in(
+                &sefer.work,
+                Some(sefer.sections()),
+                &segment.id,
+                style,
+            ),
             kind: segment.kind.as_str(),
             opens: opens_a_siman(segment, &runs),
             runs,

@@ -94,8 +94,9 @@ pub fn of(sefer: &crate::Open, style: CiteStyle) -> Vec<Entry> {
             let here = &container[..=level];
             out.push(Entry {
                 at: segment.id.to_string(),
-                address: crate::sending::printed_address(
+                address: crate::sending::printed_address_in(
                     &sefer.work,
+                    Some(sefer.sections()),
                     // The container's own address, which is a place in this
                     // sefer even though no segment sits exactly on it. The
                     // ordinal is the first segment under it, because that is

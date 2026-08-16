@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::import::{self, Segment};
 use girsa_corpus::index::{SegmentIndex, WorkSegments};
+use girsa_corpus::sections::Sections;
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::standing::Standing;
 use girsa_corpus::work::{Source, Work};
@@ -102,6 +103,22 @@ pub struct Shelf {
     /// `girsa-companions` has been run; the shelf works without it, with a
     /// shorter list of seforim to open beside what you are reading.
     linked: HashMap<String, Companions>,
+    /// Slug → what that work's schema calls the parts of its address, read the
+    /// first time anybody asks and kept.
+    ///
+    /// # Why it is lazy and not built with the catalogue
+    ///
+    /// Every address a reader sees goes through `sending::printed_address_in`,
+    /// and the ones outside a pane — a links row, a chain hop, a search result —
+    /// have no open sefer to carry the answer. They have the shelf. Reading all
+    /// 1,101 branch schemas when the catalogue loads would pay for 7,189 works
+    /// so that the forty in front of the reader can be named; reading one when
+    /// it is asked for pays for the forty.
+    ///
+    /// `RefCell` because this is a cache and asking a question should not need a
+    /// mutable shelf. `Arc` so the answer can be handed out without copying a
+    /// map per row — the links panel asks 280 times for one line.
+    sections: std::cell::RefCell<HashMap<String, std::sync::Arc<Sections>>>,
 }
 
 /// What `girsa-companions` recorded about one sefer's joins.
@@ -283,6 +300,7 @@ impl Shelf {
             titles: std::sync::OnceLock::new(),
             shipped: taxonomy::Shipped::of(&works),
             linked: read_companions(root),
+            sections: std::cell::RefCell::new(HashMap::new()),
             root: root.to_path_buf(),
             personal: personal.to_path_buf(),
             arrangement,
@@ -344,7 +362,13 @@ impl Shelf {
         // than a tidy-up: a correction is stored under the name the place had
         // when it was made, and `Open::standing` cannot answer *what was this
         // called before* until it has been told the redirect table.
+        // The schema, resolved against **the root this work's files are under**
+        // — a sefer of the reader's own lives in the personal layer and a
+        // Sefaria one in the corpus, and `root_of` is the one place that knows
+        // which.
+        let root = self.root_of(&work).to_path_buf();
         let open = Open::new(work, read.segments)
+            .with_sections_from(&root)
             .redirected_by(&read.redirects)
             .corrected_by(&self.fixes, self.showing);
         // A scan the reader has paged is addressed by what is printed on its
@@ -748,6 +772,32 @@ impl Shelf {
             .map_or((0, 0), |c| (c.with.len(), c.joined))
     }
 
+    /// What a work's schema calls the parts of its address (see
+    /// [`girsa_corpus::sections`]).
+    ///
+    /// Read once per work and kept. Empty for a work with no schema and for one
+    /// whose schema says nothing, both of which leave every address printed
+    /// exactly as it is printed now.
+    #[must_use]
+    pub fn sections(&self, slug: &str) -> std::sync::Arc<Sections> {
+        if let Some(found) = self.sections.borrow().get(slug) {
+            return std::sync::Arc::clone(found);
+        }
+        let read = self
+            .work(slug)
+            .map(|work| {
+                Open::new(work.clone(), Vec::new())
+                    .with_sections_from(self.root_of(work))
+                    .sections
+            })
+            .unwrap_or_default();
+        let read = std::sync::Arc::new(read);
+        self.sections
+            .borrow_mut()
+            .insert(slug.to_string(), std::sync::Arc::clone(&read));
+        read
+    }
+
     /// How much of `other`'s order `slug` keeps, as `girsa-companions` counted
     /// it.
     ///
@@ -1066,6 +1116,16 @@ pub struct Open {
     /// blatt is not a place in it. It is still reachable, still noteable and
     /// still linkable by its **permanent id**, which no mapping ever moves.
     paging: Option<girsa_scan::Paging>,
+    /// What this work's schema calls the parts of its address, for the works
+    /// whose `he_sections` is empty because their schema branches.
+    ///
+    /// Read once, here, because the margin of every drawn line asks for it and
+    /// re-reading a JSON file four hundred times to draw a screen is not a
+    /// margin, it is a defect. Empty for the flat works, which is most of them,
+    /// and for everything Otzaria imported, which has no schema at all — and
+    /// empty changes nothing, so this is invisible until it is needed. See
+    /// `girsa_corpus::sections` and `sending::printed_address_in`.
+    sections: Sections,
 }
 
 impl Open {
@@ -1181,7 +1241,57 @@ impl Open {
             redirects: BTreeMap::new(),
             redirected_from: BTreeMap::new(),
             paging: None,
+            sections: Sections::default(),
         }
+    }
+
+    /// Read this work's schema for what it calls the parts of its address.
+    ///
+    /// **Told where the corpus is**, because `Work::schema` is a relative path
+    /// and only `girsa-import` ever read one before — run from the repository
+    /// root, where the relative path happens to work. Resolved against the
+    /// process's own directory it finds nothing, silently, and the margin goes
+    /// back to printing the slug.
+    ///
+    /// # Two tries, because the path is relative to the corpus's *parent*
+    ///
+    /// The catalogue records `corpus\sefaria\schemas\Tur.json` — it already
+    /// carries the corpus directory's own name. Joined to the corpus root that
+    /// is `…/corpus/corpus/sefaria/…`, which is nothing, and the first version
+    /// of this shipped that way and looked exactly like no fix at all.
+    ///
+    /// So the root's parent is tried first, and the root itself after it. Two
+    /// tries rather than stripping a leading component by name: a reader whose
+    /// corpus directory is called something else would have that stripping
+    /// silently do nothing, and *try both and take what exists* cannot be wrong
+    /// about a file that is there.
+    #[must_use]
+    pub fn with_sections_from(mut self, root: &Path) -> Self {
+        let Some(schema) = self.work.schema.as_deref() else {
+            return self;
+        };
+        // An absolute path is taken as it stands: a reader's own corpus, or a
+        // test that wrote a schema in a temporary directory.
+        let tries: Vec<std::path::PathBuf> = if schema.is_absolute() {
+            vec![schema.to_path_buf()]
+        } else {
+            root.parent()
+                .map(|up| up.join(schema))
+                .into_iter()
+                .chain(std::iter::once(root.join(schema)))
+                .collect()
+        };
+        self.sections = tries
+            .iter()
+            .find_map(|path| girsa_corpus::sections::Sections::read(path))
+            .unwrap_or_default();
+        self
+    }
+
+    /// What this work's schema calls the parts of its address.
+    #[must_use]
+    pub const fn sections(&self) -> &Sections {
+        &self.sections
     }
 
     /// The same, told where the names this work no longer has live went.
@@ -1556,6 +1666,7 @@ pub(crate) mod tests {
             works,
             commentaries,
             linked: HashMap::new(),
+            sections: std::cell::RefCell::new(HashMap::new()),
         }
     }
 

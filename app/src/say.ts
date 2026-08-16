@@ -659,9 +659,16 @@ const WORDS = {
   // when it closed, the same defect Girsa fixed on its own side in `run()`. So
   // the sentence names the likely cause and the remedy, and the transport's own
   // English stays on the hover where a developer's string belongs.
+  //
+  // **And short.** Driven in the real window, the first draft of this sentence
+  // was 119 characters and the chip is a note in a toolbar: it wrapped to two
+  // lines and took 450px of the top of the window. A status line that pushes
+  // the tools aside is a worse answer than the one it replaced. The cause and
+  // the remedy fit in half of that; the transport's own string is still on the
+  // hover, where a developer's string belongs.
   ksavStale: [
-    "{ksav} רשם את עצמו ואינו עונה — כנראה נסגר והשאיר את הרישום. פתח את {ksav} שוב.",
-    "{ksav} registered itself and is not answering — it probably closed and left the registration behind. Open {ksav} again.",
+    "{ksav} נסגר והשאיר רישום — פתח אותו שוב",
+    "{ksav} closed and left a registration behind — open it again",
   ] as Both,
 
   /** The writing drawer and the send, which name the sibling. */

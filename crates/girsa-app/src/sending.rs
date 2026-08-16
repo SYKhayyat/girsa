@@ -170,21 +170,110 @@ pub fn about(work: &Work) -> Sefer {
 /// exists to have only one of.
 #[must_use]
 pub fn printed_address(work: &Work, id: &SegmentId, style: CiteStyle) -> String {
-    let Some(address) = girsa_ref::Address::parse(&id.address()) else {
+    printed_address_in(work, None, id, style)
+}
+
+/// The same, for a work that **holds its chalakim inside itself**.
+///
+/// # The defect this exists for
+///
+/// Driven in the real window, every line of the Tur read `orach_chayim א' א'`
+/// in its margin and every line of the Arukh HaShulchan read `orach_chaim א'
+/// ט"ו`: a Latin slug, set left to right, inside a right-to-left Hebrew margin,
+/// on 6,005 and 25,265 lines. The two seforim a person reaches for beside a
+/// Shulchan Arukh were the two whose addresses could not be read — and the
+/// paragraph above, about a Hebrew daf carrying `30b:11`, is the same complaint
+/// answered once and left half-answered.
+///
+/// Two things were missing and both are in the work's own schema, which nothing
+/// had ever read: the Hebrew name of the chelek, and the words for the levels
+/// beneath it. See [`girsa_corpus::sections`] for why `Work::he_sections` is
+/// empty on exactly these works.
+///
+/// # Why the chelek is printed and not cited
+///
+/// `girsa_cite` prints an address out of numbered levels and a list of words
+/// for them. A chelek is neither — it is a **name**, and the sefer prints it as
+/// one: *טור אורח חיים סימן א'*, not *טור חלק א' סימן א'*. So the named levels
+/// at the front are taken off, said by name, and what is left is an ordinary
+/// address which goes through the one formatter exactly as before. Nothing here
+/// invents a word: a section the schema does not name keeps the slug it has, and
+/// a work with no schema is unchanged.
+#[must_use]
+pub fn printed_address_in(
+    work: &Work,
+    sections: Option<&girsa_corpus::sections::Sections>,
+    id: &SegmentId,
+    style: CiteStyle,
+) -> String {
+    let path = id.path();
+    let named = sections.map_or(0, |s| s.named(path));
+    // The address below the named sections. For a flat work this is the whole
+    // of it and nothing changes.
+    let below = path[named..].join(":");
+    // A place that is **only** named sections — the row for אורח חיים in a
+    // table of contents, which is a chelek and not an address inside one. There
+    // is nothing for the formatter to count, and falling through to it returns
+    // the id's own spelling, which is the slug this whole function exists to
+    // stop printing.
+    if named > 0 && below.is_empty() {
+        return said_sections(path, named, sections);
+    }
+    let Some(address) = girsa_ref::Address::parse(&below) else {
         // An id whose address will not parse. Its own spelling is the only
         // thing anybody knows about where it is, and a blank margin is worse
         // than a machine-shaped one.
         return id.address();
     };
-    let bare = Sefer::new("", "").with_sections(work.he_sections.clone());
-    let path: Vec<String> = work.slug.split('/').map(str::to_string).collect();
-    let said = cite(&bare, &girsa_ref::Ref::point(path, address), style);
+    // The schema's words where the catalogue has none, which is every work whose
+    // schema branches.
+    let words: Vec<String> = if work.he_sections.is_empty() {
+        sections
+            .map(|s| s.levels(path).to_vec())
+            .unwrap_or_default()
+    } else {
+        work.he_sections.clone()
+    };
+    let bare = Sefer::new("", "").with_sections(words);
+    let slug: Vec<String> = work.slug.split('/').map(str::to_string).collect();
+    let said = cite(&bare, &girsa_ref::Ref::point(slug, address), style);
     let said = said.trim();
-    if said.is_empty() {
-        id.address()
+    let said = if said.is_empty() {
+        below
     } else {
         said.to_string()
+    };
+    if named == 0 {
+        return if said.is_empty() { id.address() } else { said };
     }
+    let head = said_sections(path, named, sections);
+    if said.is_empty() {
+        head
+    } else {
+        format!("{head} {said}")
+    }
+}
+
+/// The named sections at the front of a path, said the way the sefer says them.
+///
+/// A section the schema does not name keeps the slug it has, which is at least
+/// something a reader can look up — this does not invent a Hebrew name for a
+/// section nobody named, for the same reason `girsa_cite` does not invent an
+/// abbreviation.
+fn said_sections(
+    path: &[String],
+    named: usize,
+    sections: Option<&girsa_corpus::sections::Sections>,
+) -> String {
+    path[..named]
+        .iter()
+        .map(|level| {
+            sections
+                .and_then(|s| s.titled(level))
+                .unwrap_or(level.as_str())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The whole citation — title and address — for a segment of a known work.
@@ -871,5 +960,117 @@ mod tests {
         }
         assert!(sent.packet.text.contains("יתגבר כארי"));
         assert_eq!(sent.packet.display, sent.display());
+    }
+    #[test]
+    fn a_sefer_that_holds_its_chalakim_says_which_one_in_hebrew() {
+        // Driven in the real window: every line of the Tur read
+        // `orach_chayim א' א'` in its margin and every line of the Arukh
+        // HaShulchan read `orach_chaim א' ט"ו`. A Latin slug, set left to
+        // right, inside a right-to-left Hebrew margin, on 6,005 and 25,265
+        // lines — the two seforim a person reaches for beside a Shulchan Arukh.
+        //
+        // Both halves came out of the work's own schema, which nothing had read:
+        // `אורח חיים` for the chelek, and `סימן`/`סעיף` for the levels under it.
+        // `Work::he_sections` is empty here because a **branch** schema carries
+        // `heSectionNames` on its leaves — `girsa-cite` counts 1,101 of
+        // Sefaria's 6,595 in that shape.
+        let sections = tur_sections();
+        let tur = tur_work();
+        let at: SegmentId = "girsa:tur/orach_chayim:1:1#9".parse().expect("an id");
+        assert_eq!(
+            printed_address_in(&tur, Some(&sections), &at, CiteStyle::HebrewFull),
+            "אורח חיים סימן א' סעיף א'"
+        );
+
+        // A chelek is allowed to disagree with its neighbour about how it is
+        // counted: the Tur's הקדמה is in פסקאות and its body in סימנים.
+        let intro: SegmentId = "girsa:tur/orach_chayim:introduction:1#1"
+            .parse()
+            .expect("an id");
+        assert_eq!(
+            printed_address_in(&tur, Some(&sections), &intro, CiteStyle::HebrewFull),
+            "אורח חיים הקדמה פסקה א'"
+        );
+
+        // A place that is **only** named sections — the row a table of contents
+        // draws for the chelek itself. There is no address inside it to count,
+        // and returning the id's own spelling here is the slug coming straight
+        // back.
+        let chelek: SegmentId = "girsa:tur/orach_chayim#9".parse().expect("an id");
+        assert_eq!(
+            printed_address_in(&tur, Some(&sections), &chelek, CiteStyle::HebrewFull),
+            "אורח חיים"
+        );
+
+        // And with nothing read, it is exactly what it was — this decorates an
+        // address and never refuses to print one.
+        assert_eq!(
+            printed_address_in(&tur, None, &at, CiteStyle::HebrewFull),
+            printed_address(&tur, &at, CiteStyle::HebrewFull),
+        );
+    }
+
+    #[test]
+    fn a_flat_sefer_is_untouched_by_any_of_it() {
+        // The Shulchan Arukh is four separate works and its schema is flat, so
+        // `he_sections` has always been right for it. Nothing above may change
+        // what it prints.
+        let mut sa = tur_work();
+        sa.slug = "shulchan-arukh/yoreh-deah".to_string();
+        sa.he_sections = vec!["סימן".to_string(), "סעיף".to_string()];
+        let at: SegmentId = "girsa:shulchan-arukh/yoreh-deah/1:1#1"
+            .parse()
+            .expect("an id");
+        let sections = tur_sections();
+        assert_eq!(
+            printed_address_in(&sa, Some(&sections), &at, CiteStyle::HebrewFull),
+            "סימן א' סעיף א'"
+        );
+        assert_eq!(
+            printed_address(&sa, &at, CiteStyle::HebrewFull),
+            "סימן א' סעיף א'"
+        );
+    }
+
+    /// The Tur's catalogue entry, as the corpus records it: no `he_sections`,
+    /// because its schema branches.
+    fn tur_work() -> Work {
+        Work {
+            slug: "tur".to_string(),
+            he_title: "טור".to_string(),
+            en_title: "Tur".to_string(),
+            categories: vec!["Halakhah".to_string(), "Tur".to_string()],
+            order: Vec::new(),
+            source: girsa_corpus::work::Source::Sefaria,
+            origin: std::path::PathBuf::new(),
+            schema: None,
+            he_sections: Vec::new(),
+            author: None,
+            era: None,
+            comp_date: None,
+            version: None,
+            commentary_on: Vec::new(),
+        }
+    }
+
+    fn tur_sections() -> girsa_corpus::sections::Sections {
+        let json = serde_json::json!({
+            "schema": {
+                "title": "Tur",
+                "heTitle": "טור",
+                "nodes": [{
+                    "key": "Orach Chaim",
+                    "title": "Orach Chayim",
+                    "heTitle": "אורח חיים",
+                    "nodes": [
+                        { "title": "Introduction", "heTitle": "הקדמה",
+                          "heSectionNames": ["פסקה"] },
+                        { "title": "default", "heTitle": "",
+                          "heSectionNames": ["סימן", "סעיף"] },
+                    ],
+                }],
+            }
+        });
+        girsa_corpus::sections::Sections::of(&json.to_string()).expect("it reads")
     }
 }
