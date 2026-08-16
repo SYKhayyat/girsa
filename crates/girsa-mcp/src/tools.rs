@@ -1318,7 +1318,9 @@ fn undraw_link(server: &mut Server, args: &Value) -> Result<Value, String> {
         .undraw(&from_anchor, &to_anchor)
         .map_err(|e| e.to_string())?;
     if !undrawn {
-        return Err(format!("the link from {from} to {to} could not be taken back"));
+        return Err(format!(
+            "the link from {from} to {to} could not be taken back"
+        ));
     }
     Ok(json!({
         "undrew": {"from": named(server, &from), "to": named(server, &to), "type": held.as_str()},

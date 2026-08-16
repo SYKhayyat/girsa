@@ -1,9 +1,15 @@
 # Every command this repository can be told to run
 
-Girsa is a window, and behind it are thirty command-line programs: the ones that
-build the corpus, the ones that read the same data on a terminal so a feature
-can be checked without a window, and the ones that measure a claim somebody
-made in prose.
+Girsa is a window, and behind it are **sixteen binaries and fifteen examples**:
+the ones that build the corpus, the ones that read the same data on a terminal
+so a feature can be checked without a window, and the ones that measure a claim
+somebody made in prose.
+
+Two numbers rather than one, and neither of them the word *thirty* this sentence
+used to open with. Thirty was wrong by one and unfalsifiable — a number spelled
+as a word cannot be marked, which is the argument `README.md` already makes
+about *"a window and fifty commands"*. Split in two it is checkable: the README
+carries both halves as marked numbers and re-measures them on every push.
 
 This page exists because they were not written down. Fifteen of them had never
 been named in a runnable line in any document — including `girsa-companions`,

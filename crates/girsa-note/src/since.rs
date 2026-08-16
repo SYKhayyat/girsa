@@ -638,7 +638,11 @@ mod tests {
 
         assert!(absorbed(&index, &personal, "note/ראשונה"));
         let at = Unindexed::of(Some(&index), &personal);
-        assert_eq!(at.notes, Written::Since(1), "the other note is still missing");
+        assert_eq!(
+            at.notes,
+            Written::Since(1),
+            "the other note is still missing"
+        );
         assert_eq!(
             at.fixes,
             Written::Since(2),
@@ -655,7 +659,10 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(1100));
         note(&personal, "נערכה");
         assert!(absorbed(&index, &personal, "note/נערכה"));
-        assert_eq!(Unindexed::of(Some(&index), &personal).notes, Written::Since(0));
+        assert_eq!(
+            Unindexed::of(Some(&index), &personal).notes,
+            Written::Since(0)
+        );
 
         std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(personal.join("notes").join("נערכה.md"), "# עוד\n").unwrap();

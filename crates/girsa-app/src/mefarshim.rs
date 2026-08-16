@@ -1406,8 +1406,8 @@ mod tests {
             .filter(|c| c.stands == Some(crate::shelf::Related::On))
             .count();
 
-        let page = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/start-here.md");
+        let page =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/start-here.md");
         let body = std::fs::read_to_string(&page)
             .unwrap_or_else(|e| panic!("{} reads: {e}", page.display()));
         // `מפרשים · N`, however it is emphasised around the digits.

@@ -212,7 +212,11 @@ fn what_was_done(done: &Exported) -> String {
         said.push_str(&format!(
             " · {} {}, משום שהטקסט שתוקן אינו שם עוד",
             how_many(done.stale, "תיקון", "תיקונים", Gender::Masculine),
-            if done.stale == 1 { "שלא חל" } else { "שלא חלו" },
+            if done.stale == 1 {
+                "שלא חל"
+            } else {
+                "שלא חלו"
+            },
         ));
     }
     said
