@@ -1,8 +1,20 @@
 //! What a program may ask the library, and what it gets back.
 //!
-//! Nine tools, and each is a thin call onto the engine the window uses. The
-//! thinness is the design: a tool that reimplemented a search would be the
-//! place where spec.md §9's guarantees quietly stopped applying.
+//! Ten to read with, six to write with, and each is a thin call onto the engine
+//! the window uses. The thinness is the design: a tool that reimplemented a
+//! search would be the place where spec.md §9's guarantees quietly stopped
+//! applying.
+//!
+//! # Deleting asks you to prove you have looked
+//!
+//! The three writes each have an undo now, and each takes an argument that
+//! cannot be filled in without having read the thing: the note's own words, the
+//! link's current type, the words the correction reads. A window asks *are you
+//! sure* by **showing** you what you are about to lose, and this end has no
+//! screen — so the question it asks instead is one only a caller that looked can
+//! answer, and a wrong answer is refused with the thing left alone. The refusal
+//! does not print the right answer, which would turn the check into a two-call
+//! formality passed without ever reading anything.
 //!
 //! # Two refusals, encoded here
 //!
@@ -104,7 +116,11 @@ pub fn catalogue(writable: bool) -> Value {
             "title": "Read a segment",
             "description": "\
     The text at a permanent segment id, with the lines around it. Ids look like \
-    girsa:bavli/berakhot/2a:1#1 and survive corrections and re-segmentation.",
+    girsa:bavli/berakhot/2a:1#1 and survive corrections and re-segmentation. \
+    `text` is the segment as the corpus stores it, markup and all; `counting` is \
+    the same words with the markup taken out, and it is the string `correct`'s \
+    character offsets are into. `corrections` is what your own layer has already \
+    said about this line, and is where `uncorrect` gets its `says`.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -340,8 +356,10 @@ fn writing() -> Vec<Value> {
         the corpus keeps your correction and a download stays replaceable. `kind` \
         says what is being claimed — `ocr` is *the scanner got this wrong* and \
         `girsa` is *this edition reads differently*, which are the same machinery \
-        and two very different statements. Character offsets are into the segment's \
-        text as the corpus stores it, which `read` returns.",
+        and two very different statements. Character offsets are into `counting` — \
+        the field `read` returns beside `text`, which is the same words with the \
+        markup taken out. Not into `text`: a segment can carry markup, and counting \
+        into the stored string would name letters nobody can see.",
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true},
             "inputSchema": {
                 "type": "object",
@@ -355,6 +373,69 @@ fn writing() -> Vec<Value> {
                     "source": {"type": "string", "description": "For a variant: the sefer that says so, as a ref."}
                 },
                 "required": ["at", "from_char", "to_char", "says"]
+            }
+        }),
+        json!({
+            "name": "forget_note",
+            "title": "Throw a note away",
+            "description": "\
+        Delete a note: the file, the sefer on your shelf and the edges to the sugya. \
+        `saying` must be exactly what the note says now — every paragraph, joined by \
+        a blank line, which is what `search` and `read` give you. This end cannot \
+        show you what you are about to delete, so it asks you to prove you have \
+        looked; a mismatch is refused and the note is left alone. Nothing here \
+        touches the corpus, and nothing here can undo this.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": "The note's name — what `write_note` returned as `wrote`."},
+                    "saying": {"type": "string", "description": "What it says now, exactly. Read it first."}
+                },
+                "required": ["note", "saying"]
+            }
+        }),
+        json!({
+            "name": "undraw_link",
+            "title": "Take back a link you drew",
+            "description": format!("\
+        Remove a link **you** drew. The shipped graph is not touched and cannot be: \
+        this only takes back a `draw_link`, so an edge Sefaria seeded is refused \
+        rather than deleted. `type` must be the type the link has now — `links` \
+        reports it — because this end cannot show you the edge you are about to \
+        remove. One of: {kinds}."),
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string", "description": "A segment id or girsa: ref — the end it was drawn from."},
+                    "to": {"type": "string", "description": "The other end, in the direction it was drawn."},
+                    "type": {
+                        "type": "string",
+                        "enum": girsa_link::EdgeType::ALL.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
+                        "description": "The type it has now. Not what you meant to draw — what `links` says."
+                    }
+                },
+                "required": ["from", "to", "type"]
+            }
+        }),
+        json!({
+            "name": "uncorrect",
+            "title": "Take a correction back",
+            "description": "\
+        Remove a correction from your own layer. The base text was never edited, so \
+        this restores nothing — it stops an overlay being applied. `says` must be \
+        what the correction currently reads, which `read` returns in `corrections`; \
+        a segment can carry more than one, and naming the words is how you say which. \
+        Refused, and nothing removed, if no correction there says that.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "at": {"type": "string", "description": "A segment id or girsa: ref."},
+                    "says": {"type": "string", "description": "What the correction reads now — `read`'s `corrections[].says`."}
+                },
+                "required": ["at", "says"]
             }
         }),
     ]
@@ -385,12 +466,19 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         // door: a client that remembered the tools from a writable session and
         // called one against a read-only server gets a refusal that names the
         // reason rather than a note appearing in somebody's layer.
-        "write_note" | "draw_link" | "correct" if !server.is_writable() => Err(format!(
-            "{name} writes into your own layer, and this server was started without --writable"
-        )),
+        "write_note" | "draw_link" | "correct" | "forget_note" | "undraw_link" | "uncorrect"
+            if !server.is_writable() =>
+        {
+            Err(format!(
+                "{name} writes into your own layer, and this server was started without --writable"
+            ))
+        }
         "write_note" => write_note(server, &args),
         "draw_link" => draw_link(server, &args),
         "correct" => correct(server, &args),
+        "forget_note" => forget_note(server, &args),
+        "undraw_link" => undraw_link(server, &args),
+        "uncorrect" => uncorrect(server, &args),
         other => Err(format!("no such tool: {other}")),
     };
     Response::ok(match answered {
@@ -585,11 +673,64 @@ fn read(server: &Server, args: &Value) -> Result<Value, String> {
         .map(|segment| {
             let mut row = named(server, &segment.id);
             row["text"] = json!(segment.text);
+            // The same words with the markup out, because that is the string
+            // `correct` counts into and it was not being handed to anybody.
+            //
+            // `read` returned `<big><strong>מֵאֵימָתַי</strong></big> …` and the
+            // tool that takes character offsets counted into `מֵאֵימָתַי …`, while
+            // its own description said the two were the same string. A caller
+            // that believed the description corrected different letters than it
+            // named and got a success back — `from_char: 0, to_char: 4` reads as
+            // `<big` in what it was given and landed on `מֵאֵ`.
+            //
+            // Built by the same `Shown` the correction path uses rather than by
+            // stripping tags here, which would be a second opinion about what
+            // markup is and would be wrong the first time the two disagreed.
+            row["counting"] = json!(girsa_app::display::Shown::of(
+                &segment.text,
+                girsa_app::session::Pointing::Full
+            )
+            .text());
+            // And what your layer has already said about the line, which is
+            // what `uncorrect` asks you to name. Nothing here could learn it
+            // otherwise, and an undo you cannot address is not an undo.
+            let already = corrections_on(&open, &segment.id);
+            if !already.is_empty() {
+                row["corrections"] = json!(already);
+            }
             row["asked_for"] = json!(segment.id == id);
             row
         })
         .collect();
     Ok(json!({"segments": segments}))
+}
+
+/// What your own layer has said about one line, in the shape `uncorrect` reads.
+///
+/// Applied and merely noted alike: a variant that is recorded and not shown is
+/// still a correction you can take back, and leaving it out would make the one
+/// kind of correction nothing displays also the one kind nothing can undo.
+fn corrections_on(open: &girsa_app::shelf::Open, id: &SegmentId) -> Vec<Value> {
+    let Some(corrected) = open.correction(id) else {
+        return Vec::new();
+    };
+    corrected
+        .applied
+        .iter()
+        .map(|a| (a, true))
+        .chain(corrected.noted.iter().map(|a| (a, false)))
+        .map(|(a, applied)| {
+            json!({
+                "was": a.was,
+                "says": a.now,
+                "kind": a.kind.as_str(),
+                "who": a.who,
+                "applied": applied,
+                "note": a.note,
+                "source": a.source,
+            })
+        })
+        .collect()
 }
 
 fn resolve(server: &Server, args: &Value) -> Result<Value, String> {
@@ -1053,10 +1194,16 @@ fn correct(server: &mut Server, args: &Value) -> Result<Value, String> {
     let who = writer(args);
 
     let sefer = server.shelf().read(at.work()).map_err(|e| e.to_string())?;
-    // As the corpus stores it — `Pointing::Full` — because the offsets a program
-    // is given are the ones `read` returned, and `read` returns the segment's
-    // own text. A window counts into what it drew; a tool has not drawn
-    // anything.
+    // `Pointing::Full`: every letter and every nekuda, and the markup out. That
+    // is what `read` hands back as `counting`, and the two have to be the same
+    // string or the offsets name letters the caller never saw.
+    //
+    // They were not. `read` returned the stored text with its markup and this
+    // counted into the drawn text without it, and the description above claimed
+    // they were one string — so `from_char: 0, to_char: 4` on Berakhot 2a:1#1
+    // read as `<big` to the caller and landed on `מֵאֵ` here, successfully.
+    // `read` now returns the string this counts into, built by this same
+    // `Shown`.
     let mut patch = girsa_app::correction(
         &sefer,
         &at,
@@ -1082,5 +1229,150 @@ fn correct(server: &mut Server, args: &Value) -> Result<Value, String> {
         "kind": kind.as_str(),
         "into": "personal",
         "note": "an overlay — the corpus text on disk is untouched, so re-importing keeps this",
+    }))
+}
+
+/// Throw a note away (spec.md §11).
+///
+/// # The caller has to have read it
+///
+/// `saying` is the note's own words, and it is checked before anything is
+/// removed. That is the one shape this end can enforce: a window asks *are you
+/// sure* by **showing** you the thing, and this end has no screen — so the
+/// question it asks instead is *what does it say*, which cannot be answered
+/// without having looked.
+///
+/// A mismatch does not print what it does say. Handing the answer back would
+/// turn the check into a two-call formality that an agent passes without ever
+/// reading the note, which is precisely the thing being guarded against; the
+/// refusal names the tool that will show it.
+fn forget_note(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let name = text_arg(args, "note")?;
+    let saying = text_arg(args, "saying")?;
+    let held = server
+        .shelf()
+        .notes()
+        .get(&name)
+        .ok_or_else(|| format!("no note called {name}"))?;
+    let title = held.title.clone();
+    let slug = held.slug.clone();
+    let on: Vec<Value> = held.on.clone().iter().map(|at| named(server, at)).collect();
+    if held.words().trim() != saying.trim() {
+        return Err(format!(
+            "that is not what {name} says — read it first, and pass its words as `saying`"
+        ));
+    }
+    let gone = server
+        .shelf_mut()
+        .forget_note(&name)
+        .map_err(|e| e.to_string())?;
+    if !gone {
+        return Err(format!("{name} could not be thrown away"));
+    }
+    Ok(json!({
+        "forgot": name,
+        "sefer": slug,
+        "title": title,
+        "was_about": on,
+        "into": "personal",
+        "note": "the file, the sefer and its edges are gone — the corpus is untouched, \
+                 and nothing here can put it back",
+    }))
+}
+
+/// Take back a link you drew (spec.md §8.3).
+///
+/// Only a link **you drew**. An edge the corpus shipped is refused rather than
+/// removed, and that is not a politeness: rejecting a shipped edge is a
+/// different statement with its own record, and a tool that deleted one under
+/// the name *undraw* would be the second way to change the graph that
+/// `girsa_mcp`'s own header says will not exist.
+fn undraw_link(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let from = id_arg(args, "from")?;
+    let to = id_arg(args, "to")?;
+    let asked = text_arg(args, "type")?;
+    let (from_anchor, to_anchor) = (
+        girsa_link::Anchor::point(from.clone()),
+        girsa_link::Anchor::point(to.clone()),
+    );
+    // What is actually drawn between them, so the type can be checked against
+    // the graph rather than against what the caller remembers.
+    let drawn = server
+        .shelf()
+        .repairs()
+        .drawn()
+        .find(|link| link.edge.from == from_anchor && link.edge.to == to_anchor)
+        .ok_or_else(|| {
+            format!("you have not drawn a link from {from} to {to} — `links` shows what is there")
+        })?;
+    let held = drawn.edge.edge_type;
+    if !girsa_link::touching::type_named(&asked).is_some_and(|named| named == held) {
+        // Which type it *is* stays unsaid, for the reason `forget_note` gives.
+        return Err(format!(
+            "the link from {from} to {to} is not a {asked} — `links` says what it is"
+        ));
+    }
+    let undrawn = server
+        .shelf_mut()
+        .repairs_mut()
+        .undraw(&from_anchor, &to_anchor)
+        .map_err(|e| e.to_string())?;
+    if !undrawn {
+        return Err(format!("the link from {from} to {to} could not be taken back"));
+    }
+    Ok(json!({
+        "undrew": {"from": named(server, &from), "to": named(server, &to), "type": held.as_str()},
+        "into": "personal",
+        "note": "your layer only — the shipped graph never had this edge and still does not, \
+                 and anything else you have said about this pair stands",
+    }))
+}
+
+/// Take a correction back (spec.md §7).
+///
+/// Restores nothing, because nothing was edited: a correction is an overlay,
+/// so removing it stops it being applied and the base text on disk is what it
+/// always was. The answer says so, because *undo* over an overlay reads like a
+/// revert and is not one.
+fn uncorrect(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let at = id_arg(args, "at")?;
+    let says = text_arg(args, "says")?;
+    // Through the opened sefer, because a correction is held against the work
+    // it is in — the shelf knows which works there are and `Open` knows what
+    // your layer said about their lines.
+    let open = server
+        .shelf()
+        .read(at.work())
+        .map_err(|e| format!("cannot open {}: {e}", at.work()))?;
+    let corrected = open
+        .correction(&at)
+        .ok_or_else(|| format!("nothing in your layer corrects {at}"))?;
+    // Applied and noted alike — a variant that is recorded and not shown is
+    // still one you can take back.
+    let found = corrected
+        .applied
+        .iter()
+        .chain(corrected.noted.iter())
+        .find(|a| a.now.trim() == says.trim())
+        .ok_or_else(|| {
+            format!("no correction on {at} says that — `read` returns them in `corrections`")
+        })?;
+    let (id, was, now, kind) = (
+        found.id.clone(),
+        found.was.clone(),
+        found.now.clone(),
+        found.kind.as_str(),
+    );
+    let removed = server.shelf_mut().unfix(&id).map_err(|e| e.to_string())?;
+    if !removed {
+        return Err(format!("the correction on {at} could not be taken back"));
+    }
+    Ok(json!({
+        "uncorrected": named(server, &at),
+        "no_longer_says": now,
+        "reads_again": was,
+        "kind": kind,
+        "into": "personal",
+        "note": "an overlay was removed, not an edit reverted — the text on disk never changed",
     }))
 }

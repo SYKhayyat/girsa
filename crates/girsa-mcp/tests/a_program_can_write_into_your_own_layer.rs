@@ -332,3 +332,344 @@ fn a_correction_is_a_scanning_error_unless_it_says_otherwise() {
     let (layer, _) = girsa_fix::Layer::open(&personal);
     assert!(layer.all().all(|patch| patch.kind == girsa_fix::Kind::Ocr));
 }
+
+// ---------------------------------------------------------------------------
+// And the other direction: three writes with no way back was three writes.
+//
+// The record's own line was *"nothing there deletes one, because deleting is a
+// decision and this end cannot show you what you are about to delete."* The
+// first half was a gap and the second half is a real constraint, so each undo
+// asks for something only a caller that read the thing can supply — and a wrong
+// answer is refused with the thing left standing. What is asserted below is
+// that shape, on all three, plus the two ways it could be a fiction: a refusal
+// that still deletes, and a check that hands back the answer it just refused.
+
+#[test]
+fn a_read_only_server_advertises_no_undo_either_and_refuses_one() {
+    let (mut server, personal) = server("no-undo", false);
+    handshake(&mut server);
+    let names = tool_names(&mut server);
+    for undo in ["forget_note", "undraw_link", "uncorrect"] {
+        assert!(
+            !names.contains(&undo.to_string()),
+            "{undo} is not in a read-only server's catalogue"
+        );
+    }
+
+    let answered = call(
+        &mut server,
+        "forget_note",
+        json!({"note": "whatever", "saying": "whatever"}),
+    );
+    assert_eq!(answered["isError"], json!(true));
+    let said = answered["structuredContent"]["refused"]
+        .as_str()
+        .expect("a reason");
+    assert!(said.contains("--writable"), "{said}");
+    assert!(!personal.join("notes").exists());
+}
+
+#[test]
+fn a_writable_server_advertises_the_undos_and_says_they_destroy() {
+    let (mut server, _) = server("undo-advertised", true);
+    handshake(&mut server);
+    let tools = ask(&mut server, "tools/list", json!({}))["result"]["tools"].clone();
+    let listed = tools.as_array().expect("a list");
+    for undo in ["forget_note", "undraw_link", "uncorrect"] {
+        let tool = listed
+            .iter()
+            .find(|tool| tool["name"] == json!(undo))
+            .unwrap_or_else(|| panic!("{undo} is in a writable server's catalogue"));
+        assert_eq!(tool["annotations"]["readOnlyHint"], json!(false), "{undo}");
+        // The one hint that separates these from the three that write: a client
+        // that asks its user before a destructive call has to be able to tell
+        // *this adds a note* from *this deletes one*.
+        assert_eq!(
+            tool["annotations"]["destructiveHint"],
+            json!(true),
+            "{undo} says it destroys"
+        );
+    }
+}
+
+#[test]
+fn a_note_is_not_thrown_away_by_a_caller_that_has_not_read_it() {
+    let (mut server, personal) = server("forget-unread", true);
+    handshake(&mut server);
+    let place = at(MISHNAH, &["1", "1"]);
+    let wrote = call(
+        &mut server,
+        "write_note",
+        json!({"at": place, "title": "חבורה", "text": "מה שראיתי"}),
+    )["structuredContent"]["wrote"]
+        .as_str()
+        .expect("a name")
+        .to_string();
+
+    let answered = call(
+        &mut server,
+        "forget_note",
+        json!({"note": &wrote, "saying": "something it does not say"}),
+    );
+    assert_eq!(answered["isError"], json!(true));
+    let said = answered["structuredContent"]["refused"]
+        .as_str()
+        .expect("a reason");
+    // And it does not hand back the words it just refused. Printing them would
+    // make the check a two-call formality an agent passes without ever reading
+    // the note, which is the whole thing being guarded against.
+    assert!(
+        !said.contains("מה שראיתי"),
+        "the refusal does not answer its own question: {said}"
+    );
+    let (notes, _) = girsa_note::Notes::open(&personal);
+    assert!(notes.get(&wrote).is_some(), "and the note is still there");
+}
+
+#[test]
+fn a_note_the_caller_has_read_is_thrown_away_with_its_sefer() {
+    let (mut server, personal) = server("forget-read", true);
+    handshake(&mut server);
+    let place = at(MISHNAH, &["1", "1"]);
+    let wrote = call(
+        &mut server,
+        "write_note",
+        json!({"at": place, "title": "חבורה", "text": "מה שראיתי"}),
+    )["structuredContent"]["wrote"]
+        .as_str()
+        .expect("a name")
+        .to_string();
+    let slug = {
+        let (notes, _) = girsa_note::Notes::open(&personal);
+        notes.get(&wrote).expect("written").slug.clone()
+    };
+    assert!(girsa_corpus::import::work_dir(&personal, &slug).is_dir());
+
+    let answered = call(
+        &mut server,
+        "forget_note",
+        json!({"note": &wrote, "saying": "מה שראיתי"}),
+    );
+    assert_ne!(answered["isError"], json!(true), "{answered}");
+    assert_eq!(answered["structuredContent"]["forgot"], json!(&wrote));
+
+    let (notes, _) = girsa_note::Notes::open(&personal);
+    assert!(notes.get(&wrote).is_none(), "the note is gone");
+    assert!(
+        !girsa_corpus::import::work_dir(&personal, &slug).is_dir(),
+        "and so is the sefer it was — not just the catalogue line"
+    );
+
+    // Twice is not a silent success. A caller that cannot tell *deleted* from
+    // *was not there* cannot tell whether its first call worked.
+    let again = call(
+        &mut server,
+        "forget_note",
+        json!({"note": &wrote, "saying": "מה שראיתי"}),
+    );
+    assert_eq!(again["isError"], json!(true));
+}
+
+#[test]
+fn a_link_is_not_undrawn_by_a_caller_naming_the_wrong_type() {
+    let (mut server, personal) = server("undraw-wrong-type", true);
+    handshake(&mut server);
+    let (from, to) = (
+        at(MISHNAH, &["1", "1"]),
+        first_of("rambam-on-mishnah-berakhot"),
+    );
+    call(
+        &mut server,
+        "draw_link",
+        json!({"from": &from, "to": &to, "type": "comments-on"}),
+    );
+
+    let answered = call(
+        &mut server,
+        "undraw_link",
+        json!({"from": &from, "to": &to, "type": "quotes"}),
+    );
+    assert_eq!(answered["isError"], json!(true));
+    let said = answered["structuredContent"]["refused"]
+        .as_str()
+        .expect("a reason");
+    assert!(
+        !said.contains("comments-on"),
+        "the refusal does not answer its own question: {said}"
+    );
+    let (repairs, _) = girsa_link::repair::Repairs::open(&personal);
+    assert_eq!(repairs.drawn().count(), 1, "and the link is still drawn");
+}
+
+#[test]
+fn an_edge_the_corpus_shipped_cannot_be_undrawn() {
+    // The wall this tool is behind. Rejecting a shipped edge is a different
+    // statement with its own record, and a tool that deleted one under the name
+    // *undraw* would be a second way to change the graph.
+    let (mut server, _) = server("undraw-shipped", true);
+    handshake(&mut server);
+    let from = at(MISHNAH, &["1", "1"]);
+    let shipped = call(&mut server, "links", json!({"id": &from, "limit": 1}));
+    let other = shipped["structuredContent"]["links"][0]["id"]
+        .as_str()
+        .expect("the fixture has an edge on that line")
+        .to_string();
+
+    let answered = call(
+        &mut server,
+        "undraw_link",
+        json!({"from": &from, "to": &other, "type": "comments-on"}),
+    );
+    assert_eq!(answered["isError"], json!(true));
+    let said = answered["structuredContent"]["refused"]
+        .as_str()
+        .expect("a reason");
+    assert!(said.contains("not drawn a link"), "{said}");
+}
+
+#[test]
+fn a_link_the_caller_has_read_is_taken_back_and_nothing_else_said_about_it_is() {
+    let (mut server, personal) = server("undraw-read", true);
+    handshake(&mut server);
+    let (from, to) = (
+        at(MISHNAH, &["1", "1"]),
+        first_of("rambam-on-mishnah-berakhot"),
+    );
+    call(
+        &mut server,
+        "draw_link",
+        json!({"from": &from, "to": &to, "type": "comments-on"}),
+    );
+
+    let answered = call(
+        &mut server,
+        "undraw_link",
+        json!({"from": &from, "to": &to, "type": "comments-on"}),
+    );
+    assert_ne!(answered["isError"], json!(true), "{answered}");
+    assert_eq!(
+        answered["structuredContent"]["undrew"]["type"],
+        json!("comments-on")
+    );
+
+    let (repairs, trouble) = girsa_link::repair::Repairs::open(&personal);
+    assert!(trouble.is_empty(), "{trouble:?}");
+    assert_eq!(
+        repairs.drawn().count(),
+        0,
+        "the link is gone from your layer"
+    );
+
+    let again = call(
+        &mut server,
+        "undraw_link",
+        json!({"from": &from, "to": &to, "type": "comments-on"}),
+    );
+    assert_eq!(again["isError"], json!(true), "and twice is not a success");
+}
+
+#[test]
+fn a_correction_is_not_taken_back_by_a_caller_naming_words_it_does_not_say() {
+    let (mut server, personal) = server("uncorrect-unread", true);
+    handshake(&mut server);
+    let place = at(MISHNAH, &["1", "1"]);
+    call(
+        &mut server,
+        "correct",
+        json!({"at": &place, "from_char": 0, "to_char": 4, "says": "מאימתי"}),
+    );
+
+    let answered = call(
+        &mut server,
+        "uncorrect",
+        json!({"at": &place, "says": "לא זה"}),
+    );
+    assert_eq!(answered["isError"], json!(true));
+    let said = answered["structuredContent"]["refused"]
+        .as_str()
+        .expect("a reason");
+    assert!(!said.contains("מאימתי"), "{said}");
+    let (layer, _) = girsa_fix::Layer::open(&personal);
+    assert_eq!(layer.count(), 1, "and the correction stands");
+}
+
+#[test]
+fn a_correction_the_caller_read_is_removed_as_an_overlay_and_restores_nothing() {
+    // The sentence the answer has to carry: nothing was edited, so nothing is
+    // reverted. `read` is where the caller got the words, which is the point of
+    // it returning `corrections` at all.
+    let (mut server, personal) = server("uncorrect-read", true);
+    handshake(&mut server);
+    let place = at(MISHNAH, &["1", "1"]);
+    call(
+        &mut server,
+        "correct",
+        json!({"at": &place, "from_char": 0, "to_char": 4, "says": "מאימתי"}),
+    );
+
+    let seen = call(&mut server, "read", json!({"id": &place}));
+    let says = seen["structuredContent"]["segments"][0]["corrections"][0]["says"]
+        .as_str()
+        .expect("read reports the corrections on the line")
+        .to_string();
+    assert_eq!(says, "מאימתי");
+
+    let answered = call(
+        &mut server,
+        "uncorrect",
+        json!({"at": &place, "says": &says}),
+    );
+    assert_ne!(answered["isError"], json!(true), "{answered}");
+    assert_eq!(
+        answered["structuredContent"]["no_longer_says"],
+        json!("מאימתי")
+    );
+
+    let (layer, trouble) = girsa_fix::Layer::open(&personal);
+    assert!(trouble.is_empty(), "{trouble:?}");
+    assert_eq!(layer.count(), 0, "the overlay is gone");
+
+    let after = call(&mut server, "read", json!({"id": &place}));
+    assert!(
+        after["structuredContent"]["segments"][0]
+            .get("corrections")
+            .is_none(),
+        "and `read` says so"
+    );
+}
+
+#[test]
+fn the_offsets_a_correction_takes_are_the_ones_read_hands_back() {
+    // Found by driving the server against the real corpus. `read` returned the
+    // segment as the corpus stores it — markup and all — and `correct` counted
+    // into the same words with the markup out, while its own description said
+    // the two were one string. On Berakhot 2a:1#1, `from_char: 0, to_char: 4`
+    // reads as `<big` in what the caller was given and landed on `מֵאֵ`,
+    // successfully, with nothing to tell it apart from a correct call.
+    //
+    // The repair is that `read` hands back the string the offsets are into.
+    // What is asserted is the agreement, not either string: a caller that
+    // counts characters in what it was given must name the characters it meant.
+    let (mut server, _) = server("counting-agrees", true);
+    handshake(&mut server);
+    let place = at(MISHNAH, &["1", "1"]);
+
+    let seen = call(&mut server, "read", json!({"id": &place}));
+    let counting = seen["structuredContent"]["segments"][0]["counting"]
+        .as_str()
+        .expect("read returns the string to count into")
+        .to_string();
+    let meant: String = counting.chars().take(4).collect();
+
+    let answered = call(
+        &mut server,
+        "correct",
+        json!({"at": &place, "from_char": 0, "to_char": 4, "says": "מאימתי"}),
+    );
+    assert_ne!(answered["isError"], json!(true), "{answered}");
+    assert_eq!(
+        answered["structuredContent"]["was"],
+        json!(meant),
+        "the four characters corrected are the first four of `counting`"
+    );
+}

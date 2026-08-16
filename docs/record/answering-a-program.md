@@ -110,10 +110,84 @@ read off `EdgeType::ALL` now rather than typed, and it reaches the schema as an
   them.
 - **No resources, no prompts, no sampling.** Tools only.
 - **A search is capped at 50 rows** whatever `limit` says, and says so.
-- **A write is not undoable over the wire.** Every one of them is append-only
-  in a layer you can read as plain files, and there is no `forget_note` or
-  `undraw_link` tool — deleting is a decision, and this end has no way to show
-  you what you are about to delete first.
+
+### Deleting, and what a screenless end can ask instead
+
+This section used to say a write could not be undone over the wire, and the
+reason it gave was sound: *deleting is a decision, and this end has no way to
+show you what you are about to delete first.* What was wrong with it was the
+conclusion. A window asks *are you sure* by **showing** you the thing; the
+absence of a screen removes that one way of asking, not the requirement behind
+it.
+
+So each of the three writes has an undo, and each takes an argument that cannot
+be filled in without having read what is about to go:
+
+| | takes | which comes from |
+|---|---|---|
+| `forget_note` | `saying` — the note's own words | `read`, or `search` |
+| `undraw_link` | `type` — the type the link has **now** | `links` |
+| `uncorrect` | `says` — the words the correction reads | `read`, in `corrections` |
+
+Three rules make that a check rather than a gesture:
+
+1. **A mismatch is refused and the thing is left standing.** No partial delete
+   and no confirmation flow to abandon halfway.
+2. **The refusal does not print the right answer.** Handing back the words it
+   just refused would turn this into a two-call formality an agent passes
+   without ever reading anything — which is the entire failure being guarded
+   against. It names the tool that will show them.
+3. **Twice is not a silent success.** *Deleted* and *was not there* are
+   different answers, and a caller that cannot tell them apart cannot tell
+   whether its first call worked.
+
+`undraw_link` carries one more wall: it takes back a link **you drew** and
+refuses an edge the corpus shipped. Rejecting a shipped edge is a different
+statement with its own record, and a tool that deleted one under the name
+*undraw* would be the second way of changing the graph this server exists not to
+have. Underneath, `Repairs::undraw` removes only the `Drawn` records for a pair
+rather than everything said about it — a key is the pair of anchors, so a link
+you drew between two places the corpus **also** joins shares its key with the
+shipped edge, and the wide `undo` would have silently taken back your rejection
+of the shipped one too.
+
+`uncorrect` restores nothing, and says so in its answer. A correction is an
+overlay; removing it stops the overlay being applied, and the text on disk is
+what it always was.
+
+### `read` was handing back a string nobody could count into
+
+Found by starting the server and speaking to it, which is the only way this
+could have been found: every test was green and the description was the thing
+that was wrong.
+
+`correct` takes character offsets. Its description said they were *into the
+segment's text as the corpus stores it, which `read` returns* — and they were
+not. `read` returned Berakhot 2a:1#1 as the corpus stores it, markup and all:
+
+```
+<big><strong>מֵאֵימָתַי</strong></big> קוֹרִין אֶת שְׁמַע בָּעֲרָבִין? …
+```
+
+while `correct` counted into the same words with the markup taken out, which is
+what the window's `Shown` draws. So `from_char: 0, to_char: 4` reads as `<big`
+in the string the caller was given, and landed on `מֵאֵ` — thirteen characters
+further along, because `<big><strong>` is thirteen characters. It came back
+**successful**, with nothing on the wire to tell it apart from a call that
+corrected what it named.
+
+The repair is not to move the offsets. Counting into the stored string would
+have a program filing corrections against tags nobody can see, and the window
+and the tool would then be two coordinate systems where there had been one.
+`read` returns the string the offsets are into, as `counting`, built by the same
+`Shown` the correction path uses — not by stripping tags a second time here,
+which would be a second opinion about what markup is and would be wrong the
+first time the two disagreed. `text` is still there, unchanged.
+
+`the_offsets_a_correction_takes_are_the_ones_read_hands_back` asserts the
+agreement rather than either string: it reads a line, takes the first four
+characters of what it was handed, corrects `0..4`, and requires that those are
+the characters that moved.
 
 ### And one guardrail, bought expensively
 

@@ -496,6 +496,46 @@ impl Repairs {
         self.undo_named(&name_of(edge))
     }
 
+    /// Take back a link you drew, and nothing else you said about that pair.
+    ///
+    /// Narrower than [`Repairs::undo`] on purpose. `undo` takes back every
+    /// statement under a key, which is right when the key names a shipped edge
+    /// you judged. It is wrong here: a key is the pair of anchors, so a link you
+    /// drew between two places the corpus **also** joins shares its key with the
+    /// shipped edge — and undoing the drawing would silently take back your
+    /// rejection of the shipped one too. Only [`Repair::Drawn`] records go.
+    ///
+    /// `false` if you had drawn nothing between them, which is a different
+    /// answer from *it is gone now* and is reported as one.
+    ///
+    /// # Errors
+    ///
+    /// If your layer cannot be written.
+    pub fn undraw(&mut self, from: &Anchor, to: &Anchor) -> Result<bool, RepairError> {
+        let key = format!("{from} → {to}");
+        let Some(held) = self.by_edge.get(&key) else {
+            return Ok(false);
+        };
+        let stones: Vec<String> = held
+            .iter()
+            .filter(|record| matches!(record.repair, Repair::Drawn { .. }))
+            .map(key_of)
+            .collect();
+        if stones.is_empty() {
+            return Ok(false);
+        }
+        self.log.took(&stones)?;
+        // Whatever else was said about this pair stays standing, which is the
+        // whole reason this is not `undo`.
+        if let Some(held) = self.by_edge.get_mut(&key) {
+            held.retain(|record| !matches!(record.repair, Repair::Drawn { .. }));
+            if held.is_empty() {
+                self.by_edge.remove(&key);
+            }
+        }
+        Ok(true)
+    }
+
     /// # Errors
     ///
     /// If your layer cannot be written.
