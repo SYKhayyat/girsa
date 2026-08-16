@@ -48,7 +48,7 @@ import {
   type ScopeView,
 } from "./api.ts";
 import { LaneColumn } from "./laneview.ts";
-import { announces, button, field, glyph, region } from "./controls.ts";
+import { announces, button, field, glyph, region, shut } from "./controls.ts";
 import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { say, type Word } from "./say.ts";
@@ -169,7 +169,7 @@ export class SearchView {
     });
     keep.classList.add("find-keep");
 
-    const close = button(say("close"), say("esc"), () => this.close());
+    const close = shut(() => this.close());
     close.classList.add("find-close");
     // Minimise rather than close, for a reader working through a long list of
     // results who wants the daf wide for a minute — see `ShelfView.minimise`,

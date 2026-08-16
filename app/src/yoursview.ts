@@ -19,7 +19,7 @@ import {
   type TagRow,
 } from "./api.ts";
 import { sayTrouble } from "./trouble.ts";
-import { area, glyph } from "./controls.ts";
+import { area, glyph, shut } from "./controls.ts";
 import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 
@@ -83,11 +83,7 @@ export class YoursView {
     out.title = say("yoursExportWhy");
     out.addEventListener("click", () => void this.exportLayer());
 
-    const close = document.createElement("button");
-    close.className = "tool";
-    close.textContent = say("close");
-    close.title = say("esc");
-    close.addEventListener("click", () => this.close());
+    const close = shut(() => this.close());
     head.append(title, this.note, out, close);
 
     this.tabs = document.createElement("div");

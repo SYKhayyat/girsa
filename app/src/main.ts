@@ -810,11 +810,21 @@ function tabBar(): HTMLElement {
   bar.className = "tabs";
   bar.setAttribute("aria-label", say("tabs"));
   const tabs = state?.workspace.tabs ?? [];
-  // **One tab draws no strip.** Ksav's decision again: *"the tab strip must
+  // **One tab used to draw no strip**, on Ksav's decision: *"the tab strip must
   // therefore hide itself when only one document is open — a single tab is pure
-  // noise."* The row of actions below stays either way, because it is not the
-  // strip and it is the only route in.
-  if (tabs.length > 1) {
+  // noise."*
+  //
+  // That is a true statement about a *strip* and it took the `×` down with it,
+  // because the only close affordance in this window lives inside the strip. So
+  // at one tab there was no way to close the thing you were reading at all — the
+  // reader found it immediately, which is the tell that it was never the strip
+  // he was looking at. A tab you cannot shut is not less noise than a tab you
+  // can; it is the same row of pixels with the exit removed.
+  //
+  // Ksav's argument still holds where Ksav made it, which was about a strip of
+  // *documents in an editor*. Here the strip is the workspace, and the workspace
+  // is the thing a reader rearranges all day.
+  if (tabs.length > 0) {
     const strip = document.createElement("span");
     strip.className = "tab-strip";
     tabs.forEach((open, index) => {

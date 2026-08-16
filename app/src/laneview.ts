@@ -31,7 +31,7 @@ import {
   type LaneProgress,
   type LaneState,
 } from "./api.ts";
-import { field } from "./controls.ts";
+import { field, shut } from "./controls.ts";
 import { clearTrouble, sayTrouble, trouble } from "./trouble.ts";
 import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
@@ -220,10 +220,7 @@ export class LanePanel {
     const title = document.createElement("p");
     title.className = "lane-title";
     title.textContent = say("laneTitle");
-    const close = document.createElement("button");
-    close.className = "tool";
-    close.textContent = say("close");
-    close.addEventListener("click", () => this.close());
+    const close = shut(() => this.close());
     bar.append(title, close);
 
     this.body = document.createElement("div");

@@ -29,7 +29,7 @@ function said(kinds: LinkKind[], key: string): string {
   return kinds.find((kind) => kind.key === key)?.title ?? key;
 }
 import { sayTrouble } from "./trouble.ts";
-import { button, choice } from "./controls.ts";
+import { button, choice, shut } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
@@ -62,7 +62,7 @@ export class LinksView {
     title.textContent = say("linksTitle");
     this.note = document.createElement("span");
     this.note.className = "links-note";
-    const close = button(say("close"), say("esc"), () => this.close());
+    const close = shut(() => this.close());
     head.append(title, this.note, close);
 
     this.list = document.createElement("div");

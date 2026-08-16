@@ -1448,8 +1448,12 @@ fn mefarshim_of(state: &mut State, slug: &str) -> Result<Mefarshim, String> {
     let slug = slug.to_string();
     let chosen: Vec<String> = state.session.chosen_for(&slug).to_vec();
     let marks = state.marks(&slug)?.clone();
+    // The list comes back in name order, in the language the window is in — see
+    // `mefarshim::listed`. Read before the shelf is borrowed; `Language` is
+    // `Copy`, so this costs nothing and keeps the borrow checker out of it.
+    let language = state.session.language;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    Ok(Mefarshim::of(shelf, &marks, &slug, &chosen))
+    Ok(Mefarshim::of(shelf, &marks, &slug, &chosen, language))
 }
 
 /// Tick or untick one mefaresh, and answer with the whole list as it stands

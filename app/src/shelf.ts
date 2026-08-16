@@ -13,7 +13,7 @@
 
 import { api, isShell, type Branch, type Card } from "./api.ts";
 import { clearTrouble, sayTrouble } from "./trouble.ts";
-import { ask, button, confirmThat, field } from "./controls.ts";
+import { ask, button, confirmThat, field, shut } from "./controls.ts";
 import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
@@ -160,7 +160,7 @@ export class ShelfView {
     const shrink = this.tool(say("minimize"), say("minimizeWhy"), () => this.minimise());
     shrink.classList.add("shelf-minimise");
     bar.append(shrink);
-    const close = this.tool(say("close"), say("esc"), () => this.close());
+    const close = shut(() => this.close());
     close.classList.add("shelf-close");
     bar.append(close);
 

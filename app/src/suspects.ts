@@ -14,6 +14,7 @@
 import { api, type SuspectRow } from "./api.ts";
 import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
+import { shut } from "./controls.ts";
 
 /** How many to ask for. More than fits on a screen, few enough to draw. */
 const PAGE = 60;
@@ -40,11 +41,7 @@ export class SuspectsView {
     title.textContent = say("suspectsTitle");
     this.note = document.createElement("span");
     this.note.className = "suspects-note";
-    const close = document.createElement("button");
-    close.className = "tool";
-    close.textContent = say("close");
-    close.title = "Esc";
-    close.addEventListener("click", () => this.close());
+    const close = shut(() => this.close());
     head.append(title, this.note, close);
 
     this.list = document.createElement("div");

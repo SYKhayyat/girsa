@@ -312,6 +312,32 @@ body {
   color: var(--mark);
 }
 
+/* The `×` on a panel — see `shut()` in controls.ts for why it is a glyph and not
+ * the word it used to be.
+ *
+ * Unlike `.tab-shut` this one never hides. A tab's × can rest at `opacity: 0`
+ * because the tab itself is the visible thing and the active tab shows its ×
+ * anyway; a panel's × is the only exit on the panel, and an exit that appears
+ * on hover is an exit you have to already know about. */
+.panel-shut {
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink-quiet);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-inline-start: auto;
+  cursor: pointer;
+}
+
+.panel-shut:hover,
+.panel-shut:focus-visible {
+  color: var(--mark);
+  background: var(--sheet-quiet, transparent);
+}
+
 .tools {
   display: flex;
   align-items: center;
@@ -539,14 +565,29 @@ body {
   text-align: justify;
 }
 
+/* The siman and se'if, which is where the reader is standing.
+ *
+ * It was 11px at `opacity: 0.55` on top of `--ink-quiet` — three separate ways
+ * of being faint, multiplied. The reader's word for the result was "barely
+ * legible", and he is the one who has to find סימן א׳ סעיף ד׳ on a page of
+ * Hebrew without hunting for it.
+ *
+ * It is still quieter than the text, because it is an address and not the
+ * words. But an address nobody can read is not restraint, it is a label that
+ * has stopped doing its job — this is the one piece of chrome a person actually
+ * reads a sefer *by*, which is why Otzaria sets its siman headings in bold at
+ * full strength and we look worse beside it.
+ *
+ * `line-height` drops from 2.6 to 2.2 so the taller text keeps the same box and
+ * stays on the first line's baseline. */
 .line-address {
   flex: 0 0 auto;
   min-width: 3.4em;
   font-family: var(--plain);
-  font-size: 11px;
-  line-height: 2.6;
+  font-size: 13px;
+  line-height: 2.2;
   color: var(--ink-quiet);
-  opacity: 0.55;
+  opacity: 0.85;
   font-variant-numeric: tabular-nums;
   user-select: none;
 }
@@ -585,10 +626,25 @@ body {
   background: color-mix(in srgb, var(--mark) 12%, transparent);
 }
 
+/* A heading segment — the siman's title, `<h1>/<h2>/<h3>` out of Otzaria or a
+ * schema's section name. 1.1em and bold was not enough to read as a heading at
+ * all: a heading has to break the column, not merely be a slightly heavier line
+ * in it. Otzaria's are unmistakable at a glance and ours were not. */
 .line.is-heading .line-text {
   font-weight: 700;
-  font-size: 1.1em;
+  font-size: 1.28em;
+  line-height: 1.7;
   color: var(--mark);
+}
+
+.line.is-heading {
+  margin-block-start: 1.1em;
+}
+
+/* A heading has no se'if number of its own to print, and an empty 3.4em gutter
+ * beside a centred-looking title reads as a missing value. */
+.line.is-heading .line-address:empty {
+  min-width: 0;
 }
 
 /* --- corrections (W20) -------------------------------------------------

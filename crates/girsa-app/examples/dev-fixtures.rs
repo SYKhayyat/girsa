@@ -147,7 +147,13 @@ fn main() -> std::process::ExitCode {
     for sefer in [&leader, &follower] {
         let marks = girsa_app::mefarshim::Marks::of(&shelf, &sefer.work.slug)
             .unwrap_or_else(|_| girsa_app::mefarshim::Marks::default());
-        let door = girsa_app::view::Mefarshim::of(&shelf, &marks, &sefer.work.slug, &[]);
+        let door = girsa_app::view::Mefarshim::of(
+            &shelf,
+            &marks,
+            &sefer.work.slug,
+            &[],
+            girsa_app::session::Language::Hebrew,
+        );
         write(
             &out.join(format!("mefarshim-{}.json", flatten(&sefer.work.slug))),
             &serde_json::json!(door),

@@ -319,10 +319,10 @@ reading workspace compiles without any of them — it does not even depend on
 and what the nikud toggle takes off are all answered in `girsa-app`, because
 those can be tested and a webview cannot. The window is
 **30**<!--=window-modules--> TypeScript modules and one stylesheet of
-**3,524**<!--=styles-lines--> lines — no framework, three runtime dependencies.
+**3,580**<!--=styles-lines--> lines — no framework, three runtime dependencies.
 
 That is a rule, not a description, and it is enforced. Of the shell's
-**4,844**<!--=shell-lines--> lines, about 150 were once genuine pass-through and
+**4,848**<!--=shell-lines--> lines, about 150 were once genuine pass-through and
 the rest decided cache policy, sort orders, truncation lengths, which fonts a
 Hebrew reader is offered, and what to do with a chip key it did not recognise.
 Each of those now lives in the crate whose subject it is, and two checks fail if

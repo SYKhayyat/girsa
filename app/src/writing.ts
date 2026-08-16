@@ -15,7 +15,7 @@
 import { api, isShell, pickFolder, type Presence } from "./api.ts";
 
 import { clearTrouble, sayTrouble } from "./trouble.ts";
-import { area, button, field } from "./controls.ts";
+import { area, button, field, shut } from "./controls.ts";
 import { fill, ksavAs, say } from "./say.ts";
 
 /** How long after the last keystroke the buffer is written to disk. */
@@ -76,7 +76,7 @@ export class WritingView {
       void this.handOver(),
     );
     head.append(this.ksavButton);
-    head.append(button(say("close"), say("esc"), () => this.close()));
+    head.append(shut(() => this.close()));
 
     // A placeholder, and a box that looks like a sheet — finding 10. The
     // drawer opened as 1360 × 306 of `rgba(0,0,0,0)` with no border and no

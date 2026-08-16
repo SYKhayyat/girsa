@@ -537,6 +537,10 @@ impl Mefarshim {
         marks: &crate::mefarshim::Marks,
         slug: &str,
         chosen: &[String],
+        // The list is ordered by name in the language it is read in — see
+        // `mefarshim::listed`. It arrives here rather than being looked up
+        // because this type has no session to ask.
+        language: crate::session::Language,
     ) -> Self {
         let commentators = marks.commentators();
         let alongside = marks.alongside();
@@ -569,6 +573,7 @@ impl Mefarshim {
             &folders,
             chosen,
             shelf,
+            language,
         );
         Self {
             marked: marks.marked(chosen),

@@ -591,6 +591,7 @@ pub fn listed(
     folders: &Folders,
     chosen: &[String],
     shelf: &crate::shelf::Shelf,
+    language: crate::session::Language,
 ) -> Vec<Listed> {
     let placeable: BTreeSet<&str> = can_mark.iter().map(String::as_str).collect();
     let named = |slug: &str, stands: Option<Related>, links: usize, tickable: bool| {
@@ -626,6 +627,30 @@ pub fn listed(
         .then_with(|| a.he_title.cmp(&b.he_title))
         .then_with(|| a.slug.cmp(&b.slug))
     };
+    // **By name, in the language the list is being read in.**
+    //
+    // The rule the reader states generally: *aleph-beis order in Hebrew,
+    // English order in English*, for every list of names in the application.
+    // This list was ordered by **how many edges each mefaresh has** — a number
+    // no reader can see, so the list read as unordered, and looking for the
+    // Taz meant reading every row. A bachur looking for a mefaresh knows its
+    // name and nothing about its edge count.
+    //
+    // Hebrew needs no collation table for this: א through ת are U+05D0..U+05EA
+    // in aleph-beis sequence, so the ordinary string compare *is* aleph-beis
+    // order. English is the same argument in the other alphabet, which is why
+    // the language has to reach this function at all — `Choice` has carried
+    // both titles all along and nothing ever chose between them.
+    //
+    // `in_order` stays as the tiebreak so that two volumes printed under one
+    // title still come back in the order they are printed in.
+    let by_name = |a: &Choice, b: &Choice| {
+        let (mine, theirs) = match language {
+            crate::session::Language::Hebrew => (&a.he_title, &b.he_title),
+            crate::session::Language::English => (&a.en_title, &b.en_title),
+        };
+        mine.cmp(theirs).then_with(|| in_order(a, b))
+    };
 
     // The companions, in the order a reader learns: placed first, then by how
     // much joins them, then in the order the seforim are printed in so the same
@@ -646,8 +671,7 @@ pub fn listed(
         b.stands
             .is_some()
             .cmp(&a.stands.is_some())
-            .then(b.links.cmp(&a.links))
-            .then_with(|| in_order(a, b))
+            .then_with(|| by_name(a, b))
     });
     // Mefarshim the graph knows and the catalogue does not — the Ben Yehoyada on
     // Berakhot, most of Otzaria's shelf — follow rather than being dropped.
@@ -657,7 +681,7 @@ pub fn listed(
         .filter(|slug| !offered.contains(*slug))
         .map(|slug| named(slug, None, 0, true))
         .collect();
-    rest.sort_by(&in_order);
+    rest.sort_by(&by_name);
     rows.extend(rest);
 
     let mut out: Vec<Listed> = Vec::new();
@@ -700,7 +724,7 @@ pub fn listed(
         .filter(|slug| !shown.contains(*slug))
         .map(|slug| named(slug, Some(Related::Alongside), 0, true))
         .collect();
-    following.sort_by(&in_order);
+    following.sort_by(&by_name);
     section(
         heading::ALONGSIDE,
         &following,
@@ -1782,6 +1806,7 @@ mod tests {
             &Folders::default(),
             &["rashi".to_string()],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         let ticks: Vec<(String, bool)> = rows
             .iter()
@@ -1802,6 +1827,53 @@ mod tests {
     }
 
     #[test]
+    fn the_mefarshim_come_back_in_aleph_beis_order() {
+        // The reader's rule, stated generally: *aleph-beis order in Hebrew,
+        // English order in English*, for every list of names in the window.
+        //
+        // The list used to be ordered by **edge count** — a number that appears
+        // nowhere on screen — so finding the Taz meant reading every row. The
+        // three titles here are deliberately in the *opposite* order to their
+        // counts: on the old sort this comes back שפתי כהן, טורי זהב, באר הגולה
+        // and the assertion below fails.
+        //
+        // No collation table is needed for the Hebrew: א..ת are
+        // U+05D0..U+05EA in aleph-beis sequence, so an ordinary string compare
+        // is the right one.
+        let shelf = shelf_of(&[
+            ("siftei-kohen", "שפתי כהן"),
+            ("turei-zahav", "טורי זהב"),
+            ("beer-hagolah", "באר הגולה"),
+        ]);
+        let companions = [
+            companion("siftei-kohen", true, 900),
+            companion("turei-zahav", true, 400),
+            companion("beer-hagolah", true, 100),
+        ];
+        let rows = listed(
+            &companions,
+            &[
+                "siftei-kohen".to_string(),
+                "turei-zahav".to_string(),
+                "beer-hagolah".to_string(),
+            ],
+            &[],
+            &Folders::default(),
+            &[],
+            &shelf,
+            crate::session::Language::Hebrew,
+        );
+        let titles: Vec<String> = rows
+            .iter()
+            .filter_map(|row| match row {
+                Listed::Sefer { choice } => Some(choice.he_title.clone()),
+                Listed::Folder { .. } => None,
+            })
+            .collect();
+        assert_eq!(titles, ["באר הגולה", "טורי זהב", "שפתי כהן"]);
+    }
+
+    #[test]
     fn a_declared_commentary_with_no_edges_is_offered_and_not_tickable() {
         // Tosafos declares itself a commentary and this graph has no edges from
         // it. It is still offered — the split opens it fine — but ticking it
@@ -1817,6 +1889,7 @@ mod tests {
             &Folders::default(),
             &[],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         let tosafot = rows.iter().find_map(|row| match row {
             Listed::Sefer { choice } if choice.slug == "tosafot" => Some(choice.clone()),
@@ -1844,6 +1917,7 @@ mod tests {
             &Folders::default(),
             &[],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         assert_eq!(shape(&rows), ["rashi", "ben-yehoyada"]);
     }
@@ -1863,6 +1937,7 @@ mod tests {
             &Folders::default(),
             &[],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         let seforim: Vec<String> = shape(&rows)
             .into_iter()
@@ -1920,6 +1995,7 @@ mod tests {
             &folders,
             &[],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         assert_eq!(
             shape(&rows),
@@ -1961,6 +2037,7 @@ mod tests {
             },
             &[],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         assert_eq!(shape(&rows), ["# פירושים בלי מקום בשורה", "rashi"]);
     }
@@ -1979,6 +2056,7 @@ mod tests {
             &Folders::default(),
             &[],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         assert_eq!(shape(&rows), ["rashi", "# על סדר הספר", "arukh"]);
     }
@@ -1996,6 +2074,7 @@ mod tests {
             &Folders::default(),
             &[],
             &shelf,
+            crate::session::Language::Hebrew,
         );
         assert!(
             !rows.iter().any(|row| matches!(

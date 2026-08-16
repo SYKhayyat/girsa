@@ -116,6 +116,21 @@ const RULES = [
     ],
   },
   {
+    // The reader, 16 August: *"this app has a habit of using close instead of
+    // the ×, and that is bad."* Eight panels drew their own dismissal and six
+    // spelled it as the word `סגור` on a `.tool` button — chain, links, search,
+    // shelf, writing, lane, suspects, yours.
+    //
+    // A class, not eight instances, which is why it is here and not eight
+    // edits: the ninth panel is the one that matters. `shut()` in `controls.ts`
+    // is the one door, and it still carries `say("close")` as the accessible
+    // name, because the word is right for a screen reader and wrong for a face.
+    what: "no panel spells its close affordance as a word",
+    where: /^app\/src\/.*\.ts$/u,
+    contains: ['button(say("close")', 'textContent = say("close")'],
+    allow: [],
+  },
+  {
     // §1 #9 — a prohibition Ksav wrote by name, in the file whose own header
     // says it has *"the same shape as `Ksav/ksav/app/test/run.mjs`, for the
     // same reason it has that shape"*. `.pathname` on a `file://` URL is still

@@ -64,6 +64,33 @@ export function glyph(face: string, name: string, click: () => void): HTMLButton
   return out;
 }
 
+/**
+ * The `×` that shuts a panel.
+ *
+ * Eight panels drew their own close affordance and six of them spelled it as the
+ * **word** `סגור` on a `.tool` button. The reader's ruling: *"this app has a
+ * habit of using close instead of the ×, and that is bad."* He is right, and the
+ * argument against him is one this repository wrote down at `main.ts`'s tab
+ * close — *"`×` is a glyph and a glyph is not a name"*. That argument is sound
+ * about **names** and it answered the wrong question. A name is what a control
+ * is called; a face is what a reader's eye finds without reading. `×` is the one
+ * face every window in every operating system has taught him, and `say("close")`
+ * is still the name — it goes on `aria-label` and the tooltip, where a name
+ * belongs, which is exactly what [`glyph`] was built to do.
+ *
+ * And Escape is not an affordance. It is a keystroke nothing on the screen
+ * mentions, which is why `panel.ts` routing all of them correctly did not make a
+ * single panel look closable.
+ *
+ * Here rather than in each panel so there is one `×` to change, and so a ninth
+ * panel cannot be added without one.
+ */
+export function shut(click: () => void): HTMLButtonElement {
+  const out = glyph("×", say("close"), click);
+  out.className = "panel-shut";
+  return out;
+}
+
 export interface FieldOptions {
   className?: string;
   type?: string;
