@@ -25,7 +25,7 @@ import { api, type LinkKind, type LinkRow, type Links, type Yours } from "./api.
  * `EdgeType::ALL`. If it does, the key is shown, which is at least a bug a
  * reader can report.
  */
-function said(kinds: LinkKind[], key: string): string {
+function kindSaid(kinds: LinkKind[], key: string): string {
   return kinds.find((kind) => kind.key === key)?.title ?? key;
 }
 import { sayTrouble } from "./trouble.ts";
@@ -33,6 +33,37 @@ import { about, button, choice, shut } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
+
+/** One sefer's links, in the order the panel had them. */
+interface Group {
+  work: string;
+  title: string;
+  links: LinkRow[];
+}
+
+/** How many rows a sefer may have and still be drawn open. */
+const FEW = 4;
+
+/**
+ * The links, by sefer, in the order each sefer first appeared.
+ *
+ * Order preserved rather than sorted: the panel already puts the links in an
+ * order — the lens, then what the engine returned — and re-sorting by title
+ * here would be a second opinion about which sefer matters most, made by a
+ * function that knows nothing about the reader.
+ */
+export function grouped(links: LinkRow[]): Group[] {
+  const by = new Map<string, Group>();
+  for (const link of links) {
+    const found = by.get(link.work);
+    if (found) {
+      found.links.push(link);
+      continue;
+    }
+    by.set(link.work, { work: link.work, title: link.title, links: [link] });
+  }
+  return [...by.values()];
+}
 
 export class LinksView {
   readonly element: HTMLElement;
@@ -172,7 +203,96 @@ export class LinksView {
       this.list.append(warn);
     }
     this.list.append(this.drawRow(found.types));
-    this.list.append(...found.links.map((link) => this.row(link, found.types)));
+    for (const group of grouped(found.links)) {
+      this.list.append(this.sefer(group, found.types));
+    }
+  }
+
+  /**
+   * One sefer's worth of rows, behind a summary that says how many there are.
+   *
+   * # Why grouping is the fix and not a tidy-up
+   *
+   * > *"why are there repeats. i just don't get it."*
+   *
+   * They are not repeats. On one se'if of Yoreh De'ah the Kaf HaChayim writes
+   * ס״ק א׳ through ס״ק ע״ח, and the panel drew seventy-eight rows carrying the
+   * same eight words and a different number. Nothing was duplicated; the
+   * **sefer's name** was printed seventy-eight times down a column, which is
+   * what a reader sees and reasonably calls a repeat.
+   *
+   * So the name is said once, with a count and the range of what it covers, and
+   * the rows underneath carry the part that differs. 280 rows from 61 seforim
+   * become 61 lines a person can read.
+   *
+   * Opening a group is what fetches the words — one sefer read, not sixty-one.
+   * That is the same argument `LinkRow::preview` made for reading none of them,
+   * held to the gesture that makes it affordable.
+   */
+  private sefer(group: Group, types: LinkKind[]): HTMLElement {
+    const box = document.createElement("details");
+    box.className = "link-sefer";
+    const summary = document.createElement("summary");
+    const title = document.createElement("span");
+    title.className = "link-sefer-title";
+    title.textContent = group.title;
+    const count = document.createElement("span");
+    count.className = "link-sefer-count";
+    count.textContent = String(group.links.length);
+    // The range this sefer covers, so a reader can see at a glance that the
+    // seventy-eight rows are ס״ק א׳ to ס״ק ע״ח and not the same one repeated.
+    const span = document.createElement("span");
+    span.className = "link-sefer-span";
+    const ends = [group.links[0]?.said, group.links[group.links.length - 1]?.said];
+    span.textContent = ends[0] === ends[1] ? (ends[0] ?? "") : `${ends[0]} … ${ends[1]}`;
+    summary.append(count, title, span);
+    box.append(summary);
+
+    const rows = document.createElement("div");
+    rows.className = "link-sefer-rows";
+    const drawn = group.links.map((link) => this.row(link, types));
+    rows.append(...drawn);
+    box.append(rows);
+
+    // A sefer with a handful of rows is not a wall of anything, and making a
+    // reader click to see three lines is a click for its own sake.
+    if (group.links.length <= FEW) box.open = true;
+    let asked = false;
+    const fill = () => {
+      if (asked || !box.open) return;
+      asked = true;
+      void this.words(group, drawn);
+    };
+    box.addEventListener("toggle", fill);
+    fill();
+    return box;
+  }
+
+  /**
+   * Fetch what one sefer says at each of these places, and put it on the rows.
+   *
+   * Failure is silent and the rows keep what they had, which is the sefer and
+   * the place. A panel that replaced sixty readable rows with an error because
+   * one sefer would not open would be worse than the panel before this.
+   */
+  private async words(group: Group, rows: HTMLElement[]): Promise<void> {
+    let said: Awaited<ReturnType<typeof api.linkWords>>;
+    try {
+      said = await api.linkWords(group.work, group.links.map((link) => link.at));
+    } catch {
+      return;
+    }
+    const by = new Map(said.map((one) => [one.at, one]));
+    for (const [nth, link] of group.links.entries()) {
+      const words = by.get(link.at);
+      const row = rows[nth];
+      if (!words || !row) continue;
+      const opening = row.querySelector<HTMLElement>(".link-preview");
+      if (opening) opening.textContent = words.opening;
+      const whole = row.querySelector<HTMLElement>(".link-said");
+      if (whole) whole.textContent = words.said;
+      row.classList.add("has-words");
+    }
   }
 
   /**
@@ -264,7 +384,7 @@ export class LinksView {
 
     const kind = document.createElement("span");
     kind.className = "link-kind" + (link.curated ? "" : " is-uncurated");
-    kind.textContent = said(types, link.kind);
+    kind.textContent = kindSaid(types, link.kind);
     kind.title = link.curated ? say("linksCurated") : say("linksUncurated");
 
     const where = document.createElement("button");
@@ -297,14 +417,29 @@ export class LinksView {
     head.append(kind, where);
     row.append(head);
 
-    // The first words at the other end, where that sefer is already open — most
-    // often the one case that matters, the commentary in the column beside you.
-    if (link.preview) {
-      const words = document.createElement("p");
-      words.className = "link-preview";
-      words.textContent = link.preview;
-      row.append(words);
-    }
+    // **The words, on the row.** This used to be drawn only when the other sefer
+    // was already open, which is the case where the reader could see the words
+    // anyway. The element is always here now and is filled when the group it is
+    // in is opened — see `LinksView.sefer` for why that is what makes reading
+    // one sefer per gesture affordable.
+    const words = document.createElement("p");
+    words.className = "link-preview";
+    words.textContent = link.preview ?? "";
+    row.append(words);
+
+    // And the whole line, one click down. A quote that is cut at ninety
+    // characters answers *is this the comment I want*; it does not answer
+    // *what does it say*, and the answer to that was five gestures away —
+    // open the sefer, find the place, come back.
+    const whole = document.createElement("details");
+    whole.className = "link-open";
+    const open = document.createElement("summary");
+    open.textContent = say("linksReadHere");
+    open.title = say("linksReadHereWhy");
+    const said = document.createElement("p");
+    said.className = "link-said";
+    whole.append(open, said);
+    row.append(whole);
 
     // Its work, and the five repair controls: kept, and out of the way. W23's
     // point is that a link layer has to show its work; one click away is showing
@@ -417,7 +552,7 @@ function provenance(link: LinkRow, kinds: LinkKind[]): string[] {
   // declares, or a span you pinned (spec.md §8.4).
   if (link.span_from) bits.push(link.span_from === "pinned" ? say("onWordsYours") : say("onWords"));
   if (link.label) bits.push(`"${link.label}"`);
-  if (link.was && link.was !== link.kind) bits.push(`${say("wasKind")}: ${said(kinds, link.was)}`);
+  if (link.was && link.was !== link.kind) bits.push(`${say("wasKind")}: ${kindSaid(kinds, link.was)}`);
   if (link.changed.length > 0) bits.push(link.changed.join(", "));
   if (link.who) bits.push(link.who);
   return bits;

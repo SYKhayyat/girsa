@@ -79,6 +79,12 @@ const WORDS = {
   /** The daf yomi button, and what it says when the sefer is not here. */
   /** The find bar — Ctrl+F, in the sefer in front of you. */
   /** Printing (Ctrl+P): the section in front of you, on paper. */
+  /** The links panel, opened out: the whole line rather than its first words. */
+  linksReadHere: ["הראה את הלשון", "Show what it says"] as Both,
+  linksReadHereWhy: [
+    "פתח את השורה כאן, בלי לצאת מהדף",
+    "Open the line here, without leaving the page",
+  ] as Both,
   print: ["הדפס", "Print"] as Both,
   printWhy: ["הדפס את הסימן או את העמוד שאתה עומד בו", "Print the section you are standing in"] as Both,
   printNothingOpen: ["אין ספר פתוח להדפיס", "no sefer is open to print"] as Both,

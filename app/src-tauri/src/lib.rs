@@ -3466,6 +3466,82 @@ fn set_pointing(shared: tauri::State<'_, Shared>, pointing: String) -> Result<()
     Ok(())
 }
 
+/// The words at the other end of a set of links, for one sefer.
+///
+/// # The finding this closes
+///
+/// > *"all of it — i don't know what i'm looking at."*
+///
+/// The links panel on one line of Yoreh De'ah draws 280 rows. **Seventy-eight
+/// of them say `כף החיים על שולחן ערוך יורה דעה` and differ by one number.**
+/// They are not duplicates — the Kaf HaChayim really writes ס״ק א׳ through
+/// ס״ק ע״ח on that one se'if — but what repeats down the column is the sefer's
+/// name, seventy-eight times, and what a reader wants is *what does it say*.
+///
+/// `LinkRow::preview` was the first answer and it is only filled when the other
+/// sefer **is already open**, for a reason that still holds: a sidebar is not
+/// entitled to read forty seforim off the disk to decorate a list. Grouping the
+/// panel by sefer is what makes the reason stop biting — a reader opens one
+/// group, and this reads one sefer.
+///
+/// So the whole line comes back as well as its opening words. Once a group is
+/// open, expanding any row in it costs nothing: the words are already here, and
+/// a reader walking seventy-eight ס״ק is not waiting on seventy-eight round
+/// trips.
+#[tauri::command]
+fn link_words(
+    shared: tauri::State<'_, Shared>,
+    work: String,
+    ats: Vec<String>,
+) -> Result<Vec<Words>, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
+    let style = state.session.cite;
+    let sefer = state.sefer(&work)?;
+    let mut out = Vec::with_capacity(ats.len());
+    for at in &ats {
+        let Ok(id) = at.parse::<SegmentId>() else {
+            continue;
+        };
+        let Some(nth) = sefer.position_of(&id) else {
+            // The graph points at a segment this sefer does not have. Left out
+            // rather than reported as an empty quote: it is a fact about the
+            // link, and W23's panel is where a bad link is repaired.
+            continue;
+        };
+        let Some(segment) = sefer.segments.get(nth) else {
+            continue;
+        };
+        let said = girsa_app::shemos::written(&segment.text, shemos);
+        let drawn = display::Shown::of(&said, pointing).text().to_string();
+        out.push(Words {
+            at: at.clone(),
+            opening: girsa_app::enough::first_words(&drawn),
+            said: drawn,
+            address: girsa_app::sending::printed_address_in(
+                &sefer.work,
+                Some(sefer.sections()),
+                &segment.id,
+                style,
+            ),
+        });
+    }
+    Ok(out)
+}
+
+/// One end of a link, quoted.
+#[derive(Serialize)]
+struct Words {
+    at: String,
+    /// The opening words, for the row as it stands.
+    opening: String,
+    /// The whole line, for the row opened out.
+    said: String,
+    /// Where it is, printed the reader's way.
+    address: String,
+}
+
 /// A sheet of paper: what the reader is standing in, ready to print.
 ///
 /// > *Print the daf for the shiur.* — which, before this, meant export to
@@ -4428,6 +4504,7 @@ pub fn run() {
             luach,
             sefer_find,
             sefer_sheet,
+            link_words,
             set_language,
             set_interface,
             settings,

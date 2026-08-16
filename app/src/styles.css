@@ -1017,6 +1017,104 @@ body {
  * A column and not a line: the sefer and the place on top, its first words under
  * them, and everything the corpus says about the link behind a disclosure that
  * starts closed. */
+/* The words on a chain hop.
+ *
+ * A chain was a column of sefer names and dates — a genealogy — and the
+ * question a person asks it is what each of them *said*. The line is quiet and
+ * on its own row, under the name and the date, so the shape of the walk still
+ * reads as a walk. */
+.chain-said {
+  margin: 2px 0 0;
+  /* The row is a flex line; this takes the whole of the next one. */
+  flex: 0 0 100%;
+  font-family: var(--hebrew);
+  font-size: calc(14px * var(--reading-size) / 100);
+  line-height: 1.7;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.chain-said:empty {
+  display: none;
+}
+
+/* One sefer's links, behind one line.
+ *
+ * 280 rows from 61 seforim, and 78 of them said `כף החיים` and differed by one
+ * number. The name is said once now, with a count and the range it covers. */
+.link-sefer {
+  border-bottom: 1px solid var(--rule);
+}
+
+.link-sefer > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-family: var(--hebrew);
+}
+
+.link-sefer > summary:hover {
+  background: var(--page-raised);
+}
+
+.link-sefer-count {
+  font-family: var(--plain);
+  font-size: 11px;
+  /* Fixed width so sixty-one counts line up as a column a reader can scan
+   * rather than sixty-one numbers wandering across the panel. */
+  min-width: 2.2em;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  color: var(--mark);
+}
+
+.link-sefer-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `ס״ק א׳ … ס״ק ע״ח` — what the seventy-eight rows cover, so a reader can see
+ * at a glance that they are a run and not a repetition. */
+.link-sefer-span {
+  font-size: 11px;
+  color: var(--mark);
+  flex: 0 0 auto;
+}
+
+.link-sefer-rows {
+  border-top: 1px solid color-mix(in srgb, var(--rule) 50%, transparent);
+}
+
+/* The whole line, one click under the row. */
+.link-open > summary {
+  font-family: var(--plain);
+  font-size: 11px;
+  color: var(--mark);
+  cursor: pointer;
+}
+
+.link-said {
+  margin: 4px 0 0;
+  font-family: var(--hebrew);
+  font-size: calc(15px * var(--reading-size) / 100);
+  line-height: 1.8;
+  color: var(--ink);
+}
+
+/* A row whose sefer could not be read keeps the sefer and the place and has
+ * nothing to open out, so it does not offer to. */
+.link:not(.has-words) .link-open {
+  display: none;
+}
+
 .link {
   display: flex;
   flex-direction: column;
@@ -3770,6 +3868,10 @@ body {
  * elements so a chain twelve deep does not nest twelve divs to say so. */
 .chain-hop {
   display: flex;
+  /* Wraps, because the quoted line takes a row of its own under the name and
+   * the date. Without this the sefer, the date and eight words of Hebrew fight
+   * over one line and the walk stops reading as a walk. */
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   padding: 4px 14px;

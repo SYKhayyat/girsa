@@ -692,6 +692,16 @@ export type Pointing = "full" | "nikud" | "plain";
  */
 export type Shemos = "as-written" | "changed";
 
+/** One end of a link, quoted — `link_words`. */
+export interface Words {
+  at: string;
+  /** The opening words, for the row as it stands. */
+  opening: string;
+  /** The whole line, for the row opened out. */
+  said: string;
+  address: string;
+}
+
 /** A printable run of a sefer, with what has to be on the page beside it. */
 export interface Sheet {
   /** The sefer, the edition and the terms — spec.md §13, on paper. */
@@ -1248,6 +1258,9 @@ export const api = {
   /** The section a line is in, ready to print. `whole: false` is the section;
    * `true` is the one line, which is what a highlight prints. */
   seferSheet: (at: string, whole: boolean) => call<Sheet>("sefer_sheet", { at, whole }),
+  /** What one sefer says at each of these places — the links panel, once a
+   * group is opened. One sefer read, not sixty-one. */
+  linkWords: (work: string, ats: string[]) => call<Words[]>("link_words", { work, ats }),
   setLanguage: (language: Language) => call<void>("set_language", { language }),
   /** What the **window** says, as against what the seforim are called. */
   setInterface: (language: Language) => call<void>("set_interface", { language }),
@@ -2123,6 +2136,11 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // it. Refused, like the search.
     case "sefer_sheet":
       throw new Error("printing is the shell's");
+    // The fixtures hold a few hundred lines of two seforim and the links panel
+    // out here draws whatever `dev-fixtures` wrote. No words to quote: the rows
+    // keep the sefer and the place, which is what they had before.
+    case "link_words":
+      return [] as T;
     // The scope is the shell's: it lives beside the index, and there is no
     // index out here. An empty one is the honest answer — the whole shelf —
     // rather than a panel that looks editable and forgets every click.

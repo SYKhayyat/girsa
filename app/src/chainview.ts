@@ -16,6 +16,7 @@ import { api, type Chain, type Forked, type Hop, type LeftOut, type Seen, type S
 import { about, button, shut } from "./controls.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 import { Latest } from "./latest.ts";
+import { cssEscape } from "./pane.ts";
 import { fill, say } from "./say.ts";
 import { sayTrouble } from "./trouble.ts";
 
@@ -155,6 +156,7 @@ export class ChainView {
       children.set(under, kin);
     });
     this.branch(chain, children, -1);
+    void this.quote(chain.hops);
 
     // The honest count. Not *how many chains* — how many of them assert
     // something at every hop, which is the number that says whether this is a
@@ -177,9 +179,57 @@ export class ChainView {
     }
   }
 
+  /**
+   * Put the words on every hop.
+   *
+   * > *"i feel like chain and links should quote the actual line and give a
+   * > link, no?"*
+   *
+   * They should, and neither did. A chain was a column of sefer names and
+   * dates — a genealogy — and the question a person is asking it is *what did
+   * each of them say*, which took eight clicks to answer and lost your place
+   * doing it.
+   *
+   * One request per sefer, because that is what a sefer costs to read: a walk
+   * eight hops deep across five seforim is five reads, not eight. The rows are
+   * already on the page and are filled in as the answers land, so the panel
+   * does not wait on any of it.
+   */
+  private async quote(hops: Hop[]): Promise<void> {
+    const by = new Map<string, string[]>();
+    for (const hop of hops) {
+      const ats = by.get(hop.work) ?? [];
+      ats.push(hop.at);
+      by.set(hop.work, ats);
+    }
+    await Promise.all(
+      [...by].map(async ([work, ats]) => {
+        let said;
+        try {
+          said = await api.linkWords(work, ats);
+        } catch {
+          // A sefer that will not open leaves its hops naming the sefer and the
+          // place, which is what every hop said before this.
+          return;
+        }
+        for (const words of said) {
+          const on = this.list.querySelector<HTMLElement>(
+            `[data-at="${cssEscape(words.at)}"] .chain-said`,
+          );
+          if (on) on.textContent = words.opening;
+        }
+      }),
+    );
+  }
+
   private hopRow(hop: Hop): HTMLElement {
     const row = document.createElement("div");
     row.className = "chain-hop";
+    // So `quote` can find this row again when the words arrive. Two hops onto
+    // one segment is possible — the same sefer reached down two branches — and
+    // `querySelector` finding the first of them is the right answer, because
+    // they say the same thing.
+    row.dataset.at = hop.at;
     // The tree's shape, as an indent the stylesheet owns rather than as spaces.
     row.style.setProperty("--depth", String(hop.depth));
     row.classList.toggle("is-transmission", hop.transmission);
@@ -204,6 +254,14 @@ export class ChainView {
     if (!hop.written && !hop.era) when.classList.add("is-empty");
 
     row.append(open, kind, when);
+
+    // The words themselves, filled in by `quote` when the sefer is read. An
+    // empty element on the page rather than one appended later: a row that
+    // grows a line under it after the reader has started reading is a row that
+    // moves everything below it.
+    const said = document.createElement("p");
+    said.className = "chain-said";
+    row.append(said);
 
     if (hop.mine) {
       const mine = document.createElement("span");

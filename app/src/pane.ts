@@ -1181,7 +1181,11 @@ function el(tag: string, className: string): HTMLElement {
   return node;
 }
 
-/** A segment id carries `:` and `#`, which are CSS selector syntax. */
-function cssEscape(value: string): string {
+/** A segment id carries `:` and `#`, which are CSS selector syntax.
+ *
+ * Exported for the chain, which finds a hop's row again when the words for it
+ * arrive and has the same ids to escape. One escaper: a second one written
+ * beside it is a second answer to *which characters are syntax*. */
+export function cssEscape(value: string): string {
   return CSS.escape(value);
 }
