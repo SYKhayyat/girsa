@@ -876,7 +876,11 @@ fn a_tool_that_writes_a_cache_into_the_corpus_names_it_in_its_usage() {
         ),
         (
             "girsa-link/src/bin/girsa-link-orient.rs",
-            &["links.superseded"],
+            // Both, because the second is written on **every** run and the
+            // first only with `--replace`. A dry run that reports *0 flipped*
+            // still leaves 633 MB behind, and the usage said only that it
+            // "writes a new store beside the old one".
+            &["links.superseded", ".oriented"],
         ),
     ];
     let crates = repo().join("crates");

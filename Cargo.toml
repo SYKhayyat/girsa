@@ -127,8 +127,11 @@ girsa-fixture = { version = "=0.1.0", path = "crates/girsa-fixture" }
 #
 # **Editing both halves at once.** That is what the path dependency really
 # bought, and it is kept: `sefer-crates/tools/check-dependents.sh` installs a
-# `paths` override for the duration of its run, and `.cargo/config.toml.example`
-# holds the same override for a person doing it by hand.
+# `paths` override for the duration of its run, and `.cargo/config.toml` carries
+# the same override, commented out, under a heading that says when to use it.
+# (This line named `.cargo/config.toml.example`, which has never existed in this
+# tree — the block it describes is in the tracked file itself, which is why the
+# note there ends *"take it out before committing"*.)
 girsa-source = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "d869ccc5251e6168f7e42dbc1db094a5cd631047" }
 girsa-ref = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "d869ccc5251e6168f7e42dbc1db094a5cd631047" }
 girsa-hebrew = { version = "=0.5.3", git = "https://github.com/SYKhayyat/sefer-crates", rev = "d869ccc5251e6168f7e42dbc1db094a5cd631047" }

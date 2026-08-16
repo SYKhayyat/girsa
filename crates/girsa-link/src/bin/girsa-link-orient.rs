@@ -51,6 +51,10 @@ usage: girsa-link-orient [corpus] [--replace]
   Reads the link store, turns the `comments-on` edges the right way round, and
   writes a new store beside the old one. Reports what it would change.
 
+  Without --replace this is still a WRITE: the new store goes to
+  <corpus>/.oriented/links and stays there, and it is the size of the graph —
+  about 633 MB on the full download. Delete it, or swap it in.
+
   --replace              and swap it in. The old store is kept as
                          links.superseded rather than deleted.
 
