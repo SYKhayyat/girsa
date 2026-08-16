@@ -384,6 +384,96 @@ impl Workspace {
         Some(id)
     }
 
+    /// Move a pane into another tab (A12).
+    ///
+    /// > *"make me be able to move from tab into another tab."*
+    ///
+    /// A tab in Girsa is an arrangement of panes, and until now a pane was born
+    /// into one and could only be closed out of it. So a reader who opened the
+    /// Shulchan Arukh in its own tab and then wanted it beside the Tur had to
+    /// close it and open it again — losing the place he was at in it, which is
+    /// the one thing this application promises to keep.
+    ///
+    /// `into` is which tab, by index; `None` is a tab of its own. Answers
+    /// whether anything moved, so a caller can tell *there was nowhere to go*
+    /// from *it went*.
+    ///
+    /// # What travels with it
+    ///
+    /// The sefer, and **the place the reader was at in it** — the pane's own
+    /// `at`, which is what a pane is for. What does not travel is `follows`:
+    /// following is an arrangement between two panes standing beside each other,
+    /// and a pane that has left the tab is not beside anything it used to
+    /// follow. The panes it *led* stop following it for the same reason, exactly
+    /// as they do when it closes.
+    ///
+    /// # Where it lands
+    ///
+    /// Split off the target tab's focused pane, which is where the reader is
+    /// looking in that tab — the same landing `split` gives every other way of
+    /// putting a sefer beside another, so a moved pane and an opened one arrive
+    /// in the same shape.
+    pub fn move_pane(&mut self, pane: PaneId, into: Option<usize>) -> bool {
+        let Some(from) = self.tabs.iter().position(|t| t.pane(pane).is_some()) else {
+            return false;
+        };
+        // Into the tab it is already in is not a move. Nor is moving the only
+        // pane of a tab into a tab of its own, which would close one tab and
+        // open an identical one.
+        if into == Some(from) {
+            return false;
+        }
+        if into.is_none() && self.tabs.get(from).is_some_and(|t| t.panes.len() == 1) {
+            return false;
+        }
+        let Some(target) = into.and_then(|i| self.tabs.get(i)).map(|t| t.focused) else {
+            let Some(carried) = self.take(pane, from) else {
+                return false;
+            };
+            let id = self.open_tab(carried.slug.clone(), carried.at.clone());
+            self.touched(&carried.slug);
+            let _ = id;
+            return true;
+        };
+        let Some(carried) = self.take(pane, from) else {
+            return false;
+        };
+        // Split, then put the reader's place back on the new pane: `split`
+        // opens at the head of the sefer because that is right for a sefer
+        // being opened, and this one is not being opened.
+        let Some(landed) = self.split(target, Axis::Vertical, carried.slug.clone(), false) else {
+            // The layout refused. The pane is already out of its old tab, so
+            // putting it somewhere is better than losing it — and a tab of its
+            // own is where it came from being nowhere.
+            self.open_tab(carried.slug.clone(), carried.at.clone());
+            return true;
+        };
+        if let Some(tab) = self.tabs.iter_mut().find(|t| t.pane(landed).is_some()) {
+            if let Some(p) = tab.pane_mut(landed) {
+                p.at = carried.at.clone();
+            }
+        }
+        self.active = self
+            .tabs
+            .iter()
+            .position(|t| t.pane(landed).is_some())
+            .unwrap_or(self.active);
+        self.touched(&carried.slug);
+        true
+    }
+
+    /// Lift a pane out of its tab, closing the tab if it was the last one.
+    ///
+    /// The removal half of [`Self::move_pane`], and it is [`Self::close`]'s
+    /// behaviour with the pane handed back rather than dropped — which is why
+    /// it is the same call: two ways to take a pane out of a layout would be two
+    /// ways to leave a layout naming a pane that is not there.
+    fn take(&mut self, pane: PaneId, from: usize) -> Option<Pane> {
+        let carried = self.tabs.get(from)?.pane(pane)?.clone();
+        self.close(pane);
+        Some(carried)
+    }
+
     /// Close a pane. Closes its tab if it was the last one in it.
     pub fn close(&mut self, pane: PaneId) {
         let Some(index) = self.tabs.iter().position(|t| t.pane(pane).is_some()) else {
@@ -835,5 +925,92 @@ mod tests {
         let text = serde_json::to_string(&w).expect("writes");
         let back: Workspace = serde_json::from_str(&text).expect("reads");
         assert_eq!(back, w);
+    }
+    #[test]
+    fn a_pane_moves_into_another_tab_and_keeps_its_place() {
+        // A12. *"make me be able to move from tab into another tab."*
+        //
+        // A pane was born into a tab and could only be closed out of it, so a
+        // reader who opened the Shulchan Arukh in its own tab and then wanted it
+        // beside the Tur had to close it and open it again — losing the place he
+        // was at in it, which is the one thing this application promises to keep.
+        let mut space = Workspace::default();
+        let tur = space.open_tab("tur", None);
+        let arukh = space.open_tab("shulchan-arukh/yoreh-deah", Some(id(7)));
+        assert_eq!(space.tabs.len(), 2);
+
+        assert!(space.move_pane(arukh, Some(0)), "into the first tab");
+        assert_eq!(space.tabs.len(), 1, "and the tab it left is gone");
+        let tab = space.tabs.first().expect("a tab");
+        assert_eq!(
+            tab.panes.len(),
+            2,
+            "the Tur and the Shulchan Arukh, side by side"
+        );
+        let landed = tab
+            .panes
+            .iter()
+            .find(|p| p.slug == "shulchan-arukh/yoreh-deah")
+            .expect("the moved pane");
+        assert_eq!(
+            landed.at.as_ref(),
+            Some(&id(7)),
+            "the place the reader was at travels with it"
+        );
+        assert_ne!(landed.id, arukh, "and it is a pane of the tab it landed in");
+        assert!(tab.pane(tur).is_some(), "the Tur is still there");
+
+        // Out again, into a tab of its own.
+        assert!(space.move_pane(landed.id, None));
+        assert_eq!(space.tabs.len(), 2);
+
+        // The two refusals, and both are things a reader will try. Moving a
+        // pane into the tab it is already in is not a move; nor is moving the
+        // only pane of a tab into a tab of its own, which would close one tab
+        // and open an identical one.
+        let here = space.tabs[space.active].focused;
+        assert!(!space.move_pane(here, Some(space.active)));
+        assert!(!space.move_pane(here, None));
+        assert_eq!(space.tabs.len(), 2, "and nothing happened");
+    }
+
+    #[test]
+    fn a_moved_pane_stops_following_and_stops_being_followed() {
+        // Following is an arrangement between two panes standing beside each
+        // other. A pane that has left the tab is not beside anything, and a
+        // `follows` pointing into another tab is a pane that scrolls when a
+        // sefer the reader cannot see moves.
+        let mut space = Workspace::default();
+        let gemara = space.open_tab("bavli/berakhot", None);
+        let rashi = space
+            .split(gemara, Axis::Vertical, "rashi-on-berakhot", true)
+            .expect("a split");
+        space.open_tab("tur", None);
+
+        assert!(
+            space.move_pane(rashi, Some(1)),
+            "the Rashi into the other tab"
+        );
+        let moved = space.tabs[1]
+            .panes
+            .iter()
+            .find(|p| p.slug == "rashi-on-berakhot")
+            .expect("the Rashi");
+        assert_eq!(moved.follows, None, "it follows nothing in its new tab");
+
+        // And the other direction: the leader loses its follower rather than
+        // keeping a `follows` from a pane in another tab.
+        let mut space = Workspace::default();
+        let gemara = space.open_tab("bavli/berakhot", None);
+        let rashi = space
+            .split(gemara, Axis::Vertical, "rashi-on-berakhot", true)
+            .expect("a split");
+        space.open_tab("tur", None);
+        assert!(space.move_pane(gemara, Some(1)));
+        assert_eq!(
+            space.tabs[0].pane(rashi).and_then(|p| p.follows),
+            None,
+            "the Rashi is not following a pane that has left"
+        );
     }
 }
