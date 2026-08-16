@@ -52,16 +52,26 @@ up. Set `GIRSA_CORPUS` to wherever you put it.
 ```
 
 The result rows show the words you searched for **highlighted inside the line**,
-so you can see at a glance which of the eleven hits is the one you meant. Click
-it.
+so you can see at a glance which row is the one you meant.
 
-The search does **not** close. It docks to a column on the left and the daf opens
-beside it, narrower — so you can read the second result without searching again.
-That is deliberate; it is the one thing every library search gets wrong.
+There will be a lot of rows. On the full download those five words are in **317**
+places — the Gemara says them twice, and then Rashi, the Meiri, the Yerushalmi,
+Ein Yaakov and two hundred later seforim quote the line to talk about it. That is
+the library working, and it is also more than anybody wants to read. Two ways
+down to one:
+
+- **the facet column** — `narrow by: sefer`, and pick ברכות;
+- **or type the mareh makom instead.** `ברכות ב.` is read as a place, not as
+  words, and lands on the line.
+
+Click the row. The search does **not** close: it docks to a column on the left
+and the daf opens beside it, narrower — so you can read the second result without
+searching again. That is deliberate; it is the one thing every library search
+gets wrong.
 
 ## 2 · Put Rashi on it (20 seconds)
 
-**Ctrl+\\** — or the button that says **מפרשים · 30**.
+**Ctrl+\\** — or the button that says **מפרשים · 34**.
 
 The list is the mefarshim on this masechta, in their folders: rishonim together,
 acharonim together, modern commentary after them. Two things you can do with any

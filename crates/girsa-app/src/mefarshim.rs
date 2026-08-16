@@ -1385,6 +1385,55 @@ mod tests {
 
     #[test]
     #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
+    fn the_number_on_the_door_in_the_onboarding_is_the_number_the_door_shows() {
+        // `docs/start-here.md` step 2 opens *"the button that says **מפרשים ·
+        // 30**"*. The button says 34, and had said 34 in the screenshot twelve
+        // lines below it the whole time — the page carried both numbers for the
+        // same button on the same masechta and nothing compared them.
+        //
+        // It is the second sentence of the second step of the walkthrough the
+        // README calls the whole product, so a reader meets it before anything
+        // else, with the window open beside the page.
+        //
+        // The number is read **out of the page** rather than written here.
+        // Written here it would be a third copy, free to agree with a stale doc;
+        // read out, the test fails when either side moves and says which.
+        let root = real_corpus();
+        let shelf = real_shelf(&root);
+        let counted = shelf
+            .companions(BERAKHOT)
+            .iter()
+            .filter(|c| c.stands == Some(crate::shelf::Related::On))
+            .count();
+
+        let page = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/start-here.md");
+        let body = std::fs::read_to_string(&page)
+            .unwrap_or_else(|e| panic!("{} reads: {e}", page.display()));
+        // `מפרשים · N`, however it is emphasised around the digits.
+        let printed: Vec<usize> = body
+            .split("מפרשים · ")
+            .skip(1)
+            .filter_map(|after| {
+                let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+                digits.parse().ok()
+            })
+            .collect();
+        assert!(
+            !printed.is_empty(),
+            "{} no longer prints `מפרשים · N`, so this check is asserting nothing",
+            page.display()
+        );
+        for said in &printed {
+            assert_eq!(
+                *said, counted,
+                "start-here.md says the button reads {said} on {BERAKHOT} and it reads {counted}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "needs the fetched corpus: cargo test -p girsa-app --lib -- --ignored"]
     fn every_folder_in_the_chooser_is_named_in_hebrew() {
         // Finding 17. The chooser drew `Rif · 4` between `ראשונים · 13` and
         // `מפרשים · 3` — an untranslated Sefaria category name in a Hebrew
