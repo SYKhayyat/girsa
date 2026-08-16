@@ -78,7 +78,94 @@ pub struct Inside {
     pub total: usize,
 }
 
-/// Every place in this sefer that says `query`.
+/// What the find bar's scope is called, where the engine says what it searched.
+pub const THIS_SEFER: &str = "this sefer";
+
+/// Where the words a search matched are **on the drawn page**.
+///
+/// # Why the engine does not answer this itself
+///
+/// > *"the search should be the same as regular girsa search (with all the
+/// > options)."*
+///
+/// It is: the modes, the match, the together and the refusals all come from
+/// `girsa_search`, scoped to one sefer. What the engine cannot hand back is an
+/// offset the pane can highlight. Its marks are byte ranges into **the text it
+/// indexed**, and the pane draws a different string — the reader's corrections
+/// applied, the shemos rewritten, as much of the pointing as they asked for.
+/// The two differ by every mark, every tag and every shem on the line.
+///
+/// So the division is: the engine says *which segments, and which words*, and
+/// this says *where those words are on the page in front of you*. One idea of
+/// what matches, one idea of where things are, and neither one guessing at the
+/// other's job.
+///
+/// Every occurrence of a matched word is reported, which can be more than the
+/// engine marked — a word twice in one se'if is two stops for a reader walking
+/// with the arrow keys, and it is what every find bar does.
+#[must_use]
+pub fn where_marked(
+    sefer: &Open,
+    hits: &[(girsa_corpus::segment::SegmentId, Vec<String>)],
+    pointing: Pointing,
+    shemos: Shemos,
+    style: girsa_cite::CiteStyle,
+) -> Inside {
+    let mut places: Vec<Found> = Vec::new();
+    for (id, words) in hits {
+        let Some(at) = sefer.position_of(id) else {
+            continue;
+        };
+        let Some(segment) = sefer.segments.get(at) else {
+            continue;
+        };
+        let said = crate::shemos::written(&segment.text, shemos);
+        let shown = Shown::of(&said, pointing);
+        let folded = fold(shown.text());
+        let address = crate::sending::printed_address_in(
+            &sefer.work,
+            Some(sefer.sections()),
+            &segment.id,
+            style,
+        );
+        for word in words {
+            let wanted = fold(word).chars;
+            if wanted.is_empty() {
+                continue;
+            }
+            for hit in folded.every(&wanted) {
+                let (Some(&from), Some(&last)) =
+                    (folded.at.get(hit), folded.at.get(hit + wanted.len() - 1))
+                else {
+                    continue;
+                };
+                places.push(Found {
+                    id: segment.id.to_string(),
+                    at,
+                    address: address.clone(),
+                    from,
+                    to: last + 1,
+                });
+            }
+        }
+    }
+    // **Reading order, and each place once.** The engine answers by rank, which
+    // is right for a list you read and wrong for a bar you walk down a page
+    // with; and two matched words that overlap in one se'if would otherwise be
+    // two stops on the same letters.
+    places.sort_unstable_by_key(|place| (place.at, place.from, place.to));
+    places.dedup_by(|a, b| a.at == b.at && a.from == b.from && a.to == b.to);
+    let total = places.len();
+    places.truncate(MOST);
+    Inside { places, total }
+}
+
+/// Every place in this sefer that says `query`, matched plainly.
+///
+/// The fold and nothing else — no modes, no widening. Kept because it is what
+/// [`where_marked`] is measured against and because a caller with no search
+/// index still has a find: `girsa_search` is an index on disk, and a fresh
+/// install has none until `girsa-index` has run.
 ///
 /// An empty or all-punctuation query finds nothing rather than everything,
 /// which is what a find bar with nothing typed in it should do.
@@ -333,6 +420,73 @@ mod tests {
             CiteStyle::HebrewFull,
         );
         assert_eq!(hits.total, 3);
+    }
+
+    #[test]
+    fn the_engines_hits_come_back_in_reading_order_and_each_place_once() {
+        // The two things `where_marked` does that a `map` would not.
+        //
+        // **Order.** The engine answers by rank, which is right for a list you
+        // read and wrong for a bar you walk down a page with — a reader
+        // pressing ↓ expects the next one *below*, not the next best.
+        //
+        // **Once.** Two matched words that land on the same letters — the
+        // engine marks a word and its own prefix, or one word twice in one
+        // se'if — would otherwise be two stops that do not move.
+        let sefer = sefer();
+        let id = |n: usize| sefer.segments[n].id.clone();
+        let hits = vec![
+            // Deliberately out of order, which is what a ranked answer is.
+            (id(2), vec!["שהחינו".to_string()]),
+            (id(1), vec!["שהחינו".to_string(), "שהחינו".to_string()]),
+        ];
+        let found = where_marked(
+            &sefer,
+            &hits,
+            Pointing::Full,
+            Shemos::AsWritten,
+            CiteStyle::HebrewFull,
+        );
+        let at: Vec<usize> = found.places.iter().map(|p| p.at).collect();
+        assert_eq!(at, [1, 2], "reading order, not rank");
+        assert_eq!(found.total, 2, "the same word twice is one place");
+        // And the offsets are into the drawn text, exactly as `find`'s are.
+        for place in &found.places {
+            let shown = Shown::of(&sefer.segments[place.at].text, Pointing::Full);
+            let words: String = shown
+                .text()
+                .chars()
+                .skip(place.from)
+                .take(place.to - place.from)
+                .collect();
+            let bare: String = words
+                .chars()
+                .filter(|c| !girsa_hebrew::is_mark(*c))
+                .collect();
+            assert_eq!(bare, "שהחינו");
+        }
+    }
+
+    #[test]
+    fn a_hit_on_a_segment_this_sefer_does_not_have_is_left_out() {
+        // The engine answers out of an index, and an index is built from a
+        // corpus that may have moved under it. A place that is not here is
+        // dropped rather than reported at position zero, which is where a
+        // `unwrap_or_default` would have put it.
+        let sefer = sefer();
+        let elsewhere = girsa_corpus::segment::SegmentId::new(
+            "s",
+            vec!["99".into(), "9".into()],
+            girsa_corpus::segment::Ordinal::root(99),
+        );
+        let found = where_marked(
+            &sefer,
+            &[(elsewhere, vec!["שהחינו".to_string()])],
+            Pointing::Full,
+            Shemos::AsWritten,
+            CiteStyle::HebrewFull,
+        );
+        assert_eq!(found.total, 0);
     }
 
     #[test]

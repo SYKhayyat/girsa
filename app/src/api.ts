@@ -425,6 +425,11 @@ export interface Mefaresh {
 /** The tick-list, and which lines carry a marker given what is ticked. */
 export interface Mefarshim {
   works: Mefaresh[];
+  /** The mefarshim printed **on the page** with this sefer — Rashi and Tosfos on
+   * a daf, Onkelos beside a Chumash, the Bartenura under a Mishnah. Offered as
+   * one gesture, because they are the ones nobody has ever had to look up.
+   * Empty on a sefer that has none of them, and then nothing is offered. */
+  usual: Mefaresh[];
   /** Seforim that keep this one's order without commenting on it — the Shulchan
    * Arukh under the Tur, the Arukh HaShulchan under the Shulchan Arukh. Its own
    * list, drawn as its own group, and never folded into `works`: *a mefaresh on
@@ -745,11 +750,16 @@ export interface Found {
   to: number;
 }
 
-/** What a find inside one sefer found — `girsa_app::inside::Inside`. */
+/** What a find inside one sefer found, with the row of options it ran under. */
 export interface Inside {
   places: Found[];
   /** How many there are, which is not `places.length` once the list was cut. */
   total: number;
+  /** The chip row, so the bar draws what the engine will do rather than what it
+   * last drew. The same chips the search panel has, on a set of their own. */
+  chips: Chip[];
+  /** A refusal, in the engine's own words. */
+  refused: string | null;
 }
 
 /** One limud of one day — `girsa_app::luach::Limud`. */
@@ -1227,6 +1237,8 @@ export const api = {
    * answer with the marked lines only, and the window patched the rest of its
    * own copy — which is why ticking a sefer that was not in `works` left the
    * tick-count at zero and clicking a line did nothing. */
+  /** Tick the mefarshim printed on the page with this sefer, in one call. */
+  chooseTheUsual: (slug: string) => call<Mefarshim>("choose_the_usual", { slug }),
   chooseMefaresh: (slug: string, work: string, on: boolean) =>
     call<Mefarshim>("choose_mefaresh", { slug, work, on }),
   /** Say — or unsay — that two seforim keep the same order (A6). Answers with
@@ -1276,6 +1288,9 @@ export const api = {
    * the pane happens to be holding. */
   seferFind: (slug: string, query: string) =>
     call<Inside>("sefer_find", { slug, query }),
+  /** Set one option on the find bar — its own chips, not the panel's. */
+  findHereChip: (chip: string, key: string) =>
+    call<void>("find_here_chip", { chip, key }),
   /** The section a line is in, ready to print. `whole: false` is the section;
    * `true` is the one line, which is what a highlight prints. */
   seferSheet: (at: string, whole: boolean) => call<Sheet>("sefer_sheet", { at, whole }),
@@ -2161,7 +2176,9 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // Same: the fold that makes `שהחיינו` match `שֶׁהֶחֱיָנוּ` is in Rust, and a
     // second one written here would be a second answer to *what matches*.
     case "sefer_find":
-      return { places: [], total: 0 } as T;
+      return { places: [], total: 0, chips: [], refused: null } as T;
+    case "find_here_chip":
+      return undefined as T;
     // Printing needs the run of the section, and which lines those are is a
     // question about the whole sefer — the fixtures are a few hundred lines of
     // it. Refused, like the search.

@@ -137,9 +137,14 @@ compile — they are what an ordinary morning is made of.
 | | |
 |---|---|
 | **Today's daf** | The button at the left of the toolbar says it — `דף היומי · ברכות ב'` — and opens it. Hover for the Hebrew date, where the cycle stands, and tomorrow's, because the daf turns over at nightfall and a button turns it over at midnight. |
-| **Find in this sefer** | `Ctrl+F`. The whole sefer, not the lines on screen; type bare and it finds the menukad words. `Ctrl+Shift+F` is the search across the whole shelf, which is a different question. |
+| **Find in this sefer** | `Ctrl+F`. The whole sefer, not the lines on screen, and **the same engine and the same options as the shelf search** — the modes, the match, the phrase and the near-N are all on the bar. What differs is the shape of the answer: the next one, then the one after that, and a count. `Ctrl+Shift+F` is the search across the whole shelf, which is a different question. |
 | **Print the siman** | `Ctrl+P` prints the section you are standing in — the siman, the amud, the perek — with the sefer, the printed edition and the terms at the head of it. `.docx` is still there for the whole sefer. |
 | **A page you can throw away** | Settings → `שמות הקודש`. The shemos are written with a letter changed — `יקוק`, `אלקים`, `קל` — on the page, in the search results, in what you copy and in what you print. |
+
+One more, on a daf: the mefarshim door (`Ctrl+\`) opens with **רש"י · תוספות**
+at the top of it — the two printed on the page with the Gemara, in one press.
+The list under it stays in aleph-beis order, which is where you go when you want
+the Taz.
 
 Type a mekor at the search bar and it opens: `שבת לא.`, `שו"ע יו"ד סימן א`,
 `רמב"ם הלכות שחיטה א`, and — as of now — `טור או"ח סימן א` and `ערוך השולחן

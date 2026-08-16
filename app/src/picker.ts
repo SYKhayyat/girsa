@@ -46,12 +46,15 @@ export class Picker {
   private readonly list: HTMLElement;
   private readonly heading: HTMLElement;
   private readonly open: HTMLButtonElement;
+  /** *Rashi · Tosfos*, or whichever of them this sefer has. */
+  private readonly usual: HTMLButtonElement;
   private rows: { slug: string; node: HTMLElement }[] = [];
   private cursor = 0;
   private chosen: Chosen = () => {};
   private beside: string | null = null;
   private mefarshim: Mefarshim = {
-    works: [], alongside: [], folders: [], listed: [], marked: {}, touched: 0, unbuilt: null,
+    works: [], alongside: [], folders: [], listed: [], marked: {}, touched: 0, usual: [],
+    unbuilt: null,
   };
   private tick: (work: string, on: boolean) => void = () => {};
   /** Say that a sefer keeps this one's order, or take it back (A6). */
@@ -101,12 +104,25 @@ export class Picker {
     this.list.className = "picker-list";
     this.said = document.createElement("p");
     this.said.className = "picker-said";
+    // **The two you open every time, in one press.**
+    //
+    // Standing on a daf, this list is every commentary the corpus has, in
+    // aleph-beis order inside its folder — which is right, and is a reader's
+    // own ruling. It is also two searches through forty rows for Rashi and
+    // Tosfos, every daf, for the two nobody has ever had to look up. The
+    // button says their names, so it is not a promise about what *usual*
+    // means; it is the names of the seforim it is about to tick.
+    this.usual = document.createElement("button");
+    this.usual.type = "button";
+    this.usual.className = "tool picker-usual";
+    this.usual.hidden = true;
+    this.usual.addEventListener("click", () => void this.takeTheUsual());
     this.open = document.createElement("button");
     this.open.type = "button";
     this.open.className = "tool picker-open";
     this.open.hidden = true;
     this.open.addEventListener("click", () => this.takeAll());
-    sheet.append(this.heading, this.input, this.list, this.said, this.open);
+    sheet.append(this.heading, this.input, this.usual, this.list, this.said, this.open);
     this.element.append(sheet);
 
     this.input.addEventListener("input", () => void this.refresh());
@@ -154,6 +170,13 @@ export class Picker {
    * where it lands. The picker used to keep the copy it was opened with, so a
    * tick-box un-ticked itself the moment anything redrew the list.
    */
+  /** Whether a sefer is ticked, over the **whole** woven list. */
+  private isTicked(slug: string): boolean {
+    return this.mefarshim.listed.some(
+      (row) => row.kind === "sefer" && row.choice.slug === slug && row.choice.chosen,
+    );
+  }
+
   refreshMefarshim(slug: string, now: Mefarshim): void {
     if (this.beside !== slug) return;
     this.mefarshim = now;
@@ -173,6 +196,19 @@ export class Picker {
 
   get isOpen(): boolean {
     return !this.element.hidden;
+  }
+
+  /** Tick the mefarshim printed on the page with this sefer. */
+  private async takeTheUsual(): Promise<void> {
+    const slug = this.beside;
+    if (!slug) return;
+    try {
+      this.refreshMefarshim(slug, await api.chooseTheUsual(slug));
+    } catch {
+      // A sefer whose tick-list will not read has already said so above the
+      // list; a button reporting it again is noise over the same fact.
+      return;
+    }
   }
 
   private async refresh(): Promise<void> {
@@ -198,6 +234,13 @@ export class Picker {
       // Both groups tick, so both groups count. Reporting only the mefarshim
       // would tell a reader who has ticked the Arukh HaShulchan that they have
       // ticked nobody.
+      // Offered only where there is something to offer, and only where it
+      // would change anything: a reader who has ticked both does not need a
+      // button that ticks both.
+      const usual = this.mefarshim.usual.filter((m) => !this.isTicked(m.slug));
+      this.usual.hidden = usual.length === 0;
+      this.usual.textContent = usual.map((m) => sefer(m)).join(" · ");
+      this.usual.title = say("openTheUsualWhy");
       this.said.textContent = ticked(
         this.mefarshim.touched,
         this.mefarshim.listed.filter((row) => row.kind === "sefer" && row.choice.chosen).length,

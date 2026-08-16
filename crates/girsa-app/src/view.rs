@@ -520,6 +520,16 @@ pub struct Mefarshim {
     /// lines of TypeScript beside a module carrying twenty-five Rust tests
     /// about this same list.
     pub listed: Vec<crate::mefarshim::Listed>,
+    /// The mefarshim printed **on the page** with this sefer — Rashi and Tosfos
+    /// on a daf, Onkelos beside a Chumash, the Bartenura under a Mishnah.
+    ///
+    /// Offered as one gesture, because they are the ones nobody has ever had to
+    /// look up. See [`crate::mefarshim::the_usual`], which is also where the
+    /// argument for *not* reordering the list itself is.
+    ///
+    /// Empty on a sefer that has none of them, and then the window offers
+    /// nothing rather than a button that does nothing.
+    pub usual: Vec<Mefaresh>,
     /// Why the list is empty when it is empty for a reason.
     ///
     /// `mefarshim::Marks::of` reads `inbound.jsonl`, and a sefer with no such
@@ -603,9 +613,11 @@ impl Mefarshim {
             shelf,
             language,
         );
+        let usual = crate::mefarshim::the_usual(&commentators);
         Self {
             marked: marks.marked(chosen),
             touched: marks.segments_touched(),
+            usual: usual.into_iter().map(&named).collect(),
             works: commentators.into_iter().map(&named).collect(),
             alongside: alongside.into_iter().map(&named).collect(),
             folders: folders.tree,

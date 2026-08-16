@@ -482,6 +482,120 @@ body {
  * column the header ran out of room and clipped it at the edge — the one label
  * on the header whose whole job is to name the pane this one follows. It
  * shrinks and ellipsises instead, and keeps its full text on hover. */
+/* ── The find bar (Ctrl+F) ───────────────────────────────────────────────────
+ *
+ * Read off a screenshot of the running window, where the first version of it
+ * was, in the reader's words, *"ugly and unwieldy"*. Four things were wrong and
+ * all four were in this block:
+ *
+ * - **it was as wide as a paragraph.** A `min-width` on the box and a flex row
+ *   with nothing holding it back, so an empty input took four hundred pixels
+ *   over the text. It is sized to what a person types now, and grows only to
+ *   what the pane can spare.
+ * - **the count read backwards.** `1 / 33` in a right-to-left window is laid
+ *   out `33 / 1`. `dir="ltr"` in `findhere.ts`, and tabular figures here so it
+ *   does not shiver as the number widens.
+ * - **the buttons were browser buttons.** `glyph()` sets no class of its own,
+ *   so ↑ ↓ ✕ arrived as three grey slabs in a panel where every other control
+ *   is flat. They are the toolbar's glyphs now.
+ * - **it sat over the words.** It still floats — a bar that pushed the text
+ *   down would move the line the reader is looking at, every time it opened,
+ *   which is the one thing a find must not do — but it is against the head of
+ *   the pane and out of the measure of the text.
+ */
+.find-here-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.find-here-box {
+  /* Wide enough for a phrase and no wider. The bar is over a daf. */
+  width: 11rem;
+  max-width: 40vw;
+  background: var(--page);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 4px 7px;
+  /* The Hebrew face, because what goes in it is Hebrew — the box took the
+   * browser's default and a phrase typed into it did not look like the phrase
+   * on the page it was going to be found in. */
+  font-family: var(--hebrew);
+  font-size: 15px;
+}
+
+.find-here-box:focus {
+  outline: 2px solid var(--mark-quiet);
+}
+
+.find-here-count {
+  font-size: 11px;
+  opacity: 0.75;
+  min-width: 4rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-here-walk {
+  display: flex;
+  gap: 2px;
+}
+
+/* `glyph()` sets no class of its own — every caller styles it from where it
+ * sits, which is how ↑ ↓ ✕ arrived here as three grey browser slabs in a window
+ * where nothing else has a raised edge. */
+.find-here button,
+.desk > button:not(.desk-open) {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-quiet);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  padding: 3px 5px;
+  cursor: pointer;
+}
+
+.find-here button:hover,
+.desk > button:not(.desk-open):hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+/* Except the chips, which have a face of their own and must not lose it to the
+ * rule above. */
+.find-here .find-chip-face,
+.find-here .find-chip-item {
+  border: 1px solid var(--rule);
+}
+
+.find-here .find-chip-item {
+  border: 0;
+}
+
+.find-here .find-chips {
+  padding: 4px 0 0;
+  border-bottom: 0;
+  gap: 4px;
+}
+
+.find-here .find-chip-face {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.find-here-note {
+  margin: 4px 0 0;
+  font-size: 11px;
+  max-width: 22rem;
+}
+
+.find-here-note:empty {
+  display: none;
+}
+
 /* The find bar (Ctrl+F), over the pane it belongs to.
  *
  * `position: absolute` inside the pane rather than a row in its header: a bar
@@ -493,32 +607,19 @@ body {
  * belongs in the corner the scrollbar is not in, whichever side that is. */
 .find-here {
   position: absolute;
-  top: 2.6rem;
-  inset-inline-end: 0.6rem;
+  /* Replaced at open time with the pane header's measured height — see
+   * `FindHere.openOn`. The value here is what it looks like before anything
+   * has been measured, which is one frame. */
+  top: var(--under-head, 2.4rem);
+  inset-inline-end: 0.5rem;
   z-index: 5;
   display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.4rem;
+  flex-direction: column;
+  padding: 5px 7px;
   background: var(--page-raised);
-  border: 1px solid var(--mark-quiet);
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
-}
-
-.find-here-box {
-  min-width: 12rem;
-  font-size: 13px;
-}
-
-.find-here-count {
-  font-size: 11px;
-  opacity: 0.7;
-  min-width: 4.5rem;
-  text-align: center;
-  /* The digits line up as the reader walks the matches, instead of the bar
-   * shivering every time the number gets wider. */
-  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 22%);
 }
 
 .pane-follows {
@@ -3621,6 +3722,23 @@ body {
 .picker-open {
   margin-block-start: 8px;
   width: 100%;
+}
+
+/* *Rashi · Tosfos* — the mefarshim printed on the page, in one press.
+ *
+ * Above the list rather than under it, because it is the thing a person came
+ * for and the list is what they read when it was not. Its face is the seforim's
+ * own names, so it is quiet: a button that shouted would be a button competing
+ * with the forty rows it exists to save you reading. */
+.picker-usual {
+  width: 100%;
+  margin-block-end: 8px;
+  font-family: var(--hebrew);
+  font-size: 13px;
+}
+
+.picker-usual[hidden] {
+  display: none;
 }
 
 /* The pick is a press, not a tick — see `picker.ts`. Two identical checkboxes

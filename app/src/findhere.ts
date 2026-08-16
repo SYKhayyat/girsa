@@ -1,38 +1,42 @@
-// Find a phrase inside the sefer in front of you — Ctrl+F, in the sense every
-// other application has meant by Ctrl+F for forty years.
+// Find inside the sefer in front of you — Ctrl+F.
 //
-// # Why this is not the search panel
+// # What it is
 //
-// > *"narrowing a global search by facet is not the same gesture as Ctrl+F in
-// > the Mishnah Berurah in front of you."*
+// > *"the search should be the same as regular girsa search (with all the
+// > options)."*
 //
-// It is not, and the difference is not the scope — it is the shape of the
-// answer. A search hands you a ranked list to read; a find hands you the next
-// one, and then the one after that, and a count. Nothing is left on screen
-// afterwards except a highlight in the words you were already looking at.
-//
-// So this is a bar and not a panel: one row, over the pane it belongs to, and
-// it closes itself when you press Escape and leaves the page where it put you.
+// It is. The modes, the match, the together, the refusals and the widening all
+// come out of `girsa_search` scoped to one sefer, and the chip row is drawn by
+// the same `chips.ts` the search panel draws its own with. What is different is
+// the **shape of the answer**: a search hands you a ranked list to read; a find
+// hands you the next one, then the one after that, and a count — and leaves
+// nothing on screen except a highlight in the words you were already looking
+// at.
 //
 // # Why the whole sefer is scanned in Rust
 //
 // The pane holds a window of a few hundred lines around where the reader is
 // standing. A find written here would search what happens to be loaded and
-// report *no more* while sitting on eleven matches — see
-// `girsa_app::inside`, which is where the scan is and why.
+// report *no more matches* while sitting on eleven — see `girsa_app::inside`,
+// which is also where the engine's byte marks become offsets the pane can
+// highlight, and why those are two different things.
 
-import { api, type Found } from "./api.ts";
+import { api, type Chip, type Found } from "./api.ts";
+import { chipRow } from "./chips.ts";
 import { field, glyph } from "./controls.ts";
 import { say } from "./say.ts";
+import { sayTrouble } from "./trouble.ts";
 import type { PaneView } from "./pane.ts";
 
 /** How long a pause counts as *stopped typing*. */
-const SETTLED = 140;
+const SETTLED = 160;
 
 export class FindHere {
   readonly element: HTMLElement;
   private readonly box: HTMLInputElement;
   private readonly count: HTMLElement;
+  private readonly note: HTMLElement;
+  private chips: HTMLElement;
   private pane: PaneView | null = null;
   private places: Found[] = [];
   private total = 0;
@@ -41,17 +45,19 @@ export class FindHere {
   /** The keystroke that has not been searched yet. */
   private waiting: number | null = null;
   /** What was last asked for, so a repeat keystroke does not re-ask. */
-  private asked = "";
+  private asked: string | null = null;
 
   constructor() {
     this.element = document.createElement("div");
     this.element.className = "find-here";
     this.element.hidden = true;
 
+    const row = document.createElement("div");
+    row.className = "find-here-row";
+
     this.box = field(say("findHere"), {
       className: "find-here-box",
       placeholder: say("findHerePlaceholder"),
-      dir: "rtl",
     });
     this.box.addEventListener("input", () => this.typed());
     this.box.addEventListener("keydown", (event) => {
@@ -63,12 +69,28 @@ export class FindHere {
 
     this.count = document.createElement("span");
     this.count.className = "find-here-count";
+    // **`dir="ltr"`, and this is not a detail.** In a right-to-left window a
+    // bare `1 / 33` is laid out by the bidi algorithm as `33 / 1`, so the bar
+    // reported the reader's position and the total the wrong way round — read
+    // straight off a screenshot of the running window.
+    this.count.setAttribute("dir", "ltr");
     this.count.setAttribute("aria-live", "polite");
 
-    const back = glyph("↑", say("findHerePrevious"), () => this.step(-1));
-    const on = glyph("↓", say("findHereNext"), () => this.step(1));
-    const shut = glyph("✕", say("findHereClose"), () => this.close());
-    this.element.append(this.box, this.count, back, on, shut);
+    const walk = document.createElement("div");
+    walk.className = "find-here-walk";
+    walk.append(
+      glyph("↑", say("findHerePrevious"), () => this.step(-1)),
+      glyph("↓", say("findHereNext"), () => this.step(1)),
+    );
+
+    row.append(this.box, this.count, walk, glyph("✕", say("findHereClose"), () => this.close()));
+
+    this.chips = document.createElement("div");
+    this.chips.className = "find-chips";
+    this.note = document.createElement("p");
+    this.note.className = "find-here-note";
+
+    this.element.append(row, this.chips, this.note);
   }
 
   get isOpen(): boolean {
@@ -78,26 +100,36 @@ export class FindHere {
   /**
    * Open over a pane, with whatever is already typed.
    *
-   * Pressing the key again while it is open **selects what is in the box**
-   * rather than clearing it, so a second Ctrl+F is *search for something else*
-   * and a reader who wanted the same phrase can press Enter. That is what every
-   * editor does and it is the reason the box is not reset here.
+   * Pressing the key again **selects what is in the box** rather than clearing
+   * it, so a second Ctrl+F is *look for something else* and a reader who wanted
+   * the same phrase can press Enter. That is what every editor does.
    */
   openOn(pane: PaneView): void {
     if (this.pane !== pane) {
       this.places = [];
       this.total = 0;
       this.at = 0;
-      this.asked = "";
+      this.asked = null;
       this.say();
     }
     this.pane = pane;
     pane.element.append(this.element);
+    // **Under the pane's own header, measured.** It floated at a fixed offset
+    // from the top of the pane and landed on top of the header's buttons —
+    // read off a screenshot of the running window, where it covered *The
+    // chain*. A constant cannot be right here: the header wraps to two lines on
+    // a narrow pane and carries a following-chip on some of them.
+    const head = pane.element.querySelector<HTMLElement>(".pane-head");
+    this.element.style.setProperty("--under-head", `${(head?.offsetHeight ?? 34) + 4}px`);
     this.element.hidden = false;
     this.open = true;
     this.box.focus();
     this.box.select();
-    if (this.box.value.trim()) void this.look();
+    // Ask with whatever is in the box — `""` on a fresh open, which draws the
+    // chip row without searching. The panel does the same and for the same
+    // reason: a reader has to be able to see what the options are before
+    // deciding whether to change one.
+    void this.look();
   }
 
   close(): void {
@@ -106,21 +138,22 @@ export class FindHere {
     this.element.remove();
     if (this.waiting !== null) window.clearTimeout(this.waiting);
     this.waiting = null;
-    // The pane keeps the keyboard, and the reader keeps the place the find put
-    // them on. Nothing is scrolled back.
+    // The reader keeps the place the find put them on. Nothing is scrolled
+    // back.
     this.pane?.element.focus();
   }
 
   /** A pane went away; do not hold a handle to it. */
   forget(pane: PaneView): void {
-    if (this.pane === pane) this.close();
-    if (this.pane === pane) this.pane = null;
+    if (this.pane !== pane) return;
+    this.close();
+    this.pane = null;
   }
 
   private typed(): void {
     if (this.waiting !== null) window.clearTimeout(this.waiting);
-    // Debounced, because every keystroke is a whole-sefer scan. 140ms is a
-    // pause a person makes between words and does not make inside one.
+    // Debounced, because every keystroke is a query against the index. 160ms is
+    // a pause a person makes between words and does not make inside one.
     this.waiting = window.setTimeout(() => void this.look(), SETTLED);
   }
 
@@ -130,19 +163,38 @@ export class FindHere {
     if (!pane) return;
     if (query === this.asked) return;
     this.asked = query;
+    this.note.replaceChildren();
     try {
       const found = await api.seferFind(pane.slug, query);
       this.places = found.places;
       this.total = found.total;
-    } catch {
-      // A sefer that will not open is said by whatever opened it. A find bar
-      // reporting it a second time is noise over the same fact.
+      this.drawChips(found.chips);
+      // A refusal in the engine's own words: a regex that will not compile, an
+      // index that has not been built. Said, not swallowed — a bar that went
+      // quiet on a bad pattern reads as a bar that found nothing.
+      if (found.refused) sayTrouble(this.note, found.refused, "general");
+    } catch (e) {
       this.places = [];
       this.total = 0;
+      sayTrouble(this.note, e, "general");
     }
     this.at = 0;
     this.say();
     if (this.places.length > 0) await this.show();
+  }
+
+  /** The options, drawn by the same function the search panel draws them with. */
+  private drawChips(chips: Chip[]): void {
+    const row = chipRow(chips, {
+      chosen: async (chip, key) => {
+        await api.findHereChip(chip, key);
+        // The options changed, so the same words are a different question.
+        this.asked = null;
+        await this.look();
+      },
+    });
+    this.chips.replaceWith(row);
+    this.chips = row;
   }
 
   /**
@@ -179,8 +231,8 @@ export class FindHere {
       return;
     }
     const shown = `${this.at + 1} / ${this.total}`;
-    // The list is cut at 500 and the count is not. Saying only `3 / 900` would
-    // promise 900 stops when there are 500 — so the difference is on the bar.
+    // The list is cut and the count is not. `3 / 900` alone would promise 900
+    // stops where there are 500.
     this.count.textContent =
       this.total > this.places.length ? `${shown} ${say("findHereCut")}` : shown;
   }

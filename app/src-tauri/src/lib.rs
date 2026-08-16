@@ -71,6 +71,22 @@ pub(crate) struct State {
     /// The chip row as it stands (spec.md §9.5). Held here, not in the webview,
     /// so that what the chips say and what the engine does cannot drift.
     chips: Chips,
+    /// The **find bar's** own chips, which are not the panel's.
+    ///
+    /// > *"the search should be the same as regular girsa search (with all the
+    /// > options)."*
+    ///
+    /// Same engine, same modes, same match and together — and a second set of
+    /// chips, because the two are two questions. A reader who has narrowed the
+    /// panel to Halakhah and set it to regex has not said anything about the
+    /// phrase they are about to look for in the daf in front of them, and a
+    /// find bar that inherited the panel's scope would search one sefer through
+    /// a filter naming a different one.
+    ///
+    /// The scope is replaced on every ask with *this sefer and nothing else*,
+    /// so the one chip a reader cannot set here is the one that would stop it
+    /// being a find.
+    here_chips: Chips,
     /// Why the shelf is not there, if it is not. Shown in the window.
     trouble: Option<String>,
     /// The reader's own layer, which is beside the session file and **not**
@@ -830,12 +846,24 @@ fn landing_row(
     // on the very same line produced `הועתק — שבת דף לא. שורה א'`. Two
     // formatters, and the landing got the wrong one.
     let said_of = |place: &girsa_search::citation::Place| {
-        shelf
-            .and_then(|shelf| shelf.work(place.run.first.work()))
-            .map_or_else(
-                || place.reference.to_string(),
-                |work| girsa_app::sending::cite_of(work, &place.run.first, style),
-            )
+        let Some(shelf) = shelf else {
+            return place.reference.to_string();
+        };
+        let slug = place.run.first.work();
+        // **With the schema's own words**, which is the difference between
+        // `טור אורח חיים סימן א' סעיף א'` and `טור orach_chayim א' א'` — and
+        // the second is what this printed until the real window was asked.
+        shelf.work(slug).map_or_else(
+            || place.reference.to_string(),
+            |work| {
+                girsa_app::sending::cite_of_in(
+                    work,
+                    Some(&shelf.sections(slug)),
+                    &place.run.first,
+                    style,
+                )
+            },
+        )
     };
     let places: Vec<PlaceRow> = landing
         .places
@@ -1516,6 +1544,34 @@ fn choose_mefaresh(
 ) -> Result<Mefarshim, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.choose(&slug, &work, on);
+    state.save();
+    mefarshim_of(&mut state, &slug)
+}
+
+/// Tick the mefarshim printed **on the page** with this sefer, in one gesture.
+///
+/// Rashi and Tosfos on a daf, Onkelos beside a Chumash, the Bartenura under a
+/// Mishnah — see [`girsa_app::mefarshim::the_usual`], which is where the list
+/// is decided and where the argument for leaving the alphabetical order alone
+/// is written down.
+///
+/// One command and not a loop of `choose_mefaresh` in the window: each of those
+/// re-weaves the whole list and hands it back, so three ticks would be three
+/// round trips and three redraws for one click.
+///
+/// **Ticks and never unticks.** A reader who has already opened Rashi and
+/// presses this wants Tosfos as well, not Rashi shut.
+#[tauri::command]
+fn choose_the_usual(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let usual = mefarshim_of(&mut state, &slug)?
+        .usual
+        .into_iter()
+        .map(|m| m.slug)
+        .collect::<Vec<_>>();
+    for work in usual {
+        state.session.choose(&slug, &work, true);
+    }
     state.save();
     mefarshim_of(&mut state, &slug)
 }
@@ -3727,6 +3783,23 @@ struct Sheet {
     lines: Vec<Line>,
 }
 
+/// Set one chip on the **find bar**, which is not the panel's chip row.
+///
+/// Named rather than free-form, like `find_chip`: the window may choose among
+/// the options the engine offered and may not invent one.
+#[tauri::command]
+fn find_here_chip(
+    shared: tauri::State<'_, Shared>,
+    chip: String,
+    key: String,
+) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state
+        .here_chips
+        .choose(&chip, &key)
+        .map_err(|e| e.to_string())
+}
+
 /// Find a phrase **inside one sefer** (`girsa_app::inside`).
 ///
 /// The gesture every application has and this one did not. Not the search bar
@@ -3744,15 +3817,87 @@ fn sefer_find(
     shared: tauri::State<'_, Shared>,
     slug: String,
     query: String,
-) -> Result<girsa_app::inside::Inside, String> {
+) -> Result<FoundHere, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
     let shemos = state.session.shemos;
     let style = state.session.cite;
+
+    // The scope is this sefer, replaced on every ask. It is the one chip a
+    // reader cannot set here, because setting it is what would stop this being
+    // a find.
+    state.here_chips.scope = girsa_search::scope::Scope::everything()
+        .only([slug.clone()], girsa_app::inside::THIS_SEFER);
+    let chips = state.here_chips.clone();
+    if query.trim().is_empty() {
+        // The same rule the panel has: an empty box is not a refusal. The bar
+        // asks with `""` to draw its chip row before anything is typed.
+        return Ok(FoundHere {
+            places: Vec::new(),
+            total: 0,
+            chips: chips.row(),
+            refused: None,
+        });
+    }
+    let Some(bar) = state.bar.as_ref() else {
+        let why = state.no_search();
+        return Ok(FoundHere {
+            places: Vec::new(),
+            total: 0,
+            chips: chips.row(),
+            refused: Some(why),
+        });
+    };
+    let answer = bar.ask(
+        &query,
+        &chips,
+        Paging {
+            from: 0,
+            size: girsa_app::inside::MOST,
+        },
+        &girsa_ref::resolve::Context::default(),
+    );
+    // **The engine says which segments and which words; `inside` says where
+    // those words are on the drawn page.** Two questions with two right
+    // answers: the engine's marks are byte ranges into the text it indexed, and
+    // the pane highlights characters of the text it drew — which differ by
+    // every mark, every tag and every shem the reader asked to have rewritten.
+    let (hits, refused) = match answer {
+        Answer::Segments { results, .. } => (
+            results
+                .hits
+                .iter()
+                .map(|hit| (hit.id.clone(), marked(&results.marker, hit)))
+                .collect::<Vec<_>>(),
+            None,
+        ),
+        Answer::Refused(why) => (Vec::new(), Some(why)),
+        // A mareh makom typed at a find bar. The bar is *inside one sefer* and
+        // a citation is a jump somewhere else, so nothing is found — and the
+        // search panel, which is where a citation belongs, is one key away.
+        Answer::Cited(_) => (Vec::new(), None),
+    };
     let (sefer, _) = state.reading(&slug)?;
-    Ok(girsa_app::inside::find(
-        sefer, &query, pointing, shemos, style,
-    ))
+    let found = girsa_app::inside::where_marked(sefer, &hits, pointing, shemos, style);
+    Ok(FoundHere {
+        places: found.places,
+        total: found.total,
+        chips: chips.row(),
+        refused,
+    })
+}
+
+/// What a find inside one sefer found, with the row of options it ran under.
+#[derive(Serialize)]
+struct FoundHere {
+    places: Vec<girsa_app::inside::Found>,
+    total: usize,
+    /// The chip row, so the bar draws what the engine will do rather than what
+    /// it last drew.
+    chips: Vec<Chip>,
+    /// A refusal, in the engine's own words — a regex that will not compile,
+    /// an index that is not there.
+    refused: Option<String>,
 }
 
 /// What day it is, and what is being learned on it (`girsa_app::luach`).
@@ -4539,6 +4684,7 @@ pub fn run() {
                     bar,
                     no_search,
                     chips: Chips::default(),
+                    here_chips: Chips::default(),
                     trouble,
                     personal,
                     session,
@@ -4596,6 +4742,7 @@ pub fn run() {
             companions,
             mefarshim,
             choose_mefaresh,
+            choose_the_usual,
             pair_alongside,
             mefarshim_at,
             open_sefer,
@@ -4637,6 +4784,7 @@ pub fn run() {
             set_shemos,
             luach,
             sefer_find,
+            find_here_chip,
             sefer_sheet,
             link_words,
             desks,

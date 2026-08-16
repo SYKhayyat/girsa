@@ -118,6 +118,12 @@ const WORDS = {
     "פתח את השורה כאן, בלי לצאת מהדף",
     "Open the line here, without leaving the page",
   ] as Both,
+  /** The mefarshim printed on the page with the sefer — one press. The button's
+   * face is their names, so this is only the tooltip. */
+  openTheUsualWhy: [
+    "פתח את המפרשים שעל הדף",
+    "Open the mefarshim printed on the page",
+  ] as Both,
   print: ["הדפס", "Print"] as Both,
   printWhy: ["הדפס את הסימן או את העמוד שאתה עומד בו", "Print the section you are standing in"] as Both,
   printNothingOpen: ["אין ספר פתוח להדפיס", "no sefer is open to print"] as Both,

@@ -282,11 +282,46 @@ fn said_sections(
 /// [`printed_address`] with the sefer's name left on.
 #[must_use]
 pub fn cite_of(work: &Work, id: &SegmentId, style: CiteStyle) -> String {
-    let Some(address) = girsa_ref::Address::parse(&id.address()) else {
-        return id.to_string();
-    };
-    let path: Vec<String> = work.slug.split('/').map(str::to_string).collect();
-    cite(&about(work), &girsa_ref::Ref::point(path, address), style)
+    cite_of_in(work, None, id, style)
+}
+
+/// The same, for a work that holds its chalakim inside itself.
+///
+/// # Found in the running window, after the margin was already fixed
+///
+/// Typing `טור אורח חיים סימן א` at the search bar resolves, lands on
+/// `girsa:tur/orach_chayim:1:1#9`, and the sentence above it read
+/// **`טור orach_chayim א' א'`**. The margin of every line of the Tur had been
+/// through [`printed_address_in`] that morning; the *landing* went through
+/// `cite_of`, which is the same formatter with the title left on and knew
+/// nothing about sections. One surface fixed, its neighbour not — which is why
+/// this is one function calling the other rather than a second copy of the
+/// argument.
+#[must_use]
+pub fn cite_of_in(
+    work: &Work,
+    sections: Option<&girsa_corpus::sections::Sections>,
+    id: &SegmentId,
+    style: CiteStyle,
+) -> String {
+    let address = printed_address_in(work, sections, id, style);
+    // The title, said in whichever language the style asks for. Asked of
+    // `girsa_cite` rather than picked here, because *which of a sefer's two
+    // titles a citation prints* is that crate's decision and has been since the
+    // first draft.
+    let name = cite(
+        &about(work),
+        &girsa_ref::Ref::whole_work(vec![work.slug.clone()]),
+        style,
+    );
+    let name = name.trim();
+    if name.is_empty() {
+        return address;
+    }
+    if address.is_empty() {
+        return name.to_string();
+    }
+    format!("{name} {address}")
 }
 
 /// Build the three flavours for a selection.

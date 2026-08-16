@@ -556,6 +556,59 @@ mod heading {
     pub const LINKED: &str = "ספרים מקושרים";
 }
 
+/// The mefarshim a person opens with a sefer without being asked, and the order
+/// they are opened in.
+///
+/// # Why this exists
+///
+/// Standing on the first daf of Chullin, the door offers every commentary the
+/// corpus has, in aleph-beis order inside its folder — `באר שבע`, `בן יהוידע`,
+/// `חידושי רבי עקיבא איגר`, `חידושי רמב"ן`, `חתם סופר`, and on. That order is
+/// **right**, and it is a reader's own ruling: *aleph-beis order in Hebrew,
+/// English order in English*, because a person looking for the Taz knows its
+/// name. Nothing here changes it.
+///
+/// What it does not answer is the question a bachur opening a daf actually has,
+/// which is not *where is the Taz* — it is **Rashi and Tosfos**, the two you
+/// open every single time, which under that ordering are at `ר` and at the end
+/// of `ת`. Two searches through a list of forty, every daf, for the two nobody
+/// has ever had to look up.
+///
+/// # Matched on the slug, and gated by nothing
+///
+/// No category check and no list of masechtos. If the corpus offers
+/// `tosafot-on-chullin` on this sefer then this sefer is a daf of Gemara, and
+/// if it offers `bartenura-on-mishnah-berakhot` then it is a Mishnah. The
+/// offered list is already the answer to *what kind of sefer is this*, so
+/// asking a second time could only produce a second, disagreeing answer.
+///
+/// The four are the ones printed **on the page** with the text they are about:
+/// Rashi and Tosfos on a daf, Onkelos beside a Chumash, the Bartenura under a
+/// Mishnah. That is the rule, and it is why the Maharsha is not here — he is
+/// on the daf and he is not what a person opens first.
+const THE_USUAL: &[&str] = &["rashi-on-", "tosafot-on-", "onkelos-", "bartenura-on-"];
+
+/// Which of [`THE_USUAL`] this sefer is offered, in that order.
+///
+/// Deduplicated, because a sefer may be offered twice by two paths, and a
+/// gesture that ticked one of them twice would untick it.
+#[must_use]
+pub fn the_usual(offered: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for prefix in THE_USUAL {
+        for slug in offered {
+            // The last component: a Gemara's mefarshim are `bavli/rashi-on-…`
+            // and a Chumash's are `rashi-on-…`, and matching the whole slug
+            // would find one of those and not the other.
+            let name = slug.rsplit('/').next().unwrap_or(slug);
+            if name.starts_with(prefix) && !out.contains(slug) {
+                out.push(slug.clone());
+            }
+        }
+    }
+    out
+}
+
 /// The whole list behind the door, woven once.
 ///
 /// # Why this is here and not in the window
@@ -833,6 +886,70 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+
+    #[test]
+    fn the_two_a_person_opens_on_a_daf_are_offered_in_that_order() {
+        // Rashi before Tosfos, because that is the order they are read in and
+        // the order they are printed in, inside and outside.
+        let offered = vec![
+            "bavli/beer-sheva-on-chullin".to_string(),
+            "bavli/tosafot-on-chullin".to_string(),
+            "bavli/chidushei-chatam-sofer-on-chullin".to_string(),
+            "bavli/rashi-on-chullin".to_string(),
+        ];
+        assert_eq!(
+            the_usual(&offered),
+            ["bavli/rashi-on-chullin", "bavli/tosafot-on-chullin"]
+        );
+    }
+
+    #[test]
+    fn a_chumash_and_a_mishnah_get_their_own_two() {
+        // No category check anywhere: the offered list is already the answer to
+        // *what kind of sefer is this*, and asking a second time could only
+        // produce a second, disagreeing answer.
+        assert_eq!(
+            the_usual(&[
+                "ramban-on-genesis".to_string(),
+                "onkelos-genesis".to_string(),
+                "rashi-on-genesis".to_string(),
+            ]),
+            ["rashi-on-genesis", "onkelos-genesis"]
+        );
+        assert_eq!(
+            the_usual(&[
+                "bartenura-on-mishnah-berakhot".to_string(),
+                "tosafot-yom-tov-on-mishnah-berakhot".to_string(),
+            ]),
+            ["bartenura-on-mishnah-berakhot"]
+        );
+    }
+
+    #[test]
+    fn a_sefer_with_none_of_them_is_offered_nothing() {
+        // And then the window draws no button, rather than one that does
+        // nothing.
+        assert!(the_usual(&[
+            "kaf-hachayim-on-shulchan-arukh/yoreh-deah".to_string(),
+            "shakh-on-shulchan-arukh/yoreh-deah".to_string(),
+        ])
+        .is_empty());
+        assert!(the_usual(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_commentary_that_merely_starts_the_same_way_is_not_matched() {
+        // The last component, not the whole slug. `bavli/rashi-on-chullin` and
+        // `rashi-on-genesis` are the same sefer wearing two path shapes, and a
+        // match on the whole string would find one of them and not the other.
+        assert_eq!(
+            the_usual(&["bavli/rashi-on-chullin".to_string()]),
+            ["bavli/rashi-on-chullin"]
+        );
+        // And a sefer whose name happens to contain the word does not match:
+        // the prefix is anchored at the start of the name.
+        assert!(the_usual(&["mizrachi-on-rashi-on-genesis".to_string()]).is_empty());
+    }
 
     const BERAKHOT: &str = "bavli/berakhot";
     const RASHI: &str = "bavli/rashi-on-berakhot";

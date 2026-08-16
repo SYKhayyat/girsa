@@ -40,7 +40,6 @@
 import {
   api,
   type Chip,
-  type Choice,
   type Dimension,
   type FacetRow,
   type Found,
@@ -51,6 +50,7 @@ import { LaneColumn } from "./laneview.ts";
 import { announces, button, field, glyph, region, shut } from "./controls.ts";
 import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
+import { chipRow, chipSaid } from "./chips.ts";
 import { say, type Word } from "./say.ts";
 import { ScopePanel } from "./scopeview.ts";
 import { sayTrouble, trouble } from "./trouble.ts";
@@ -412,70 +412,21 @@ export class SearchView {
   }
 
   private drawChips(chips: Chip[]): void {
-    const row = document.createElement("div");
-    row.className = "find-chips";
-    for (const chip of chips) {
-      row.append(this.chip(chip));
-    }
-    this.chipRow.replaceWith(row);
-    this.chipRow = row;
-  }
-
-  /** One chip: what it is set to, and every other thing it could be set to. */
-  private chip(chip: Chip): HTMLElement {
-    const shown = chip.choices.find((c) => c.chosen) ?? chip.choices[0];
-    const wrap = document.createElement("div");
-    wrap.className = "find-chip";
-
-    const face = document.createElement("button");
-    face.type = "button";
-    face.className = "find-chip-face";
-    face.textContent = `${shown ? chipSaid(chip.key, shown) : chipName(chip.key)} ▾`;
-    face.title = chipName(chip.key);
-    const menu = document.createElement("div");
-    menu.className = "find-chip-menu";
-    menu.hidden = true;
-
-    // The scope chip is a doorway, not a setting: it reports where the search is
-    // looking and opens the panel that changes it. It used to open a menu whose
-    // one item was *back to the whole shelf* — a doorway that only led out.
-    if (chip.key === "where") {
-      face.classList.add("is-doorway");
-      face.title = say("scopeWhy");
-      face.addEventListener("click", () => this.scope.toggle());
-      wrap.append(face);
-      return wrap;
-    }
-
-    for (const choice of chip.choices) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "find-chip-item" + (choice.chosen ? " is-chosen" : "");
-      item.textContent = chipSaid(chip.key, choice);
-      if (choice.sigil) {
-        const sigil = document.createElement("span");
-        sigil.className = "find-sigil";
-        // The sigil is shown **on** the chip, which is how §9.5's *the power
-        // syntax teaches itself* actually happens: you click it once and see
-        // what you could have typed.
-        sigil.textContent = choice.sigil;
-        item.append(sigil);
-      }
-      item.addEventListener("click", async () => {
-        menu.hidden = true;
-        await api.findChip(chip.key, choice.key);
+    // Drawn by `chips.ts`, which the find bar draws with too. One chip row:
+    // the reader asked for the find inside a sefer to be *the same as regular
+    // girsa search (with all the options)*, and two renderers of one row is how
+    // the two would come to offer different ones.
+    const row = chipRow(chips, {
+      chosen: async (chip, key) => {
+        await api.findChip(chip, key);
         this.page = 1;
         this.rung = null;
         await this.run();
-      });
-      menu.append(item);
-    }
-
-    face.addEventListener("click", () => {
-      menu.hidden = !menu.hidden;
+      },
+      scope: () => this.scope.toggle(),
     });
-    wrap.append(face, menu);
-    return wrap;
+    this.chipRow.replaceWith(row);
+    this.chipRow = row;
   }
 
   private drawHead(found: Found): void {
@@ -825,48 +776,6 @@ export class SearchView {
 // `torat emet ▾ | whole shelf ▾ | the word ▾ | anywhere in a segment ▾` and
 // there was no way to translate it that did not change the protocol.
 
-/** What a chip is called. */
-function chipName(key: string): string {
-  switch (key) {
-    case "mode":
-      return say("chipMode");
-    case "where":
-      return say("scope");
-    case "match":
-      return say("chipMatch");
-    case "together":
-      return say("chipTogether");
-    case "instrument":
-      return say("chipInstrument");
-    default:
-      // A chip this window has not been taught. Its own key is a worse label
-      // than a translation and a better one than nothing, and it cannot be
-      // silently blank.
-      return key;
-  }
-}
-
-/**
- * What one choice on one chip says.
- *
- * Falls back to the wire's `label` — which is right for the scope chip, whose
- * label is the **names of shelves and seforim**, the corpus's own words in
- * whatever language the corpus wrote them. Those must not be translated, and
- * they are the only labels here that are data rather than interface.
- */
-function chipSaid(chip: string, choice: Choice): string {
-  if (chip === "where") return choice.label || say("wholeShelf");
-  const word = CHOICE_WORDS[`${chip}/${choice.key}`];
-  if (word) return say(word);
-  // `Near5`, `Near12`, `Near17` — the distance the reader set, which is a
-  // number in a sentence rather than a row in a table.
-  const near = /^Near(\d+)$/u.exec(choice.key);
-  if (chip === "together" && near) {
-    return say("togetherNear").replace("{words}", near[1] ?? "");
-  }
-  return choice.label;
-}
-
 /**
  * What a facet row with no label is called.
  *
@@ -896,24 +805,6 @@ const RUNG_WORDS: Record<string, Word> = {
   proximity: "rungProximity",
 };
 
-/** Chip key and choice key → the word for it. The keys are Rust's `as_str`. */
-const CHOICE_WORDS: Record<string, Word> = {
-  "mode/ToratEmet": "modeToratEmet",
-  "mode/Smart": "modeSmart",
-  "mode/Regex": "modeRegex",
-  "mode/Citation": "modeCitation",
-  "mode/Instruments": "modeInstruments",
-  "match/Word": "matchWord",
-  "match/Contains": "matchContains",
-  "match/Letters": "matchLetters",
-  "together/Anywhere": "togetherAnywhere",
-  "together/Phrase": "togetherPhrase",
-  "instrument/Gematria": "instrumentGematria",
-  "instrument/Rashei": "instrumentRashei",
-  "instrument/Sofei": "instrumentSofei",
-  "instrument/Atbash": "instrumentAtbash",
-  "instrument/Dilug": "instrumentDilug",
-};
 
 /** The runs of a segment, as elements — corpus text is never put in as markup. */
 function runs(list: Run[]): Node[] {
