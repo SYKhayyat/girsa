@@ -35,7 +35,7 @@
 //! Two seforim with neither are left alone even though half the corpus is
 //! addressed `1:1` and would line up beautifully.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use girsa_corpus::segment::SegmentId;
@@ -182,9 +182,15 @@ impl Joined {
         // How many edges join the two is the count `settled` wants for the one
         // case the shelf refuses to guess at, and it is already in hand.
         let joining = edges.values().map(Vec::len).sum::<usize>();
-        let declared = match taxonomy::settled(&follower.work, &leader.work, joining) {
+        // And whether the two keep the same order is countable from the same
+        // edges — `taxonomy::Keeping`, which is the second thing `settled`
+        // refuses to guess at. No cache is needed here: this function already
+        // holds every edge joining the two, which is exactly what
+        // `girsa-companions` writes down for the menus that do not.
+        let (by_leader, by_follower) = keeping(&edges);
+        let declared = match taxonomy::settled(&follower.work, &leader.work, joining, by_follower) {
             Stands::On | Stands::Alongside => Some(true),
-            _ => match taxonomy::settled(&leader.work, &follower.work, joining) {
+            _ => match taxonomy::settled(&leader.work, &follower.work, joining, by_leader) {
                 Stands::On | Stands::Alongside => Some(false),
                 _ => None,
             },
@@ -462,6 +468,39 @@ fn addresses_agree(
         return true;
     }
     deeper.iter().zip(shallower).all(|(a, b)| a == b)
+}
+
+/// How much of each other's order the two works keep, from the edges in hand.
+///
+/// `(the leader's side, the follower's side)`. Two answers and not one, because
+/// [`taxonomy::Keeping`] counts *this sefer's* simanim and the two works have
+/// different numbers of them — the Tur's four chalakim against one chelek of the
+/// Shulchan Arukh — so a share taken from one end is not the share from the
+/// other. `settled` asks about its first argument, and gets that end's count.
+fn keeping(edges: &HashMap<SegmentId, Vec<SegmentId>>) -> (taxonomy::Keeping, taxonomy::Keeping) {
+    // Per **siman**, not per edge: a mefaresh with forty comments in one siman
+    // is one siman agreeing, and counting the comments would let a single busy
+    // siman outvote the whole rest of the sefer.
+    let mut leader: BTreeMap<u32, bool> = BTreeMap::new();
+    let mut follower: BTreeMap<u32, bool> = BTreeMap::new();
+    for (at, theirs) in edges {
+        let Some(mine) = taxonomy::kept_number(&at.address()) else {
+            continue;
+        };
+        for there in theirs {
+            let Some(there) = taxonomy::kept_number(&there.address()) else {
+                continue;
+            };
+            let same = mine == there;
+            *leader.entry(mine).or_default() |= same;
+            *follower.entry(there).or_default() |= same;
+        }
+    }
+    let tally = |seen: &BTreeMap<u32, bool>| taxonomy::Keeping {
+        joined: seen.len(),
+        same: seen.values().filter(|same| **same).count(),
+    };
+    (tally(&leader), tally(&follower))
 }
 
 /// Every edge joining the two works, in both directions, as leader → follower.

@@ -111,7 +111,26 @@ struct Companions {
     /// cache keeps the 200 thickest joins and this is what there were, so a
     /// truncated list can say so rather than reading as all of them.
     joined: usize,
-    with: Vec<(String, usize)>,
+    with: Vec<Joined>,
+}
+
+/// One entry of a work's companion list: who, how much, and whether the two
+/// keep the same order.
+#[derive(Debug, Clone, Default)]
+struct Joined {
+    slug: String,
+    /// How many edges join the two.
+    edges: usize,
+    /// How many of this work's simanim the other's addresses agree with —
+    /// `girsa_corpus::taxonomy::Keeping`, counted once by `girsa-companions`
+    /// rather than by re-walking four million edges when a menu opens.
+    ///
+    /// Zero in a cache written before the field existed, which reads as *the
+    /// corpus does not say these run alongside each other*. That is the honest
+    /// answer for a stale cache and not a silent one: the parallel seforim
+    /// simply do not appear until the tool is run again, where before a stale
+    /// cache produced a shelf's worth of wrong ones.
+    keeping: girsa_corpus::taxonomy::Keeping,
 }
 
 /// A sefer offered for the column beside the one you are reading.
@@ -655,7 +674,8 @@ impl Shelf {
             });
         }
 
-        for (other, count) in self.linked.get(slug).into_iter().flat_map(|c| &c.with) {
+        for joined in self.linked.get(slug).into_iter().flat_map(|c| &c.with) {
+            let (other, count) = (&joined.slug, &joined.edges);
             if let Some(at) = seen.get(other.as_str()) {
                 if let Some(existing) = out.get_mut(*at) {
                     existing.links = *count;
@@ -728,18 +748,39 @@ impl Shelf {
             .map_or((0, 0), |c| (c.with.len(), c.joined))
     }
 
+    /// How much of `other`'s order `slug` keeps, as `girsa-companions` counted
+    /// it.
+    ///
+    /// `Keeping::unknown()` where there is no cache, where the pair fell outside
+    /// it, or where the cache predates the field — all three of which mean *the
+    /// corpus does not say*, which is what that value is.
+    #[must_use]
+    pub fn keeping(&self, slug: &str, other: &str) -> girsa_corpus::taxonomy::Keeping {
+        self.linked
+            .get(slug)
+            .and_then(|c| c.with.iter().find(|j| j.slug == other))
+            .map_or_else(girsa_corpus::taxonomy::Keeping::unknown, |j| j.keeping)
+    }
+
     /// How `commentary` stands to `base`, where the corpus can say.
     ///
     /// The one predicate. `girsa_corpus::taxonomy::stands` says so in its own
     /// doc comment — *"this is the question W43's tick-list, and anything else
     /// that says these are the mefarshim on this sefer, has to ask"* — and two
     /// of the three things that say it were not asking.
+    ///
+    /// The alignment comes from this work's own row in the companion cache —
+    /// how many of **its** simanim the other sefer's addresses agree with. Read
+    /// from `commentary`'s row and not from `base`'s, because the two rows hold
+    /// the same pair counted from opposite ends and `settled` is asking about
+    /// the first of its two arguments.
     #[must_use]
     pub fn related(&self, commentary: &str, base: &str, edges: usize) -> Option<Related> {
+        let keeping = self.keeping(commentary, base);
         let (Some(commentary), Some(base)) = (self.work(commentary), self.work(base)) else {
             return None;
         };
-        match girsa_corpus::taxonomy::settled(commentary, base, edges) {
+        match girsa_corpus::taxonomy::settled(commentary, base, edges, keeping) {
             girsa_corpus::taxonomy::Stands::On => Some(Related::On),
             girsa_corpus::taxonomy::Stands::Alongside => Some(Related::Alongside),
             _ => None,
@@ -1404,6 +1445,13 @@ fn read_companions(root: &Path) -> HashMap<String, Companions> {
     struct Pair {
         slug: String,
         n: usize,
+        /// How many of this work's simanim are joined to the other at all, and
+        /// how many of those to a siman of the same number. Absent in a file
+        /// written before the fields existed — see `Joined::keeping`.
+        #[serde(default)]
+        simanim: usize,
+        #[serde(default)]
+        same: usize,
     }
 
     let Ok(body) = std::fs::read_to_string(root.join("links/companions.jsonl")) else {
@@ -1415,7 +1463,18 @@ fn read_companions(root: &Path) -> HashMap<String, Companions> {
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
     {
         if let Ok(row) = serde_json::from_str::<Row>(line) {
-            let with: Vec<(String, usize)> = row.with.into_iter().map(|p| (p.slug, p.n)).collect();
+            let with: Vec<Joined> = row
+                .with
+                .into_iter()
+                .map(|p| Joined {
+                    slug: p.slug,
+                    edges: p.n,
+                    keeping: girsa_corpus::taxonomy::Keeping {
+                        joined: p.simanim,
+                        same: p.same,
+                    },
+                })
+                .collect();
             out.insert(
                 row.work,
                 Companions {

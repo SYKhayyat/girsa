@@ -53,6 +53,13 @@ which*. Without it the shelf offers the declared commentaries only, and the
 links panel says so rather than pretending the list is complete.
 `girsa-link-orient` turns the `comments-on` edges the right way round.
 
+It also writes, per pair, **how many of one sefer's simanim are joined to the
+siman of the same number in the other** — which is what makes the Tur a
+parallel of the Shulchan Arukh and the Mishneh Torah not one. See
+`girsa_corpus::taxonomy::Keeping`. A `companions.jsonl` written before those
+numbers existed still loads; it simply offers no parallel seforim until the
+tool is run again.
+
 Optional, and only if you want an agent to be able to ask:
 
 ```sh

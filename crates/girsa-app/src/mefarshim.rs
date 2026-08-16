@@ -149,8 +149,9 @@ impl Marks {
             // The threshold was private to this module while `Shelf::companions`
             // and `Beside::between` answered the same question without asking
             // `stands` at all.
+            let keeping = shelf.keeping(work, slug);
             let verdict = shelf.work(work).map_or(Stands::Apart, |w| {
-                girsa_corpus::taxonomy::settled(w, base, *count)
+                girsa_corpus::taxonomy::settled(w, base, *count, keeping)
             });
             standing.insert(work, verdict);
         }
@@ -164,7 +165,7 @@ impl Marks {
                 // the marker and the click, not a name in a list. Which group it
                 // is drawn in is the only difference, and that is the point.
                 Stands::Alongside => marks.alongside.insert(from.to_string()),
-                Stands::Apart | Stands::AskTheEdges => {
+                Stands::Apart | Stands::AskTheEdges | Stands::AskTheAddresses => {
                     marks.refused.insert(from.to_string());
                     continue;
                 }
@@ -719,10 +720,39 @@ pub fn listed(
     // Directly under the mefarshim, because they tick and mark exactly like one
     // and are the second thing a person reaching for a mefaresh wants — not down
     // with the merely-linked, which is where a bool had quietly filed them.
+    //
+    // **Two sources, and only one of them was being read.** `alongside` is built
+    // from `inbound.jsonl` — the seforim whose edges land *on* this one — so
+    // standing on Yoreh De'ah it held the Arukh HaShulchan and the Mishneh
+    // Torah, and not the Tur. The Tur's edges point the other way (spec.md §8.2
+    // stores an edge once, in the direction it was written, and the Shulchan
+    // Arukh is the one that points at the Tur), so the sefer that keeps this
+    // one's order more exactly than anything else in the corpus was never a
+    // candidate for the heading that means exactly that.
+    //
+    // It was not missing from the list, which is worse: `companions` had it,
+    // with `Related::Alongside` on it, and the partition below files anything
+    // with a relation and no place under *פירושים בלי מקום בשורה*. So the Tur
+    // was offered as a commentary on the Shulchan Arukh — the wrong claim, and
+    // backwards by a century.
+    let also: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.stands == Some(Related::Alongside))
+        .map(|r| r.slug.as_str())
+        .collect();
     let mut following: Vec<Choice> = alongside
         .iter()
+        .map(String::as_str)
+        .chain(also)
         .filter(|slug| !shown.contains(*slug))
-        .map(|slug| named(slug, Some(Related::Alongside), 0, true))
+        .collect::<BTreeSet<&str>>()
+        .into_iter()
+        .map(|slug| {
+            // A row `companions` already built keeps its edge count; one that
+            // only the inbound cache knows about has none to keep.
+            let links = rows.iter().find(|r| r.slug == slug).map_or(0, |r| r.links);
+            named(slug, Some(Related::Alongside), links, true)
+        })
         .collect();
     following.sort_by(&by_name);
     section(
@@ -1824,6 +1854,56 @@ mod tests {
                 ("ben-yehoyada".to_string(), false)
             ]
         );
+    }
+
+    #[test]
+    fn a_sefer_this_one_follows_is_listed_as_following_it_and_not_as_a_peirush() {
+        // A10, the half of it that is in this function. Standing on Yoreh
+        // De'ah, *על סדר הספר* held the Arukh HaShulchan and the Mishneh Torah
+        // and not the **Tur** — and the Tur was in the list all along, under
+        // *פירושים בלי מקום בשורה*, offered as a commentary on the Shulchan
+        // Arukh.
+        //
+        // Two headings, two different claims, and the row went to the wrong one
+        // because this function read `alongside` and nothing else. That list is
+        // built from `inbound.jsonl` — the edges that land *on* this sefer —
+        // and the Shulchan Arukh is the one that points at the Tur, so the Tur
+        // could never appear in it however exactly it keeps the order.
+        let shelf = shelf_of(&[("tur", "טור"), ("arukh-hashulchan", "ערוך השולחן")]);
+        let companions = [Companion {
+            slug: "tur".to_string(),
+            he_title: "טור".to_string(),
+            en_title: "טור".to_string(),
+            links: 410,
+            stands: Some(crate::shelf::Related::Alongside),
+        }];
+        let rows = listed(
+            &companions,
+            &[],
+            &["arukh-hashulchan".to_string()],
+            &Folders::default(),
+            &[],
+            &shelf,
+            crate::session::Language::Hebrew,
+        );
+        assert_eq!(
+            shape(&rows),
+            [
+                format!("# {}", heading::ALONGSIDE),
+                "tur".to_string(),
+                "arukh-hashulchan".to_string(),
+            ],
+            "the Tur belongs under {} with the sefer that reached it the other way",
+            heading::ALONGSIDE
+        );
+        // And it keeps the edge count `companions` gave it. The inbound-only
+        // rows have none, and taking the whole group from that side would have
+        // thrown this away.
+        let tur = rows.iter().find_map(|row| match row {
+            Listed::Sefer { choice } if choice.slug == "tur" => Some(choice),
+            _ => None,
+        });
+        assert_eq!(tur.map(|c| c.links), Some(410));
     }
 
     #[test]

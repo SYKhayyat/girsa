@@ -364,6 +364,148 @@ pub enum Stands {
     /// Returned rather than guessed, because guessing here is BUILDER.md rule 6.
     /// The caller holds the graph; this module holds the shelf.
     AskTheEdges,
+    /// The shelf permits *alongside* and cannot settle it — only whether the two
+    /// seforim's **addresses** line up can. See [`Keeping`].
+    ///
+    /// The same seam as [`Stands::AskTheEdges`], one question over: standing on
+    /// the same shelf is what makes a pair worth asking about, and it is not an
+    /// answer. The Mishneh Torah and the Shulchan Arukh are both הלכה and keep
+    /// nothing of each other's order.
+    AskTheAddresses,
+}
+
+/// How much of one sefer's order the other one keeps.
+///
+/// # The question this answers
+///
+/// *Parallel seforim* — the Tur beside the Shulchan Arukh — is a thing a learner
+/// asks for by name, and until now this module answered it from the **top
+/// shelf**: both are הלכה, so both are alongside. Which made the Mishneh Torah a
+/// parallel of Yoreh De'ah, and every masechta a parallel of every other, and
+/// Bereshis a parallel of Shemos. Standing on one shelf is what makes two seforim
+/// worth comparing; it is not the comparison.
+///
+/// What a reader means by parallel is narrower and is written down in the corpus
+/// already: **siman 3 of one is siman 3 of the other**. So this counts, over the
+/// edges joining two seforim, how many of one's simanim are joined to the siman
+/// of the same number in the other.
+///
+/// # It is a count and not a proportion
+///
+/// The first draft of this asked *what share of the joined simanim land on their
+/// own number*, and a share is the wrong shape. Devarim and Vayikra are joined at
+/// 29 perakim and agree on 7 of them, which is 24% and is a coincidence; the
+/// Arukh HaShulchan and Choshen Mishpat agree on 37 out of 353, which is 10% and
+/// is a sefer. No line drawn through those two keeps the right one.
+///
+/// **Twenty-five simanim that agree by number is a sefer's worth of structure.**
+/// Seven is two seforim that both start at one. That is the whole rule, and the
+/// denominator is kept only as evidence to read.
+///
+/// # Measured, over the whole of `corpus/links`
+///
+/// Every pair in the corpus with 25 or more agreeing simanim, where **neither**
+/// side is a commentary — a commentary is already [`Stands::On`] and never
+/// reaches here — is 23 rows, and they are these:
+///
+/// | pair | joined | agreeing |
+/// |---|---|---|
+/// | Tur · Shulchan Arukh, Orach Chayim | 697 | **697** |
+/// | Tur · Shulchan Arukh, Choshen Mishpat | 425 | **424** |
+/// | Tur · Shulchan Arukh, Yoreh De'ah | 403 | **402** |
+/// | Tur · Shulchan Arukh, Even HaEzer | 180 | **178** |
+/// | Sefer HaMitzvot · Mishneh Torah, negative mitzvos | 365 | **365** |
+/// | Sefer HaMitzvot · Mishneh Torah, positive mitzvos | 248 | **246** |
+/// | Arukh HaShulchan · Orach Chayim | 398 | **242** |
+/// | Arukh HaShulchan · Yoreh De'ah | 390 | **145** |
+/// | Arukh HaShulchan · Even HaEzer | 183 | **43** |
+/// | Arukh HaShulchan · Choshen Mishpat | 353 | **37** |
+///
+/// — each counted from both ends, plus three Otzaria works whose commentary
+/// nothing declares. Nothing else in 4.1 million edges reaches 25. The pairs a
+/// learner would name are the pairs that come back.
+///
+/// And what it refuses, which is the point of it:
+///
+/// | pair | joined | agreeing |
+/// |---|---|---|
+/// | Mishneh Torah, Forbidden Foods · Yoreh De'ah | 90 | 0 |
+/// | Shulchan Arukh HaRav · Orach Chayim | 505 | 2 |
+/// | Sefer Mitzvot Gadol · Yoreh De'ah | 339 | 1 |
+/// | Devarim · Vayikra | 29 | 7 |
+/// | Bereshis · Shemos | 0 | 0 |
+///
+/// The Shulchan Arukh HaRav is the case worth knowing about, because it **is**
+/// written on Orach Chayim's simanim. Of the 505 of its simanim the graph joins
+/// to Orach Chayim, two land on their own number: Sefaria's links between the two
+/// are citations and not the structural mapping. So the corpus does not say these
+/// run alongside each other, and this refuses to say it on its behalf. That is
+/// what a reader's own list of pairs is for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Keeping {
+    /// This sefer's simanim that are joined to the other at all.
+    pub joined: usize,
+    /// How many of those are joined to a siman of the **same number**.
+    pub same: usize,
+}
+
+impl Keeping {
+    /// How many simanim have to agree by number before it is a sefer and not a
+    /// coincidence.
+    ///
+    /// Nothing in 4.1 million edges sits near this line: the pairs that reach it
+    /// are at 37 and climb straight to 697, and the thickest coincidence anybody
+    /// has found is Devarim against Vayikra at 7. See the table above.
+    pub const ENOUGH: usize = 25;
+
+    /// The corpus has nothing to say about how these two are addressed.
+    ///
+    /// Not the same as *they do not line up*: a caller with no graph in hand
+    /// answers this, and the answer it gets is `Apart` rather than a guess.
+    #[must_use]
+    pub const fn unknown() -> Self {
+        Self { joined: 0, same: 0 }
+    }
+
+    /// Whether this is enough agreement to call the two seforim parallel.
+    #[must_use]
+    pub const fn keeps_the_same_order(&self) -> bool {
+        self.same >= Self::ENOUGH
+    }
+
+    /// Count one joined pair of addresses.
+    pub fn saw(&mut self, mine: Option<u32>, theirs: Option<u32>) {
+        let (Some(mine), Some(theirs)) = (mine, theirs) else {
+            return;
+        };
+        self.joined += 1;
+        if mine == theirs {
+            self.same += 1;
+        }
+    }
+}
+
+/// The number an address keeps, if it keeps one — `1:1` → `1`.
+///
+/// **The outermost level that is a plain number**, descending past levels that
+/// name a section and stopping at one that is an address of some other shape.
+/// The Tur is one work holding four chalakim, so its simanim are addressed
+/// `yoreh_deah:1:5` and the siman is the second level; the Shulchan Arukh is four
+/// works and its simanim are the first. A daf stops it: `2a` is an address and
+/// not a section name, so a Gemara keeps no number here rather than quietly
+/// offering the line number inside the daf, which is what descending blindly did
+/// and which made Berakhos look 9% parallel to Shabbos.
+#[must_use]
+pub fn kept_number(address: &str) -> Option<u32> {
+    for level in address.split(':') {
+        if let Ok(n) = level.parse::<u32>() {
+            return Some(n);
+        }
+        if level.chars().any(|c| c.is_ascii_digit()) {
+            return None;
+        }
+    }
+    None
 }
 
 /// How much a sefer has to say in another before saying it counts as commenting.
@@ -405,11 +547,20 @@ pub const SAYS_ENOUGH_TO_BE_A_MEFARESH: usize = 12;
 /// — and the window's button counted the declared ones and said *5* over a list
 /// of forty.
 #[must_use]
-pub fn settled(commentary: &Work, base: &Work, edges: usize) -> Stands {
+pub fn settled(commentary: &Work, base: &Work, edges: usize, keeping: Keeping) -> Stands {
     match stands(commentary, base) {
         Stands::AskTheEdges => {
             if edges >= SAYS_ENOUGH_TO_BE_A_MEFARESH {
                 Stands::On
+            } else {
+                Stands::Apart
+            }
+        }
+        // The other seam, and the same shape: the shelf says these two *could*
+        // keep one order and only their addresses say whether they do.
+        Stands::AskTheAddresses => {
+            if keeping.keeps_the_same_order() {
+                Stands::Alongside
             } else {
                 Stands::Apart
             }
@@ -476,14 +627,26 @@ pub fn stands(commentary: &Work, base: &Work) -> Stands {
     let theirs = canonical_path(&base.categories);
     let Some(above) = commentary_shelf(commentary) else {
         // Not filed as commentary at all. It is not a mefaresh — but a sefer on
-        // the same top shelf, with commentary edges into this one, is running
+        // the same top shelf, with commentary edges into this one, may be running
         // *alongside* it: the Shulchan Arukh keeps the Tur's order, the Arukh
         // HaShulchan keeps the Shulchan Arukh's. Saying `Apart` there threw away
         // a relationship the reader wants; saying `On` would call a code a
-        // commentary. So it is neither, and it says so.
+        // commentary. So it is neither.
+        //
+        // And it is not `Alongside` either, which is what this said for a year.
+        // The whole test was `mine.first() == theirs.first()` — **the top shelf
+        // and nothing else** — so all of הלכה ran alongside all of הלכה: the
+        // Mishneh Torah came back as a parallel of Yoreh De'ah, arranged
+        // ספר/הלכות/פרק/הלכה against סימן/סעיף, sharing not one address with it.
+        // A reader who asked for the seforim that keep this one's order got a
+        // shelf.
+        //
+        // The shelf is the right gate and the wrong answer. What settles it is
+        // whether the addresses line up, which this module does not hold — see
+        // `Keeping`, and `settled` for the seam.
         let mine = canonical_path(&commentary.categories);
         return match (mine.first(), theirs.first()) {
-            (Some(mine), Some(theirs)) if mine == theirs => Stands::Alongside,
+            (Some(mine), Some(theirs)) if mine == theirs => Stands::AskTheAddresses,
             _ => Stands::Apart,
         };
     };
@@ -1049,7 +1212,19 @@ mod tests {
         // keeps the Tur's order, siman for siman, which is the whole reason the
         // edges exist. A bool had to call that `false` and mean two things.
         let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
-        assert_eq!(stands(&arukh, &tur), Stands::Alongside);
+        assert_eq!(stands(&arukh, &tur), Stands::AskTheAddresses);
+        assert_eq!(
+            settled(
+                &arukh,
+                &tur,
+                719,
+                Keeping {
+                    joined: 697,
+                    same: 697
+                }
+            ),
+            Stands::Alongside
+        );
     }
 
     #[test]
@@ -1161,6 +1336,10 @@ mod tests {
         // were refused on the *shape* of their categories rather than by any
         // decision, which is the sort of accident this whole module exists to
         // stop.
+        //
+        // The shelf gets them as far as *ask the addresses* and no further —
+        // which is the whole of what a shelf can say, and used to be handed
+        // straight back as `Alongside`.
         let orach_chayim = work_of(
             "shulchan-arukh/orach-chayim",
             &["Halakhah", "Shulchan Arukh"],
@@ -1177,10 +1356,132 @@ mod tests {
             let code = work_of(slug, categories, &[]);
             assert_eq!(
                 stands(&code, &orach_chayim),
-                Stands::Alongside,
-                "{slug} should run alongside Orach Chayim"
+                Stands::AskTheAddresses,
+                "{slug} is a candidate to run alongside Orach Chayim"
             );
         }
+
+        // And the graph settles it. Measured over `corpus/links`: of the Arukh
+        // HaShulchan's 398 simanim joined to Orach Chayim, 242 are joined to the
+        // siman of the same number.
+        let arukh = work_of("arukh-hashulchan", &["Halakhah"], &[]);
+        assert_eq!(
+            settled(
+                &arukh,
+                &orach_chayim,
+                1571,
+                Keeping {
+                    joined: 398,
+                    same: 242
+                }
+            ),
+            Stands::Alongside
+        );
+    }
+
+    #[test]
+    fn the_same_shelf_is_not_the_same_simanim() {
+        // A10. Standing on Yoreh De'ah, the list of seforim *on this one's
+        // order* held two: the Arukh HaShulchan and the **Mishneh Torah**. The
+        // Rambam does not keep the Shulchan Arukh's order, could not — he died
+        // two centuries before it — and is arranged ספר/הלכות/פרק/הלכה against
+        // its סימן/סעיף. It was there because the test was `הלכה == הלכה`.
+        //
+        // Meanwhile the Tur, which keeps its order exactly, was not in the list.
+        //
+        // Measured over `corpus/links`: 90 of the Mishneh Torah's perakim are
+        // joined to Yoreh De'ah and **none** of them to a siman of the same
+        // number; 402 of the Tur's simanim are joined and **all** of them are.
+        let yoreh_deah = work_of(
+            "shulchan-arukh/yoreh-deah",
+            &["Halakhah", "Shulchan Arukh"],
+            &[],
+        );
+        let rambam = work_of(
+            "mishneh-torah/forbidden-foods",
+            &["Halakhah", "Mishneh Torah", "Sefer Kedushah"],
+            &[],
+        );
+        let tur = work_of("tur", &["Halakhah", "Tur"], &[]);
+
+        assert_eq!(stands(&rambam, &yoreh_deah), Stands::AskTheAddresses);
+        assert_eq!(stands(&tur, &yoreh_deah), Stands::AskTheAddresses);
+
+        assert_eq!(
+            settled(
+                &rambam,
+                &yoreh_deah,
+                519,
+                Keeping {
+                    joined: 90,
+                    same: 0
+                }
+            ),
+            Stands::Apart,
+            "519 edges and not one shared address is not a parallel sefer"
+        );
+        assert_eq!(
+            settled(
+                &tur,
+                &yoreh_deah,
+                410,
+                Keeping {
+                    joined: 402,
+                    same: 402
+                }
+            ),
+            Stands::Alongside
+        );
+    }
+
+    #[test]
+    fn a_handful_of_agreeing_numbers_is_a_coincidence() {
+        // Nine simanim that agree is nine simanim that agree, whether that is
+        // nine out of nine or nine out of nine hundred. Two seforim that both
+        // begin at siman 1 already have one.
+        assert!(!Keeping { joined: 9, same: 9 }.keeps_the_same_order());
+        // Devarim and Vayikra, measured: 29 perakim joined and 7 of them
+        // agreeing, which is 24% and is two seforim numbered from one.
+        assert!(!Keeping {
+            joined: 29,
+            same: 7
+        }
+        .keeps_the_same_order());
+        // The Arukh HaShulchan on Choshen Mishpat, measured: 37 agreeing out of
+        // 353, which is 10% and is a sefer written on another sefer's simanim.
+        // A rule stated as a *share* keeps the Devarim and drops this, which is
+        // exactly backwards and is why the rule is a count.
+        assert!(Keeping {
+            joined: 353,
+            same: 37
+        }
+        .keeps_the_same_order());
+        // Bereshis and Shemos: both תנ״ך, both numbered by perek, and the graph
+        // joins them at no perek at all.
+        assert!(!Keeping {
+            joined: 26,
+            same: 0
+        }
+        .keeps_the_same_order());
+        // Nothing in hand is not evidence of anything.
+        assert!(!Keeping::unknown().keeps_the_same_order());
+    }
+
+    #[test]
+    fn the_number_an_address_keeps_is_the_outermost_plain_one() {
+        // The Shulchan Arukh is four works, so its simanim are the first level.
+        assert_eq!(kept_number("1:1"), Some(1));
+        assert_eq!(kept_number("402:5"), Some(402));
+        // The Tur is one work holding four chalakim, so its simanim are the
+        // second — and the two have to answer with the same number or the Tur is
+        // parallel to nothing.
+        assert_eq!(kept_number("yoreh_deah:1:5"), Some(1));
+        assert_eq!(kept_number("orach_chayim:697:1"), Some(697));
+        // A daf is an address, not a section name. Descending past it would
+        // offer the line number inside the daf instead, which made every
+        // masechta look part-parallel to every other.
+        assert_eq!(kept_number("2a:1"), None);
+        assert_eq!(kept_number("introduction"), None);
     }
 
     #[test]
@@ -1199,14 +1500,15 @@ mod tests {
         assert_eq!(stands(&shabbat, &yoreh_deah), Stands::Apart);
         assert_eq!(stands(&leviticus, &yoreh_deah), Stands::Apart);
 
-        // But the Mishneh Torah's hilchos on the same subject *are* alongside:
-        // same shelf, its own sefer, covering the ground in its own order.
+        // The Mishneh Torah gets as far as the shelf allows and no further —
+        // see `the_same_shelf_is_not_the_same_simanim`, which is where this
+        // assertion used to say `Alongside` and was wrong by two centuries.
         let rambam = work_of(
             "mishneh-torah/forbidden-foods",
             &["Halakhah", "Mishneh Torah", "Sefer Kedushah"],
             &[],
         );
-        assert_eq!(stands(&rambam, &yoreh_deah), Stands::Alongside);
+        assert_eq!(stands(&rambam, &yoreh_deah), Stands::AskTheAddresses);
     }
 
     #[test]
