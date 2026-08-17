@@ -425,6 +425,57 @@ fn ci_does_not_fake_a_desk_layout_any_more() {
     );
 }
 
+/// No step hands the shell a script that starts on one line and ends on another.
+///
+/// This is a guard for a bug that has already been paid for. The `nixos` step
+/// passed its whole body to the container as `sh -euc '...'`, the body ran to
+/// fifty lines, and one of those lines was a comment containing the word
+/// `job's`. The apostrophe closed the string. Everything after it left the
+/// container and ran on the host, which has no Nix, and the job reported
+/// `nix: command not found` — after the fifteen-minute build it had already
+/// done correctly.
+///
+/// What makes it worth a test rather than a fix is that nothing about the
+/// failure points at the cause. The YAML is well formed, the indentation is
+/// right, the line that fails is nowhere near the line that broke it, and the
+/// build succeeds first so the log is thousands of lines long. `nixos-window.sh`
+/// had written the lesson in its own header one level down — *a quoted script
+/// inside a quoted script inside a YAML block is three levels of escaping and
+/// one of them is always wrong* — and the workflow that called it did the thing
+/// anyway.
+///
+/// So the construct is banned rather than the apostrophe. A line ending in an
+/// opening quote is the only way a shell body spans lines here, and the
+/// alternative is a file: `tools/nixos-ci.sh`, where an apostrophe is an
+/// apostrophe. Ordinary prose apostrophes in YAML comments are untouched by
+/// this, which is why the rule is about where the quote sits and not about how
+/// many there are.
+#[test]
+fn no_workflow_step_opens_a_quote_and_finishes_it_on_another_line() {
+    let root = repo();
+    let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml"))
+        .unwrap_or_else(|e| panic!("ci.yml reads: {e}"));
+    let hanging: Vec<String> = ci
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let trimmed = line.trim_end();
+            trimmed.ends_with('\'') && trimmed[..trimmed.len() - 1].ends_with(' ')
+        })
+        .map(|(nth, line)| format!("  line {}: {}", nth + 1, line.trim()))
+        .collect();
+    assert!(
+        hanging.is_empty(),
+        "ci.yml opens a single-quoted shell body and continues it on the next \
+         line:\n{}\nOne apostrophe in one comment inside that body closes it \
+         early, and what follows runs somewhere else entirely — which is how \
+         the nixos job spent fifteen minutes building correctly and then said \
+         `nix: command not found`. Put the script in a file under tools/ and \
+         name the file.",
+        hanging.join("\n")
+    );
+}
+
 /// The leaf has nothing under it, which is what stops it becoming the basement.
 ///
 /// The 9 August report's §5 finding: *"`girsa-corpus` has become the workspace

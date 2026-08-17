@@ -287,11 +287,13 @@ jobs:
 
       # One `docker run` for all of it: `nix develop` builds an environment, and
       # three separate containers would build it three times. `--rm` because the
-      # only thing worth keeping is the exit code.
+      # only thing worth keeping is the exit code and the picture.
       #
-      # `nix flake check` first, on its own line inside the shell script, so a
-      # package renamed out of nixpkgs — which is how this file will most likely
-      # break — is reported as an evaluation failure and not as a compiler one.
+      # **The script is a file, and that is the point.** It was written inline as
+      # `sh -euc '...'` and the job died on the word `job's` in one of its
+      # comments — the apostrophe closed the string, the last two commands ran on
+      # the host, and the host has no Nix. What each line does and why is argued
+      # in `tools/nixos-ci.sh`, where an apostrophe is an apostrophe.
       - name: The flake, entered, inside a machine with no FHS
         run: |
           docker run --rm \
@@ -299,52 +301,7 @@ jobs:
             -e NIX_CONFIG='experimental-features = nix-command flakes' \
             -e GIRSA_WINDOW_SHOT=/w/target/girsa-window.png \
             nixos/nix:latest \
-            sh -euc '
-              # `repository path "/w" is not owned by current user`, which is
-              # what the job said on its second push. A flake inside a git
-              # working tree is a **git input**, so Nix asks libgit2 to open
-              # the repository — and libgit2 refuses a repository owned by
-              # somebody other than the process, which here is the host runner
-              # user against root in the container. Saying the directory is
-              # safe is the documented remedy and keeps the git input, which is
-              # what makes Nix respect `.gitignore` and not copy `target/`
-              # into the store.
-              # Written rather than set with `git config`, because the image
-              # ships Nix and is not obliged to ship a git binary — and Nix
-              # reads this through libgit2, which reads the file and not the
-              # command.
-              printf "[safe]\n\tdirectory = /w\n" > "$HOME/.gitconfig"
-              nix flake check --no-build
-              nix develop --command bash -c "
-                cd app && npm ci && npm test && npm run build
-              "
-              nix develop --command cargo build --workspace
-
-              # **And the window, which had never been opened here.**
-              #
-              # This job's own row in `docs/not-yet.md` said *a container has no
-              # display, so nothing there has opened a WebKitGTK surface* — and
-              # the first half of that sentence answers the second. A container
-              # has no display until somebody starts one. `xvfb-run` is in the
-              # devShell now and `tools/nixos-window.sh` starts the binary on it,
-              # waits for the screen to stop being blank, and counts the colours
-              # on it.
-              #
-              # A picture rather than an exit code, because the failure this is
-              # for is not a crash: without `WEBKIT_DISABLE_COMPOSITING_MODE` the
-              # window opens, draws nothing and closes cleanly, and a process
-              # that lived is evidence of nothing.
-              #
-              # `--features tauri/custom-protocol` is what embeds `app/dist`.
-              # Without it the window opens on the Vite dev server and draws a
-              # browser error page, which is in colour and would pass; the script
-              # refuses a binary that does not carry the frontend rather than
-              # measuring one.
-              nix develop --command bash -c "
-                cd app/src-tauri && cargo build --features tauri/custom-protocol
-              "
-              nix develop --command bash tools/nixos-window.sh
-            '
+            sh -eu /w/tools/nixos-ci.sh
 
       # The picture, whichever way it went — a run that failed on a blank screen
       # is a run whose screenshot is the finding. Written into `target/`, which
