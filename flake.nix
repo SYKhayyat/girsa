@@ -97,12 +97,32 @@
           patchelf
           xdotool
 
-          # `cargo tauri build` produces the AppImage and the .deb with these.
-          # Absent, the build succeeds and the bundle step fails at the end,
-          # which is the worst place to find out.
-          appimagekit
-          dpkg
-          fakeroot
+          # `appimagekit`, `dpkg` and `fakeroot` were here, on the reasoning
+          # that `cargo tauri build` shells out to them for the AppImage and
+          # the .deb. It does not, and the CI job caught it the way the note in
+          # `ci.yml` predicted a break would arrive: `error: undefined variable
+          # 'appimagekit'`, an evaluation failure and not a compiler one.
+          # nixpkgs removed the package without an alias — at nixpkgs
+          # `e5bdc4a` only `libappimage`, `appimageupdate`, `appimage-run` and
+          # `appimageTools` remain — so the entry could not have been silently
+          # doing nothing for much longer either way.
+          #
+          # What `tauri-bundler` actually runs, read out of its source rather
+          # than guessed at (2.9.4, `src/bundle/linux/`): the .deb and the .rpm
+          # are written in Rust, archive headers and all, and the only external
+          # program either of them names is none. The AppImage is
+          # `linuxdeploy`, which the bundler **downloads itself** from
+          # `tauri-apps/binary-releases` into a tools directory, along with
+          # `AppRun`, the GTK plugin and the AppImage plugin, and then runs with
+          # `APPIMAGE_EXTRACT_AND_RUN=1`. Nothing on `PATH` participates.
+          #
+          # Which means the AppImage row of the bundle matrix is the one thing
+          # this shell cannot give a NixOS reader: `linuxdeploy` is a prebuilt
+          # glibc ELF naming `/lib64/ld-linux-x86-64.so.2`, the same interpreter
+          # `npm ci`'s binaries name and the same one this machine does not
+          # have — and unlike `node_modules`, it is fetched during the build and
+          # so is not there to be patched beforehand. `--bundles deb` is what
+          # the banner below therefore says.
         ];
       in
       {
@@ -152,9 +172,13 @@
             }
 
             echo "Girsa: cargo and node are here. Build the window with"
-            echo "  cd app && npm ci && npm run tauri build"
+            echo "  cd app && npm ci && npm run tauri build -- --bundles deb"
             echo "and run the gate with"
             echo "  node tools/verify.mjs"
+            echo ""
+            echo "(--bundles deb because the AppImage step downloads a glibc"
+            echo " linuxdeploy this machine has no loader for. See the note by"
+            echo " the tools list.)"
           '';
         };
       });
