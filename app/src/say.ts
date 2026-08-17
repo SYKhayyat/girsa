@@ -97,7 +97,7 @@ const WORDS = {
   desks: ["שולחנות", "Arrangements"] as Both,
   desksWhy: ["סדרי ספרים ששמרת בשם", "Layouts you saved under a name"] as Both,
   desksNone: ["עדיין לא שמרת שולחן", "You have not named an arrangement yet"] as Both,
-  desksCount: ["{desks} שולחנות", "{desks} arrangements"] as Both,
+  desksCount: ["שולחנות: {desks}", "Arrangements: {desks}"] as Both,
   desksName: ["שם השולחן", "The arrangement's name"] as Both,
   desksNamePlaceholder: ["למשל: סוגיית הכל שוחטין", "e.g. hilchos shechitah"] as Both,
   desksKeep: ["שמור כפי שהוא", "Keep it as it is"] as Both,
@@ -107,7 +107,10 @@ const WORDS = {
   ] as Both,
   desksOpenWhy: ["שב לשולחן הזה", "Sit down at this one"] as Both,
   desksForget: ["הסר", "forget"] as Both,
-  desksHolds: ["{tabs} לשוניות · {seforim} ספרים", "{tabs} tabs · {seforim} seforim"] as Both,
+  desksHolds: [
+    "לשוניות: {tabs} · ספרים: {seforim}",
+    "Tabs: {tabs} · Seforim: {seforim}",
+  ] as Both,
   desksAbout: [
     "מעבר לשולחן אחר שומר קודם את הסדר שעל המסך, כך שאין מה להפסיד.",
     "Moving to another arrangement saves the one on screen first, so there is nothing to lose.",
@@ -800,10 +803,10 @@ const WORDS = {
   ] as Both,
 
   /** The scanning-error queue, and the corrections overlay. */
-  suspectsInQueue: ["{count} הבאים בתור", "{count} next in the queue"] as Both,
+  suspectsInQueue: ["בתור: {count}", "In the queue: {count}"] as Both,
   yoursNoteAbout: [
-    "{paragraphs} פסקאות · {places} מקומות",
-    "{paragraphs} paragraphs · {places} places",
+    "פסקאות: {paragraphs} · מקומות: {places}",
+    "Paragraphs: {paragraphs} · Places: {places}",
   ] as Both,
   yoursForgetNoteWhy: [
     "הקובץ, הספר והשורה בקטלוג",
@@ -1090,8 +1093,8 @@ const WORDS = {
   chainNothing: ["אין כאן מה ללכת אחריו", "nothing this walk could follow"] as Both,
   chainNoForks: ["לא נמצאו כאן שתי גרסאות", "no two readings found here"] as Both,
   chainTally: [
-    "{chains} שלשלות, {carried} מהן מסירה לכל אורכן",
-    "{chains} chains, {carried} of them a transmission all the way",
+    "שלשלות: {chains} · מהן מסירה לכל אורכן: {carried}",
+    "Chains: {chains} · a transmission all the way: {carried}",
   ] as Both,
   /** Said once above the fork list, because it is true of every row in it. */
   chainForkCaveat: [
@@ -1103,16 +1106,16 @@ const WORDS = {
     "a link joins the two directly — one is answering the other",
   ] as Both,
   chainForkWitnesses: [
-    "{n} מאוחרים שנצרכו לשני הצדדים",
-    "{n} later seforim that deal with both sides",
+    "מאוחרים שנצרכו לשני הצדדים: {n}",
+    "Later seforim that deal with both sides: {n}",
   ] as Both,
   /** The same count, when not one of them quotes both sides itself. A weaker
    * claim wearing the same word, and the count alone cannot tell them apart. */
   chainForkFarWitnesses: [
-    "{n} מאוחרים שנצרכו לשני הצדדים — הקרוב שבהם {steps} צעדים מכאן",
-    "{n} later seforim that deal with both sides — the nearest {steps} hops down",
+    "מאוחרים שנצרכו לשני הצדדים: {n} — הקרוב שבהם במרחק {steps}",
+    "Later seforim that deal with both sides: {n} — the nearest at {steps}",
   ] as Both,
-  chainSteps: ["{n} צעדים", "{n} hops"] as Both,
+  chainSteps: ["צעדים: {n}", "Hops: {n}"] as Both,
   chainNoDate: ["בלי תאריך", "no date"] as Both,
   chainNoLabel: ["הקורפוס לא אמר כלום", "the corpus said nothing"] as Both,
   chainCorpusSaid: ["הקורפוס אמר: {label}", "the corpus said: {label}"] as Both,
@@ -1130,8 +1133,8 @@ const WORDS = {
   chainRejected: ["{n} שדחית", "{n} you rejected"] as Both,
   chainOverBudget: ["{n} מעבר למכסה", "{n} over the limit"] as Both,
   chainNoInbound: [
-    "{n} ספרים שחצי הקשרים הנכנס אליהם לא נבנה",
-    "{n} seforim whose incoming links were never built",
+    "ספרים שחצי הקשרים הנכנס אליהם לא נבנה: {n}",
+    "Seforim whose incoming links were never built: {n}",
   ] as Both,
   /** A candidate from the OCR queue whose word the page no longer has — the
    * page was read again by something better since the queue was built. Said
@@ -1445,11 +1448,48 @@ export function ksavAs(prefix: string): string {
  * `say.test.mjs` checks that both columns of a row carry the same holes, so a
  * translation that dropped `{count}` is a failing build rather than a sentence
  * with a number missing out of the middle of it.
+ *
+ * # Why a count is written after a colon and not in front of a noun
+ *
+ * This substitutes and stops. It cannot make a noun agree with a number, and
+ * Rust — which can, in `girsa_plain::said` — was the only half of the
+ * application that did: `plural` and `counted` are named there and their own
+ * header records that three composers wrote that ternary eleven times before
+ * anybody gave it a name.
+ *
+ * So the window said **`1 arrangements`**, and it was one of about twenty-five
+ * rows with a count in them. Teaching this function to agree would have meant
+ * two rules, not one: English wants an `s`, and Hebrew inflects the numeral
+ * itself for gender, has a dual, and does not put the number in the same place.
+ * Guessing at that for two dozen nouns is what BUILDER rule 6 forbids.
+ *
+ * The rows say `שולחנות: {desks}` and `Arrangements: {desks}` instead. A label
+ * with its count after it is correct at every number in both languages, needs
+ * no agreement rule and no second row per noun, and reads the way a tally in a
+ * panel is supposed to read. Where a sentence genuinely needs the singular —
+ * the two markers in `mefarshim.ts` and `pane.ts` — there is a second row and
+ * the call site chooses, which is the shape to copy if another one turns up.
+ *
+ * # Thousands
+ *
+ * A number is grouped — `1,204`, not `1204` — which is what
+ * `girsa_plain::thousands` does on the Rust side and what this did not do at
+ * all. Only numbers: a version string arriving in `{running}` is left exactly
+ * as it came.
  */
 export function fill(word: Word, holes: Record<string, string | number>): string {
-  let said = say(word);
+  return put(say(word), holes);
+}
+
+/** A number as a reader reads it. `girsa_plain::thousands`, in the window. */
+function shown(value: string | number): string {
+  return typeof value === "number" ? value.toLocaleString("en-US") : value;
+}
+
+/** The holes of one already-chosen sentence, filled. */
+function put(said: string, holes: Record<string, string | number>): string {
   for (const [name, value] of Object.entries(holes)) {
-    said = said.split(`{${name}}`).join(String(value));
+    said = said.split(`{${name}}`).join(shown(value));
   }
   return said;
 }
@@ -1460,11 +1500,7 @@ export function fillIn(
   language: Language,
   holes: Record<string, string | number>,
 ): string {
-  let said = sayIn(word, language);
-  for (const [name, value] of Object.entries(holes)) {
-    said = said.split(`{${name}}`).join(String(value));
-  }
-  return said;
+  return put(sayIn(word, language), holes);
 }
 
 /** Every key, for the guard that checks neither column has a hole in it. */
