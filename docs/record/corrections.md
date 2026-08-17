@@ -297,6 +297,32 @@ no browser can raise at all. So the logic behind the drag has been run and the
 drag has not, and the difference is a real one: what remains untested is whether
 the events fire, not what happens when they do.
 
+**Two other surfaces were in that same sentence and are not any more.** The find
+bar and the arrangements drawer had been driven by their *commands* — the Rust
+side, invoked over the protocol — and never by a pointer. On 17 August both were
+worked with `Input.dispatchMouseEvent` and `Input.dispatchKeyEvent` against the
+running window, which are raised by the browser at the input layer and go
+through hit-testing, focus and every listener a real click would. `Ctrl+F`
+opened the bar and put the caret in its box; typed characters reached it and the
+count said `1 / 444`; a click on a chip opened its menu; a click on a live choice
+changed the chip, closed the menu and re-ran the search to `1 / 664`; the walk
+arrows moved and came back; the ✕ took the bar out of the document.
+`Ctrl+Shift+D` opened the drawer to 620px, Keep wrote an arrangement, its row
+restored it, and its ✕ took it off again.
+
+Two things that is not. It is **not a hand on a mouse** — a synthesized press is
+still a program's press, and the pane is a pixel further from a reader than the
+protocol can reach. And it settles nothing about the drag, which is a different
+event family and stays exactly where it was.
+
+What it did turn up, which is the argument for doing it at all: the drawer said
+**`1 arrangements`**. `girsa_plain::said` has had `plural(n, one, many)` and
+`counted` since the scans work — the Rust half agrees with its numbers. The
+window's `say.ts` has `fill()`, which substitutes and nothing else, and
+twenty-five of its strings interpolate a count. Both languages are wrong at one,
+and Hebrew's agreement is not English's rule spelled differently, so this is a
+work order and not a line. It is in [`../not-yet.md`](../not-yet.md).
+
 `BUILDER.md` W9 carries a trap: *Tauri uses Edge's engine on Windows and
 Safari's on macOS. Test Hebrew-with-nikud rendering on both — a screenshot from
 one OS is not evidence.* **Only Windows has been looked at.** There is no Mac
