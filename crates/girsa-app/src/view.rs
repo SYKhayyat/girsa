@@ -1073,6 +1073,9 @@ pub struct SettingsView {
     pub pointing: crate::session::Pointing,
     /// How the shemos are written — see [`crate::shemos`].
     pub shemos: crate::shemos::Shemos,
+    /// The hour the daf turns over — see [`crate::luach::at`] for why this is
+    /// an hour a reader sets rather than a nightfall this application computes.
+    pub day_turns_at: u8,
     pub text_size: u16,
     /// Which language the **seforim** are named in.
     pub language: crate::session::Language,

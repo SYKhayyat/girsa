@@ -104,7 +104,21 @@ cargo run --release -p girsa-app    --example measure-opening      # what openin
 cargo run --release -p girsa-lane   --example measure  corpus personal <slug> <model-dir>   # the lane against a real model
 cargo run --release -p girsa-link   --example why-the-panel-waits  # where the half-second goes
 cargo run --release -p girsa-search --example measure-branch-citations  corpus   # can a branch work be reached by name?
+cargo run --release -p girsa-app    --example mishnah-table  corpus   # the Mishnah Yomis table, counted rather than typed
 ```
+
+`mishnah-table` is the odd one out: it prints Rust rather than a number, and
+what it prints is `luach::MISHNAYOS` — 63 masechtos and the mishnah count of
+each of their perakim. Run it when the corpus changes and paste the output over
+the table; `the_table_is_the_whole_shas` asserts the total is 4,192.
+
+**It exists because that table cannot be written from memory.** Roughly 525
+numbers, and one wrong one is a wrong limud for a day with nothing to catch it.
+It also carries three traps in its header, each of which yields a plausible
+wrong count rather than an error: `categories[0] == "Mishnah"` finds **948**
+works, because every commentary on Mishnayos is filed under it; a `mishnah-*`
+glob finds **62**, missing `pirkei-avot` and swallowing the Mishnah Berurah's
+17,418 segments; and the order is neither alphabetical nor the Bavli's.
 
 `measure-branch-citations` is the newest and answers a question a reader asked
 by trying it: **can you type a mekor at a sefer that holds its chalakim inside

@@ -239,7 +239,15 @@ async function printHere(): Promise<void> {
 async function todaysLuach(): Promise<Luach | null> {
   const now = new Date();
   try {
-    return await api.luach(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    // The hour goes with the date. A daf turns over in the evening and this
+    // machine's clock is the only thing that knows what time it is there;
+    // which hour counts as the evening is a setting Rust holds.
+    return await api.luach(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      now.getDate(),
+      now.getHours(),
+    );
   } catch {
     // A shelf that will not open is already said elsewhere; a toolbar button
     // is not the place to report it a second time.

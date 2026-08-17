@@ -117,6 +117,13 @@ pub struct Session {
     /// second pane that did not get the message is a page they cannot.
     #[serde(default)]
     pub shemos: crate::shemos::Shemos,
+    /// The hour the daf turns over, where the reader is standing.
+    ///
+    /// A daf turns over at nightfall and nightfall is a function of a location
+    /// this application will not ask for, so this is an hour and not a
+    /// calculation — approximate, and said to be. See [`crate::luach::at`].
+    #[serde(default = "turns_at")]
+    pub day_turns_at: u8,
     /// A session written when this was a bool, read once and folded into
     /// [`Session::pointing`] by [`Session::sane`].
     ///
@@ -193,6 +200,14 @@ pub struct Session {
     /// documents folder rather than a directory inside the application's data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export_into: Option<String>,
+}
+
+/// The hour a session that has never said otherwise turns the daf over on.
+///
+/// A function because `serde`'s `default` wants one, and the value itself lives
+/// in `luach` beside the reasoning for it.
+const fn turns_at() -> u8 {
+    crate::luach::TURNS_AT
 }
 
 /// How much of the pointing is drawn.
@@ -494,6 +509,7 @@ impl Default for Session {
             alongside: BTreeMap::new(),
             pointing: Pointing::default(),
             shemos: crate::shemos::Shemos::default(),
+            day_turns_at: turns_at(),
             desks: BTreeMap::new(),
             desk: None,
             was_nikud: None,

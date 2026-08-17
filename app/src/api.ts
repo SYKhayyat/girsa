@@ -555,6 +555,8 @@ export type CiteStyleName = "hebrew-full" | "hebrew-short" | "english";
 export interface Settings {
   pointing: Pointing;
   shemos: Shemos;
+  /** The hour the daf turns over, 0–23. An approximation, not a tzeis. */
+  day_turns_at: number;
   text_size: number;
   /** Which language the **seforim** are named in. */
   language: Language;
@@ -1280,10 +1282,15 @@ export const api = {
   setRatio: (pane: PaneId, ratio: number) => call<void>("set_ratio", { pane, ratio }),
   setPointing: (pointing: Pointing) => call<void>("set_pointing", { pointing }),
   setShemos: (shemos: Shemos) => call<void>("set_shemos", { shemos }),
-  /** **The window says which day.** `std::time` knows seconds since 1970 and
-   * nothing about this machine's timezone; `new Date()` knows both. */
-  luach: (year: number, month: number, day: number) =>
-    call<Luach>("luach", { year, month, day }),
+  /** **The window says which day, and what time it is.** `std::time` knows
+   * seconds since 1970 and nothing about this machine's timezone; `new Date()`
+   * knows both. The hour is sent because a daf turns over in the evening —
+   * which hour counts as the evening is a setting, and `girsa_app::luach::at`
+   * argues why it is a setting rather than a computed nightfall. */
+  luach: (year: number, month: number, day: number, hour: number) =>
+    call<Luach>("luach", { year, month, day, hour }),
+  /** The hour the daf turns over, 0–23. */
+  setDayTurnsAt: (hour: number) => call<void>("set_day_turns_at", { hour }),
   /** Find a phrase inside one sefer — Ctrl+F. The whole sefer, not the lines
    * the pane happens to be holding. */
   seferFind: (slug: string, query: string) =>

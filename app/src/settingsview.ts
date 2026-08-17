@@ -282,6 +282,27 @@ export class SettingsView {
     );
     this.body.append(about(say("shemosAbout")));
 
+    // When the daf turns over. Beside the shemos because both are settings
+    // about *what the page says today* rather than about how it is drawn — and
+    // because a reader who has noticed the daf is a day behind at night will
+    // look in settings and needs to find this without hunting.
+    //
+    // The labels are `19:00`, which needs no word in either language.
+    this.body.append(
+      this.choice(
+        say("settingsDayTurns"),
+        Array.from({ length: 24 }, (_, hour) => ({
+          value: String(hour),
+          label: `${String(hour).padStart(2, "0")}:00`,
+        })),
+        String(s.day_turns_at),
+        (value) => {
+          void api.setDayTurnsAt(Number(value)).then(() => this.changed());
+        },
+      ),
+    );
+    this.body.append(about(say("dayTurnsAbout")));
+
     // The citation style, which `start-here.md` has promised since the first
     // draft "reformats every citation" — and which no view called, so the
     // promise could not be kept by any sequence of clicks. `Session::cite`

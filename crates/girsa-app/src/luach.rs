@@ -38,14 +38,35 @@
 //! fourteenth cycle then falls on 5 January 2020, which is the date it actually
 //! began.
 //!
-//! # The one thing this deliberately does not do
+//! # The second limud, and why it is the second and not the fifth
 //!
-//! The daf turns over at nightfall and this turns it over at midnight, because
-//! nightfall is a function of where the reader is standing and Girsa does not
-//! know and will not ask. Otzaria makes the same choice. What a reader gets
-//! instead is [`Luach::tomorrow`], which is the daf they would be learning
-//! tonight, said as such — an honest offer rather than a wrong answer that
-//! looks right for four hours a day.
+//! Mishnah Yomis is here too: two mishnayos a day through all 4,192 of Shas,
+//! anchored on three published cycle starts whose spans are each exactly 2,096
+//! days. Its table is **generated** from the corpus by
+//! `examples/mishnah-table.rs` and never typed — 525 numbers cannot be recalled,
+//! and one wrong one is a wrong limud for a day with nothing to catch it.
+//!
+//! Rambam Yomi, Amud Yomi and Daf Yomi Yerushalmi are deliberately absent.
+//! Rambam has three tracks and a thousand perakim that do not divide by three,
+//! so it is a published calendar rather than a formula. *Amud Yomi is not one
+//! programme* — there is a 1973 one and Dirshu's, and some run five to seven
+//! amudim a week rather than one a day. Picking one would be a guess about
+//! which luach a reader keeps.
+//!
+//! # The thing this deliberately does not compute
+//!
+//! The daf turns over at nightfall, and where nightfall falls is a function of
+//! where the reader is standing. Girsa does not know and will not ask: a
+//! location would be the first thing this application ever asked about the
+//! person using it.
+//!
+//! So [`at`] takes an hour — seven in the evening by default, and a setting —
+//! and the setting says out loud that it is an approximation rather than a
+//! computed tzeis. That is honest in a way both alternatives are not: midnight
+//! is silently wrong for four hours a day, and a fixed hour presented as
+//! nightfall is a lie that looks precise. [`Luach::tomorrow`] is named beside
+//! today's either way, so a reader whose hour is set wrong can still see the
+//! daf they want.
 
 /// Days from 1 January 1 CE (Gregorian, proleptic), which is day 1.
 ///
@@ -599,12 +620,46 @@ pub struct Luach {
     pub tomorrow: Vec<Limud>,
 }
 
-/// The luach for a civil date.
+/// When the day turns over, unless a reader has said otherwise.
+///
+/// Seven in the evening. It is **approximate and says so** — see [`at`].
+pub const TURNS_AT: u8 = 19;
+
+/// The luach for a civil date and the hour it is where the reader is standing.
+///
+/// # An approximate answer that admits it, rather than an exact one that costs
+/// a question
+///
+/// A daf turns over at nightfall, and where nightfall falls is a function of
+/// where the reader is standing. Girsa does not know and will not ask: a
+/// location is the first thing this application would ever have to ask about
+/// the person using it, and *offline is the product* (spec.md §14).
+///
+/// So the turnover is an hour, defaulting to [`TURNS_AT`] and settable, and the
+/// setting says out loud that it is not a computed tzeis. That is honest in a
+/// way both alternatives are not — midnight is silently wrong for four hours a
+/// day, and a fixed hour presented as nightfall is a lie that looks precise.
+///
+/// [`Luach::tomorrow`] is still named beside today's either way, so a reader
+/// whose hour is set wrong can see the daf they actually want.
+#[must_use]
+pub fn at(date: Civil, hour: u8, turns_at: u8) -> Luach {
+    let rd = fixed_from_civil(date);
+    of_fixed(if hour >= turns_at { rd + 1 } else { rd })
+}
+
+/// The luach for a civil date, turning the day over at midnight.
 #[must_use]
 pub fn of(date: Civil) -> Luach {
-    let rd = fixed_from_civil(date);
+    of_fixed(fixed_from_civil(date))
+}
+
+/// The luach of a day, whichever way the caller decided which day it is.
+fn of_fixed(rd: Rd) -> Luach {
     Luach {
-        civil: date,
+        // The date the limudim are *for*, which after the turnover is the next
+        // civil day — otherwise the header and the daf under it disagree.
+        civil: civil_from_fixed(rd),
         hebrew: hebrew_from_fixed(rd).said(),
         weekday: weekday_name(day_of_week(rd)),
         today: limudim(rd),
@@ -612,15 +667,367 @@ pub fn of(date: Civil) -> Luach {
     }
 }
 
+/// One maseches of Mishnayos, and how many mishnayos are in each of its
+/// perakim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Maseches {
+    /// Where it is on this shelf — `mishnah-berakhot`.
+    pub slug: &'static str,
+    /// What it is called, without the `משנה` in front of it.
+    pub said: &'static str,
+    /// How many mishnayos each perek holds, in order.
+    pub perakim: &'static [u16],
+}
+
+const fn ms(slug: &'static str, said: &'static str, perakim: &'static [u16]) -> Maseches {
+    Maseches {
+        slug,
+        said,
+        perakim,
+    }
+}
+
+/// Every maseches of Mishnayos, in the order the cycle takes them.
+///
+/// # This table was measured, not typed
+///
+/// Five hundred and twenty-five numbers cannot be written from memory, and a
+/// wrong one is a wrong limud for a day with nothing to catch it. So it is
+/// generated from the corpus by `examples/mishnah-table.rs`, and every part of
+/// it checks itself:
+///
+/// - **Which works.** `work.json` whose `categories[0]` is `Mishnah` **and**
+///   whose `categories[1]` is one of the six sedarim. That filter finds
+///   **63**, which is how many masechtos there are, split 11 · 12 · 7 · 10 ·
+///   11 · 12 — which is how they divide. A looser filter finds 948, because
+///   every commentary on Mishnayos is also categorised under `Mishnah`; a
+///   `mishnah-*` glob finds 62 and sweeps in the Mishnah Berurah's 17,418
+///   segments while missing `pirkei-avot`, which Sefaria does not name that
+///   way.
+/// - **The order.** The seder, then Sefaria's own `order` field. Nothing about
+///   the sequence is asserted by hand.
+/// - **The counts.** One per `perek:mishnah` id in `segments.jsonl`.
+/// - **The total.** 4,192 — which is the number Mishnah Yomis is built on, and
+///   is separately the number of days between two published cycle starts. The
+///   test asserts it.
+const MISHNAYOS: &[Maseches] = &[
+    ms("mishnah-berakhot", "ברכות", &[5, 8, 6, 7, 5, 8, 5, 8, 5]),
+    ms("mishnah-peah", "פאה", &[6, 8, 8, 11, 8, 11, 8, 9]),
+    ms("mishnah-demai", "דמאי", &[4, 5, 6, 7, 11, 12, 8]),
+    ms("mishnah-kilayim", "כלאים", &[9, 11, 7, 9, 8, 9, 8, 6, 10]),
+    ms(
+        "mishnah-sheviit",
+        "שביעית",
+        &[8, 10, 10, 10, 9, 6, 7, 11, 9, 9],
+    ),
+    ms(
+        "mishnah-terumot",
+        "תרומות",
+        &[10, 6, 9, 13, 9, 6, 7, 12, 7, 12, 10],
+    ),
+    ms("mishnah-maasrot", "מעשרות", &[8, 8, 10, 6, 8]),
+    ms("mishnah-maaser-sheni", "מעשר שני", &[7, 10, 13, 12, 15]),
+    ms("mishnah-challah", "חלה", &[9, 8, 10, 11]),
+    ms("mishnah-orlah", "ערלה", &[9, 17, 9]),
+    ms("mishnah-bikkurim", "ביכורים", &[11, 11, 12, 5]),
+    ms(
+        "mishnah-shabbat",
+        "שבת",
+        &[
+            11, 7, 6, 2, 4, 10, 4, 7, 7, 6, 6, 6, 7, 4, 3, 8, 8, 3, 6, 5, 3, 6, 5, 5,
+        ],
+    ),
+    ms(
+        "mishnah-eruvin",
+        "עירובין",
+        &[10, 6, 9, 11, 9, 10, 11, 11, 4, 15],
+    ),
+    ms(
+        "mishnah-pesachim",
+        "פסחים",
+        &[7, 8, 8, 9, 10, 6, 13, 8, 11, 9],
+    ),
+    ms("mishnah-shekalim", "שקלים", &[7, 5, 4, 9, 6, 6, 7, 8]),
+    ms("mishnah-yoma", "יומא", &[8, 7, 11, 6, 7, 8, 5, 9]),
+    ms("mishnah-sukkah", "סוכה", &[11, 9, 15, 10, 8]),
+    ms("mishnah-beitzah", "ביצה", &[10, 10, 8, 7, 7]),
+    ms("mishnah-rosh-hashanah", "ראש השנה", &[9, 9, 8, 9]),
+    ms("mishnah-taanit", "תענית", &[7, 10, 9, 8]),
+    ms("mishnah-megillah", "מגילה", &[11, 6, 6, 10]),
+    ms("mishnah-moed-katan", "מועד קטן", &[10, 5, 9]),
+    ms("mishnah-chagigah", "חגיגה", &[8, 7, 8]),
+    ms(
+        "mishnah-yevamot",
+        "יבמות",
+        &[4, 10, 10, 13, 6, 6, 6, 6, 6, 9, 7, 6, 13, 9, 10, 7],
+    ),
+    ms(
+        "mishnah-ketubot",
+        "כתובות",
+        &[10, 10, 9, 12, 9, 7, 10, 8, 9, 6, 6, 4, 11],
+    ),
+    ms(
+        "mishnah-nedarim",
+        "נדרים",
+        &[4, 5, 11, 8, 6, 10, 9, 7, 10, 8, 12],
+    ),
+    ms("mishnah-nazir", "נזיר", &[7, 10, 7, 7, 7, 11, 4, 2, 5]),
+    ms("mishnah-sotah", "סוטה", &[9, 6, 8, 5, 5, 4, 8, 7, 15]),
+    ms("mishnah-gittin", "גיטין", &[6, 7, 8, 9, 9, 7, 9, 10, 10]),
+    ms("mishnah-kiddushin", "קידושין", &[10, 10, 13, 14]),
+    ms(
+        "mishnah-bava-kamma",
+        "בבא קמא",
+        &[4, 6, 11, 9, 7, 6, 7, 7, 12, 10],
+    ),
+    ms(
+        "mishnah-bava-metzia",
+        "בבא מציעא",
+        &[8, 11, 12, 12, 11, 8, 11, 9, 13, 6],
+    ),
+    ms(
+        "mishnah-bava-batra",
+        "בבא בתרא",
+        &[6, 14, 8, 9, 11, 8, 4, 8, 10, 8],
+    ),
+    ms(
+        "mishnah-sanhedrin",
+        "סנהדרין",
+        &[6, 5, 8, 5, 5, 6, 11, 7, 6, 6, 6],
+    ),
+    ms("mishnah-makkot", "מכות", &[10, 8, 16]),
+    ms("mishnah-shevuot", "שבועות", &[7, 5, 11, 13, 5, 7, 8, 6]),
+    ms("mishnah-eduyot", "עדיות", &[14, 10, 12, 12, 7, 3, 9, 7]),
+    ms("mishnah-avodah-zarah", "עבודה זרה", &[9, 7, 10, 12, 12]),
+    ms("pirkei-avot", "אבות", &[18, 16, 18, 22, 23, 11]),
+    ms("mishnah-horayot", "הוריות", &[5, 7, 8]),
+    ms(
+        "mishnah-zevachim",
+        "זבחים",
+        &[4, 5, 6, 6, 8, 7, 6, 12, 7, 8, 8, 6, 8, 10],
+    ),
+    ms(
+        "mishnah-menachot",
+        "מנחות",
+        &[4, 5, 7, 5, 9, 7, 6, 7, 9, 9, 9, 5, 11],
+    ),
+    ms(
+        "mishnah-chullin",
+        "חולין",
+        &[7, 10, 7, 7, 5, 7, 6, 6, 8, 4, 2, 5],
+    ),
+    ms(
+        "mishnah-bekhorot",
+        "בכורות",
+        &[7, 9, 4, 10, 6, 12, 7, 10, 8],
+    ),
+    ms("mishnah-arakhin", "ערכין", &[4, 6, 5, 4, 6, 5, 5, 7, 8]),
+    ms("mishnah-temurah", "תמורה", &[6, 3, 5, 4, 6, 5, 6]),
+    ms("mishnah-keritot", "כריתות", &[7, 6, 10, 3, 8, 9]),
+    ms("mishnah-meilah", "מעילה", &[4, 9, 8, 6, 5, 6]),
+    ms("mishnah-tamid", "תמיד", &[4, 5, 9, 3, 6, 3, 4]),
+    ms("mishnah-middot", "מדות", &[9, 6, 8, 7, 4]),
+    ms("mishnah-kinnim", "קינים", &[4, 5, 6]),
+    ms(
+        "mishnah-kelim",
+        "כלים",
+        &[
+            9, 8, 8, 4, 11, 4, 6, 11, 8, 8, 9, 8, 8, 8, 6, 8, 17, 9, 10, 7, 3, 10, 5, 17, 9, 9, 12,
+            10, 8, 4,
+        ],
+    ),
+    ms(
+        "mishnah-oholot",
+        "אהלות",
+        &[8, 7, 7, 3, 7, 7, 6, 6, 16, 7, 9, 8, 6, 7, 10, 5, 5, 10],
+    ),
+    ms(
+        "mishnah-negaim",
+        "נגעים",
+        &[6, 5, 8, 11, 5, 8, 5, 10, 3, 10, 12, 7, 12, 13],
+    ),
+    ms(
+        "mishnah-parah",
+        "פרה",
+        &[4, 5, 11, 4, 9, 5, 12, 11, 9, 6, 9, 11],
+    ),
+    ms(
+        "mishnah-tahorot",
+        "טהרות",
+        &[9, 8, 8, 13, 9, 10, 9, 9, 9, 8],
+    ),
+    ms(
+        "mishnah-mikvaot",
+        "מקואות",
+        &[8, 10, 4, 5, 6, 11, 7, 5, 7, 8],
+    ),
+    ms("mishnah-niddah", "נדה", &[7, 7, 7, 7, 9, 14, 5, 4, 11, 8]),
+    ms("mishnah-makhshirin", "מכשירין", &[6, 11, 8, 10, 11, 8]),
+    ms("mishnah-zavim", "זבים", &[6, 4, 3, 7, 12]),
+    ms("mishnah-tevul-yom", "טבול יום", &[5, 8, 6, 7]),
+    ms("mishnah-yadayim", "ידים", &[5, 4, 5, 8]),
+    ms("mishnah-oktzin", "עוקצים", &[6, 10, 12]),
+];
+
+/// How many mishnayos there are, and so how long a cycle is.
+///
+/// Two a day, so 2,096 days. Both numbers are asserted against the table and
+/// against the published cycle dates rather than trusted.
+const MISHNAYOS_IN_SHAS: u32 = 4_192;
+/// Mishnayos a day.
+const A_DAY: u32 = 2;
+
+/// The first day of the fourteenth cycle — Berachos א':א', 25 December 2021.
+///
+/// # Why this anchor and not the first cycle
+///
+/// The origin is genuinely disputed: 1944, 1947 and 1948 all appear in print
+/// for when Rav Yonah Sztencl set the seder going. An epoch nobody can check is
+/// a wrong limud every day, so the anchor is a modern cycle whose date is
+/// published — and the arithmetic then checks itself twice over, because the
+/// two cycles before it are published too:
+///
+/// | cycle | | |
+/// |---|---|---|
+/// | 12th | 22 Tammuz 5770 | 4 July 2010 |
+/// | 13th | 20 Adar-B 5776 | 30 March 2016 |
+/// | 14th | 21 Teves 5782 | 25 December 2021 |
+///
+/// 4 July 2010 to 25 December 2021 is **4,192 days**, which is both two cycles
+/// of 2,096 and, exactly, the number of mishnayos. The test asserts all three.
+const MISHNAH_FIRST: Civil = Civil {
+    year: 2021,
+    month: 12,
+    day: 25,
+};
+/// Which cycle [`MISHNAH_FIRST`] begins, in the published numbering.
+const MISHNAH_CYCLE: u32 = 14;
+
+/// The Mishnah Yomis of a day: two mishnayos, which may cross a perek and may
+/// cross a maseches.
+///
+/// # The pair really does straddle, and the dates are what prove it
+///
+/// Berachos holds 57 mishnayos, which is odd, so the twenty-ninth day of a
+/// cycle is Berachos ט':ה' and Peah א':א'. That looks wrong and it is right:
+/// **if the seder padded an odd maseches to break cleanly, a cycle would be
+/// longer than 2,096 days**, and both published spans are exactly 2,096. There
+/// is no padding. The count runs straight through Shas and the boundaries fall
+/// where they fall.
+///
+/// This was asserted the other way round first — that a pair never leaves its
+/// maseches — on reasoning that sounded right and was not. The assert written
+/// to confirm it is what disproved it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MishnahDay {
+    pub maseches: &'static Maseches,
+    /// The perek and mishnah of the first of the two.
+    pub perek: u32,
+    pub mishnah: u32,
+    /// The maseches of the last of the two, which is nearly always the same
+    /// one and is not always.
+    pub last: &'static Maseches,
+    pub last_perek: u32,
+    pub last_mishnah: u32,
+    pub cycle: u32,
+    /// Which day of that cycle, from 1.
+    pub day: u32,
+}
+
+impl MishnahDay {
+    /// The address to open — the first of the two.
+    #[must_use]
+    pub fn address(&self) -> String {
+        format!("{}:{}", self.perek, self.mishnah)
+    }
+
+    /// The mareh makom, said. Three shapes, because there are three cases:
+    /// `ברכות א':א'-ב'` inside a perek, `ברכות א':ה'-ב':א'` across one, and
+    /// `ברכות ט':ה' — פאה א':א'` across a maseches.
+    #[must_use]
+    pub fn said(&self) -> String {
+        let n = girsa_ref::numerals::to_hebrew;
+        let from = format!(
+            "{} {}:{}",
+            self.maseches.said,
+            n(self.perek),
+            n(self.mishnah)
+        );
+        if self.maseches.slug != self.last.slug {
+            return format!(
+                "{from} — {} {}:{}",
+                self.last.said,
+                n(self.last_perek),
+                n(self.last_mishnah)
+            );
+        }
+        if self.perek == self.last_perek {
+            return format!("{from}-{}", n(self.last_mishnah));
+        }
+        format!("{from}-{}:{}", n(self.last_perek), n(self.last_mishnah))
+    }
+}
+
+/// Where the nth mishnah of the cycle sits, counting from zero.
+fn nth_mishnah(mut index: u32) -> (&'static Maseches, u32, u32) {
+    for maseches in MISHNAYOS {
+        for (at, perek) in maseches.perakim.iter().enumerate() {
+            let held = u32::from(*perek);
+            if index < held {
+                #[allow(clippy::cast_possible_truncation)]
+                return (maseches, at as u32 + 1, index + 1);
+            }
+            index -= held;
+        }
+    }
+    // Unreachable for any index below MISHNAYOS_IN_SHAS, which is the only
+    // thing that reaches here — the caller takes it modulo the cycle. Rather
+    // than panic in a library the reader's window is holding, the last mishnah
+    // of Uktzin is a wrong answer that cannot crash. `the_table_is_the_whole_
+    // shas` is what makes this arm dead.
+    let last = &MISHNAYOS[MISHNAYOS.len() - 1];
+    #[allow(clippy::cast_possible_truncation)]
+    let perek = last.perakim.len() as u32;
+    (last, perek, u32::from(last.perakim[last.perakim.len() - 1]))
+}
+
+/// The Mishnah Yomis of a day.
+#[must_use]
+pub fn mishnah_yomis(rd: Rd) -> Option<MishnahDay> {
+    let first = fixed_from_civil(MISHNAH_FIRST);
+    let length = i64::from(MISHNAYOS_IN_SHAS / A_DAY);
+    let since = rd - first;
+    // Cycles are uniform, so a date before the anchor is as computable as one
+    // after it — `rem_euclid` is what makes the day index right on both sides.
+    let index = since.rem_euclid(length);
+    let cycles = since.div_euclid(length);
+    let cycle = u32::try_from(i64::from(MISHNAH_CYCLE) + cycles).ok()?;
+    let day = u32::try_from(index).ok()? + 1;
+    let at = u32::try_from(index).ok()? * A_DAY;
+    let (maseches, perek, mishnah) = nth_mishnah(at);
+    let (last, last_perek, last_mishnah) = nth_mishnah(at + A_DAY - 1);
+    Some(MishnahDay {
+        maseches,
+        perek,
+        mishnah,
+        last,
+        last_perek,
+        last_mishnah,
+        cycle,
+        day,
+    })
+}
+
 /// Every limud of one day.
 ///
-/// A `Vec` with one element in it today. Mishnah Yomis and Rambam Yomi are the
-/// obvious next two and they are schedules of a different shape — a count of
-/// mishnayos and a count of perakim rather than a count of dapim — so the shape
-/// that carries them is here from the start rather than retrofitted around the
-/// one that exists.
+/// Daf Yomi Bavli and Mishnah Yomis. Rambam Yomi, Amud Yomi and Daf Yomi
+/// Yerushalmi are deliberately not here: Rambam has three tracks and a
+/// thousand perakim that do not divide by three, so it is a published calendar
+/// rather than a formula, and *Amud Yomi is not one programme* — several run
+/// five to seven amudim a week rather than one a day. Picking one would be a
+/// guess about which luach a reader keeps.
 fn limudim(rd: Rd) -> Vec<Limud> {
-    daf_yomi(rd)
+    let mut out: Vec<Limud> = daf_yomi(rd)
         .map(|daf| Limud {
             key: "daf-yomi",
             said: "דף היומי",
@@ -637,7 +1044,22 @@ fn limudim(rd: Rd) -> Vec<Limud> {
             here: false,
         })
         .into_iter()
-        .collect()
+        .collect();
+    if let Some(day) = mishnah_yomis(rd) {
+        out.push(Limud {
+            key: "mishnah-yomis",
+            said: "משנה יומית",
+            place: day.said(),
+            slug: day.maseches.slug.to_string(),
+            reference: format!("girsa:{}/{}", day.maseches.slug, day.address()),
+            address: Some(day.address()),
+            cycle: day.cycle,
+            day: day.day,
+            of: MISHNAYOS_IN_SHAS / A_DAY,
+            here: false,
+        });
+    }
+    out
 }
 
 #[cfg(test)]
@@ -647,6 +1069,115 @@ mod tests {
 
     fn civil(year: i32, month: u32, day: u32) -> Civil {
         Civil { year, month, day }
+    }
+
+    /// The table is Shas, and the number it comes to is the number the cycle
+    /// is built on.
+    ///
+    /// If a single perek's count is wrong this fails, because 4,192 is not a
+    /// number the table can reach by accident — and it is separately the number
+    /// of days between two published cycle starts, which is checked below.
+    #[test]
+    fn the_table_is_the_whole_shas() {
+        assert_eq!(MISHNAYOS.len(), 63, "there are sixty-three masechtos");
+        let total: u32 = MISHNAYOS
+            .iter()
+            .flat_map(|m| m.perakim.iter())
+            .map(|p| u32::from(*p))
+            .sum();
+        assert_eq!(total, MISHNAYOS_IN_SHAS);
+        // No maseches and no perek is empty, which a generator that mis-parsed
+        // an id would produce silently.
+        for m in MISHNAYOS {
+            assert!(!m.perakim.is_empty(), "{} has no perakim", m.slug);
+            assert!(
+                m.perakim.iter().all(|p| *p > 0),
+                "{} has an empty perek",
+                m.slug
+            );
+        }
+    }
+
+    /// Three published cycle starts, and the two spans between them.
+    ///
+    /// The 2016 and 2021 dates were computed forward from the 2010 anchor
+    /// before they were found in print, so they fall *out* of the arithmetic
+    /// rather than into it — the same standard Daf Yomi's epoch is held to.
+    #[test]
+    fn the_mishnah_cycle_lands_on_every_start_that_is_published() {
+        let twelfth = fixed_from_civil(civil(2010, 7, 4));
+        let thirteenth = fixed_from_civil(civil(2016, 3, 30));
+        let fourteenth = fixed_from_civil(civil(2021, 12, 25));
+        let length = i64::from(MISHNAYOS_IN_SHAS / A_DAY);
+        assert_eq!(thirteenth - twelfth, length);
+        assert_eq!(fourteenth - thirteenth, length);
+        // And the whole span is the count of mishnayos itself, which is what
+        // ties the schedule to the table.
+        assert_eq!(fourteenth - twelfth, i64::from(MISHNAYOS_IN_SHAS));
+
+        // Each of the three opens Berachos א':א'-ב'.
+        for (rd, cycle) in [(twelfth, 12), (thirteenth, 13), (fourteenth, 14)] {
+            let day = mishnah_yomis(rd).unwrap();
+            assert_eq!(day.maseches.slug, "mishnah-berakhot");
+            assert_eq!((day.perek, day.mishnah), (1, 1));
+            assert_eq!((day.last_perek, day.last_mishnah), (1, 2));
+            assert_eq!(day.cycle, cycle);
+            assert_eq!(day.day, 1);
+            assert_eq!(day.said(), "ברכות א':א'-ב'");
+        }
+        // The day before a cycle starts is the last day of the one before it —
+        // Uktzin, the end of Taharos and the end of Shas.
+        let last = mishnah_yomis(fourteenth - 1).unwrap();
+        assert_eq!(last.maseches.slug, "mishnah-oktzin");
+        assert_eq!(last.day, MISHNAYOS_IN_SHAS / A_DAY);
+        assert_eq!((last.last_perek, last.last_mishnah), (3, 12));
+    }
+
+    /// Every day of a whole cycle names a place that exists, and the pair never
+    /// splits across two masechtos.
+    #[test]
+    fn no_day_of_the_cycle_names_a_mishnah_that_is_not_there() {
+        let first = fixed_from_civil(MISHNAH_FIRST);
+        let mut seen = 0u32;
+        let mut straddles = 0u32;
+        for offset in 0..i64::from(MISHNAYOS_IN_SHAS / A_DAY) {
+            let day = mishnah_yomis(first + offset).unwrap();
+            for (maseches, perek, mishnah) in [
+                (day.maseches, day.perek, day.mishnah),
+                (day.last, day.last_perek, day.last_mishnah),
+            ] {
+                let held = maseches
+                    .perakim
+                    .get(perek as usize - 1)
+                    .unwrap_or_else(|| panic!("{} has no perek {perek}", maseches.slug));
+                assert!(
+                    mishnah >= 1 && mishnah <= u32::from(*held),
+                    "{} {perek}:{mishnah} — that perek holds {held}",
+                    maseches.slug
+                );
+                seen += 1;
+            }
+            if day.maseches.slug != day.last.slug {
+                straddles += 1;
+            }
+        }
+        assert_eq!(seen, MISHNAYOS_IN_SHAS, "every mishnah is learned once");
+        // **A pair does cross a maseches**, and the count is not zero and not
+        // large. Berachos holds 57, which is odd, so day 29 is
+        // `ברכות ט':ה' — פאה א':א'`. If the seder instead padded an odd
+        // maseches so it broke cleanly, a cycle would be longer than 2,096
+        // days — and the two published spans above are exactly 2,096, so it
+        // does not. One straddle per maseches that ends on an odd running
+        // total, and the last maseches cannot straddle because 4,192 is even.
+        assert!(
+            straddles > 0,
+            "the schedule was expected to run straight through"
+        );
+        assert!(straddles < MISHNAYOS.len() as u32);
+        assert_eq!(
+            mishnah_yomis(first + 28).unwrap().said(),
+            "ברכות ט':ה' — פאה א':א'"
+        );
     }
 
     #[test]
@@ -788,6 +1319,43 @@ mod tests {
         assert_eq!(where_is("מדות"), vec![34, 35, 36, 37]);
     }
 
+    /// The evening hours, which are the only ones this changes.
+    ///
+    /// Nine at night on 4 January 2020 is the fifth of January's daf, because
+    /// that is what a person learning at nine at night is up to. Nine in the
+    /// morning on the fifth is the same daf, by the ordinary route.
+    #[test]
+    fn the_daf_turns_over_in_the_evening_and_not_at_midnight() {
+        let fourth = civil(2020, 1, 4);
+        let fifth = civil(2020, 1, 5);
+        let daf = |luach: &Luach| luach.today[0].place.clone();
+
+        // Before the turnover, the fourth is the fourth.
+        assert_eq!(daf(&at(fourth, 18, TURNS_AT)), daf(&of(fourth)));
+        // After it, the fourth is already the fifth — which is the first day of
+        // the fourteenth Daf Yomi cycle, ברכות ב'.
+        assert_eq!(daf(&at(fourth, 19, TURNS_AT)), "ברכות ב'");
+        assert_eq!(daf(&at(fourth, 23, TURNS_AT)), daf(&of(fifth)));
+        // And the morning after is the fifth by the ordinary route.
+        assert_eq!(daf(&at(fifth, 9, TURNS_AT)), daf(&of(fifth)));
+
+        // **The header moves with the daf.** A luach that said the fourth over
+        // the fifth's daf would be worse than the midnight answer it replaced,
+        // because it would look consistent.
+        let evening = at(fourth, 21, TURNS_AT);
+        assert_eq!(evening.civil, fifth);
+        assert_eq!(evening.hebrew, of(fifth).hebrew);
+        assert_eq!(evening.weekday, of(fifth).weekday);
+
+        // A reader who sets it elsewhere gets what they set, and midnight is
+        // still reachable — 24 is never an hour, so `hour >= 24` is never true.
+        assert_eq!(daf(&at(fourth, 19, 22)), daf(&of(fourth)));
+        assert_eq!(daf(&at(fourth, 22, 22)), daf(&of(fifth)));
+        for hour in 0..24 {
+            assert_eq!(daf(&at(fourth, hour, 24)), daf(&of(fourth)), "{hour}");
+        }
+    }
+
     #[test]
     fn nothing_is_said_about_a_day_before_the_cycle_began() {
         assert!(daf_yomi(fixed_from_civil(civil(1923, 9, 10))).is_none());
@@ -799,7 +1367,10 @@ mod tests {
         let luach = of(civil(2020, 1, 5));
         assert_eq!(luach.weekday, "יום ראשון");
         assert_eq!(luach.hebrew, "ח' טבת תש\"פ");
-        assert_eq!(luach.today.len(), 1);
+        // Two limudim: the daf, and the mishnayos. Daf Yomi is first because
+        // it is the one the toolbar button names.
+        assert_eq!(luach.today.len(), 2);
+        assert_eq!(luach.today[1].key, "mishnah-yomis");
         assert_eq!(luach.today[0].place, "ברכות ב'");
         assert_eq!(luach.today[0].slug, "bavli/berakhot");
         assert_eq!(luach.today[0].address.as_deref(), Some("2a"));

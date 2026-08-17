@@ -3917,9 +3917,16 @@ fn luach(
     year: i32,
     month: u32,
     day: u32,
+    hour: u8,
 ) -> Result<girsa_app::luach::Luach, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let mut luach = girsa_app::luach::of(girsa_app::luach::Civil { year, month, day });
+    // The hour comes from the same clock the date does, and the turnover is a
+    // setting rather than a calculation — `girsa_app::luach::at` argues why.
+    let mut luach = girsa_app::luach::at(
+        girsa_app::luach::Civil { year, month, day },
+        hour,
+        state.session.day_turns_at,
+    );
     if let Some(shelf) = state.shelf.as_ref() {
         for limud in luach.today.iter_mut().chain(luach.tomorrow.iter_mut()) {
             limud.here = shelf.work(&limud.slug).is_some();
@@ -3955,6 +3962,25 @@ fn set_shemos(shared: tauri::State<'_, Shared>, shemos: String) -> Result<(), St
     Ok(())
 }
 
+/// The hour the daf turns over, where the reader is standing.
+///
+/// Refused outside 0–23 rather than clamped, for the reason `set_shemos` gives:
+/// a window sending 25 has a wiring bug, and a silently clamped 23 is how it
+/// would never be found.
+#[tauri::command]
+fn set_day_turns_at(shared: tauri::State<'_, Shared>, hour: u8) -> Result<(), String> {
+    if hour > 23 {
+        return Err(girsa_app::trouble::refuse(
+            girsa_app::trouble::Code::NoSuch,
+            format!("an hour is 0 to 23, not {hour}"),
+        ));
+    }
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state.session.day_turns_at = hour;
+    state.save();
+    Ok(())
+}
+
 #[tauri::command]
 fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
@@ -3963,6 +3989,7 @@ fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
     Ok(SettingsView {
         pointing: session.pointing,
         shemos: session.shemos,
+        day_turns_at: session.day_turns_at,
         text_size: session.text_size,
         language: session.language,
         interface: session.interface,
@@ -4782,6 +4809,7 @@ pub fn run() {
             set_ratio,
             set_pointing,
             set_shemos,
+            set_day_turns_at,
             luach,
             sefer_find,
             find_here_chip,

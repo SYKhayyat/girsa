@@ -154,6 +154,11 @@ const WORDS = {
   /** The daf turns over at nightfall and the button turns it over at midnight,
    * so the next one is named beside it rather than guessed at. */
   tomorrow: ["מחר", "tomorrow"] as Both,
+  settingsDayTurns: ["מאיזו שעה נחשב היום הבא", "When the day turns over"] as Both,
+  dayTurnsAbout: [
+    "הדף מתחלף בצאת הכוכבים, וצאת הכוכבים תלוי במקום שאתה נמצא בו — וגרסא אינה שואלת היכן אתה. השעה כאן היא הערכה ולא חשבון. דף המחר מופיע ממילא לצד דף היום.",
+    "The daf turns over at nightfall, and nightfall depends on where you are standing — which Girsa does not ask. This hour is an approximation and not a calculation. Tomorrow's daf is named beside today's either way.",
+  ] as Both,
   settingsShemos: ["שמות הקודש", "Holy names"] as Both,
   shemosAsWritten: ["ככתבם", "as written"] as Both,
   shemosChanged: ["בשינוי אות", "with a letter changed"] as Both,
