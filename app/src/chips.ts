@@ -86,8 +86,7 @@ function chipOf(chip: Chip, picking: Picking): HTMLElement {
     const item = document.createElement("button");
     item.type = "button";
     const why = whyNot(picking.cannot, chip.key, choice.key);
-    item.className =
-      "find-chip-item" + (choice.chosen ? " is-chosen" : "") + (why ? " is-impossible" : "");
+    item.className = "find-chip-item" + (choice.chosen ? " is-chosen" : "");
     item.textContent = chipSaid(chip.key, choice);
     if (choice.sigil) {
       const sigil = document.createElement("span");

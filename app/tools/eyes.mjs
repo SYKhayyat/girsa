@@ -222,7 +222,7 @@ const FIND = `
         <button type="button" class="find-chip-face">מילה שלמה ▾</button>
         <div class="find-chip-menu" id="find-menu">
           <button type="button" class="find-chip-item is-chosen" id="find-can">מילה שלמה</button>
-          <button type="button" class="find-chip-item is-impossible" id="find-cannot" disabled
+          <button type="button" class="find-chip-item" id="find-cannot" disabled
             title="מראה מקום הוא קפיצה למקום אחר">מראה מקום</button>
         </div>
       </div>
