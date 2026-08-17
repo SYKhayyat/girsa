@@ -1,214 +1,133 @@
-# Handoff — 16 August 2026
+# Handoff — 17 August 2026
 
-**`main` at `407b558`. Working tree clean, in sync with `origin/main`, and
+**`main` at `0517b0d`. Working tree clean, in sync with `origin/main`, and
 `node tools/verify.mjs` was green 9 of 9 before every commit.** Nothing is at
 risk and nothing is half-finished on disk.
 
-This page is a **session handoff**, not a permanent document. It exists so the
-next session — or the next person — can pick the work up without being told
-anything. When items 1–14 below are done, delete it.
+This page replaces the handoff of 16 August. Five of that page's seventeen items
+are closed and are not repeated here; the rest are renumbered, because a list
+whose numbers have holes in it is a list nobody trusts. It is still a **session
+handoff** and not a permanent document: when the items below are done, delete it.
 
-> Point a new Claude Code session at this file and it has everything. The two
-> assessments it refers to are [`where Girsa stands`][stands] and the two
-> memory files under `.claude/projects/…/memory/`, which a session loads on its
-> own.
+> Point a new Claude Code session at this file and it has everything. The
+> assessment it refers to is [`where Girsa stands`][stands], and the memory
+> files under `.claude/projects/…/memory/`, which a session loads on its own.
 
 [stands]: https://claude.ai/code/artifact/827950db-f162-45df-bbe3-4ad78fb6bf36
 
 ---
 
-## What landed
+## What closed
 
 | Commit | What |
 |---|---|
-| `e15ca6b` | **Typed mareh makom into the branch works.** `טור או"ח סימן א`, `טור יו"ד סימן א`, `ערוך השולחן יורה דעה א`, `שולחן ערוך הרב אורח חיים א` — every one of them landed nowhere. Over the whole shelf, **5,502 of 7,627** chalakim now land. |
-| `3dcc101` | **Daf Yomi and the Hebrew date; find-in-sefer; printing; the shemos setting.** Plus the NixOS CI job. |
-| `6374e88` | **The links panel grouped by sefer, with the words on the row**, and the chain quoting each hop. 280 rows from 61 seforim became 61 readable lines. |
-| `5a39f4a` | **Named arrangements** (`Ctrl+Shift+D`) and an **update check**. |
-| `b9d0852` | **`Ctrl+F` rebuilt on the real search engine**, with every option the shelf search has — and `רש"י · תוספות` on the mefarshim door. |
-| `1ac9ce6` `3d5fa81` `407b558` | The NixOS CI job, twice, after it failed twice. See item 1. |
+| `31889f2` | **Three packages named a bundler that never runs them.** `appimagekit`, `dpkg` and `fakeroot` sat in the flake's devShell on the theory that `tauri-bundler` shells out to them. It does not: the .deb and the .rpm are written in Rust, and the AppImage is built by `linuxdeploy`, which the bundler **downloads during the build** — a prebuilt glibc ELF naming `/lib64/ld-linux-x86-64.so.2`, an interpreter NixOS does not have, and unlike `node_modules` it is not there to be patched first. `appimagekit` had also stopped being a name in nixpkgs, which is what made the job red. |
+| `5f89d30` | **Four surfaces nobody had looked at, and the eye found two of them wrong on its first run.** `npm run eyes` went from 20 assertions to **47**, over four new specimens: the find bar, the grouped links row, the arrangements drawer, and the print sheet under emulated print media. Two real CSS defects fell out of it. Four window modules got tests at the same time — `chips`, `findhere`, `printview`, `desksview` — taking the suite to **24 files, 534 checks**. |
+| `9499d38` | **A container has no display until somebody starts one.** The `nixos` job builds the shell with `--features tauri/custom-protocol`, opens it on `xvfb-run`, waits for the screen to stop being blank and counts the colours on it — because without `WEBKIT_DISABLE_COMPOSITING_MODE` the window draws nothing and exits cleanly, so a process that lived is evidence of nothing. |
+| `5d22971` | A class on the disabled chip that no rule ever read. |
+| `f1903be` | **A level word at the head of a name is part of the name** — `sefer-crates` 0.5.4, and Girsa moved onto it. Over the whole shelf, **6,057 of 7,627** chalakim now land, from 5,502. |
+| `bf73ab8` | **The nixos job built for fifteen minutes, correctly, and then said `nix: command not found`.** Its container script was `sh -euc '…'` inside the workflow and one of the comments in it contained the word `job's`. The apostrophe closed the string, the last two commands left the container and ran on the host, and the host has no Nix. |
+| `0517b0d` | **Two of the three surfaces nobody had ever pointed at, pointed at.** |
 
-Against Otzaria the standing score moved from **10 ahead / 5 level / 3 behind /
-3 absent** to **12 / 7 / 2 / 0** over twenty-one axes. The two that remain are
-items 15 and 16, and both are decisions rather than backlog.
-
-New modules, if you are looking for where something lives:
-
-```
-crates/girsa-app/src/luach.rs        the Hebrew calendar and Daf Yomi
-crates/girsa-app/src/inside.rs       find inside one sefer
-crates/girsa-app/src/printing.rs     what goes on a sheet of paper
-crates/girsa-app/src/shemos.rs       the shemos, one letter for one letter
-crates/girsa-app/src/newer.rs        is there a newer Girsa
-crates/girsa-corpus/src/sections.rs  a schema's names ⇄ the corpus's slugs
-app/src/findhere.ts                  the find bar
-app/src/desksview.ts                 named arrangements
-app/src/printview.ts                 the print sheet
-app/src/chips.ts                     the chip row, drawn once for both searches
-```
+Against Otzaria the standing score is unchanged at **12 ahead / 7 level / 2
+behind / 0 absent** over twenty-one axes; the two behind are items 10 and 11
+below, and both are decisions rather than backlog.
 
 ---
 
 ## Everything still to do
 
-### 1–3 · check these first
+The list is shorter than the last one, and it is also differently shaped, which
+matters more. What is left divides three ways, and the divisions are not a way
+of excusing the leftovers — they are the answer to *what would it take*, which
+is the only question a handoff is for.
 
-#### 1 · The CI run I never saw finish — *minutes*
+- **1–3 are work**, and a session with this file can start on any of them.
+- **4–8 need a resource nobody at this desk has** — a Mac, a photograph, a
+  printer, a password, a source you can actually check.
+- **9–11 are yours to rule on.** Nothing is queued behind them and nothing
+  should be. A gap analysis that files one of these as a defect has misread it.
 
-**The `nixos` job has failed twice and its third attempt was still running when
-the session ended.** Every other job — `rust`, `shell`, `macos` — has been green
-throughout, so nothing about the application is in doubt; this is the job that
-proves the flake.
-
-Two real failures, two real fixes, both written into the workflow:
-
-- **First:** `exec /__e/node24/bin/node: no such file or directory`. Every
-  `uses:` action is a Node program and the runner injects *its own glibc Node*
-  into whatever container it is handed; `nixos/nix` is Alpine, which is musl, so
-  `actions/checkout` could not start. The checkout happens on the host now and
-  the Nix half runs by hand inside `docker run` with the workspace mounted —
-  which keeps the only property the job exists for, that there is no
-  `/usr/lib` in there.
-- **Second:** `repository path "/w" is not owned by current user`. A flake
-  inside a working tree is a *git input*, so Nix asks libgit2 to open the
-  repository, and libgit2 refuses one owned by somebody other than the process
-  — the host runner user against root in the container. The directory is
-  declared safe now, written straight into `$HOME/.gitconfig` rather than set
-  with `git config`, because the image ships Nix and is not obliged to ship git.
-
-If the third run is red too, **read the log before changing anything**. Each of
-these was a different, specific, findable cause, and the pattern so far is that
-the job is telling the truth.
-
-```sh
-gh run list --limit 1
-gh run view <id> --log-failed
-```
-
-#### 2 · Nothing new has been looked at — *an hour*
-
-`npm run eyes` is the only check in this repository that has ever seen a pixel —
-twenty specimens, and **none of them is a surface built today**. The find bar,
-the arrangements panel, the print sheet and the grouped links panel are all
-unlooked-at by it.
-
-I read two of them off screenshots by hand and fixed four things that way — the
-count reading `33 / 1` in a right-to-left window, a bar as wide as a paragraph,
-three unstyled browser buttons, and a bar sitting on top of the pane's own
-header. That is exactly the evidence that the tool would have caught them.
-
-*Where:* `app/tools/eyes.mjs`
-
-#### 3 · Four window modules have no window tests — *an hour*
-
-`findhere.ts`, `desksview.ts`, `printview.ts` and `chips.ts` ship with nothing
-under `app/test/`. Only the links grouper got one — `links.test.mjs`, 8 checks.
-
-The Rust halves *are* tested: 15 for the find, 6 for printing, 9 for the shemos,
-11 for the luach, 14 for the sections. What is untested is the wiring, which is
-where finding 3 and finding 12 both lived.
-
-*Where:* `app/test/`
+And then item 12, which outranks all of them.
 
 ---
 
-### 4–9 · known limits in what shipped
+### 1–3 · work
 
-#### 4 · 2,125 chalakim still miss, and it is not this repository — *cross-repo*
+#### 1 · The window says `1 arrangements` — *a work order, found by clicking*
 
-The shared resolver in `sefer-crates` reads a leading label word — `הלכות`,
-`שער`, `סדר` — as a level label and hands back the rest of the section's name,
-so `אבודרהם הלכות ברכות הקדמה` arrives naming a section no schema has.
-`girsa-ref` is pinned by rev, so this is a change there, a version bump, and a
-coordinated release.
+Rust agrees with its numbers. `girsa_plain::said` has `plural(n, one, many)` and
+`counted`, and its own header records that three composers wrote that ternary
+**eleven** times before anybody gave it a name.
+
+The window has `fill()`, which substitutes a hole into a string and stops.
+**Twenty-five** entries in `app/src/say.ts` interpolate a count. So both columns
+are wrong at one, and they are not wrong the same way: English wants a noun with
+an `s` on it and Hebrew wants a different phrase, and Hebrew's agreement is not
+English's rule spelled differently.
+
+Deliberately **not** fixed at the one place it was noticed. One of twenty-five
+is the exact shape of bug this repository keeps rediscovering a year later, and
+guessing at Hebrew phrasing for twenty-four more nouns is the thing BUILDER rule
+6 forbids. Somebody who knows how each of those reads should do all of them at
+once.
+
+*Where:* `app/src/say.ts`, against `crates/girsa-plain/src/said.rs`
+
+#### 2 · 1,570 chalakim still miss — *cross-repo, and the easy half is done*
+
+`sefer-crates` 0.5.4 taught the resolver that a level word at the **head** of a
+name is part of the name. `אבודרהם הלכות ברכות הקדמה` used to arrive naming a
+section no schema has, because `הלכות` was read as a level label and the rest was
+handed back as the name. The whole shelf went from **5,502 of 7,627** landing to
+**6,057** — 555 more chalakim reachable by typing them.
+
+What still misses is 1,570, and they are not one cause. Measure before
+theorising:
 
 ```sh
-cargo run -p girsa-search --example measure-branch-citations -- corpus
+cargo run --release -p girsa-search --example measure-branch-citations -- corpus
 ```
 
-#### 5 · One case the numeral guard deliberately gets wrong — *one constant*
+One cause is known and is not fixable at that layer. A Hebrew word whose letters
+do not ascend is a legal numeral, so `ייחוד` is 10+10+8+6+4 = 38 and
+`ברכות שער ייחוד המעשה ב'` resolves to `38:המעשה:2`. There is a test in
+`sefer-crates` pinning exactly that, rather than pretending it is not there.
+Telling a numeral from a word needs to know which words are words, which is a
+lexicon and not a parser.
 
-`יו"ד` is Yoreh De'ah and it is also, letter for letter, the number 20 — the
-resolver reads the numeral first. Girsa puts it back where the schema counts
-nothing at the work's top level.
+#### 3 · Nobody has dragged a sefer with a mouse — *and only the drag is left*
 
-The trade, written down on `read_as_a_number`: **`ערוך השולחן כ' א'` now opens
-Yoreh De'ah siman `א'` instead of failing.** That citation names no chelek and
-so names no place, and the wrong reading announces itself in the margin — but it
-is a guess in the one place BUILDER rule 6 forbids one, and whether the trade is
-right is your call. Removing it is deleting `read_as_a_number` and its two
-tests.
+What a drop *means* is a tested function, refusals and all. Two of the three
+surfaces that had never been touched by a pointer now have been, with
+`Input.dispatchMouseEvent` and `Input.dispatchKeyEvent` against the running
+window — events the browser raises at the input layer, which go through
+hit-testing, focus and every listener a real click would.
 
-*Where:* `crates/girsa-corpus/src/sections.rs`
+What remains is the **native HTML5 drag**, and it remains for a reason rather
+than for want of trying: a press, a move and a release do not synthesize into a
+`dragstart` through the debugging protocol, and a file drop is an operating
+system event no browser can raise at all. That one needs hands.
 
-#### 6 · The luach knows one limud — *medium*
+---
 
-`Limud` is a list and holds Daf Yomi Bavli. Mishnah Yomi, Rambam Yomi, Amud
-Yomi and Daf Yomi Yerushalmi were **deliberately not written**: I could not
-verify their cycle epochs against anything, and a wrong epoch is a wrong limud
-every single day.
+### 4–8 · needs a resource
 
-Daf Yomi's epoch is checked three independent ways in the tests — the
+#### 4 · The luach knows one limud — *needs a source you can check*
+
+`Limud` is a list and holds Daf Yomi Bavli. Mishnah Yomis, Rambam Yomi, Amud
+Yomi and Daf Yomi Yerushalmi are **deliberately not written**, and this session
+did not write them either.
+
+Daf Yomi's epoch is checked three independent ways in the tests: the
 1923-to-1975 span divides by 2,702 exactly seven times, and the 2012 and 2020
-cycle starts both fall out of the arithmetic rather than going into it. That is
-the standard the others have to meet before they ship.
+cycle starts fall *out* of the arithmetic rather than going into it. Nothing
+available offline meets that standard for the others, and a wrong epoch is a
+wrong limud every single day.
 
 *Where:* `crates/girsa-app/src/luach.rs`
 
-#### 7 · The daf turns over at midnight, not at nightfall — *needs a ruling*
-
-Where nightfall falls is a function of where the reader is standing, and Girsa
-does not know and will not ask for a location. Otzaria makes the same choice and
-says nothing about it; here *tomorrow's* daf is named beside today's, so the few
-evening hours where the two disagree are visible rather than silently wrong.
-
-Closing it properly means asking for a location, which is a product decision and
-not a small one.
-
-*Where:* `crates/girsa-app/src/luach.rs`, `docs/not-yet.md`
-
-#### 8 · Two shemos are not touched — *needs a convention*
-
-`אדני` and `אהיה` are left as written. Every substitution in that module is
-**one Hebrew letter for one Hebrew letter** — same character count, same byte
-count — because a span here is a pair of offsets, and `יהוה` becoming `ה'` would
-leave every mark, link anchor, search hit and quote range pointing two
-characters left of where it was drawn. Neither of those two has a one-letter
-swap anybody prints. If you know a convention that preserves the length, it is
-four lines.
-
-And `אל` and `שדי` are changed **only where the text is pointed**, because
-unpointed they are *to* and *my field*, and a rule that changed those would
-rewrite the sefer.
-
-*Where:* `crates/girsa-app/src/shemos.rs`
-
-#### 9 · Two rough edges I saw and left — *small*
-
-- **The find bar offers two modes that cannot work inside one sefer.** *A mareh
-  makom* is a jump somewhere else and *gematria and remazim* is a whole-shelf
-  instrument; both are on the chip row because the row is the search's own, and
-  Citation quietly finds nothing. Either hide them there or say on the chip why
-  they are grey.
-- **Printing was never sent to a printer.** The sheet is built and measured;
-  `window.print()` opens the platform dialogue and I never accepted one. On a
-  machine whose printer is a PDF writer, where the file lands is unverified too.
-
-*Where:* `app/src/findhere.ts`, `app/src/printview.ts`
-
----
-
-### 10–14 · open before today, and still open
-
-#### 10 · NixOS has never opened a window — *needs a machine*
-
-The CI job runs the tests, the bundle and `cargo build --workspace` inside a
-machine with no FHS, which is the half that breaks. What it cannot do is *look*:
-a container has no display, so nothing has ever opened a WebKitGTK surface
-there, and `WEBKIT_DISABLE_COMPOSITING_MODE` is a line every Tauri application
-on NixOS carries rather than a line anybody here has watched work.
-
-#### 11 · Nikud on WebKit is unknown — *needs a Mac*
+#### 5 · Nikud on WebKit is unknown — *needs a Mac*
 
 CI has a macOS job; the Rust half passes and the shell compiles against macOS's
 WebKit bindings. What that does not settle is rendering: the eyes tool drives
@@ -216,60 +135,99 @@ Chrome, and Chrome on macOS is the same Blink it is on Windows — a second
 machine, not a second engine. W9 asks about Safari's WebKit, which is what the
 shipped window there uses.
 
-#### 12 · Nobody has dragged a sefer with a mouse — *needs hands*
-
-What a drop *means* is a tested function, refusals and all. What no machine here
-can raise is the gesture: a native HTML5 drag is not synthesizable through the
-debugging protocol, and a file drop is an OS event no browser can fire.
-
-The same is now true of the arrangements panel and the find bar — I drove their
-*commands* over CDP and never clicked either of them.
-
-#### 13 · Nothing has been run against a photographed sefer — *needs a photograph*
+#### 6 · Nothing has been run against a photographed sefer — *needs a photograph*
 
 Born-digital pages put through named degradations score 89.9% clean and **29.4%**
-with all of them at once. It is a proxy — no uneven lighting, no gutter shadow,
-no show-through, no 1880 print — so 29.4% is a floor and not a photograph.
+with all of them at once. No single degradation costs more than five points, so
+reasoning about the parts would have been wrong by a factor of ten. It is still
+a proxy — no uneven lighting, no gutter shadow, no show-through, no 1880 print —
+so 29.4% is a floor and not a photograph.
 
-#### 14 · Three release-shaped things — *medium*
+#### 7 · Nothing has come out of a printer — *needs a printer*
 
-A local Linux build under WSL (it needs your password, and CI covers the same
-ground). macOS signing and notarisation. And the Intel Mac row of the bundle
-matrix, which is unbuilt.
+The print stylesheet is measured rather than assumed now: `tools/eyes.mjs` asks
+the browser to pretend the medium is paper and checks what `@media print` then
+does — the sheet in the flow, the application gone from it, black ink on a white
+page whatever the reader's theme is, and a se'if that does not break across two
+sheets.
+
+What is untested is everything after `window.print()`. No dialogue has been
+accepted, no sheet has come out, and on a machine whose printer is a PDF writer,
+where the file lands is unverified too.
+
+#### 8 · Two release-shaped things — *needs a password and a key*
+
+A local Linux build under WSL, which needs your password and which CI covers the
+same ground as. And macOS signing and notarisation.
+
+The Intel Mac row of the bundle matrix is **not** on this list: it is a
+deliberate omission written into `ci.yml`, not a backlog item.
 
 ---
 
-### 15–16 · yours to rule on, not mine to finish
+### 9–11 · yours to rule on
 
-#### 15 · Mobile
+#### 9 · One case the numeral guard deliberately gets wrong
 
-You said it: *"android might be hard — i dont need it, so you can forego it."*
-It is a platform choice made when Tauri was chosen. Nothing is queued and
-nothing should be — **do not let a future gap analysis file it as a defect.**
+`יו"ד` is Yoreh De'ah and it is also, letter for letter, the number 20 — and the
+resolver reads the numeral first. Girsa puts it back where the schema counts
+nothing at the work's top level.
 
-#### 16 · Installing an update
+The trade is written down on `read_as_a_number`: **`ערוך השולחן כ' א'` now opens
+Yoreh De'ah siman `א'` instead of failing.** That citation names no chelek and so
+names no place, and the wrong reading announces itself in the margin — but it is
+a guess in the one place BUILDER rule 6 forbids one. Removing it is deleting
+`read_as_a_number` and its two tests.
 
-Girsa checks for a newer release on a button and refuses to install one.
+*Where:* `crates/girsa-corpus/src/sections.rs`
 
-The button half is deliberate: spec.md §14, *offline is the product*, and a
-window that has not been asked makes no request, keeps no timer and needs no
-setting to turn it off — a stronger promise than a setting that defaults to off.
+#### 10 · The daf turns over at midnight, not at nightfall
 
-The install half needs **a release-signing key that only you can make**:
+Where nightfall falls is a function of where the reader is standing, and Girsa
+does not know and will not ask for a location. Otzaria makes the same choice and
+says nothing about it; here *tomorrow's* daf is named beside today's, so the few
+evening hours where the two disagree are visible rather than silently wrong.
+Closing it properly means asking for a location, which is a product decision and
+not a small one.
+
+*Where:* `crates/girsa-app/src/luach.rs`
+
+#### 11 · Two shemos, mobile, and installing an update
+
+Three rulings in one item, because all three are settled and are here only so
+that nothing files them as defects.
+
+**Two shemos are not touched.** `אדני` and `אהיה` are left as written. Every
+substitution in that module is one Hebrew letter for one Hebrew letter — same
+character count, same byte count — because a span here is a pair of offsets, and
+`יהוה` becoming `ה'` would leave every mark, link anchor, search hit and quote
+range pointing two characters left of where it was drawn. Neither of those two
+has a one-letter swap anybody prints. If you know a convention that preserves
+the length, it is four lines.
+
+**Mobile.** You said it: *"android might be hard — i dont need it, so you can
+forego it."* It is a platform choice made when Tauri was chosen.
+
+**Installing an update.** Girsa checks for a newer release on a button and
+refuses to install one. The button half is deliberate — spec.md §14, *offline is
+the product*, and a window that has not been asked makes no request, keeps no
+timer and needs no setting to turn it off, which is a stronger promise than a
+setting that defaults to off. The install half needs **a release-signing key
+that only you can make**:
 
 ```sh
 npm run tauri signer generate -- -w ~/.tauri/girsa.key
 ```
 
-Put the public half in `app/src-tauri/tauri.conf.json` under
-`plugins.updater.pubkey`, the private half and its password in the repository
+Public half into `app/src-tauri/tauri.conf.json` under
+`plugins.updater.pubkey`, private half and its password into the repository
 secrets, add `tauri-plugin-updater`, and the plugin does the rest. An updater
 that ran an unsigned binary off the internet would be the worst thing in the
-application by a distance, which is why I did not build one and will not.
+application by a distance, which is why there is not one.
 
 ---
 
-### 17 · the one that outranks all of it
+### 12 · the one that outranks all of it
 
 **Nobody has learned a sugya in it.**
 
@@ -281,11 +239,13 @@ produce, and the two documents that come closest — the
 complaints and an hour, from somebody who opened it once. Both found things no
 test had.
 
-Today's two best findings came the same way. The citation landing printing a
-Latin slug, and the daf offering forty commentaries alphabetically, were both
-found by **driving the window** and neither by reading the code.
+The pattern held again today, three times. The two CSS defects were found by
+**looking** at four surfaces nobody had looked at. The nixos failure was found
+by **reading a log** that had already printed `Finished dev profile in 15m 39s`.
+And `1 arrangements` was found by **clicking Keep**. Not one of the three came
+from reasoning about the code.
 
-That is the shape of the evidence still missing, and no amount of work on 1–16
+That is the shape of the evidence still missing, and no amount of work on 1–11
 substitutes for it.
 
 ---
@@ -300,25 +260,32 @@ bash tools/check-card.sh       # docs/shortcuts.md against girsa-card
 bash tools/check-ksav-fixture.sh
 ```
 
-Driving the real window, which is where both of today's best findings came from:
+Driving the real window, which is where three of today's findings came from:
 
 ```powershell
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
 cd app; npm run tauri dev
 ```
 
-Then talk to it over CDP on 9222 — `window.__TAURI_INTERNALS__.invoke(name, args)`
-in the page context is the real Rust command against the real corpus and the real
-session.
+Then talk to it over CDP on 9222. Two different things live there and the
+difference matters:
+
+- `window.__TAURI_INTERNALS__.invoke(name, args)` in the page context is the
+  real Rust command against the real corpus and the real session. It drives the
+  application and touches nothing the reader touches.
+- `Input.dispatchMouseEvent` and `Input.dispatchKeyEvent` are raised by the
+  browser at the input layer, so they go through hit-testing, focus and every
+  listener. That is how a control is shown to be *reachable* rather than merely
+  wired, and it is what `1 arrangements` fell out of.
 
 Documents worth reading before changing anything:
 
 | | |
 |---|---|
 | The rules that bind every change | [`BUILDER.md`](BUILDER.md) §0 |
-| What is honestly not done | [`docs/not-yet.md`](docs/not-yet.md) — four rows longer than this morning |
-| What it does, for a reader | [`docs/start-here.md`](docs/start-here.md) — gained *the four a bachur reaches for first* |
-| The keys | [`docs/shortcuts.md`](docs/shortcuts.md) — `Ctrl+F` is the sefer now, `Ctrl+Shift+F` is the shelf |
+| What is honestly not done | [`docs/not-yet.md`](docs/not-yet.md) |
+| What it does, for a reader | [`docs/start-here.md`](docs/start-here.md) |
+| The keys | [`docs/shortcuts.md`](docs/shortcuts.md) — `Ctrl+F` is the sefer, `Ctrl+Shift+F` is the shelf |
 
 Every number on this page was read from the running application, from the corpus
-on disk, or from a CI log on 16 August 2026 — not from documentation.
+on disk, or from a CI log on 16 and 17 August 2026 — not from documentation.
