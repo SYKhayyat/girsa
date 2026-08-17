@@ -943,8 +943,20 @@ async function main() {
           fits: el.scrollWidth <= r.width + 1,
         };
       };
+      // Does the hidden attribute hide it? That attribute works by the
+      // browser's own rule setting display to none, which any author display
+      // beats. So this asks the browser rather than reading the stylesheet:
+      // set the attribute the way FindHere.close does, and put it back.
+      // (No backticks in here. This comment is inside a template literal and
+      // one of them ends it, which is how the last hour went.)
+      bar.hidden = true;
+      const whenHidden = getComputedStyle(bar).display;
+      bar.hidden = false;
+      const whenShown = getComputedStyle(bar).display;
       return {
         ...out,
+        whenHidden,
+        whenShown,
         direction: getComputedStyle(count).direction,
         figures: getComputedStyle(count).fontVariantNumeric,
         walk: face(walk),
@@ -954,6 +966,34 @@ async function main() {
         cannot: look(document.getElementById('find-cannot')),
       };
     })()`);
+
+    // **The fifth defect in this bar, and the first one a screenshot of NixOS
+    // found rather than a screenshot of Windows.**
+    //
+    // `.find-here` sets `display: flex`, and an author's `display` beats the
+    // browser's `[hidden] { display: none }`. So `element.hidden = true` did
+    // nothing to it: the bar was drawn over the toolbar of a window with no
+    // sefer open, in the first picture ever taken of Girsa on NixOS.
+    //
+    // Every other panel in `styles.css` that is toggled this way carries its
+    // own `[hidden]` rule — `.picker`, `.shelf`, `.find`, `.lane`, `.settings`
+    // and three more. This one was the exception, and the whole family is one.
+    //
+    // Asserted as a pair. *Hidden means gone* is the defect; *shown means
+    // flex* is the thing a careless fix breaks, and a rule that hides the bar
+    // permanently would pass the first assertion on its own.
+    seen(
+      "hidden hides the find bar",
+      find.whenHidden === "none",
+      `with the hidden attribute set it computed to display: ${find.whenHidden} — ` +
+        `an author's display beats the browser's [hidden] rule, so the bar is ` +
+        `drawn whether or not anything opened it`,
+    );
+    seen(
+      "and taking it off gives the bar back",
+      find.whenShown === "flex",
+      `without the attribute it computed to display: ${find.whenShown}`,
+    );
 
     // `1 / 33` in a right-to-left window is laid out `33 / 1` — two numbers with
     // a neutral between them take the paragraph's direction, so the bar reported
