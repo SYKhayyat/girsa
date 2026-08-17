@@ -630,10 +630,17 @@ mod tests {
     }
 
     #[test]
-    fn the_resolver_really_does_read_yod_vav_dalet_as_twenty() {
-        // The premise of `READS_AS_A_NUMBER`, asserted rather than assumed. If
-        // a later `girsa-ref` stops doing this, the workaround stops being
-        // needed and this is the test that says so.
+    fn the_resolver_no_longer_reads_yod_vav_dalet_as_twenty() {
+        // **This test said so.** It was written to assert the premise of
+        // `READS_AS_A_NUMBER` — that `יו"ד` arrives as twenty — and its own
+        // note ended *"if a later girsa-ref stops doing this, the workaround
+        // stops being needed and this is the test that says so."*
+        //
+        // `girsa-ref` stopped doing it. A numeral is now required to be the
+        // canonical spelling of its own value, and twenty is written `כ'`, so
+        // `יו"ד` is a name again and reaches the abbreviation table like the
+        // other three chalakim. Inverted rather than deleted: the premise is
+        // still worth asserting, it is simply the opposite premise now.
         let mut lex = girsa_ref::Lexicon::default();
         lex.add(
             girsa_ref::Work {
@@ -647,10 +654,10 @@ mod tests {
         else {
             panic!("the title resolves; it is the address that is the problem");
         };
-        assert_eq!(got.from().to_string(), "20:1");
-        // And the other three chalakim are not numerals, so they arrive as
-        // names and need none of this.
-        for short in ["או\"ח", "אה\"ע", "חו\"מ"] {
+        assert_eq!(got.from().to_string(), "יו\"ד:1");
+        // And it now behaves exactly like the other three chalakim, which were
+        // never numerals and never needed any of this.
+        for short in ["או\"ח", "אה\"ע", "חו\"מ", "יו\"ד"] {
             let girsa_ref::Resolution::Exact(got) =
                 girsa_ref::resolve(&lex, &format!("טור {short} סימן א"))
             else {
@@ -661,12 +668,24 @@ mod tests {
     }
 
     #[test]
-    fn a_chelek_the_numeral_reader_ate_is_put_back_where_nothing_else_fits() {
+    fn the_tur_no_longer_needs_a_chelek_put_back_at_all() {
         let tur = tur();
         let slugged = |a: &str| tur.slugged(&Address::parse(a).unwrap()).to_string();
-        // `טור יו"ד סימן א'` arrives as `20:1`, and the Tur counts nothing at
-        // its top level: every address into it begins with a chelek.
-        assert_eq!(slugged("20:1"), "yoreh_deah:1");
+        // **The cost of `read_as_a_number` was paid here, and is not paid
+        // anymore.** `טור יו"ד סימן א'` used to arrive as `20:1`, so this
+        // asserted `yoreh_deah:1` — and the price of that repair was
+        // `ערוך השולחן כ' א'`, where the reader really did mean twenty,
+        // opening Yoreh De'ah instead of failing.
+        //
+        // Nothing reads as twenty now. Not one of the Tur's four chalakim is a
+        // canonical numeral, so a bare `20` at the front is a number nobody
+        // claims, and it is left exactly as written — which fails to open,
+        // visibly, instead of opening the wrong chelek.
+        assert_eq!(slugged("20:1"), "20:1");
+        // The repair itself is still needed and still tested, on the names
+        // that genuinely are spelled the way their own number is spelled —
+        // see `a_parashah_whose_name_is_also_a_number_is_put_back_too`.
+        //
         // Only at the front. A siman twenty is a siman twenty.
         assert_eq!(slugged("אורח חיים:20:1"), "orach_chayim:20:1");
         // And a number no section reads as is left alone.
@@ -675,11 +694,20 @@ mod tests {
 
     #[test]
     fn a_parashah_whose_name_is_also_a_number_is_put_back_too() {
-        // The long tail, and it is most of it: a commentary on the Chumash
-        // holds a section per sidra, and `בא` is beis-alef, which is three.
-        // Measured on the shelf before this: `אגרא דכלה בא א` arrived as `3:1`
-        // and landed nowhere, along with נח, צו, שלח and every other sidra
-        // whose letters happen to descend.
+        // The long tail, and the chiluk inside it that the canonical-numeral
+        // rule drew.
+        //
+        // A commentary on the Chumash holds a section per sidra, and a sidra
+        // whose letters descend used to be eaten whole: `אגרא דכלה בא א`
+        // arrived as `3:1` and landed nowhere, along with נח, צו, שלח and the
+        // rest. **Most of them are not eaten anymore.** `בא` is 2 + 1 = 3, and
+        // three is written `ג'` — so `בא` is not a numeral and never arrives
+        // as one.
+        //
+        // `נח` is the half that survives, and it survives for a reason no rule
+        // can reach: 50 + 8 is 58, and 58 *is* written `נ"ח`. The word and the
+        // number are the same string. That is what `read_as_a_number` is still
+        // worth 226 chalakim for, measured over the shelf.
         let chumash = Sections::of(
             &serde_json::json!({
                 "schema": {
@@ -696,8 +724,12 @@ mod tests {
         )
         .unwrap();
         let slugged = |a: &str| chumash.slugged(&Address::parse(a).unwrap()).to_string();
-        assert_eq!(slugged("3:1"), "bo:1");
         assert_eq!(slugged("58:1"), "noach:1");
+        // `בא` reaches the schema as a name now, so a bare three is a three
+        // and stays one. The repair is not asked to cover what is no longer
+        // broken.
+        assert_eq!(slugged("בא:1"), "bo:1");
+        assert_eq!(slugged("3:1"), "3:1");
         // A sidra whose name is not a numeral arrives as a name and needs none
         // of this.
         assert_eq!(slugged("חיי שרה:1"), "chayei_sarah:1");
@@ -731,17 +763,31 @@ mod tests {
 
     #[test]
     fn two_sections_reading_as_one_number_are_refused_rather_than_picked() {
-        // BUILDER rule 6, on the numeral path. `בא` reads as three, and so
-        // does a section a schema simply calls `ג`. Constructed, because
-        // nothing on the shelf collides today — which is exactly why the
-        // refusal has to be asserted rather than observed.
+        // BUILDER rule 6, on the numeral path. Constructed, because nothing on
+        // the shelf collides today — which is exactly why the refusal has to
+        // be asserted rather than observed.
+        //
+        // **This fixture had to be rebuilt, and the reason is worth reading.**
+        // It used to be `בא` against a section a schema simply calls `ג`, both
+        // reading as three. The canonical-numeral rule stopped `בא` being a
+        // numeral, so the collision evaporated and the guard sailed through
+        // testing nothing — passing for the one reason a guard must never
+        // pass, which is that it was never asked.
+        //
+        // A collision now needs two names that are each a canonical numeral,
+        // and canonical spellings are unique — so it cannot come from two
+        // whole titles. It comes from the *three readings* `read_as` tries:
+        // `נח` reads as 58 as a whole title, and `שער נח` reads as 58 through
+        // its last word, after the resolver has taken `שער` for a level label.
+        // Two different sections, one number, by two different paths.
         let both = Sections::of(
             &serde_json::json!({
                 "schema": {
                     "title": "S", "heTitle": "ס",
                     "nodes": [
-                        {"title": "Bo", "heTitle": "בא", "heSectionNames": ["פסקה"]},
-                        {"title": "Third", "heTitle": "ג", "heSectionNames": ["פסקה"]},
+                        {"title": "Noach", "heTitle": "נח", "heSectionNames": ["פסקה"]},
+                        {"title": "Gate of Noach", "heTitle": "שער נח",
+                         "heSectionNames": ["פסקה"]},
                     ],
                 }
             })
@@ -749,8 +795,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            both.slugged(&Address::parse("3:1").unwrap()).to_string(),
-            "3:1"
+            both.slugged(&Address::parse("58:1").unwrap()).to_string(),
+            "58:1"
         );
     }
 

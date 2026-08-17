@@ -25,11 +25,12 @@
 //! those would silently point two characters to the left of where it was drawn.
 //! So the invariant is asserted, in [`tests`], on every shem this module knows.
 //!
-//! It is also why **אדני and אהיה are not touched**. The conventions for those
-//! two — `אדנ-י`, spelling it out — all change the length, and there is no
-//! one-letter swap that anybody actually prints. A shem this does not handle is
-//! left exactly as the corpus has it, which is honest; a shem it handled by
-//! shifting every offset on the page would not be.
+//! That requirement is also what kept `אדני` out of this module for a long
+//! time: the conventions written down for it — `אדנ-י`, spelling it out — all
+//! change the length. The one-letter swap **ד → מ** does not, so `אֲדֹנָי`
+//! is here now, under the guard the next section describes.
+//!
+//! `אהיה` is still not touched. See *the one that is still open*, below.
 //!
 //! # Where a guess would be worse than nothing
 //!
@@ -41,6 +42,7 @@
 //! | `אל` | אֵל — G-d | אֶל — *to* |
 //! | `שדי` | שַׁדַּי | שָׂדַי — *my field* |
 //! | `צבאות` | ה' צבאות | צבאות — *armies* |
+//! | `אדני` | אֲדֹנָי | אֲדֹנִי — *my master* |
 //!
 //! `אל` is the one that matters, because *to* is one of the commonest words in
 //! the language and a rule that changed every one of them would rewrite the
@@ -50,9 +52,30 @@
 //! צבאות is substituted only directly after a shem, which is the only place it
 //! is one.
 //!
+//! `אדני` joins that list rather than the unconditional one, and it is the
+//! one where the ordinary word is commonest of all: `אֲדֹנִי הַמֶּלֶךְ` is
+//! *my lord the king*, said to a person. Only the vowel under the nun
+//! separates them — kamatz is the shem, chirik is the man.
+//!
 //! That means a bare Gemara page shows `אל` as it is. It is the right answer:
 //! the alternative is a page where *to* has been turned into `קל` a hundred
-//! times, which is not a page anybody can read.
+//! times, which is not a page anybody can read. The same cost is paid for
+//! `אדני`: on an unpointed page it does nothing.
+//!
+//! # The one that is still open
+//!
+//! `אהיה` has a length-preserving swap — **ה → ק**, giving `אקיק` — and it is
+//! still not written, because unlike every case above **there is no mark that
+//! separates it from the ordinary word.** `אֶהְיֶה` is the shem in
+//! `אֶהְיֶה אֲשֶׁר אֶהְיֶה`, and `אֶהְיֶה` is also the plain verb *I will
+//! be*, as in `וְאֶהְיֶה עִמָּךְ` — pointed identically, letter for letter
+//! and mark for mark.
+//!
+//! So there is no guard of the kind `אל` and `אדני` get. The choices are to
+//! change every `אהיה` in Tanach, including the verbs, or to match the one
+//! phrase it is unambiguously a shem in — which needs the word *after* it,
+//! and this module only ever looks backwards (`after_a_shem`, for צבאות).
+//! Neither is a decision to make quietly, so it is written down instead.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -61,9 +84,15 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Shemos {
     /// As the corpus has them. What a sefer says.
-    #[default]
     AsWritten,
     /// With a letter changed, so the page may be discarded.
+    ///
+    /// **The default**, and deliberately. A reader who has not been asked is a
+    /// reader who might print, and a page that came out of a printer with a
+    /// shem on it cannot be thrown away — the harm runs one way only. Turning
+    /// this off is one click for a reader who wants the corpus's own spelling;
+    /// there is no click that un-prints a page.
+    #[default]
     Changed,
 }
 
@@ -126,6 +155,8 @@ const SUFFIXES: &[&str] = &[
 
 /// Tzere — what tells `אֵל` from `אֶל`.
 const TZERE: char = '\u{05B5}';
+/// Kamatz — what tells `אֲדֹנָי` from `אֲדֹנִי`, *my master*.
+const KAMATZ: char = '\u{05B8}';
 /// The shin dot — what tells `שַׁדַּי` from `שָׂדַי`.
 const SHIN_DOT: char = '\u{05C1}';
 
@@ -203,6 +234,49 @@ const fn is_letter(ch: char) -> bool {
     matches!(ch, '\u{05D0}'..='\u{05EA}')
 }
 
+/// Which letters of one shem change, and to what.
+///
+/// At most two, because יהוה and אהיה each carry two hei's. And the letter put
+/// in is **not** always ק — אדני takes מ. Everything else here is indifferent
+/// to which letter it is so long as it is exactly one: the offsets, the byte
+/// count, and the invariant asserted in [`tests`] all hold for any Hebrew
+/// letter, because they are all two bytes.
+#[derive(Debug, Clone, Copy)]
+struct Change {
+    at: usize,
+    also: Option<usize>,
+    instead: char,
+}
+
+impl Change {
+    /// One letter, changed to ק.
+    const fn one(at: usize) -> Self {
+        Self {
+            at,
+            also: None,
+            instead: INSTEAD,
+        }
+    }
+
+    /// Two letters, changed to ק — the shemos spelled with two hei's.
+    const fn two(at: usize, also: usize) -> Self {
+        Self {
+            at,
+            also: Some(also),
+            instead: INSTEAD,
+        }
+    }
+
+    /// One letter, changed to something other than ק.
+    const fn to(at: usize, instead: char) -> Self {
+        Self {
+            at,
+            also: None,
+            instead,
+        }
+    }
+}
+
 /// Note the changes one word needs, and say whether it was a shem.
 ///
 /// The answer feeds the next word, because צבאות is a shem only after one.
@@ -214,11 +288,10 @@ fn change(word: &[Letter], after_a_shem: bool, swaps: &mut BTreeMap<usize, char>
             break;
         }
         let body = &word[from..];
-        if let Some((at, is_a_shem)) = shem(body, after_a_shem) {
-            swaps.insert(body[at].at, INSTEAD);
-            // The Tetragrammaton is the one with two letters to change.
-            if spelled(body) == "יהוה" {
-                swaps.insert(body[1].at, INSTEAD);
+        if let Some((change, is_a_shem)) = shem(body, after_a_shem) {
+            swaps.insert(body[change.at].at, change.instead);
+            if let Some(also) = change.also {
+                swaps.insert(body[also].at, change.instead);
             }
             return is_a_shem;
         }
@@ -232,37 +305,46 @@ fn change(word: &[Letter], after_a_shem: bool, swaps: &mut BTreeMap<usize, char>
 /// The second half is for צבאות, which is the only one of the six that is a
 /// shem because of the word beside it. It is changed and it does not make the
 /// **next** word a shem, so `ה' צבאות צבאות` changes two words and not three.
-fn shem(body: &[Letter], after_a_shem: bool) -> Option<(usize, bool)> {
+fn shem(body: &[Letter], after_a_shem: bool) -> Option<(Change, bool)> {
     let letters = spelled(body);
-    // יהוה → יקוק. Both hei's; the caller does the first one.
+    // יהוה → יקוק. Both hei's.
     if letters == "יהוה" {
-        return Some((3, true));
+        return Some((Change::two(3, 1), true));
     }
     // אלוה → אלוק, with or without a possessive after it.
     if let Some(rest) = letters.strip_prefix("אלוה") {
         if rest.is_empty() || SUFFIXES.contains(&rest) {
-            return Some((3, true));
+            return Some((Change::one(3), true));
         }
     }
     // אלהים, אלהי, אלהיך … → אלקים. The suffix is required: `אלה` alone is
     // *these*.
     if let Some(rest) = letters.strip_prefix("אלה") {
         if SUFFIXES.contains(&rest) {
-            return Some((2, true));
+            return Some((Change::one(2), true));
         }
+    }
+    // אֲדֹנָי → אמני, and only where the kamatz says it is not `אֲדֹנִי`,
+    // *my master* — which is an ordinary word, and a common one. Same guard
+    // as אל and שדי below, for the same reason and with the same cost: on an
+    // unpointed page this does nothing, which is the right answer. The letter
+    // put in is מ rather than ק because that is the swap that gets printed
+    // for this shem.
+    if letters == "אדני" && body[2].has(KAMATZ) {
+        return Some((Change::to(1, 'מ'), true));
     }
     // אֵל → קל, and only where the nikud says it is not `אֶל`.
     if letters == "אל" && body[0].has(TZERE) {
-        return Some((0, true));
+        return Some((Change::one(0), true));
     }
     // שַׁדַּי → שקי, and only where the dot says it is not a field.
     if letters == "שדי" && body[0].has(SHIN_DOT) {
-        return Some((1, true));
+        return Some((Change::one(1), true));
     }
     // צבאות → צבקות, and only straight after a shem, which is the only place
     // it is one rather than an ordinary plural.
     if letters == "צבאות" && after_a_shem {
-        return Some((2, false));
+        return Some((Change::one(2), false));
     }
     None
 }
@@ -328,6 +410,7 @@ mod tests {
             "אלוה",
             "אֵל",
             "שַׁדַּי",
+            "אֲדֹנָי",
             "יְהוָה צְבָאוֹת",
             "וַיֹּאמֶר אֱלֹהִים יְהִי אוֹר",
         ] {
@@ -359,6 +442,32 @@ mod tests {
     }
 
     #[test]
+    fn my_master_is_not_a_shem_and_the_vowel_under_the_nun_says_which() {
+        // The commonest ordinary word of any of them: `אֲדֹנִי הַמֶּלֶךְ` is
+        // *my lord the king*, said to a person, and it is the same four
+        // letters. Only the vowel under the nun separates them.
+        assert_eq!(changed("אֲדֹנָי"), "אֲמֹנָי");
+        assert_eq!(changed("אֲדֹנִי הַמֶּלֶךְ"), "אֲדֹנִי הַמֶּלֶךְ");
+        // Bare, it could be either, so nothing happens — the same answer this
+        // module gives for אל and for שדי, and for the same reason.
+        assert_eq!(changed("אדני"), "אדני");
+    }
+
+    /// `אהיה` is not written, and this is where that is asserted.
+    ///
+    /// The swap exists — ה → ק gives `אקיק`, one letter for one — so nothing
+    /// about the length invariant is stopping it. What is stopping it is that
+    /// `אֶהְיֶה` the shem and `אֶהְיֶה` the plain verb *I will be* are pointed
+    /// identically, so there is no guard to write. Changing it unconditionally
+    /// would rewrite `וְאֶהְיֶה עִמָּךְ` — a promise, not a Name.
+    #[test]
+    fn the_one_with_no_mark_to_tell_it_apart_is_left_alone() {
+        assert_eq!(changed("אהיה"), "אהיה");
+        assert_eq!(changed("אֶהְיֶה אֲשֶׁר אֶהְיֶה"), "אֶהְיֶה אֲשֶׁר אֶהְיֶה");
+        assert_eq!(changed("וְאֶהְיֶה עִמָּךְ"), "וְאֶהְיֶה עִמָּךְ");
+    }
+
+    #[test]
     fn armies_are_a_shem_only_after_a_shem() {
         assert_eq!(changed("יהוה צבאות"), "יקוק צבקות");
         assert_eq!(changed("צבאות ישראל"), "צבאות ישראל");
@@ -377,11 +486,22 @@ mod tests {
         }
     }
 
+    /// The default is a ruling, not a Rust convention, so it gets its own test.
+    ///
+    /// A reader who has not been asked might print, and a page that came out of
+    /// a printer with a shem on it cannot be thrown away. The harm runs one
+    /// way: turning this off is one click, and there is no click that un-prints
+    /// a page. This assertion used to sit inside the `next` test as an aside,
+    /// where a deliberate product decision read as an implementation detail.
+    #[test]
+    fn the_shemos_are_changed_unless_a_reader_says_otherwise() {
+        assert_eq!(Shemos::default(), Shemos::Changed);
+    }
+
     #[test]
     fn the_setting_names_what_it_will_do_next() {
         // The same convention as `Pointing::said`: a button says what pressing
         // it does, not what state you are already in.
-        assert_eq!(Shemos::default(), Shemos::AsWritten);
         assert_eq!(Shemos::AsWritten.next(), Shemos::Changed);
         assert_eq!(Shemos::Changed.next(), Shemos::AsWritten);
         assert_eq!(Shemos::ALL.len(), 2);
