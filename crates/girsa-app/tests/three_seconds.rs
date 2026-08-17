@@ -86,7 +86,43 @@ const BUDGET: Duration = Duration::from_secs(3);
 /// Measured: 311 ms with nothing on the layer, 866 ms after sixteen thousand
 /// corrections, which is 2.8. Six is room for the disk to be having a bad
 /// afternoon and not room for a second implementation of reading the layer.
+///
+/// **That argument holds for a busy machine and not for a fast one**, which is
+/// half of it and was the whole of it until a macOS runner said otherwise. See
+/// [`MEASURABLE`], which is the other half and the condition on this one.
 const ALLOWED_SLOPE: u32 = 6;
+
+/// The baseline below which the ratio above is measuring something else.
+///
+/// # The half of the argument that was missing
+///
+/// *Contention divides out* is true of a machine that is **busy**: both ends
+/// inflate together and the ratio survives. It is not true of a machine that is
+/// **fast**, and on 17 August 2026 the macOS runner proved it — `cargo test`
+/// went red at 8.4 against an allowance of 6, on these numbers:
+///
+/// | | with nothing on the layer | with 16,000 corrections |
+/// |---|---|---|
+/// | where the constant was set | 311 ms | 866 ms |
+/// | this machine, 17 Aug | 225 ms | 866 ms |
+/// | the macOS runner, 17 Aug | **33 ms** | 277 ms |
+///
+/// The corrected end barely moved and the empty one fell by a factor of nine.
+/// So the two ends are not the same measurement scaled: the empty case is
+/// mostly reading a sefer off a disk, which that runner does very fast, and the
+/// corrected case is mostly walking a layer, which is arithmetic. Divide a
+/// stable numerator by a collapsing denominator and the ratio grows without
+/// anything having got slower — and it had not: 277 ms is *faster in wall clock
+/// than the 866 ms this constant calls healthy*.
+///
+/// A hundred milliseconds is where the reading stops dominating: the printed
+/// breakdown of the empty case is two reads of about 45 ms each and a write of
+/// one, so below that figure the ratio is comparing fixed costs. When the
+/// baseline is under it the slope is not asserted and the run says so out loud
+/// — a skipped assertion that prints nothing is the thing this repository keeps
+/// finding a year later — and [`BUDGET`], which is what a reader actually
+/// experiences, carries the test.
+const MEASURABLE: Duration = Duration::from_millis(100);
 
 /// Every line of the sefer that has a word to fix — three typos a day for
 /// sixteen years, and more corrections than one person will ever make on one
@@ -322,10 +358,7 @@ fn it_is_still_in_the_budget_after_a_year_of_corrections() {
         bare.as_millis(),
         took.as_millis()
     );
-    assert!(
-        took <= bare * ALLOWED_SLOPE,
-        "a year of corrections took {took:?} against {bare:?} with none"
-    );
+    the_cost_is_not_growing(bare, took, made);
 }
 
 #[test]
@@ -357,12 +390,36 @@ fn it_is_still_in_the_budget_with_the_whole_sefer_corrected() {
         took.as_millis(),
         took.as_millis() * 100 / bare.as_millis().max(1)
     );
-    assert!(
-        took <= bare * ALLOWED_SLOPE,
-        "correcting one typo took {took:?} with {made} corrections on the layer and {bare:?} \
-         with none — the cost of a correction is growing with how many you have already made, \
-         which is the failure spec.md §7.5 is about"
-    );
+    the_cost_is_not_growing(bare, took, made);
+}
+
+/// The slope and the budget, asserted once so both tests hold the same rule.
+///
+/// Two assertions and they answer different questions. The slope is *is the
+/// layer getting more expensive as it fills* — the failure spec.md §7.5 is
+/// about, and the one no wall clock catches until it is far too late. The
+/// budget is *would a reader notice*, which is the promise itself.
+///
+/// The slope is skipped, loudly, when the baseline is below [`MEASURABLE`];
+/// the budget never is. See [`MEASURABLE`] for the machine that made this
+/// necessary and the numbers it produced.
+fn the_cost_is_not_growing(bare: Duration, took: Duration, made: usize) {
+    if bare < MEASURABLE {
+        println!(
+            "the slope is not asserted here: {} ms with nothing on the layer is under the \
+             {} ms a ratio needs to mean anything on this machine, so what holds below is \
+             the budget",
+            bare.as_millis(),
+            MEASURABLE.as_millis()
+        );
+    } else {
+        assert!(
+            took <= bare * ALLOWED_SLOPE,
+            "correcting one typo took {took:?} with {made} corrections on the layer and \
+             {bare:?} with none — the cost of a correction is growing with how many you have \
+             already made, which is the failure spec.md §7.5 is about"
+        );
+    }
     assert!(
         took < BUDGET,
         "correcting one typo among {made} took {took:?}, and spec.md §7.5 says three \
