@@ -30,8 +30,9 @@ handoff** and not a permanent document: when the items below are done, delete it
 | `0517b0d` | **Two of the three surfaces nobody had ever pointed at, pointed at.** |
 
 Against Otzaria the standing score is unchanged at **12 ahead / 7 level / 2
-behind / 0 absent** over twenty-one axes; the two behind are items 10 and 11
-below, and both are decisions rather than backlog.
+behind / 0 absent** over twenty-one axes. Both of the two behind — mobile, and
+installing an update rather than checking for one — are inside item 11 below,
+and both are decisions rather than backlog.
 
 ---
 
