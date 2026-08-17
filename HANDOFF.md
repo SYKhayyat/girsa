@@ -1,6 +1,6 @@
 # Handoff — 17 August 2026
 
-**`main` at `e962f7c`. Working tree clean, in sync with `origin/main`, and
+**`main` at `026d3fd`. Working tree clean, in sync with `origin/main`, and
 `node tools/verify.mjs` was green 9 of 9 before every commit.** Nothing is at
 risk and nothing is half-finished on disk.
 
@@ -29,6 +29,7 @@ handoff** and not a permanent document: when the items below are done, delete it
 | `bf73ab8` | **The nixos job built for fifteen minutes, correctly, and then said `nix: command not found`.** Its container script was `sh -euc '…'` inside the workflow and one of the comments in it contained the word `job's`. The apostrophe closed the string, the last two commands left the container and ran on the host, and the host has no Nix. |
 | `0517b0d` | **Two of the three surfaces nobody had ever pointed at, pointed at.** |
 | `534a565` `e962f7c` | Two CI failures that were about CI. The `nixos` job was rate-limited by `api.github.com` because an unpinned flake asks it who HEAD is on every run and was asking anonymously; it uses the run's own token now. And the macOS runner failed the correction-cost slope at 8.4 against an allowance of 6 by being **fast** rather than slow — the empty-layer baseline fell from 311 ms to 33 ms while the corrected end stayed put, so the ratio grew with nothing having got slower. The slope is asserted only above a baseline where a ratio means something, and says out loud when it is not. |
+| `1ad8f26` `6a775d7` `3c5c5cd` | **A WebKitGTK window has been opened on NixOS and photographed — 830 colours, eight seconds**, and the picture is an artifact of the `nixos` job. Four red runs to get there, each a different real thing: an apostrophe that ended the container's shell script, `api.github.com` rate-limiting an unpinned flake, a guard grepping for a CSS class in a binary whose assets are brotli-compressed, and **no GL stack in the container at all** — the Debian list the flake was translated from never had to name mesa, and WebKitGTK has needed EGL since 2.42. Then the first person to look at the picture found a defect in it: the find bar drawn over the toolbar of a window with no sefer open, because `.find-here` sets `display: flex` and an author's rule beats the browser's `[hidden]`. Of everything toggled by `hidden`, it was the only panel missing its own `[hidden]` line. |
 
 Against Otzaria the standing score is unchanged at **12 ahead / 7 level / 2
 behind / 0 absent** over twenty-one axes. Both of the two behind — mobile, and
