@@ -97,6 +97,23 @@
           patchelf
           xdotool
 
+          # A display, for a machine that has none.
+          #
+          # `docs/not-yet.md` has said since the job was written that *a
+          # container has no display, so nothing there has opened a WebKitGTK
+          # surface* — and that sentence contains its own answer. A container
+          # has no display until somebody starts one. `xvfb-run` is the X server
+          # that exists to be nobody's screen, and `imagemagick`'s `import`
+          # reads back what was drawn on it.
+          #
+          # Which matters here more than it does on most platforms, because the
+          # failure this is looking for is not a crash. `WEBKIT_DISABLE_COMPOSITING_MODE`
+          # is a line every Tauri application on NixOS carries; without it the
+          # window opens, stays up, exits cleanly — and is **white**. A process
+          # that lives is not evidence. A picture of what it drew is.
+          xvfb-run
+          imagemagick
+
           # `appimagekit`, `dpkg` and `fakeroot` were here, on the reasoning
           # that `cargo tauri build` shells out to them for the AppImage and
           # the .deb. It does not, and the CI job caught it the way the note in

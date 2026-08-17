@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#
+# Open Girsa's window on NixOS and photograph it.
+#
+#     nix develop --command bash tools/nixos-window.sh
+#
+# # Why this exists
+#
+# `docs/not-yet.md` has carried the same sentence since the `nixos` job was
+# written: *a container has no display, so nothing there has opened a WebKitGTK
+# surface, and `WEBKIT_DISABLE_COMPOSITING_MODE` is a line every Tauri
+# application on NixOS carries rather than a line anybody here has watched
+# work.*
+#
+# The first half of that sentence contains the answer to the second. A container
+# has no display **until somebody starts one**, and `xvfb-run` is the X server
+# that exists to be nobody's screen. What was missing was not a machine.
+#
+# # Why a picture and not an exit code
+#
+# The failure this is looking for is not a crash, and that is the whole
+# difficulty. Without `WEBKIT_DISABLE_COMPOSITING_MODE`, WebKitGTK on NixOS
+# composites through its own sandbox, cannot reach the store paths it needs from
+# inside one, and draws **nothing** — the window opens, sits there, and closes
+# cleanly when asked. A process that lived for thirty seconds is evidence of
+# nothing at all. So this counts the colours on the screen: an empty root window
+# is one, a white window is one or two, and a drawn page of Hebrew is hundreds.
+#
+# # What it still does not settle
+#
+# That the window is *right*. Nobody is reading a sefer off this picture and
+# this script does not know what Girsa looks like. The claim it supports is that
+# something was drawn, on a machine with no FHS — one rung above *the code
+# compiles* and several below *somebody used it*. `docs/not-yet.md` says which.
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+cd "$here"
+
+shell=target/debug/girsa-shell
+shot=${GIRSA_WINDOW_SHOT:-/tmp/girsa-window.png}
+log=/tmp/girsa-window.log
+
+# ImageMagick 7 is one binary with the old names beside it, and which of those
+# names a build installs is a decision the packager made. Ask, rather than
+# assume, so that a missing `import` is reported as a missing tool instead of as
+# a window that did not draw.
+if command -v import >/dev/null 2>&1; then
+  snap() { import -window root "$1"; }
+  count() { identify -format %k "$1"; }
+elif command -v magick >/dev/null 2>&1; then
+  snap() { magick import -window root "$1"; }
+  count() { magick identify -format %k "$1"; }
+else
+  echo "no imagemagick on the path — flake.nix puts it in the devShell, so this"
+  echo "was probably not run through 'nix develop'."
+  exit 1
+fi
+
+# ── Under a display, or start one ────────────────────────────────────────────
+#
+# Re-running this same file inside `xvfb-run` rather than passing it a string of
+# shell: a quoted script inside a quoted script inside a YAML block is three
+# levels of escaping and one of them is always wrong. `-a` picks a free display
+# number instead of fighting over `:99`, which is the number every other tool on
+# a runner also picks.
+if [ "${1:-}" != "--under-a-display" ]; then
+  # GTK wants somewhere to put its sockets and the container has not made one.
+  # Absent, GTK prints `XDG_RUNTIME_DIR is not set` and carries on, which is a
+  # warning in the log a person reads after a failure and not a cause.
+  export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/girsa-runtime}
+  mkdir -p "$XDG_RUNTIME_DIR"
+  chmod 700 "$XDG_RUNTIME_DIR"
+
+  if [ ! -x "$shell" ]; then
+    echo "no $shell. Build it first:"
+    echo "  cd app && npm ci && npm run build"
+    echo "  cd app/src-tauri && cargo build --features tauri/custom-protocol"
+    exit 1
+  fi
+
+  # **The build that would make this measure the wrong thing.**
+  #
+  # `--features tauri/custom-protocol` is what puts `app/dist` *inside* the
+  # binary. Without it the window navigates to the Vite dev server at
+  # `http://localhost:5174` and, with no server there, draws Chromium's *this
+  # site can't be reached* — a page, in colour, which would pass the count below
+  # while proving the opposite of what this claims.
+  #
+  # `app/src-tauri/build.rs` refuses that build in the release profile and is
+  # deliberately silent in debug, because `cargo check` and `tauri dev` both
+  # want exactly that binary. Debug is therefore the one profile where the
+  # mistake is possible, and this is the only place it can be caught.
+  if ! grep -aq 'find-here-box' "$shell"; then
+    echo "$shell does not carry the frontend: 'find-here-box' is a class in"
+    echo "app/src/styles.css and it is not in this binary. Built without"
+    echo "--features tauri/custom-protocol, the window opens on the dev server"
+    echo "and this would photograph a browser error page."
+    exit 1
+  fi
+
+  echo "opening the window under Xvfb"
+  exec xvfb-run -a --server-args="-screen 0 1360x900x24" \
+    bash "$0" --under-a-display
+fi
+
+# ── From here down there is a screen ─────────────────────────────────────────
+
+"./$shell" >"$log" 2>&1 &
+pid=$!
+
+# The window has to exist before it can be photographed, and how long that takes
+# on a cold container is not a number anybody here knows. So this waits for the
+# thing it wants rather than for a duration, and gives up after ninety seconds —
+# a budget rather than an expectation, since the loop returns the moment the
+# screen is not blank and only a sick run spends the rest of it.
+drawn=0
+for _ in $(seq 90); do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "the window exited on its own, before it drew anything"
+    break
+  fi
+  snap "$shot" 2>/dev/null || true
+  if [ -f "$shot" ]; then
+    colours=$(count "$shot" 2>/dev/null || echo 0)
+    if [ "${colours:-0}" -gt 8 ]; then
+      drawn=$colours
+      break
+    fi
+  fi
+  sleep 1
+done
+
+# One more after it has settled, so what is kept is the window rather than the
+# first frame of it.
+if [ "$drawn" -gt 0 ]; then
+  sleep 2
+  snap "$shot" 2>/dev/null || true
+fi
+
+kill "$pid" 2>/dev/null || true
+wait "$pid" 2>/dev/null || true
+
+said() {
+  if [ -s "$log" ]; then
+    echo
+    echo "--- the window said ---"
+    cat "$log"
+  fi
+}
+
+if [ ! -f "$shot" ]; then
+  echo "nothing was photographed at all — the screen could not be read"
+  said
+  exit 1
+fi
+
+colours=$(count "$shot")
+echo "$colours distinct colours on the screen"
+
+# Eight is not a threshold anybody tuned, and it does not need to be: an empty
+# Xvfb root is **one** colour, a white window is one or two, and a drawn page of
+# antialiased Hebrew is in the hundreds. Anything in between is a state nobody
+# has seen. The number is printed above either way, so the next person to
+# disagree with this line is arguing with a measurement.
+if [ "$colours" -le 8 ]; then
+  echo
+  echo "The window opened and drew nothing. That is the failure this script is"
+  echo "for: WebKitGTK on NixOS composites through its own sandbox, cannot reach"
+  echo "the store paths it needs from inside one, and leaves the surface blank"
+  echo "while the process stays perfectly healthy. Check that"
+  echo "WEBKIT_DISABLE_COMPOSITING_MODE and WEBKIT_DISABLE_DMABUF_RENDERER are"
+  echo "set — flake.nix puts both in the devShell, and a shell entered any other"
+  echo "way will not have them."
+  said
+  exit 1
+fi
+
+echo "a WebKitGTK surface was opened and drawn on, on a machine with no FHS"

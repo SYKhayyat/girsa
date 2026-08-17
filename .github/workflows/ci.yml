@@ -297,6 +297,7 @@ jobs:
           docker run --rm \
             -v "$PWD/Girsa:/w" -w /w \
             -e NIX_CONFIG='experimental-features = nix-command flakes' \
+            -e GIRSA_WINDOW_SHOT=/w/target/girsa-window.png \
             nixos/nix:latest \
             sh -euc '
               # `repository path "/w" is not owned by current user`, which is
@@ -318,7 +319,43 @@ jobs:
                 cd app && npm ci && npm test && npm run build
               "
               nix develop --command cargo build --workspace
+
+              # **And the window, which had never been opened here.**
+              #
+              # This job's own row in `docs/not-yet.md` said *a container has no
+              # display, so nothing there has opened a WebKitGTK surface* — and
+              # the first half of that sentence answers the second. A container
+              # has no display until somebody starts one. `xvfb-run` is in the
+              # devShell now and `tools/nixos-window.sh` starts the binary on it,
+              # waits for the screen to stop being blank, and counts the colours
+              # on it.
+              #
+              # A picture rather than an exit code, because the failure this is
+              # for is not a crash: without `WEBKIT_DISABLE_COMPOSITING_MODE` the
+              # window opens, draws nothing and closes cleanly, and a process
+              # that lived is evidence of nothing.
+              #
+              # `--features tauri/custom-protocol` is what embeds `app/dist`.
+              # Without it the window opens on the Vite dev server and draws a
+              # browser error page, which is in colour and would pass; the script
+              # refuses a binary that does not carry the frontend rather than
+              # measuring one.
+              nix develop --command bash -c "
+                cd app/src-tauri && cargo build --features tauri/custom-protocol
+              "
+              nix develop --command bash tools/nixos-window.sh
             '
+
+      # The picture, whichever way it went — a run that failed on a blank screen
+      # is a run whose screenshot is the finding. Written into `target/`, which
+      # is inside the mount and is gitignored, because the container's own `/tmp`
+      # goes with the container.
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nixos-window
+          path: Girsa/target/girsa-window.png
+          if-no-files-found: ignore
 
   macos:
     runs-on: macos-latest
