@@ -73,6 +73,57 @@ if [ "${1:-}" != "--under-a-display" ]; then
   mkdir -p "$XDG_RUNTIME_DIR"
   chmod 700 "$XDG_RUNTIME_DIR"
 
+  # ── Rendering, on a machine with no graphics card ──────────────────────────
+  #
+  # The first run that got this far said
+  #
+  #     Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
+  #
+  # and photographed one colour. WebKitGTK has required EGL since 2.42, an
+  # Xvfb screen has no GPU behind it, and `WEBKIT_DISABLE_COMPOSITING_MODE`
+  # does not cover it — that variable is about compositing, and this fails one
+  # step earlier, at opening a display at all. `flake.nix` has `libglvnd` and
+  # `mesa` in the devShell now; these three lines are what point them at the
+  # CPU.
+  #
+  # Set here rather than in the flake because the flake's shell is also what a
+  # person developing on NixOS enters, and telling their machine to render in
+  # software would be a rude thing to do to somebody with a graphics card. This
+  # script only ever runs where there is none.
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export GALLIUM_DRIVER=llvmpipe
+  export GDK_BACKEND=x11
+
+  # And the half that a package on `LD_LIBRARY_PATH` does not settle.
+  # `libEGL.so.1` belongs to `libglvnd`, which is a dispatcher: it picks a
+  # driver by reading vendor manifests out of `/usr/share/glvnd/egl_vendor.d`,
+  # and this container has no `/usr/share` because it has no FHS. Having mesa
+  # installed and having it *findable* are two different things, and the second
+  # needs the store path — which `flake.nix` passes down as `GIRSA_MESA` rather
+  # than setting these itself, so that a NixOS desktop with an NVIDIA card
+  # entering the same shell is not told to render through llvmpipe.
+  #
+  # Globbed rather than named: `50_mesa.json` is the filename today and the
+  # number in front of it is a priority somebody may renumber. Reported either
+  # way, because *EGL was configured* and *EGL was not* have to be
+  # distinguishable in the log without a second run.
+  if [ -n "${GIRSA_MESA:-}" ]; then
+    vendor=$(ls "$GIRSA_MESA"/share/glvnd/egl_vendor.d/*.json 2>/dev/null | head -1)
+    if [ -n "$vendor" ]; then
+      export __EGL_VENDOR_LIBRARY_FILENAMES="$vendor"
+    fi
+    if [ -d "$GIRSA_MESA/lib/dri" ]; then
+      export LIBGL_DRIVERS_PATH="$GIRSA_MESA/lib/dri"
+    fi
+  fi
+
+  # The two the flake sets, defaulted rather than assumed. The failure message
+  # further down tells a reader that a shell entered any other way will not
+  # have them, which was true and is a strange thing for a script to say about
+  # itself when it could simply carry them.
+  export WEBKIT_DISABLE_COMPOSITING_MODE=${WEBKIT_DISABLE_COMPOSITING_MODE:-1}
+  export WEBKIT_DISABLE_DMABUF_RENDERER=${WEBKIT_DISABLE_DMABUF_RENDERER:-1}
+
   if [ ! -x "$shell" ]; then
     echo "no $shell. Build it first:"
     echo "  cd app && npm ci && npm run build"
@@ -134,6 +185,19 @@ if [ "${1:-}" != "--under-a-display" ]; then
   fi
   echo "the frontend is in the binary ($embedded)"
 
+  # What it is about to run with. Four lines in the log, and they are the
+  # difference between a next failure that answers a question and one that
+  # raises it — the run above spent two minutes proving something was wrong
+  # with the graphics and could not say whether the variables meant to prevent
+  # it had even arrived.
+  echo "the window will open with:"
+  for named in WEBKIT_DISABLE_COMPOSITING_MODE WEBKIT_DISABLE_DMABUF_RENDERER \
+    LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER GDK_BACKEND XDG_RUNTIME_DIR \
+    GIRSA_MESA __EGL_VENDOR_LIBRARY_FILENAMES LIBGL_DRIVERS_PATH; do
+    eval "value=\${$named:-<unset>}"
+    echo "  $named=$value"
+  done
+
   echo "opening the window under Xvfb"
   exec xvfb-run -a --server-args="-screen 0 1360x900x24" \
     bash "$0" --under-a-display
@@ -144,15 +208,35 @@ fi
 "./$shell" >"$log" 2>&1 &
 pid=$!
 
+# Is it *actually* still going?
+#
+# `kill -0 "$pid"` is the obvious test and it is wrong here: a child that has
+# died and not been reaped is a zombie, the process still exists, and signal 0
+# is delivered to it happily. The first run to reach this loop watched a
+# process that had aborted in the first second, polled it for the full ninety,
+# and then reported *the window opened and drew nothing* — true, and the least
+# useful of the three true things it could have said.
+#
+# `/proc/<pid>/stat` knows. The state is the field after the last `)`, which is
+# how it has to be read: the field before it is the executable's name, in
+# parentheses, and a name may contain spaces and parentheses of its own.
+still_running() {
+  [ -r "/proc/$1/stat" ] || return 1
+  [ "$(sed 's/.*) //' "/proc/$1/stat" | cut -d' ' -f1)" != "Z" ]
+}
+
 # The window has to exist before it can be photographed, and how long that takes
 # on a cold container is not a number anybody here knows. So this waits for the
 # thing it wants rather than for a duration, and gives up after ninety seconds —
 # a budget rather than an expectation, since the loop returns the moment the
 # screen is not blank and only a sick run spends the rest of it.
 drawn=0
+died=no
 for _ in $(seq 90); do
-  if ! kill -0 "$pid" 2>/dev/null; then
-    echo "the window exited on its own, before it drew anything"
+  if ! still_running "$pid"; then
+    died=yes
+    echo "the window exited on its own, before it drew anything — so what it"
+    echo "printed below is the failure, and the picture is only the proof."
     break
   fi
   snap "$shot" 2>/dev/null || true
@@ -200,13 +284,24 @@ echo "$colours distinct colours on the screen"
 # disagree with this line is arguing with a measurement.
 if [ "$colours" -le 8 ]; then
   echo
-  echo "The window opened and drew nothing. That is the failure this script is"
-  echo "for: WebKitGTK on NixOS composites through its own sandbox, cannot reach"
-  echo "the store paths it needs from inside one, and leaves the surface blank"
-  echo "while the process stays perfectly healthy. Check that"
-  echo "WEBKIT_DISABLE_COMPOSITING_MODE and WEBKIT_DISABLE_DMABUF_RENDERER are"
-  echo "set — flake.nix puts both in the devShell, and a shell entered any other"
-  echo "way will not have them."
+  # Two different failures reach this line and they want different sentences.
+  # Saying *the process stayed perfectly healthy* about a process that aborted
+  # in the first second sends the next reader looking in the wrong place, which
+  # is what the 17 August run did.
+  if [ "$died" = yes ]; then
+    echo "The window did not stay up. The blank screen is a consequence and the"
+    echo "lines below are the cause — read those first."
+  else
+    echo "The window opened, stayed up, and drew nothing. That is the failure"
+    echo "this script exists for, because a process that lived is evidence of"
+    echo "nothing: WebKitGTK on NixOS composites through its own sandbox and"
+    echo "cannot reach the store paths it needs from inside one."
+  fi
+  echo
+  echo "What it was given is printed above, before 'opening the window'. All of"
+  echo "WEBKIT_DISABLE_COMPOSITING_MODE, WEBKIT_DISABLE_DMABUF_RENDERER and"
+  echo "LIBGL_ALWAYS_SOFTWARE are set by this script whether or not the shell"
+  echo "supplied them, so an unset one there is a bug in this file."
   said
   exit 1
 fi

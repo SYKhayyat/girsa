@@ -79,6 +79,28 @@
           librsvg
           libsoup_3
           libayatana-appindicator
+
+          # **A GL stack, for a machine with no graphics card.**
+          #
+          # Not in Debian's list, and not needed there: an Ubuntu runner has
+          # mesa under `/usr/lib` whether anybody asked for it or not. The
+          # container has no `/usr/lib`, so the first thing that ever tried to
+          # open a window in it said
+          #
+          #     Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
+          #
+          # and drew one colour. WebKitGTK has needed EGL since 2.42; it is not
+          # optional and `WEBKIT_DISABLE_COMPOSITING_MODE` does not help,
+          # because the failure is at display creation and not at compositing.
+          #
+          # `libglvnd` is the dispatcher that owns `libEGL.so.1` and `mesa` is
+          # the driver behind it — llvmpipe, which renders on the CPU. Both, or
+          # the dispatcher finds no vendor. A real NixOS desktop has its own GPU
+          # driver and loses nothing by these being present;
+          # `tools/nixos-window.sh` is what forces software rendering, and only
+          # for the headless run.
+          libglvnd
+          mesa
         ];
 
         tools = with pkgs; [
@@ -156,6 +178,22 @@
           # and stays white, which is not an error anybody can search for.
           WEBKIT_DISABLE_COMPOSITING_MODE = "1";
           WEBKIT_DISABLE_DMABUF_RENDERER = "1";
+
+          # Where mesa is, for the one script that needs to point at it by path.
+          #
+          # `libglvnd` owns `libEGL.so.1` and dispatches to a vendor it finds by
+          # reading `/usr/share/glvnd/egl_vendor.d` — a directory the container
+          # this is tested in does not have, because it has no FHS at all. So
+          # the vendor has to be named, and naming it means a store path, and a
+          # store path is a thing only this file knows.
+          #
+          # Exported as *where mesa is* rather than as the EGL variables
+          # themselves, deliberately. Setting `__EGL_VENDOR_LIBRARY_FILENAMES`
+          # here would override the vendor on a NixOS desktop whose GPU is not
+          # mesa's — an NVIDIA machine entering this shell to build Girsa would
+          # be told to render through llvmpipe. `tools/nixos-window.sh` sets it,
+          # because that script only ever runs where there is no card at all.
+          GIRSA_MESA = "${pkgs.mesa}";
 
           shellHook = ''
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath libraries}:$LD_LIBRARY_PATH
