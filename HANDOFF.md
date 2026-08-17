@@ -1,6 +1,6 @@
 # Handoff — 17 August 2026
 
-**`main` at `0517b0d`. Working tree clean, in sync with `origin/main`, and
+**`main` at `e962f7c`. Working tree clean, in sync with `origin/main`, and
 `node tools/verify.mjs` was green 9 of 9 before every commit.** Nothing is at
 risk and nothing is half-finished on disk.
 
@@ -28,6 +28,7 @@ handoff** and not a permanent document: when the items below are done, delete it
 | `f1903be` | **A level word at the head of a name is part of the name** — `sefer-crates` 0.5.4, and Girsa moved onto it. Over the whole shelf, **6,057 of 7,627** chalakim now land, from 5,502. |
 | `bf73ab8` | **The nixos job built for fifteen minutes, correctly, and then said `nix: command not found`.** Its container script was `sh -euc '…'` inside the workflow and one of the comments in it contained the word `job's`. The apostrophe closed the string, the last two commands left the container and ran on the host, and the host has no Nix. |
 | `0517b0d` | **Two of the three surfaces nobody had ever pointed at, pointed at.** |
+| `534a565` `e962f7c` | Two CI failures that were about CI. The `nixos` job was rate-limited by `api.github.com` because an unpinned flake asks it who HEAD is on every run and was asking anonymously; it uses the run's own token now. And the macOS runner failed the correction-cost slope at 8.4 against an allowance of 6 by being **fast** rather than slow — the empty-layer baseline fell from 311 ms to 33 ms while the corrected end stayed put, so the ratio grew with nothing having got slower. The slope is asserted only above a baseline where a ratio means something, and says out loud when it is not. |
 
 Against Otzaria the standing score is unchanged at **12 ahead / 7 level / 2
 behind / 0 absent** over twenty-one axes. Both of the two behind — mobile, and
