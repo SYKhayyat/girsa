@@ -294,11 +294,24 @@ jobs:
       # comments — the apostrophe closed the string, the last two commands ran on
       # the host, and the host has no Nix. What each line does and why is argued
       # in `tools/nixos-ci.sh`, where an apostrophe is an apostrophe.
+      #
+      # **`access-tokens`, because an unpinned flake asks GitHub who HEAD is.**
+      # There is no `flake.lock` here on purpose — see `tools/nixos-ci.sh` — so
+      # every run resolves `nixpkgs` and `flake-utils` through `api.github.com`.
+      # Anonymously, that is sixty requests an hour shared by every job on the
+      # runner's address, and this job spent two consecutive runs failing there:
+      # a 504 and then a 403, neither of them about Nix. The run's own token
+      # moves those fetches onto this repository's rate limit, where they are
+      # one request each and nobody else is spending it.
       - name: The flake, entered, inside a machine with no FHS
+        env:
+          NIX_CONFIG: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm \
             -v "$PWD/Girsa:/w" -w /w \
-            -e NIX_CONFIG='experimental-features = nix-command flakes' \
+            -e NIX_CONFIG \
             -e GIRSA_WINDOW_SHOT=/w/target/girsa-window.png \
             nixos/nix:latest \
             sh -eu /w/tools/nixos-ci.sh

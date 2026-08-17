@@ -44,14 +44,20 @@ printf '[safe]\n\tdirectory = /w\n' > "$HOME/.gitconfig"
 # named by branch, so every run resolves their HEAD against `api.github.com`.
 # That is the point — an unpinned flake is a flake that notices when a package
 # is renamed out from under it, which is the failure this whole job exists to
-# catch, and a lock file would turn that into a silence until somebody
-# remembered to update it. The price is a dependency on GitHub's API being up
-# once per run, and it is a real price: on 17 August the API returned 504 four
-# times in a row and the job died here having built nothing.
+# catch, and a lock file would turn that into a silence lasting until somebody
+# remembered to refresh it.
 #
-# So a red `nixos` job is worth ten seconds of reading before it is worth any
-# thinking. `HTTP error 504` in the input-fetching lines is the weather. An
-# `undefined variable` is the thing this is for.
+# The price is a request to GitHub's API per input per run, and on 17 August it
+# was paid twice: a 504, and then a 403. The 403 is the one that mattered —
+# unauthenticated, that endpoint allows sixty requests an hour **per address**,
+# and a shared runner's address is not this job's to spend. `ci.yml` hands the
+# container `access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}` through
+# `NIX_CONFIG` now, which moves the fetch onto this repository's own limit.
+#
+# What that does not buy is the API being up. So a red `nixos` job is worth ten
+# seconds of reading before it is worth any thinking: an `HTTP error` in the
+# input-fetching lines is the weather, and an `undefined variable` is the thing
+# this job is for.
 nix flake check --no-build
 
 nix develop --command bash -c 'cd app && npm ci && npm test && npm run build'
