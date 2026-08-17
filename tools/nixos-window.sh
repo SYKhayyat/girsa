@@ -84,7 +84,7 @@ if [ "${1:-}" != "--under-a-display" ]; then
   #
   # `--features tauri/custom-protocol` is what puts `app/dist` *inside* the
   # binary. Without it the window navigates to the Vite dev server at
-  # `http://localhost:5174` and, with no server there, draws Chromium's *this
+  # `http://localhost:5174` and, with no server there, draws the webview's *this
   # site can't be reached* — a page, in colour, which would pass the count below
   # while proving the opposite of what this claims.
   #
@@ -92,13 +92,47 @@ if [ "${1:-}" != "--under-a-display" ]; then
   # deliberately silent in debug, because `cargo check` and `tauri dev` both
   # want exactly that binary. Debug is therefore the one profile where the
   # mistake is possible, and this is the only place it can be caught.
-  if ! grep -aq 'find-here-box' "$shell"; then
-    echo "$shell does not carry the frontend: 'find-here-box' is a class in"
-    echo "app/src/styles.css and it is not in this binary. Built without"
+  #
+  # # What to look for, which took two tries
+  #
+  # This asked for `find-here-box`, a class in `app/src/styles.css`, and failed
+  # a correctly built binary in CI on 17 August. **Tauri brotli-compresses the
+  # embedded assets**, so no word out of the CSS or the HTML is a literal string
+  # in the executable, and the check was testing the compressor.
+  #
+  # `index.html` *is* in there, and is worse than useless: measured on both
+  # builds of this binary, it is present either way — it is the asset resolver's
+  # own path constant, compiled in whether or not anything was embedded.
+  #
+  # What discriminates is Vite's **hashed** filenames, which are the keys of the
+  # embedded map and are stored uncompressed. Measured, same tree, minutes
+  # apart: `core-DhEqZVGG.js` present with the feature, absent without. Reading
+  # the name off `app/dist` rather than writing it here also means a binary that
+  # embedded *last week's* frontend fails, which is the same mistake wearing a
+  # better disguise.
+  assets=app/dist/assets
+  # Rule 7: a check that cannot find its input says so, and does not report the
+  # absence of its input as a fault in the thing being checked.
+  if [ ! -d "$assets" ]; then
+    echo "no $assets — the frontend was never built, so there is nothing that"
+    echo "could have been embedded. Build it first:"
+    echo "  cd app && npm ci && npm run build"
+    exit 1
+  fi
+  embedded=$(ls "$assets" | grep -v '\.map$' | head -1)
+  if [ -z "$embedded" ]; then
+    echo "$assets is empty. 'npm run build' wrote no assets, so this cannot tell"
+    echo "an embedded binary from one that was not."
+    exit 1
+  fi
+  if ! grep -aqF "$embedded" "$shell"; then
+    echo "$shell does not carry the frontend: '$embedded' is in $assets and its"
+    echo "name is not in this binary. Built without"
     echo "--features tauri/custom-protocol, the window opens on the dev server"
     echo "and this would photograph a browser error page."
     exit 1
   fi
+  echo "the frontend is in the binary ($embedded)"
 
   echo "opening the window under Xvfb"
   exec xvfb-run -a --server-args="-screen 0 1360x900x24" \
