@@ -26,6 +26,28 @@ import { Latest } from "./latest.ts";
 import { fill, say } from "./say.ts";
 import { sayTrouble } from "./trouble.ts";
 
+/**
+ * What the name box should hold after a list of arrangements arrives.
+ *
+ * **The box carries the name of the desk you are sitting at**, so that pressing
+ * *keep it as it is* means *save this one as it stands now* rather than *invent
+ * a name again*. That is the whole feature, and it has one condition on it that
+ * is easy to lose: `typed` wins. A reader half way through typing a new name
+ * and a redraw arriving underneath them — which is every `keep`, every `open`
+ * and every `forget` — must not have the box rewritten out from under the
+ * caret.
+ *
+ * So: whatever is typed, then the desk you are at, then nothing. `undefined`
+ * means leave the box alone, which is not the same as the empty string.
+ */
+export function nameForBox(
+  rows: { name: string; here: boolean }[],
+  typed: string,
+): string | undefined {
+  if (typed) return undefined;
+  return rows.find((desk) => desk.here)?.name;
+}
+
 export class DesksView {
   readonly element: HTMLElement;
   private readonly list: HTMLElement;
@@ -122,10 +144,8 @@ export class DesksView {
     this.note.textContent =
       rows.length === 0 ? say("desksNone") : fill("desksCount", { desks: rows.length });
     this.list.replaceChildren(...rows.map((desk) => this.row(desk)));
-    // The box carries the name of the desk you are at, so pressing keep is
-    // *save this one as it stands now* rather than *invent a name again*.
-    const here = rows.find((desk) => desk.here);
-    if (here && !this.box.value) this.box.value = here.name;
+    const name = nameForBox(rows, this.box.value);
+    if (name !== undefined) this.box.value = name;
   }
 
   private row(desk: DeskRow): HTMLElement {

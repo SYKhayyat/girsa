@@ -513,6 +513,10 @@ body {
   /* Wide enough for a phrase and no wider. The bar is over a daf. */
   width: 11rem;
   max-width: 40vw;
+  /* And it gives way before the bar does. A flex item will not shrink past its
+   * intrinsic width without this, which is what left the bar 324px wide in a
+   * 260px column — see the `max-width` on `.find-here` below. */
+  min-width: 0;
   background: var(--page);
   color: var(--ink);
   border: 1px solid var(--rule);
@@ -607,6 +611,18 @@ body {
  * belongs in the corner the scrollbar is not in, whichever side that is. */
 .find-here {
   position: absolute;
+  /* **It stays inside the pane it belongs to**, which it did not.
+   *
+   * The bar's width is the sum of its parts — an 11rem box, a 4rem count, three
+   * glyphs — and none of them had heard of the column it floats in, so at 260px
+   * it measured 324px: pinned at `inset-inline-end` and overflowing the *other*
+   * way, out of the pane and over the neighbouring one. A find bar reporting on
+   * a sefer while sitting on top of the sefer beside it is worse than a wide
+   * bar, and `.pane` clips nothing.
+   *
+   * Found by `tools/eyes.mjs`, which is the first thing that ever looked at
+   * this surface, on the first run in which it did. */
+  max-width: calc(100% - 1rem);
   /* Replaced at open time with the pane header's measured height — see
    * `FindHere.openOn`. The value here is what it looks like before anything
    * has been measured, which is one frame. */
@@ -1022,12 +1038,20 @@ body {
   overflow: hidden;
   z-index: 30;
   background: var(--page-raised);
-  border-inline-end: 1px solid var(--rule);
   transition: width 0.12s ease-out;
 }
 
-.links.is-open {
+/* **The edge belongs to the open drawer and not to the shut one.**
+ *
+ * This was on the rule above, and `box-sizing: border-box` does not fold a
+ * border into a `width: 0` — so a closed drawer was a 1px column of `--rule`
+ * down the full height of the window, at `z-index: 30`, over the sefer, on every
+ * screen in the application. Measured at exactly 1px by `tools/eyes.mjs`, which
+ * is the only thing here that could have. */
+.links.is-open,
+.desks.is-open {
   width: var(--links-wide);
+  border-inline-end: 1px solid var(--rule);
 }
 
 /* Named arrangements. Same drawer as the links panel — one column on the
@@ -1043,13 +1067,10 @@ body {
   overflow: hidden;
   z-index: 30;
   background: var(--page-raised);
-  border-inline-end: 1px solid var(--rule);
   transition: width 0.12s ease-out;
 }
-
-.desks.is-open {
-  width: var(--links-wide);
-}
+/* Its open width and its edge are with the links drawer's, four hundred lines
+ * up — one rule, because they are the same drawer. */
 
 .desks-head {
   display: flex;
@@ -2410,6 +2431,23 @@ body {
 
 .find-chip-item.is-chosen {
   color: var(--mark);
+}
+
+/* A choice this row cannot honour — one of them, and it is *a mareh makom* on
+ * the find bar, which is a jump out of the sefer the bar is inside.
+ *
+ * Grey **and** it says why, on `title`, because a control that is grey and
+ * silent is one a reader clicks twice and then wonders about. `cursor:
+ * not-allowed` rather than `pointer`: the pointer is the one part of this a
+ * reader reads without deciding to. */
+.find-chip-item:disabled {
+  color: var(--ink-quiet);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.find-chip-item:disabled:hover {
+  background: none;
 }
 
 .find-sigil {

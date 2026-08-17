@@ -33,6 +33,26 @@ import { lineElement } from "./pane.ts";
 /** Where the sheet is built. One, reused, and empty the rest of the time. */
 let sheet: HTMLElement | null = null;
 
+/**
+ * The address on the sheet: one when it is one line, two when it is a run.
+ *
+ * The whole of the decision, and the reason it is worth naming is the case in
+ * the middle. `printSection` reads the first line's address and the last line's
+ * address off a run, and a section of **one** se'if has the same address twice
+ * — so the unguarded form prints `סימן א׳ סעיף א׳ — סימן א׳ סעיף א׳`, which is
+ * not wrong so much as it is a sheet that looks like a mistake. It is also what
+ * comes back for the section that is a single line, which is not rare: a siman
+ * of one se'if, a perek of one mishnah.
+ *
+ * It is returned to the caller as well as printed, because a print dialogue
+ * opening over the window tells the reader *something* happened and not *what*
+ * — and on a machine whose printer is a PDF writer, the file lands somewhere
+ * with a name nobody chose.
+ */
+export function sheetWhere(address: string, toAddress: string): string {
+  return address === toAddress ? address : `${address} — ${toAddress}`;
+}
+
 function surface(): HTMLElement {
   if (sheet) return sheet;
   sheet = document.createElement("article");
@@ -70,11 +90,7 @@ export async function printSection(at: string): Promise<string> {
   }
   const where = document.createElement("p");
   where.className = "print-where";
-  // One address when the sheet is one line, two when it is a run of them.
-  where.textContent =
-    found.address === found.to_address
-      ? found.address
-      : `${found.address} — ${found.to_address}`;
+  where.textContent = sheetWhere(found.address, found.to_address);
   head.append(where);
   page.append(head);
 

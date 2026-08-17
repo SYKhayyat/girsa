@@ -31,6 +31,63 @@ import type { PaneView } from "./pane.ts";
 /** How long a pause counts as *stopped typing*. */
 const SETTLED = 160;
 
+/**
+ * The one option on the row this bar cannot honour, and why.
+ *
+ * The row is the search's own — `girsa_search::chips` decides what a chip is,
+ * and a webview that assembled its own would be a second opinion about what the
+ * engine can do. But one of the modes it offers cannot mean anything here, and
+ * offering it anyway was a control that quietly found nothing: `sefer_find`
+ * matches `Answer::Cited(_)` and returns an empty list, with a comment saying
+ * exactly that — *the bar is inside one sefer and a citation is a jump
+ * somewhere else*.
+ *
+ * **It is one option and not two.** The handoff that filed this said the
+ * instruments were the other, on the grounds that gematria and remazim are a
+ * whole-shelf instrument. They are not: `Bar::by_instrument` passes
+ * `chips.scope` to `prepare_instrument`, and `Bar::over_the_text` — which is
+ * how a dilug and a notarikon are run — *refuses* a scope naming more than a
+ * few seforim. One sefer is the case those two want. Greying them out would
+ * have taken away the only place they work.
+ */
+function cannotHere(): Record<string, string> {
+  return { "mode/Citation": say("findHereNoCitation") };
+}
+
+/**
+ * `3 / 41`, or what there is instead of that.
+ *
+ * Four states, and three of them are not a number. Written out here rather than
+ * inside the class because it is the whole of what the count element ever says,
+ * and because the defect it carries is not visible from any of them: `1 / 33`
+ * in a right-to-left window is laid out `33 / 1`, so this string is correct and
+ * what the reader sees is backwards. The `dir` attribute is what fixes that and
+ * it is set where the element is built, not here — a string cannot carry its
+ * own direction.
+ */
+export function countSaid(query: string, at: number, total: number, shown: number): string {
+  if (!query.trim()) return "";
+  if (total === 0) return say("findHereNone");
+  const place = `${at + 1} / ${total}`;
+  // The list is cut and the count is not. `3 / 900` alone would promise 900
+  // stops where there are 500.
+  return total > shown ? `${place} ${say("findHereCut")}` : place;
+}
+
+/**
+ * The next place, or the previous one, wrapping round.
+ *
+ * Wrapping without saying so: a find bar that stops at the end of the sefer
+ * leaves a reader pressing a key that does nothing, and every application that
+ * has ever had this bar wraps. `%` in JavaScript keeps the sign of the left
+ * operand, so `-1 % 33` is `-1` and not `32` — the `+ places` is what makes
+ * Shift+Enter on the first match land on the last one instead of on nothing.
+ */
+export function stepTo(at: number, by: number, places: number): number {
+  if (places === 0) return 0;
+  return (at + by + places) % places;
+}
+
 export class FindHere {
   readonly element: HTMLElement;
   private readonly box: HTMLInputElement;
@@ -186,6 +243,7 @@ export class FindHere {
   /** The options, drawn by the same function the search panel draws them with. */
   private drawChips(chips: Chip[]): void {
     const row = chipRow(chips, {
+      cannot: cannotHere(),
       chosen: async (chip, key) => {
         await api.findHereChip(chip, key);
         // The options changed, so the same words are a different question.
@@ -197,16 +255,10 @@ export class FindHere {
     this.chips = row;
   }
 
-  /**
-   * Walk to the next place, or the previous one, wrapping round.
-   *
-   * Wrapping without saying so: a find bar that stops at the end of the sefer
-   * leaves a reader pressing a key that does nothing, and every application
-   * that has ever had this bar wraps.
-   */
+  /** Walk to the next place, or the previous one. See `stepTo`. */
   private step(by: number): void {
     if (this.places.length === 0) return;
-    this.at = (this.at + by + this.places.length) % this.places.length;
+    this.at = stepTo(this.at, by, this.places.length);
     this.say();
     void this.show();
   }
@@ -220,20 +272,8 @@ export class FindHere {
     this.box.focus();
   }
 
-  /** `3 / 41`, or what there is instead of that. */
+  /** What the count element says. See `countSaid`. */
   private say(): void {
-    if (!this.box.value.trim()) {
-      this.count.textContent = "";
-      return;
-    }
-    if (this.total === 0) {
-      this.count.textContent = say("findHereNone");
-      return;
-    }
-    const shown = `${this.at + 1} / ${this.total}`;
-    // The list is cut and the count is not. `3 / 900` alone would promise 900
-    // stops where there are 500.
-    this.count.textContent =
-      this.total > this.places.length ? `${shown} ${say("findHereCut")}` : shown;
+    this.count.textContent = countSaid(this.box.value, this.at, this.total, this.places.length);
   }
 }

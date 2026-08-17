@@ -172,10 +172,162 @@ const SHELF = `
   </div>
 </div>`;
 
+/**
+ * The find bar (Ctrl+F), inside the pane it opens over.
+ *
+ * Four things were wrong with the first version of this bar and all four were
+ * found the same way — by opening the window and looking at a screenshot of it,
+ * which is the evidence this tool exists to produce without a person. The block
+ * in `styles.css` names them: it was as wide as a paragraph, the count read
+ * backwards, the buttons were browser buttons, and it sat on top of the pane's
+ * own header. Every one is a measurement.
+ *
+ * The bare `<button>` beside it is the control. `glyph()` sets no class of its
+ * own, so ↑ ↓ ✕ are styled purely by `.find-here button` — and the way to prove
+ * that rule reached them is to put the same element outside the bar and show
+ * that the browser's own face is what it wears there.
+ */
+const FIND = `
+<div class="pane" id="find-pane" style="width: 560px; height: 240px">
+  <header class="pane-head" id="find-head">
+    <span class="pane-title">שולחן ערוך אורח חיים עם משנה ברורה</span>
+    <span class="pane-where">א׳ ב׳</span>
+    <div class="pane-tools">
+      <button class="tool">מפרשים · 12</button>
+      <button class="tool">גלילה משותפת</button>
+      <button class="tool">קישורים</button>
+      <button class="tool">השרשרת</button>
+      <button class="tool">סגור</button>
+    </div>
+  </header>
+  <div class="pane-body">
+    <p class="line" data-id="a"><span class="line-address">א׳ ב׳</span><span class="line-text">יתגבר כארי לעמוד בבוקר לעבודת בוראו, שיהא הוא מעורר השחר.</span></p>
+  </div>
+  <div class="find-here" id="find-bar">
+    <div class="find-here-row">
+      <input class="find-here-box" id="find-box" aria-label="חפש בספר" placeholder="מילה או ביטוי" value="כארי">
+      <span class="find-here-count" id="find-count" dir="ltr">1 / 33</span>
+      <div class="find-here-walk">
+        <button type="button" id="find-up" aria-label="הקודם">↑</button>
+        <button type="button" aria-label="הבא">↓</button>
+      </div>
+      <button type="button" aria-label="סגור">✕</button>
+    </div>
+    <div class="find-chips">
+      <div class="find-chip">
+        <button type="button" class="find-chip-face" id="find-chip">חכם ▾</button>
+        <div class="find-chip-menu" hidden></div>
+      </div>
+      <div class="find-chip">
+        <button type="button" class="find-chip-face">מילה שלמה ▾</button>
+        <div class="find-chip-menu" id="find-menu">
+          <button type="button" class="find-chip-item is-chosen" id="find-can">מילה שלמה</button>
+          <button type="button" class="find-chip-item is-impossible" id="find-cannot" disabled
+            title="מראה מקום הוא קפיצה למקום אחר">מראה מקום</button>
+        </div>
+      </div>
+    </div>
+    <p class="find-here-note"></p>
+  </div>
+</div>
+<button type="button" id="bare-button">✕</button>`;
+
+/**
+ * One sefer's row in the links panel, in the drawer that holds it.
+ *
+ * The panel's whole argument is that 280 rows from 61 seforim become 61 lines a
+ * person can read — so the line has to be readable, and the thing that decides
+ * that is a flex row with a fixed-width count, a title that may ellipsise, and
+ * a range that may not shrink at all. That is the same three-part header the
+ * pane had when a column's name computed to **0px**, one panel over. `flex: 0 0
+ * auto` on the range is the piece that makes it possible again, and a range is
+ * as long as the citation is: `ס״ק א׳ … ס״ק ע״ח` is short and
+ * `סימן קפ״ג סעיף ד׳ … סימן רמ״ב סעיף י״ז` is not.
+ */
+const LINKS = `
+<section class="links" id="links-drawer">
+  <div class="links-list">
+    <details class="link-sefer" open>
+      <summary>
+        <span class="link-sefer-count" id="link-count">78</span>
+        <span class="link-sefer-title" id="link-title">כף החיים על שולחן ערוך אורח חיים</span>
+        <span class="link-sefer-span" id="link-span">סימן קפ״ג סעיף ד׳ … סימן רמ״ב סעיף י״ז</span>
+      </summary>
+      <div class="link-sefer-rows"></div>
+    </details>
+  </div>
+</section>`;
+
+/**
+ * The named-arrangements drawer, which is the links drawer's twin.
+ *
+ * Two claims, and the first is the one a drawer gets wrong: **closed is zero
+ * wide.** `.desks` is `position: fixed` across the whole height of the window,
+ * so a few stray pixels of it are a strip down the leading edge of every screen
+ * in the application, over the sefer, all the time — and it is `overflow:
+ * hidden` on a `width: 0` box that keeps that from happening rather than
+ * anything a reader could see going wrong. The second is the pane header's
+ * question again: a row is a name, a sentence about what is in it, and a ✕, and
+ * the name is the part that must not be squeezed out.
+ */
+const DESKS = `
+<section class="desks" id="desks-drawer">
+  <header class="desks-head">
+    <span class="desks-title">שולחנות</span>
+    <button type="button" class="panel-shut" aria-label="סגור">×</button>
+  </header>
+  <p class="desks-note">4 שולחנות</p>
+  <div class="desks-keep">
+    <input class="desks-box" dir="rtl" aria-label="שם השולחן" placeholder="למשל: סוגיית הכל שוחטין">
+    <button type="button" class="tool">שמור כפי שהוא</button>
+  </div>
+  <p class="panel-about">שולחן הוא הסידור שאתה יושב בו.</p>
+  <div class="desks-list">
+    <div class="desk is-here" id="desk-row">
+      <button type="button" class="desk-open" id="desk-open">
+        <span class="desk-name" id="desk-name">סוגיית הכל שוחטין ושחיטתן כשרה</span>
+        <span class="desk-what">4 לשוניות · 11 ספרים</span>
+      </button>
+      <button type="button" id="desk-forget" aria-label="שכח">✕</button>
+    </div>
+  </div>
+</section>`;
+
+/**
+ * The sheet that goes to a printer, which nothing has ever looked at.
+ *
+ * A printer is the one output in this application that a person cannot see
+ * before it is on paper, and `@media print` is the least testable kind of CSS
+ * there is: it is a whole second stylesheet that never runs while anybody is
+ * watching. A browser can be told to pretend, though — `Emulation.setEmulatedMedia`
+ * — so the eye can read the printed page without a printer, which is a thing no
+ * string search and no unit test can do.
+ *
+ * Two claims that the block in `styles.css` argues for at length and nothing
+ * checked. On screen the sheet is off to the side and **laid out** — the
+ * paragraph there says `display: none` would be simpler and would hand a
+ * printer a page that has never been laid out. On paper the application is
+ * gone, the sheet is in the flow, and the ink is black on white rather than the
+ * reader's theme.
+ */
+const PRINT = `
+<article class="print-sheet" id="print-sheet" aria-hidden="true">
+  <header class="print-head">
+    <p class="print-title">שולחן ערוך אורח חיים</p>
+    <p class="print-provenance">מהדורת ווארשא תרמ״ב · CC BY-SA</p>
+    <p class="print-where">סימן א׳</p>
+  </header>
+  <p class="line" data-id="p"><span class="line-address">א׳ א׳</span><span class="line-text">יתגבר כארי לעמוד בבוקר לעבודת בוראו.</span></p>
+</article>`;
+
+// `is-printing` on the body all the time, because every rule it gates is inside
+// `@media print` and does nothing until the browser is asked to pretend. It is
+// on the element here rather than added by an assertion so that what the print
+// pass looks at is the document the application really hands a printer.
 const PAGE = (sheet) => `<!doctype html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8">
 <link rel="stylesheet" href="${sheet}"></head>
-<body style="margin:0">${COMMENT}${HEADER}${HEADER_EN}${SHELF}</body></html>`;
+<body style="margin:0" class="is-printing">${COMMENT}${HEADER}${HEADER_EN}${SHELF}${FIND}${LINKS}${DESKS}${PRINT}</body></html>`;
 
 // -------------------------------------------------------------------- the eye
 
@@ -732,11 +884,385 @@ async function main() {
       const r = b.getBoundingClientRect();
       return { width: Math.round(r.width), fits: b.scrollWidth <= r.width + 1 };
     })()`);
+    // ----------------------------------------------------- the find bar (Ctrl+F)
+    //
+    // The four defects the `.find-here` block in `styles.css` was written to fix,
+    // as four measurements. All four were read off a screenshot of the running
+    // window by a person; this is the same reading, by a machine, on every push.
+    //
+    // The header is measured at **two** widths, because the whole argument for
+    // `--under-head` is that a constant cannot be right: `.pane-head` wraps, so
+    // at 560px it is one row and at 260px it is two, and a bar pinned at
+    // `2.4rem` clears the first and lands on top of the second.
+    const find = await eye.look(`(() => {
+      const pane = document.getElementById('find-pane');
+      const head = document.getElementById('find-head');
+      const bar = document.getElementById('find-bar');
+      // The same rule findhere.ts:openOn applies — the header's measured height
+      // and four pixels — so what this asks is whether that rule is sufficient,
+      // not whether somebody typed the same number in two places.
+      const place = (px) => {
+        pane.style.width = px + 'px';
+        bar.style.setProperty('--under-head', (head.offsetHeight + 4) + 'px');
+        const h = head.getBoundingClientRect();
+        const b = bar.getBoundingClientRect();
+        const p = pane.getBoundingClientRect();
+        return {
+          rows: Math.round(h.height),
+          clears: Math.round(b.top - h.bottom),
+          bar: Math.round(b.width),
+          pane: Math.round(p.width),
+          // How far past either edge of the pane the bar reaches. The pane clips
+          // nothing, so a negative number here is the bar drawn over whatever is
+          // next to it.
+          spills: Math.round(Math.max(p.left - b.left, b.right - p.right)),
+        };
+      };
+      const out = { wide: place(560), narrow: place(260) };
+      place(560);
+      const count = document.getElementById('find-count');
+      const walk = document.getElementById('find-up');
+      const bare = document.getElementById('bare-button');
+      const chip = document.getElementById('find-chip');
+      const face = (el) => {
+        const cs = getComputedStyle(el);
+        return {
+          background: cs.backgroundColor,
+          border: cs.borderTopWidth,
+          radius: cs.borderTopLeftRadius,
+        };
+      };
+      // A choice on an open menu, and whether it looks like one you can take.
+      const look = (el) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return {
+          opacity: Number(cs.opacity),
+          cursor: cs.cursor,
+          width: Math.round(r.width),
+          fits: el.scrollWidth <= r.width + 1,
+        };
+      };
+      return {
+        ...out,
+        direction: getComputedStyle(count).direction,
+        figures: getComputedStyle(count).fontVariantNumeric,
+        walk: face(walk),
+        bare: face(bare),
+        chip: face(chip),
+        can: look(document.getElementById('find-can')),
+        cannot: look(document.getElementById('find-cannot')),
+      };
+    })()`);
+
+    // `1 / 33` in a right-to-left window is laid out `33 / 1` — two numbers with
+    // a neutral between them take the paragraph's direction, so the bar reported
+    // the reader's place and the total the wrong way round.
+    //
+    // **This is half the guard and it is worth saying which half.** The specimen
+    // writes `dir="ltr"` itself, so what this can catch is a rule in 4,000 lines
+    // of stylesheet setting `direction` back — the attribute would still be on
+    // the element, and only a browser can say it lost. What it cannot catch is
+    // `findhere.ts` ceasing to set it, because then there is no attribute to
+    // override and this specimen is not that document. That half is
+    // `findhere.test.mjs`, which reads the element the class really builds.
+    seen(
+      "the find bar's count does not read backwards in a right-to-left window",
+      find.direction === "ltr",
+      `direction computed to ${find.direction} — 1 / 33 is drawn 33 / 1`,
+    );
+    seen(
+      "and does not shiver as the number widens",
+      find.figures.includes("tabular-nums"),
+      `font-variant-numeric was ${find.figures}`,
+    );
+
+    // *"Ugly and unwieldy"*, and this half of it was a `min-width` on the box in
+    // a flex row with nothing holding it back: an empty input took four hundred
+    // pixels of a daf.
+    //
+    // The two questions are not the same question, which is what the first
+    // version of this got wrong by asking one of them at both widths. **Staying
+    // inside the pane** is absolute — the bar is absolutely positioned in a
+    // column that clips nothing, so a bar wider than its column is drawn over
+    // the sefer *beside* it, which is worse than a wide bar and is what 324px in
+    // a 260px column meant. **Leaving the line room** is a question you can only
+    // ask where there is room to leave: in a 260px column there is one bar's
+    // worth of width and that is all there is.
+    for (const [where, at] of Object.entries({ wide: find.wide, narrow: find.narrow })) {
+      seen(
+        `the find bar stays inside the ${where} pane`,
+        at.spills <= 0,
+        `the bar measured ${at.bar}px over a ${at.pane}px pane and reached ` +
+          `${at.spills}px past its edge`,
+      );
+      // It floats, deliberately — a bar that pushed the text down would move the
+      // line the reader is looking at, every time it opened. What it must not do
+      // is float over the header, which is where *The chain* was covered up.
+      seen(
+        `and clears the header of the ${where} pane`,
+        at.clears >= 0,
+        `the bar's top was ${-at.clears}px above the bottom of a ${at.rows}px header`,
+      );
+    }
+    seen(
+      "and leaves a pane that has room most of its line",
+      find.wide.bar <= find.wide.pane * 0.62,
+      `the bar measured ${find.wide.bar}px over a ${find.wide.pane}px pane`,
+    );
+    seen(
+      "the pane header really does wrap when the pane is narrow",
+      find.narrow.rows > find.wide.rows,
+      `${find.wide.rows}px at 560 and ${find.narrow.rows}px at 260 — the narrow ` +
+        `case this is measuring does not happen, so it proves nothing`,
+    );
+
+    // `glyph()` sets no class of its own, so ↑ ↓ ✕ arrived as three grey browser
+    // slabs in a window where nothing else has a raised edge. The control is the
+    // same element outside the bar, still wearing the face the browser gives it.
+    seen(
+      "the find bar's glyphs are not browser buttons",
+      find.walk.background !== find.bare.background && find.walk.border === "0px",
+      `the walk button had background ${find.walk.background} and a ` +
+        `${find.walk.border} border, against ${find.bare.background} and ` +
+        `${find.bare.border} on a bare one`,
+    );
+    // And the rule that flattens them must not reach the chips, which have a
+    // face of their own. Both are `.find-here button`; only one is a chip.
+    seen(
+      "and the chips keep their own face inside it",
+      find.chip.border !== "0px",
+      `a chip's border computed to ${find.chip.border}, the same as a glyph's`,
+    );
+
+    // The one choice this bar declines — *a mareh makom*, which is a jump out of
+    // the sefer the bar is inside. It was on the row and it quietly found
+    // nothing. Grey is only half the answer: a control that is grey and silent
+    // is one a reader clicks twice, so the reason is on `title` and the pointer
+    // says so before anybody hovers long enough to read it.
+    seen(
+      "a choice the find bar cannot honour looks like one",
+      find.cannot.opacity < find.can.opacity,
+      `the declined choice computed to opacity ${find.cannot.opacity}, against ` +
+        `${find.can.opacity} on the one beside it`,
+    );
+    seen(
+      "and the pointer says so before the tooltip does",
+      find.cannot.cursor === "not-allowed" && find.can.cursor !== "not-allowed",
+      `the declined choice's cursor was ${find.cannot.cursor} and the other's ` +
+        `${find.can.cursor}`,
+    );
+    seen(
+      "a greyed choice is still readable",
+      find.cannot.fits && find.cannot.width > 0,
+      `it measured ${find.cannot.width}px around its own label`,
+    );
+
+    // ------------------------------------------------- one sefer's row in links
+    //
+    // 280 rows from 61 seforim became 61 lines, and a line nobody can read is
+    // not a line. The range is `flex: 0 0 auto` and a range is as long as its
+    // citation, so this is the pane header's question one panel over: what gives
+    // way first, the name of the sefer or the apparatus beside it?
+    const links = await eye.look(`(() => {
+      const drawer = document.getElementById('links-drawer');
+      // The drawer opens over 0.12s, and an evaluation that adds the class and
+      // measures in the same tick measures the first frame of that — 1px, which
+      // reads exactly like a drawer that does not open. What is being asked
+      // about here is the width it settles at, so the animation is turned off
+      // rather than waited on.
+      drawer.style.transition = 'none';
+      drawer.classList.add('is-open');
+      const measure = () => {
+        const box = drawer.getBoundingClientRect();
+        const t = document.getElementById('link-title');
+        const c = document.getElementById('link-count');
+        const s = document.getElementById('link-span');
+        const r = t.getBoundingClientRect();
+        return {
+          drawer: Math.round(box.width),
+          title: Math.round(r.width),
+          count: Math.round(c.getBoundingClientRect().width),
+          countFits: c.scrollWidth <= c.getBoundingClientRect().width + 1,
+          span: Math.round(s.getBoundingClientRect().width),
+          spanFits: s.scrollWidth <= s.getBoundingClientRect().width + 1,
+          overflows: Math.round(document.querySelector('.link-sefer > summary').scrollWidth) >
+            Math.round(document.querySelector('.link-sefer > summary').clientWidth) + 1,
+        };
+      };
+      const open = measure();
+      drawer.classList.remove('is-open');
+      const shut = Math.round(drawer.getBoundingClientRect().width);
+      return { open, shut };
+    })()`);
+
+    seen(
+      "a sefer's name survives beside a long range of se'ifim",
+      links.open.title >= 40,
+      `the title measured ${links.open.title}px in a ${links.open.drawer}px drawer, ` +
+        `beside a ${links.open.span}px range`,
+    );
+    seen(
+      "the count column is a column",
+      links.open.countFits && links.open.count > 0,
+      `the count measured ${links.open.count}px around its own digits`,
+    );
+    seen(
+      "and the range is not clipped either",
+      links.open.spanFits,
+      `the range measured ${links.open.span}px around text that needs more`,
+    );
+    seen(
+      "nothing in the row runs off the side of the drawer",
+      !links.open.overflows,
+      `the summary's content is wider than the drawer holding it`,
+    );
+
+    // ------------------------------------------------ the arrangements drawer
+    //
+    // A `position: fixed` column down the whole height of the window. Closed, it
+    // has to be nothing at all: a few stray pixels here are a strip over the
+    // sefer on every screen in the application, forever, and the only thing
+    // stopping that is `overflow: hidden` on a `width: 0` box.
+    const desks = await eye.look(`(() => {
+      const drawer = document.getElementById('desks-drawer');
+      const shut = Math.round(drawer.getBoundingClientRect().width);
+      // Off, for the reason the links drawer above gives.
+      drawer.style.transition = 'none';
+      drawer.classList.add('is-open');
+      const row = document.getElementById('desk-row');
+      const name = document.getElementById('desk-name');
+      const open = document.getElementById('desk-open');
+      const forget = document.getElementById('desk-forget');
+      const out = {
+        shut,
+        drawer: Math.round(drawer.getBoundingClientRect().width),
+        name: Math.round(name.getBoundingClientRect().width),
+        forget: Math.round(forget.getBoundingClientRect().width),
+        forgetFits: forget.scrollWidth <= forget.getBoundingClientRect().width + 1,
+        // The X has to be inside the drawer, not pushed past its edge by a long
+        // arrangement name. That is what min-width: 0 on .desk-open is for.
+        inside:
+          Math.round(forget.getBoundingClientRect().right) <=
+            Math.round(drawer.getBoundingClientRect().right) + 1 &&
+          Math.round(forget.getBoundingClientRect().left) >=
+            Math.round(drawer.getBoundingClientRect().left) - 1,
+        rail: getComputedStyle(row).boxShadow,
+      };
+      drawer.classList.remove('is-open');
+      return out;
+    })()`);
+
+    seen(
+      "a closed arrangements drawer is nothing at all",
+      desks.shut === 0,
+      `it measured ${desks.shut}px wide with no is-open — a strip over the sefer`,
+    );
+    seen(
+      "an open one shows an arrangement's name",
+      desks.name >= 40,
+      `the name measured ${desks.name}px in a ${desks.drawer}px drawer`,
+    );
+    seen(
+      "and its ✕ is inside the drawer",
+      desks.inside && desks.forgetFits,
+      `the ✕ measured ${desks.forget}px and sits outside the ${desks.drawer}px drawer`,
+    );
+    seen(
+      "the desk you are sitting at is marked",
+      desks.rail !== "none",
+      `box-shadow on .desk.is-here computed to ${desks.rail}`,
+    );
+
     seen(
       "an English header does not clip its first button",
       english.fits,
       `the first button measured ${english.width}px around its own label`,
     );
+
+    // ------------------------------------------------------------------- paper
+    //
+    // **Last, because it changes the medium under the whole document.**
+    //
+    // A printer is the one output here that nobody can see before it is on
+    // paper, and `@media print` is a second stylesheet that never runs while
+    // anybody is watching. `printing was never sent to a printer` is an honest
+    // row in the handoff and it stays one — a dialogue was never accepted, and
+    // where a PDF writer puts a file is still unverified. What this closes is
+    // the half that is CSS: whether the rules that fire when the medium changes
+    // do what the block in `styles.css` says they do.
+    const screen = await eye.look(`(() => {
+      const sheet = document.getElementById('print-sheet');
+      const r = sheet.getBoundingClientRect();
+      return {
+        left: Math.round(r.left),
+        height: Math.round(r.height),
+        display: getComputedStyle(sheet).display,
+      };
+    })()`);
+
+    // `position: absolute; left: -10000px` and not `display: none`, because a
+    // hidden element has no layout and a printer asked to lay out a page that
+    // has never been laid out gets it wrong in a way that shows up only on
+    // paper. That sentence is a claim about the box, so measure the box.
+    seen(
+      "the sheet is off the screen and still laid out",
+      screen.display !== "none" && screen.height > 0 && screen.left < -1000,
+      `display ${screen.display}, ${screen.height}px tall, at ${screen.left}px`,
+    );
+
+    await eye.send("Emulation.setEmulatedMedia", { media: "print" });
+    const paper = await eye.look(`(() => {
+      const sheet = document.getElementById('print-sheet');
+      const cs = getComputedStyle(sheet);
+      const body = getComputedStyle(document.body);
+      const line = document.querySelector('.print-sheet .line');
+      return {
+        position: cs.position,
+        left: cs.left,
+        // Everything that is the application rather than the sefer.
+        pane: getComputedStyle(document.getElementById('find-pane')).display,
+        shelf: getComputedStyle(document.getElementById('shelf-box').parentElement ??
+          document.getElementById('shelf-box')).display,
+        drawer: getComputedStyle(document.getElementById('links-drawer')).display,
+        ink: body.color,
+        page: body.backgroundColor,
+        address: getComputedStyle(document.querySelector('.print-sheet .line-address')).color,
+        breaking: getComputedStyle(line).breakInside,
+      };
+    })()`);
+
+    seen(
+      "on paper the sheet is in the flow",
+      paper.position === "static" && paper.left === "auto",
+      `the sheet was ${paper.position} at ${paper.left} — off the side of the page`,
+    );
+    seen(
+      "and the application is not on it",
+      paper.pane === "none" && paper.drawer === "none",
+      `a pane printed as ${paper.pane} and the links drawer as ${paper.drawer}`,
+    );
+    // A dark theme sent to a printer is a black page, which is unreadable and an
+    // act of violence against a toner cartridge. The reader's theme is a
+    // decision about a lit screen in a room and has nothing to say about paper.
+    seen(
+      "the ink is black on white, whatever the reader's theme is",
+      paper.ink === "rgb(0, 0, 0)" && paper.page === "rgb(255, 255, 255)",
+      `${paper.ink} on ${paper.page}`,
+    );
+    seen(
+      "the margin address is apparatus rather than text",
+      paper.address !== paper.ink,
+      `the address printed in ${paper.address}, the same as the words`,
+    );
+    // A siman that runs over a page break should break between its se'ifim and
+    // not through the middle of one.
+    seen(
+      "a se'if does not break across two sheets",
+      paper.breaking === "avoid",
+      `break-inside computed to ${paper.breaking}`,
+    );
+    await eye.send("Emulation.setEmulatedMedia", { media: "" });
   } finally {
     // Wait for it to actually go: on Windows the profile keeps a lockfile open
     // until the process is gone, and removing the directory under it throws

@@ -138,6 +138,13 @@ const WORDS = {
   /** Said beside the count when the list was cut and the count was not. */
   findHereCut: ["(מוצגים הראשונים)", "(first shown)"] as Both,
   findHereNothingOpen: ["אין ספר פתוח לחפש בו", "no sefer is open to find in"] as Both,
+  /** Why the mareh makom mode is grey on the find bar's chip row, and where it
+   * is not grey. See `findhere.ts` — the engine returns `Answer::Cited` here
+   * and the bar has nowhere to put a landing. */
+  findHereNoCitation: [
+    "מראה מקום הוא קפיצה למקום אחר — חפש בכל המדף (Ctrl+Shift+F)",
+    "a mareh makom is a jump somewhere else — search the shelf (Ctrl+Shift+F)",
+  ] as Both,
   dafYomi: ["דף היומי", "Daf Yomi"] as Both,
   dafYomiWhy: ["פתח את דף היומי", "Open today's daf"] as Both,
   dafYomiNotHere: ["המסכת אינה על המדף", "that masechta is not on this shelf"] as Both,

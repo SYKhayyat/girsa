@@ -27,6 +27,25 @@ export interface Picking {
    * in front of you and is not a thing to be set.
    */
   scope?: () => void;
+  /**
+   * Choices this row cannot honour, and **why**, keyed `chip/choice`.
+   *
+   * The window may decline to offer what the engine offered; it may not invent
+   * an option the engine did not. That distinction is already made one line
+   * down, where the scope chip is dropped from a row with no doorway — this is
+   * the same decision with a reason attached instead of a silence, because a
+   * grey control that does not say why it is grey is a control a reader tries
+   * twice.
+   *
+   * It exists for one entry. The find bar runs inside one sefer and a mareh
+   * makom is a jump out of it: `sefer_find` matches `Answer::Cited(_)` and
+   * hands back nothing, in so many words. Everything else on the row works
+   * here, **including the instruments** — `Bar::by_instrument` reads
+   * `chips.scope` and `Bar::over_the_text` refuses a scope wider than a few
+   * seforim, so one sefer is the narrowest case a dilug can have rather than a
+   * case it cannot.
+   */
+  cannot?: Record<string, string>;
 }
 
 /** Every chip, as a row. */
@@ -66,7 +85,9 @@ function chipOf(chip: Chip, picking: Picking): HTMLElement {
   for (const choice of chip.choices) {
     const item = document.createElement("button");
     item.type = "button";
-    item.className = "find-chip-item" + (choice.chosen ? " is-chosen" : "");
+    const why = whyNot(picking.cannot, chip.key, choice.key);
+    item.className =
+      "find-chip-item" + (choice.chosen ? " is-chosen" : "") + (why ? " is-impossible" : "");
     item.textContent = chipSaid(chip.key, choice);
     if (choice.sigil) {
       const sigil = document.createElement("span");
@@ -77,10 +98,18 @@ function chipOf(chip: Chip, picking: Picking): HTMLElement {
       sigil.textContent = choice.sigil;
       item.append(sigil);
     }
-    item.addEventListener("click", () => {
-      menu.hidden = true;
-      void picking.chosen(chip.key, choice.key);
-    });
+    if (why) {
+      // `disabled` and not just a class: a control a reader cannot use must be
+      // one the keyboard skips too, and `title` is where the reason goes,
+      // because a disabled button has no hover state to hang one on.
+      item.disabled = true;
+      item.title = why;
+    } else {
+      item.addEventListener("click", () => {
+        menu.hidden = true;
+        void picking.chosen(chip.key, choice.key);
+      });
+    }
     menu.append(item);
   }
 
@@ -89,6 +118,21 @@ function chipOf(chip: Chip, picking: Picking): HTMLElement {
   });
   wrap.append(face, menu);
   return wrap;
+}
+
+/**
+ * Why this row cannot honour one choice, or `undefined` if it can.
+ *
+ * A function rather than an index expression so that the spelling of the key —
+ * `chip/choice`, the same one `CHOICE_WORDS` uses — is written once and can be
+ * asked about by a test without building a menu.
+ */
+export function whyNot(
+  cannot: Record<string, string> | undefined,
+  chip: string,
+  choice: string,
+): string | undefined {
+  return cannot?.[`${chip}/${choice}`];
 }
 
 /** What a chip is called. */
