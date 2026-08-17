@@ -38,6 +38,20 @@ printf '[safe]\n\tdirectory = /w\n' > "$HOME/.gitconfig"
 # First, and on its own, so that a package renamed out of nixpkgs — which is how
 # this file will most likely break — is reported as an evaluation failure and
 # not as a compiler one.
+#
+# **This line is also where the job is least reliable, and deliberately so.**
+# There is no `flake.lock` in this repository: `nixpkgs` and `flake-utils` are
+# named by branch, so every run resolves their HEAD against `api.github.com`.
+# That is the point — an unpinned flake is a flake that notices when a package
+# is renamed out from under it, which is the failure this whole job exists to
+# catch, and a lock file would turn that into a silence until somebody
+# remembered to update it. The price is a dependency on GitHub's API being up
+# once per run, and it is a real price: on 17 August the API returned 504 four
+# times in a row and the job died here having built nothing.
+#
+# So a red `nixos` job is worth ten seconds of reading before it is worth any
+# thinking. `HTTP error 504` in the input-fetching lines is the weather. An
+# `undefined variable` is the thing this is for.
 nix flake check --no-build
 
 nix develop --command bash -c 'cd app && npm ci && npm test && npm run build'
