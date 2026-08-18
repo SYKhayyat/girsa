@@ -5,8 +5,8 @@
 ---
 
 ```sh
-node tools/verify.mjs               # the gate: nine steps, three directories
-node tools/verify.mjs --list        # what they are, without running them
+node tools/verify.mjs               # the gate: nine steps, two lanes
+node tools/verify.mjs --list        # what they are, and which lane, without running
 node tools/verify.mjs --from 4      # pick up where a failure stopped it
 ```
 
@@ -14,6 +14,29 @@ It was this list, written out here and again in BUILDER.md rule 4, and it grew
 from four commands to nine. A gate that lives in prose is a gate whose last two
 steps stop being run — see `docs/the-second-sitting.md`, lesson 1. The runner is
 the list now, and a test fails if rule 4 starts repeating it.
+
+### Two lanes
+
+Steps 1–6 are `cargo` against one workspace, one lockfile and one `target/`.
+They share the cargo lock, so they run in the order above and cannot do
+anything else. Steps 7–9 — `tsc`, the window tests and `eyes` — are TypeScript
+and esbuild: they never read `target/`, never take the cargo lock, and do not
+need `app/dist`. Run after the cargo lane they were pure addition to the wall
+clock; run beside it they are free, because on a warm cache the cargo lane
+dominates by minutes.
+
+So the two lanes start together and the run joins at the end, and **neither
+short-circuits the other**. A red `cargo test` used to mean you never found out
+that `tsc` was also red, and you found that out on the second trip through the
+gate; both lanes now run to their own first red and both are reported. The
+cargo lane keeps the terminal because it is the one you watch; the window
+lane's output is captured and printed as each of its steps finishes.
+
+`--from <n>` is unchanged and still numbers the whole list: `--from 7` runs the
+window lane alone, `--from 3` runs cargo 3–6 beside window 7–9. It is still a
+resume and not a run — the README's measured numbers are checked by step 2, and
+`cargo fmt` in step 4 can invalidate them, so a green resume is not a green
+gate.
 
 ### Getting it
 

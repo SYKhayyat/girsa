@@ -46,7 +46,6 @@
 //! one direction and no reply channel.
 
 use girsa_app::sending::about;
-use girsa_app::Shelf;
 use girsa_cite::{cite, CiteStyle};
 use girsa_post::desk::{Desk, Reply};
 use girsa_post::{App, Errand};
@@ -205,12 +204,11 @@ fn quote(handle: &tauri::AppHandle, reference: &Ref, asked: &Asked, text: bool) 
         .unwrap_or(state.session.cite);
 
     let slug = reference.work_slug();
-    let Some(work) = state
-        .shelf
-        .as_ref()
-        .and_then(|s: &Shelf| s.work(&slug))
-        .cloned()
-    else {
+    let work = state
+        .shelf()
+        .ok()
+        .and_then(|shelf| shelf.work(&slug).cloned());
+    let Some(work) = work else {
         return Reply::refused(404, format!("{slug} is not on this shelf"));
     };
     let display = cite(&about(&work), reference, style);
@@ -358,13 +356,14 @@ fn where_from(handle: &tauri::AppHandle, body: &str) -> Reply {
     };
 
     let style = state.session.cite;
-    let shelf = state.shelf.as_ref();
+    let shelf = state.shelf().ok();
     let places: Vec<serde_json::Value> = found
         .candidates
         .iter()
         .map(|candidate| {
             let reference = candidate.id.to_ref();
             let display = shelf
+                .as_ref()
                 .and_then(|s| s.work(&candidate.work))
                 .map_or_else(String::new, |work| cite(&about(work), &reference, style));
             serde_json::json!({
@@ -473,7 +472,7 @@ fn document(handle: &tauri::AppHandle, body: &str) -> Reply {
     let Ok(mut state) = shared.lock() else {
         return Reply::refused(500, "the library is busy");
     };
-    let Some(personal) = state.shelf.as_ref().map(|s| s.personal().to_path_buf()) else {
+    let Ok(personal) = state.shelf().map(|shelf| shelf.personal().to_path_buf()) else {
         return Reply::refused(503, "there is no shelf here");
     };
     let (mut documents, trouble) = girsa_desk::documents::Documents::open(&personal);

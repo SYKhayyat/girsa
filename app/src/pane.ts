@@ -156,6 +156,17 @@ export class PaneView {
   private to = 0;
   /** Segment id → its index in `lines`, for the lines that have been loaded. */
   private byId = new Map<string, number>();
+  /**
+   * Segment id → where it sits in the whole sefer, for marks `byId` cannot
+   * answer about.
+   *
+   * Only *next highlight* fills this, and only for the marks outside the lines
+   * this pane is holding. `null` is a real answer — the sefer does not have
+   * that segment, which a mark can honestly be after a re-import — and it is
+   * kept as one so the same dead mark is not asked about again on every press.
+   * Emptied by `setMarks`, which is the one thing that changes the questions.
+   */
+  private placeOf = new Map<string, number | null>();
   /** A fetch already in flight, so a burst of scroll events asks once. */
   private fetching: Promise<void> | null = null;
   /** Whether an extend is already waiting on that fetch.
@@ -421,6 +432,10 @@ export class PaneView {
    */
   setMarks(marks: MarkRow[]): void {
     this.marks = marks;
+    // A different set of marks is a different set of questions. Dropped rather
+    // than merged: a mark that has gone takes its answer with it, and one that
+    // has arrived has never been asked about.
+    this.placeOf.clear();
     this.paint();
   }
 
@@ -730,19 +745,55 @@ export class PaneView {
    * for every line above the answer and true for every line at or below it.
    * This read up to 400 `getBoundingClientRect()`s per scroll event to find the
    * one that flips; it reads about nine.
+   *
+   * **And over the live children, not a copy of them.** The binary search was
+   * the optimisation; `[...querySelectorAll(…)]` was the residue — a
+   * 400-element query plus a spread into a fresh array, per scroll event,
+   * purely to have something with an index on it. `children` already has one.
+   *
+   * A `.line-said` block (W43) sits between two lines and is not one, so the
+   * probe steps past the non-`.line` siblings rather than assuming the list is
+   * dense. It steps **forward**, which keeps the search monotonic: a probe
+   * that lands on a comment block answers for the first real line after it,
+   * and that line's answer is the one the invariant is about.
    */
   private topLine(): HTMLElement | null {
     const top = this.body.getBoundingClientRect().top + 8;
-    const lines = [...this.body.querySelectorAll<HTMLElement>(":scope > .line")];
+    const kids = this.body.children;
+    /**
+     * The first `.line` in `[from, until)`, and where it was.
+     *
+     * `until` is the search's own upper bound and not `kids.length`, which
+     * matters: a probe that reported a line at or past `high` would move
+     * `high` forwards and the loop would never end.
+     */
+    const lineAt = (from: number, until: number): [HTMLElement, number] | null => {
+      for (let i = Math.max(0, from); i < until; i += 1) {
+        const kid = kids[i];
+        if (kid instanceof HTMLElement && kid.classList.contains("line")) return [kid, i];
+      }
+      return null;
+    };
     let low = 0;
-    let high = lines.length;
+    let high = kids.length;
+    let answer: HTMLElement | null = null;
     while (low < high) {
       const middle = (low + high) >> 1;
-      const line = lines[middle];
-      if (line && line.getBoundingClientRect().bottom > top) high = middle;
-      else low = middle + 1;
+      const found = lineAt(middle, high);
+      if (!found) {
+        // Nothing but comment blocks from here down; the answer is above.
+        high = middle;
+        continue;
+      }
+      const [line, at] = found;
+      if (line.getBoundingClientRect().bottom > top) {
+        answer = line;
+        high = at;
+      } else {
+        low = at + 1;
+      }
     }
-    return lines[low] ?? null;
+    return answer;
   }
 
   /**
@@ -750,9 +801,17 @@ export class PaneView {
    *
    * Indices, not ids, because *next* is a question about reading order and an
    * id does not carry one. A mark on a line this pane has never loaded is
-   * looked up — `sefer_index_of`, the same call a search hit and a link use —
-   * rather than being skipped, which would make the key work on the places you
-   * have already scrolled past and not on the ones you have not.
+   * looked up — the same question a search hit and a link ask — rather than
+   * being skipped, which would make the key work on the places you have
+   * already scrolled past and not on the ones you have not.
+   *
+   * **One call, and only once.** This was a `sefer_index_of` per mark, in
+   * sequence, redone in full on every press: 200 highlights in Mishnah Berurah
+   * meant 200 serialised round trips to answer *which is the next one*, and
+   * 200 more on the next press. The ones that miss `byId` are exactly the
+   * marks outside the window of lines this pane is holding, which on a long
+   * sefer is most of them. `sefer_indices_of` takes the whole list, and
+   * `placeOf` keeps what came back so a second press asks for nothing.
    */
   async goToNextPlace(): Promise<boolean> {
     // Index **and** id together, because the answer is chosen by index and
@@ -760,9 +819,16 @@ export class PaneView {
     // afterwards, and looking it up again is what produced a `find` over a
     // promise — always truthy, so the first mark in the list was jumped to
     // whichever one was next.
+    const missing = this.marks
+      .map((mark) => mark.at)
+      .filter((at) => this.byId.get(at) === undefined && !this.placeOf.has(at));
+    if (missing.length > 0) {
+      const found = await api.seferIndicesOf(this.slug, missing);
+      missing.forEach((at, n) => this.placeOf.set(at, found[n] ?? null));
+    }
     const places: { at: number; id: string }[] = [];
     for (const mark of this.marks) {
-      const known = this.byId.get(mark.at) ?? (await api.seferIndexOf(this.slug, mark.at));
+      const known = this.byId.get(mark.at) ?? this.placeOf.get(mark.at);
       if (known !== null && known !== undefined) places.push({ at: known, id: mark.at });
     }
     const next = nextPlace(

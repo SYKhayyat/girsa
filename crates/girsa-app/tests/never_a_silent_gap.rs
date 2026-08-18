@@ -320,10 +320,26 @@ fn write_correction(personal: &Path) {
 }
 
 /// An index directory that looks built, stamped now.
+/// An index stamped as having been built **a while ago**.
+///
+/// The gap is worked out from mtimes, so every test below needs the build to
+/// be older than what the reader wrote afterwards. That used to be bought
+/// with `sleep(1100)` — over a one-second boundary — three times in this
+/// file. `File::set_modified` has been stable since Rust 1.75 and this
+/// workspace is on 1.85, so the ordering is stated rather than waited for,
+/// and a loaded machine can no longer turn it into a coin toss.
 fn built_index(dir: &Path) -> PathBuf {
     let index = dir.join("index");
     std::fs::create_dir_all(&index).expect("an index directory");
-    std::fs::write(index.join("girsa-cache.json"), "{}").expect("a stamp");
+    let stamp = index.join("girsa-cache.json");
+    std::fs::write(&stamp, "{}").expect("a stamp");
+    let ago = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&stamp)
+        .expect("the stamp opens")
+        .set_modified(ago)
+        .expect("and takes a time");
     index
 }
 
@@ -343,7 +359,6 @@ fn a_note_written_since_the_index_was_built_is_not_searchable_and_says_so() {
     );
 
     // A note, written after the index was stamped.
-    std::thread::sleep(std::time::Duration::from_millis(1100));
     write_note(&personal, "בדיקה");
 
     let said = gap_over(&shelf, &personal, Some(&index), &[])
@@ -369,7 +384,6 @@ fn a_correction_made_since_the_index_was_built_is_reported_too() {
     let personal = shelf.personal().to_path_buf();
     let index = built_index(&dir);
 
-    std::thread::sleep(std::time::Duration::from_millis(1100));
     write_correction(&personal);
 
     let said = gap_over(&shelf, &personal, Some(&index), &[])
@@ -408,7 +422,6 @@ fn the_three_gaps_are_one_sentence_and_not_three_headers() {
     let (shelf, _) = shelf_with_scans(&dir, 2, 6);
     let personal = shelf.personal().to_path_buf();
     let index = built_index(&dir);
-    std::thread::sleep(std::time::Duration::from_millis(1100));
     write_note(&personal, "חבורה");
     write_correction(&personal);
 

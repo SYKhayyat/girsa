@@ -102,6 +102,82 @@ and answered a different question than the one asked.
 is the other half of the same problem: nothing checked a number in this file.
 Something does now.)
 
+### The state is three locks, and the long work is outside all of them
+
+Every command in the shell was `#[tauri::command(async)]`, so none of them ran
+on the thread that owns the webview. That was a real fix and it is not in
+question. What it did not change is that all of them then waited on one
+`Mutex<State>`: it changed which thread waits, not how many.
+
+The two that made that visible sit beside each other on the screen. `find`
+held the lock across `Bar::ask` — 8, 63, 73 and 90 ms for four real queries,
+and unbounded for a regex over five million segments — while `sefer_lines` is
+what a pane calls on every scroll event. The docked search column is an
+advertised feature: *the search panel docks to a column instead of closing*.
+The panel designed to stay open while you read was the one that stopped the
+reading.
+
+Nothing about searching needed exclusive access. `Bar::ask` is `&self`, and the
+one `&mut` method the whole `Bar` exposes had no callers at all. The engine was
+inside the lock because *everything* was inside the lock.
+
+So the state is three things now, not one:
+
+| | Behind what | Why |
+|---|---|---|
+| the search engine | `Arc<Bar>` | immutable once opened; `ask` is `&self` |
+| the shelf | `Arc<RwLock<Shelf>>` | readers dominate by orders of magnitude |
+| everything else | `Mutex<State>` | the session, the chips, the caches |
+
+`Shelf` could not go behind an `RwLock` at all until the `RefCell` in it became
+a `Mutex` — one `RefCell` anywhere in a struct makes the whole struct `!Sync`,
+which is a decision about the *window's* concurrency taken by a field that
+caches address schemas.
+
+Three rules keep it honest, and two of them are enforced by the compiler rather
+than by remembering:
+
+1. **`State::shelf_mut` takes `&mut self`.** It does not need to — the lock
+   provides the mutability — but taking one makes the borrow checker reject a
+   write guard while a read guard is alive. That pair is the only deadlock this
+   arrangement can produce, and now it does not compile.
+2. **One `State::shelf()` per lock scope, and the guard is handed down.**
+   `std::sync::RwLock` is not reentrant, so two read guards alive on one thread
+   deadlock the moment a writer queues between them. `State::names` takes the
+   shelf as an argument for exactly this reason. It caught one: `links` bound a
+   second guard that *shadowed* the first rather than replacing it, and a
+   shadowed guard is a live guard.
+3. **The long work happens with the guards down.** The pattern was already in
+   the file three times and right all three — `scan_ocr_page` drops the lock
+   across Tesseract, `lane_bring` and the embed job copy what they need and
+   spawn. What was missing:
+
+   - `buffer_save` took the lock to read one `PathBuf` and held it across the
+     write. `writing.ts` calls it every 900 ms while you type.
+   - `add_mine` ran the whole drag-and-drop import loop under it — parse, copy
+     and catalogue write, per file, with no bound on how many files. It is
+     split now: `girsa_app::shelf::read_mine` does the disk half with nothing
+     locked, `Shelf::took_mine` does the three in-memory writes, and the reader
+     is told which file is being read as it goes.
+   - `export_sefer` wrote a whole sefer — Mishnah Berurah is 17,418 segments —
+     into a folder the reader chose, which may be a network share, with the
+     lock held for the duration.
+   - the 28,124-line OCR queue was parsed under the lock in three places, one
+     of them on every redraw.
+
+`Held<Arc<Open>>` is what makes the export case possible: a work is tens of
+megabytes of text, so *clone it and drop the lock* is not a trade that path can
+make, but cloning a pointer to it is free. An `Open` is immutable for as long
+as anybody holds one — a correction goes through `State::reread`, which drops
+the handle and reads the sefer again rather than editing the copy in memory.
+
+And with the shelf out from under the state lock, `hold` and `hold_marks` read
+a sefer (~11 ms) and its mefarshim table (0.07 s for Berakhot) with **no state
+lock and only a read lock on the shelf** — which is what makes the window's
+side worth parallelising. `draw()` starts every fresh pane's reads together and
+still writes to the DOM in pane order; three columns used to pay for nine round
+trips one after another.
+
 ### A refusal carries a name, not a sentence to be pattern-matched
 
 `app/src/trouble.ts` turned an error into a Hebrew sentence by matching

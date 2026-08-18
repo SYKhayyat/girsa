@@ -47,7 +47,7 @@ mod post;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use girsa_app::shelf::{Companion, Open};
 use girsa_app::taxonomy::Branch;
@@ -70,7 +70,30 @@ use girsa_search::index::{Paging, SearchIndex};
 use serde::Serialize;
 
 pub(crate) struct State {
-    pub(crate) shelf: Option<Shelf>,
+    /// The catalogue and your own layer.
+    ///
+    /// # Why it is behind its own lock
+    ///
+    /// Everything in this struct used to be behind the window's one `Mutex`,
+    /// so a command that only wanted to *read* the shelf waited for every
+    /// command that wanted anything else. Three of the reads are not small:
+    /// `Shelf::read` is a whole sefer off disk, `mefarshim::Marks::of` is
+    /// 0.07 s for Berakhot, and `Joined::between` walks both works' 3.4 MB of
+    /// edges. A window with three panes paid all of those one after another
+    /// because the lock said so, not because the work said so.
+    ///
+    /// `RwLock` because the readers dominate by orders of magnitude: the
+    /// writers are `add_mine`, `fix`, `write_note`, `set_showing` and the
+    /// arrangement edits, every one of them something a reader *did* rather
+    /// than something a frame needs. `Arc` so a command can take a handle,
+    /// drop the state guard, and read the shelf with nothing else waiting on
+    /// it.
+    ///
+    /// Take it through [`State::shelf`] and [`State::shelf_mut`] and never by
+    /// hand: `shelf_mut` takes `&mut self` so that the borrow checker refuses
+    /// a write guard while a read guard is alive, which is the one shape that
+    /// deadlocks — `std::sync::RwLock` is not reentrant.
+    pub(crate) shelf: Option<Arc<std::sync::RwLock<Shelf>>>,
     /// The `.ksav` files the reader has told Girsa about (spec.md §10.4).
     ///
     /// Read once and held, like the catalogue: `who_cites` is asked on a click
@@ -95,7 +118,7 @@ pub(crate) struct State {
     /// rather than inside it because an index is a rebuildable cache and a
     /// shelf is not: a window with no index still reads seforim, and says why
     /// it cannot search rather than returning nothing.
-    bar: Option<Bar>,
+    bar: Option<Arc<Bar>>,
     /// Why there is no search, if there is none.
     no_search: Option<String>,
     /// The chip row as it stands (spec.md §9.5). Held here, not in the webview,
@@ -153,7 +176,7 @@ pub(crate) struct State {
     stop_embedding: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Slug → the sefer, read once. Cleared oldest-first.
     /// The seforim in memory, most recently read last (`girsa_app::held`).
-    open: girsa_app::held::Held<Open>,
+    open: girsa_app::held::Held<Arc<Open>>,
     /// Slug → which mefarshim speak on which of its lines (W43).
     ///
     /// Held because ticking a box asks again, and a reader ticking six of them
@@ -199,18 +222,101 @@ pub(crate) struct State {
 const SAVE_SCROLL_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl State {
-    pub(crate) fn sefer(&mut self, slug: &str) -> Result<&Open, String> {
-        if !self.open.has(slug) {
-            let shelf = self.shelf.as_ref().ok_or_else(|| self.trouble())?;
-            let read = shelf.read(slug).map_err(|e| e.to_string())?;
-            // Whatever was dropped takes its marks table with it: a table of
-            // who comments on which line of a sefer nobody has open is the
-            // same megabytes with none of the use.
-            if let Some(gone) = self.open.put(slug, read) {
-                self.marks.remove(&gone);
-            }
+    /// The shelf, read-locked.
+    ///
+    /// # Errors
+    ///
+    /// If there is no shelf, or the lock is poisoned.
+    pub(crate) fn shelf(&self) -> Result<std::sync::RwLockReadGuard<'_, Shelf>, String> {
+        self.shelf
+            .as_ref()
+            .ok_or_else(|| self.trouble())?
+            .read()
+            .map_err(|_| State::poisoned())
+    }
+
+    /// The shelf, write-locked.
+    ///
+    /// **`&mut self` is the point.** Nothing here needs a mutable state — the
+    /// lock provides the mutability — but taking one makes the borrow checker
+    /// reject a `shelf_mut` call while a [`State::shelf`] guard is still
+    /// alive. That pair is a deadlock and it is the only one this arrangement
+    /// can produce, so it is worth a signature that cannot express it.
+    ///
+    /// # Errors
+    ///
+    /// If there is no shelf, or the lock is poisoned.
+    pub(crate) fn shelf_mut(&mut self) -> Result<std::sync::RwLockWriteGuard<'_, Shelf>, String> {
+        let trouble = self.trouble();
+        self.shelf
+            .as_ref()
+            .ok_or(trouble)?
+            .write()
+            .map_err(|_| State::poisoned())
+    }
+
+    /// A handle on the shelf that outlives the state guard.
+    ///
+    /// For the commands that read the shelf for longer than the rest of the
+    /// window should have to wait: take this, drop the guard, then lock the
+    /// shelf.
+    ///
+    /// # Errors
+    ///
+    /// If there is no shelf.
+    fn shelf_handle(&self) -> Result<Arc<std::sync::RwLock<Shelf>>, String> {
+        self.shelf
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| self.trouble())
+    }
+
+    /// Read this sefer if it is not already held. Everything below is one of
+    /// three ways of asking for the result.
+    fn load(&mut self, slug: &str) -> Result<(), String> {
+        if self.open.has(slug) {
+            return Ok(());
         }
-        self.open.get(slug).ok_or_else(|| "not open".to_string())
+        // The guard is dropped before `open` is touched: reading a work is
+        // the long part and the map insert is not, and holding a shelf guard
+        // while taking `&mut self` is a shape the borrow checker rejects
+        // anyway — which is the whole reason `shelf_mut` takes `&mut self`.
+        let read = {
+            let shelf = self.shelf()?;
+            shelf.read(slug).map_err(|e| e.to_string())?
+        };
+        // Whatever was dropped takes its marks table with it: a table of
+        // who comments on which line of a sefer nobody has open is the
+        // same megabytes with none of the use.
+        if let Some(gone) = self.open.put(slug, Arc::new(read)) {
+            self.marks.remove(&gone);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn sefer(&mut self, slug: &str) -> Result<&Open, String> {
+        self.load(slug)?;
+        self.open
+            .get(slug)
+            .map(AsRef::as_ref)
+            .ok_or_else(|| "not open".to_string())
+    }
+
+    /// The same sefer as a handle rather than a borrow, so the caller can drop
+    /// the state guard and keep reading it.
+    ///
+    /// The reason `open` holds `Arc<Open>` at all. A work is tens of megabytes
+    /// of text, so *clone it and drop the lock* is not a trade the export path
+    /// can make — but cloning a pointer to it is free, and an `Open` is
+    /// immutable for as long as anybody holds one: a correction goes through
+    /// [`State::reread`], which drops the handle from the cache and reads the
+    /// sefer again rather than editing the one in memory.
+    pub(crate) fn held(&mut self, slug: &str) -> Result<Arc<Open>, String> {
+        self.load(slug)?;
+        self.open
+            .get(slug)
+            .cloned()
+            .ok_or_else(|| "not open".to_string())
     }
 
     /// A sefer and the lexicon to draw it with — the pair every `Line::of` needs
@@ -225,23 +331,22 @@ impl State {
         &mut self,
         slug: &str,
     ) -> Result<(&Open, Option<&girsa_ref::Lexicon>), String> {
-        if !self.open.has(slug) {
-            let shelf = self.shelf.as_ref().ok_or_else(|| self.trouble())?;
-            let read = shelf.read(slug).map_err(|e| e.to_string())?;
-            if let Some(gone) = self.open.put(slug, read) {
-                self.marks.remove(&gone);
-            }
-        }
-        let sefer = self.open.get(slug).ok_or_else(|| "not open".to_string())?;
+        self.load(slug)?;
+        let sefer = self
+            .open
+            .get(slug)
+            .map(AsRef::as_ref)
+            .ok_or_else(|| "not open".to_string())?;
         Ok((sefer, self.lexicon.as_ref()))
     }
 
     /// Which mefarshim speak on which line of one sefer, read once.
     fn marks(&mut self, slug: &str) -> Result<&girsa_app::mefarshim::Marks, String> {
         if !self.marks.contains_key(slug) {
-            let trouble = self.trouble();
-            let shelf = self.shelf.as_ref().ok_or(trouble)?;
-            let read = girsa_app::mefarshim::Marks::of(shelf, slug).map_err(|e| e.to_string())?;
+            let read = {
+                let shelf = self.shelf()?;
+                girsa_app::mefarshim::Marks::of(&shelf, slug).map_err(|e| e.to_string())?
+            };
             self.marks.insert(slug.to_string(), read);
         }
         self.marks
@@ -333,18 +438,12 @@ impl State {
     /// results header already knows how to say. Refusing the write because a
     /// cache would not update would be the tail wagging the dog.
     fn searchable(&mut self, slug: &str) {
-        let (Some(bar), Some(shelf)) = (self.bar.as_ref(), self.shelf.as_ref()) else {
+        let (Some(bar), Ok(shelf)) = (self.bar.as_ref(), self.shelf()) else {
             return;
         };
         let personal = shelf.personal().to_path_buf();
-        match bar.absorb(&personal, slug) {
-            Ok(done) => {
-                for line in done.trouble {
-                    eprintln!("{line}");
-                }
-            }
-            Err(e) => eprintln!("{slug} is written and is not in the index yet: {e}"),
-        }
+        drop(shelf);
+        make_searchable(bar, &personal, slug);
     }
 
     /// And take one out, because it is not on the shelf any more.
@@ -361,7 +460,112 @@ impl State {
             eprintln!("{slug} is gone and is still in the index: {e}");
         }
     }
+}
 
+/// The body of [`State::searchable`], with the two things it needs handed to it
+/// rather than borrowed off the state.
+///
+/// Split out because absorbing a work writes to the index — a tantivy commit —
+/// and the one caller that does it in a loop is the drop path, which has no
+/// business holding the state lock while it does. `Bar::absorb` is `&self` and
+/// takes the personal root as an argument, so both halves were already
+/// separable; only the borrow made them look joined.
+/// Where the reader's own layer is, **and the guard already dropped**.
+///
+/// The shape finding 2c is about. A command that locks the state to read one
+/// `PathBuf` and then keeps the guard for the file I/O that follows is holding
+/// the whole window's turn for a reason that ended on the first line — and
+/// `buffer_save` is the worst of them, because `writing.ts` calls it every
+/// 900 ms for as long as the reader is typing.
+///
+/// # Errors
+///
+/// If there is no shelf, which is the one state in which there is no layer to
+/// find.
+fn personal_of(shared: &tauri::State<'_, Shared>) -> Result<PathBuf, String> {
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let shelf = state.shelf()?;
+    let personal = shelf.personal().to_path_buf();
+    Ok(personal)
+}
+
+/// Have this sefer in memory **before** the caller takes the state lock.
+///
+/// [`State::load`] can only read the shelf while the state guard is held,
+/// because it is a method on the state — and that read is a whole work off
+/// disk, 11 ms in the published table, on the path of every pane that opens.
+/// A window with three columns paid for three of them one after another
+/// because the lock said so.
+///
+/// This does the same read with no state lock at all and only a *read* lock on
+/// the shelf, so three panes opening at once read three seforim at once. Every
+/// command still works without it; it just pays under the lock, which is where
+/// this started.
+///
+/// # Errors
+///
+/// If there is no shelf, the lock is poisoned, or the sefer will not read.
+fn hold(shared: &tauri::State<'_, Shared>, slug: &str) -> Result<(), String> {
+    let handle = {
+        let state = shared.lock().map_err(|_| State::poisoned())?;
+        if state.open.has(slug) {
+            return Ok(());
+        }
+        state.shelf_handle()?
+    };
+    let read = {
+        let shelf = handle.read().map_err(|_| State::poisoned())?;
+        shelf.read(slug).map_err(|e| e.to_string())?
+    };
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    // Another pane may have got there first while this one was reading. Both
+    // read the same sefer, so keeping the copy already in the cache means the
+    // two panes share one rather than holding one each.
+    if !state.open.has(slug) {
+        if let Some(gone) = state.open.put(slug, Arc::new(read)) {
+            state.marks.remove(&gone);
+        }
+    }
+    Ok(())
+}
+
+/// The same, for the table of which mefarshim speak on which line of a sefer.
+///
+/// `Marks::of` is the 0.07 s read for Berakhot that `State::marks` documents,
+/// and `main.ts` asks for one per pane on every repaint.
+///
+/// # Errors
+///
+/// If there is no shelf, the lock is poisoned, or the table will not read.
+fn hold_marks(shared: &tauri::State<'_, Shared>, slug: &str) -> Result<(), String> {
+    let handle = {
+        let state = shared.lock().map_err(|_| State::poisoned())?;
+        if state.marks.contains_key(slug) {
+            return Ok(());
+        }
+        state.shelf_handle()?
+    };
+    let read = {
+        let shelf = handle.read().map_err(|_| State::poisoned())?;
+        girsa_app::mefarshim::Marks::of(&shelf, slug).map_err(|e| e.to_string())?
+    };
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state.marks.entry(slug.to_string()).or_insert(read);
+    Ok(())
+}
+
+fn make_searchable(bar: &Bar, personal: &std::path::Path, slug: &str) {
+    match bar.absorb(personal, slug) {
+        Ok(done) => {
+            for line in done.trouble {
+                eprintln!("{line}");
+            }
+        }
+        Err(e) => eprintln!("{slug} is written and is not in the index yet: {e}"),
+    }
+}
+
+impl State {
     /// The documents the reader has told Girsa about, read once.
     ///
     /// Refreshed on open — a `stat` per document, once, rather than a file read
@@ -393,15 +597,20 @@ impl State {
     /// (`Language::title_of`) and these are its two callers"* — and by the time
     /// it was read there were six rows working out a title, an address or a
     /// date, and only that one honoured the language.
-    fn names(&self) -> Option<girsa_app::Names<'_>> {
-        Some(girsa_app::Names::new(
-            self.shelf.as_ref()?,
+    /// **The shelf is passed in and not read here**, because it is behind its
+    /// own lock now and `Names` borrows it. One guard per caller, taken once
+    /// and handed down: two `State::shelf` calls live at the same moment on
+    /// one thread is a read-read reentry, and `std::sync::RwLock` will
+    /// deadlock on that the moment a writer is queued between them.
+    fn names<'a>(&'a self, shelf: &'a Shelf) -> girsa_app::Names<'a> {
+        girsa_app::Names::new(
+            shelf,
             self.timeline.as_ref(),
             self.session.language,
             // The reader's own citation style, so a row label and the citation
             // they copy off the same line agree.
             self.session.cite,
-        ))
+        )
     }
 
     fn save(&mut self) {
@@ -431,12 +640,7 @@ impl State {
     /// If there is no shelf to find the personal layer under.
     fn words(&mut self, slug: &str) -> Result<&mut girsa_scan::Words, String> {
         if !self.words.contains_key(slug) {
-            let personal = self
-                .shelf
-                .as_ref()
-                .ok_or("there is no shelf here")?
-                .personal()
-                .to_path_buf();
+            let personal = self.shelf()?.personal().to_path_buf();
             let (words, trouble) = girsa_scan::Words::open(&personal, slug);
             for line in trouble {
                 eprintln!("{line}");
@@ -469,15 +673,35 @@ pub(crate) type Shared = Mutex<State>;
 
 #[tauri::command(async)]
 fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, String> {
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // The queue is 28,124 lines on the real corpus and this is asked on every
     // redraw, so it is read once and held. `suspects` re-reads it, which is
     // where a run of the batch job is noticed.
-    if state.queue.is_none() {
-        if let Some(personal) = state.shelf.as_ref().map(|s| s.personal().to_path_buf()) {
-            state.queue = Some(girsa_fix::suspect::Queue::open(&personal).0);
+    //
+    // Held once, but *read* with the guard down. This is the first redraw of a
+    // cold window — the moment when everything else is also asking — and the
+    // read is a parse of the largest file in the personal layer.
+    let wanted = {
+        let state = shared.lock().map_err(|_| State::poisoned())?;
+        state
+            .queue
+            .is_none()
+            .then(|| state.shelf().ok().map(|s| s.personal().to_path_buf()))
+            .flatten()
+    };
+    if let Some(personal) = wanted {
+        let read = girsa_fix::suspect::Queue::open(&personal).0;
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        // Another redraw may have filled it while this one was parsing. Theirs
+        // is as good as ours and it is already in place.
+        if state.queue.is_none() {
+            state.queue = Some(read);
         }
     }
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    // One guard for both counts below. Two `map_or`s each taking their own
+    // would be a read-read reentry on one thread — harmless today because each
+    // closure drops its guard, and one refactor away from a hang.
+    let shelf = state.shelf().ok();
     Ok(girsa_app::view::Opening {
         workspace: state.session.workspace.clone(),
         pointing: state.session.pointing,
@@ -485,7 +709,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
         text_size: state.session.text_size,
         mefarshim_size: state.session.mefarshim_size,
         positions: state.session.positions.clone(),
-        works: state.shelf.as_ref().map_or(0, |s| s.works().len()),
+        works: shelf.as_ref().map_or(0, |s| s.works().len()),
         trouble: state.said_trouble(),
         cite: state.session.cite,
         language: state.session.language,
@@ -500,7 +724,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
         ],
         pairing: state.no_post.clone(),
         showing: state.session.showing,
-        fixes: state.shelf.as_ref().map_or(0, |s| s.fixes().count()),
+        fixes: shelf.as_ref().map_or(0, |s| s.fixes().count()),
         suspects: state
             .queue
             .as_ref()
@@ -555,7 +779,7 @@ fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), S
         return Err(refuse(Code::NotACorpus, opened.trouble.unwrap_or(path)));
     };
     state.session.corpus = Some(at);
-    state.shelf = Some(shelf);
+    state.shelf = Some(Arc::new(std::sync::RwLock::new(shelf)));
     state.trouble = opened.trouble;
     state.timeline = opened.timeline;
     // A different corpus, so every shard read out of the old one is a lie.
@@ -577,7 +801,7 @@ fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), S
 #[tauri::command(async)]
 fn search(shared: tauri::State<'_, Shared>, query: String) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(shelf
         .search(&query, girsa_app::enough::NAMES_OFFERED)
         .into_iter()
@@ -590,7 +814,7 @@ fn search(shared: tauri::State<'_, Shared>, query: String) -> Result<Vec<Card>, 
 #[tauri::command(async)]
 fn recent(shared: tauri::State<'_, Shared>) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let Some(shelf) = state.shelf.as_ref() else {
+    let Ok(shelf) = state.shelf() else {
         return Ok(Vec::new());
     };
     Ok(state
@@ -730,40 +954,44 @@ struct FoundPage {
 /// so the row that comes back is the row the search actually ran under.
 #[tauri::command(async)]
 fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<FoundPage, String> {
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let size = girsa_app::enough::A_PAGE;
     let paging = Paging {
         from: size * page.saturating_sub(1).min(usize::MAX / size.max(1)),
         size,
     };
-    // A sigil sets a chip, and the chip stays set — that is what makes typing
-    // one a way of *finding* the chips rather than a syntax beside them.
-    let (chips, _) = state.chips.read(&query);
-    state.chips = chips;
-    let pointing = state.session.pointing;
-    let shemos = state.session.shemos;
-    // How a place is printed, from the reader's own setting.
-    let style = state.session.cite;
-    let chips = state.chips.clone();
-    // What to call each place, in the window's language (W41), with its
-    // address and its dates. See `girsa_app::Naming` — four surfaces used to
-    // work this out separately and disagreed about all three.
-    let names = state.names();
-    // **An empty box is not a refusal.** The panel calls this with `""` on open,
-    // deliberately, to draw the chip row without running a search — and the
-    // engine answered `nothing to search for`, which the window then printed in
-    // red, in English, above a row of English chips, before the reader had typed
-    // anything. Opening by telling somebody off.
-    //
-    // Nothing has been asked, so nothing is refused: the chips come back and the
-    // header is empty. The engine keeps its refusal, which is the right answer
-    // to a *command line* that was given no words.
-    if query.trim().is_empty() {
-        return Ok(FoundPage::nothing_asked(&chips));
-    }
-    let Some(bar) = state.bar.as_ref() else {
-        let why = state.no_search();
-        return Ok(FoundPage::refused(&chips, why));
+    // **The lock is taken to read the chips and dropped before the search.**
+    // `Bar::ask` is `&self` and the engine holds no state of ours; the only
+    // reason it ever ran under the guard is that the guard was around
+    // everything. Four real queries measure 8, 63, 73 and 90 ms and a regex
+    // over five million segments is unbounded — and for every one of those
+    // milliseconds the scroll handler beside it could not be served, in a
+    // panel whose whole design is to stay open while you read.
+    let (chips, bar) = {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        // A sigil sets a chip, and the chip stays set — that is what makes
+        // typing one a way of *finding* the chips rather than a syntax beside
+        // them.
+        let (chips, _) = state.chips.read(&query);
+        state.chips = chips;
+        let chips = state.chips.clone();
+        // **An empty box is not a refusal.** The panel calls this with `""` on
+        // open, deliberately, to draw the chip row without running a search —
+        // and the engine answered `nothing to search for`, which the window
+        // then printed in red, in English, above a row of English chips,
+        // before the reader had typed anything. Opening by telling somebody
+        // off.
+        //
+        // Nothing has been asked, so nothing is refused: the chips come back
+        // and the header is empty. The engine keeps its refusal, which is the
+        // right answer to a *command line* that was given no words.
+        if query.trim().is_empty() {
+            return Ok(FoundPage::nothing_asked(&chips));
+        }
+        let Some(bar) = state.bar.clone() else {
+            let why = state.no_search();
+            return Ok(FoundPage::refused(&chips, why));
+        };
+        (chips, bar)
     };
 
     let answer = bar.ask(
@@ -772,6 +1000,19 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
         paging,
         &girsa_ref::resolve::Context::default(),
     );
+
+    // Back under the lock only to name what came out. A page is twenty hits;
+    // this is the cheap half.
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
+    // How a place is printed, from the reader's own setting.
+    let style = state.session.cite;
+    // **One shelf guard for the whole of the drawing**, taken here and handed
+    // to both `names` and `landing_row`. Two `state.shelf()` calls alive on one
+    // thread is a read-read reentry on a non-reentrant lock.
+    let shelf = state.shelf().ok();
+    let names = shelf.as_ref().map(|shelf| state.names(shelf));
     Ok(match answer {
         Answer::Segments {
             results,
@@ -806,7 +1047,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
                 // The place the words also name, offered above the hits and
                 // taken by nothing — the resolver was the best thing in this
                 // engine and it was behind a sigil nothing taught.
-                landing: landing.map(|landing| landing_row(&landing, state.shelf.as_ref(), style)),
+                landing: landing.map(|landing| landing_row(&landing, shelf.as_deref(), style)),
             }
         }
         Answer::Cited(landing) => FoundPage {
@@ -820,7 +1061,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
             chips: chips.row(),
             offers: Vec::new(),
             refused: None,
-            landing: Some(landing_row(&landing, state.shelf.as_ref(), style)),
+            landing: Some(landing_row(&landing, shelf.as_deref(), style)),
         },
         Answer::Refused(why) => FoundPage::refused(&chips, why),
     })
@@ -947,20 +1188,23 @@ fn find_rung(
     page: usize,
     rung: String,
 ) -> Result<FoundPage, String> {
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let (chips, text) = state.chips.read(&query);
-    state.chips = chips.clone();
-    let pointing = state.session.pointing;
-    let shemos = state.session.shemos;
     let Some(rung) = girsa_search::ladder::Rung::named(&rung) else {
         return Err(girsa_app::trouble::refuse(
             girsa_app::trouble::Code::NoSuch,
             format!("no such rung: {rung}"),
         ));
     };
-    let Some(bar) = state.bar.as_ref() else {
-        let why = state.no_search();
-        return Ok(FoundPage::refused(&chips, why));
+    // Same two phases as `find`, for the same reason: a rung *widens* the
+    // query, so this is the slower of the two searches, not the faster one.
+    let (chips, text, bar) = {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        let (chips, text) = state.chips.read(&query);
+        state.chips = chips.clone();
+        let Some(bar) = state.bar.clone() else {
+            let why = state.no_search();
+            return Ok(FoundPage::refused(&chips, why));
+        };
+        (chips, text, bar)
     };
     let query = girsa_search::torat_emet::Query::new(text)
         .matching(chips.matching)
@@ -974,6 +1218,10 @@ fn find_rung(
         .index()
         .search_widened_in(&widened, &chips.scope, paging)
         .map_err(|e| e.to_string())?;
+
+    let state = shared.lock().map_err(|_| State::poisoned())?;
+    let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
     let header = found
         .widening
         .as_ref()
@@ -984,7 +1232,8 @@ fn find_rung(
         || girsa_search::bar::Marker::Literal(found.asked.clone()),
         |widening| girsa_search::bar::Marker::Widened(Box::new(widening)),
     );
-    let names = state.names();
+    let shelf = state.shelf().ok();
+    let names = shelf.as_ref().map(|shelf| state.names(shelf));
     Ok(FoundPage {
         header,
         // The rung that was applied, and how to go back — **coded**, not
@@ -1118,7 +1367,7 @@ fn find_scope(shared: tauri::State<'_, Shared>) -> Result<ScopeView, String> {
 /// dropped the guard — which worked, and only because the block was there.
 fn scope_view(state: &State) -> ScopeView {
     let scope = &state.chips.scope;
-    let shelf = state.shelf.as_ref().map_or(0, |shelf| shelf.works().len());
+    let shelf = state.shelf().map_or(0, |shelf| shelf.works().len());
     // What the search will actually look in. `works()` is empty when nothing
     // has been narrowed, and empty there means *every sefer* — the one place
     // that distinction has to be spelled out rather than counted.
@@ -1247,7 +1496,7 @@ struct Opened {
     shelf: Option<Shelf>,
     trouble: Option<String>,
     timeline: Option<girsa_corpus::era::Timeline>,
-    bar: Option<Bar>,
+    bar: Option<Arc<Bar>>,
     no_search: Option<String>,
     lexicon: Option<girsa_ref::Lexicon>,
     lane: Option<girsa_nearby::Adjacency>,
@@ -1317,7 +1566,7 @@ fn open_corpus(
 /// The shelf knows where the corpus is; the index is beside it. A window with a
 /// shelf and no index reads perfectly well and cannot search, and it says which
 /// of those two it is rather than returning nothing.
-fn open_bar_for(shelf: &Option<Shelf>) -> (Option<Bar>, Option<String>) {
+fn open_bar_for(shelf: &Option<Shelf>) -> (Option<Arc<Bar>>, Option<String>) {
     let Some(shelf) = shelf.as_ref() else {
         return (None, Some(no_shelf_to_search()));
     };
@@ -1336,7 +1585,7 @@ fn no_shelf_to_search() -> String {
     )
 }
 
-fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Option<String>) {
+fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Arc<Bar>>, Option<String>) {
     let Some(shelf) = shelf else {
         return (None, Some(no_shelf_to_search()));
     };
@@ -1377,7 +1626,12 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
     // shelf yourself by the name you gave it (G1) and then reads its segments
     // from the root that holds them.
     (
-        Some(Bar::new(index, catalogue, corpus, Some(shelf.personal()))),
+        Some(Arc::new(Bar::new(
+            index,
+            catalogue,
+            corpus,
+            Some(shelf.personal()),
+        ))),
         None,
     )
 }
@@ -1389,14 +1643,14 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
 #[tauri::command(async)]
 fn shelf_tree(shared: tauri::State<'_, Shared>) -> Result<Vec<Branch>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(shelf.tree())
 }
 
 #[tauri::command(async)]
 fn shelf_works(shared: tauri::State<'_, Shared>, key: String) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(shelf.works_on(&key).into_iter().map(Card::of).collect())
 }
 
@@ -1420,7 +1674,7 @@ fn shelf_works(shared: tauri::State<'_, Shared>, key: String) -> Result<Vec<Card
 #[tauri::command(async)]
 fn titles(shared: tauri::State<'_, Shared>, slugs: Vec<String>) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(slugs
         .iter()
         .filter_map(|slug| shelf.work(slug))
@@ -1483,8 +1737,7 @@ fn shelf_make(
     title: String,
 ) -> Result<String, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let mut made = String::new();
     shelf
         .edit(|a| {
@@ -1505,38 +1758,99 @@ fn shelf_reset(shared: tauri::State<'_, Shared>) -> Result<(), String> {
     })
 }
 
+/// What a drop reports itself on. See [`DropProgress`].
+const DROP_EVENT: &str = "add-mine";
+
 /// Files dropped on the window become seforim.
+///
+/// # Why the loop is not under the lock
+///
+/// It was, and it is the drag-and-drop path — so by definition the reader is
+/// at the window watching, and by definition `paths.len()` is whatever they
+/// selected. Copying each file in, parsing it and writing its segments back
+/// out is the whole of the cost and **none** of it needs the shelf:
+/// `girsa_app::shelf::read_mine` takes the personal root and a path, which is
+/// why it could be split off at all. What needs the shelf is `took_mine` —
+/// three in-memory writes — and that is all the lock is now held for, once per
+/// file rather than once per drop.
+///
+/// The reader is told which file is being read as it goes, on [`DROP_EVENT`],
+/// because a window that goes quiet for a large drop and then says everything
+/// at once is a window that looked broken for the duration.
 #[tauri::command(async)]
-fn add_mine(shared: tauri::State<'_, Shared>, paths: Vec<String>) -> Result<Dropped, String> {
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+fn add_mine(
+    app: tauri::AppHandle,
+    shared: tauri::State<'_, Shared>,
+    paths: Vec<String>,
+) -> Result<Dropped, String> {
+    use tauri::Emitter;
+    // Where your layer is, and nothing else out of the state.
+    let (personal, bar) = {
+        let state = shared.lock().map_err(|_| State::poisoned())?;
+        let shelf = state.shelf()?;
+        (shelf.personal().to_path_buf(), state.bar.clone())
+    };
 
     let mut added = Vec::new();
     let mut refused = Vec::new();
-    let mut fresh = Vec::new();
-    for path in paths {
+    let of = paths.len() as u64;
+    for (n, path) in paths.into_iter().enumerate() {
         let file = PathBuf::from(&path);
-        match shelf.add_mine(&file, None) {
-            Ok(slug) => {
-                if let Some(work) = shelf.work(&slug) {
-                    added.push(Card::of(work));
-                }
-                fresh.push(slug);
+        let _ = app.emit(
+            DROP_EVENT,
+            girsa_app::view::DropProgress {
+                doing: "read",
+                what: file
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(path.as_str())
+                    .to_string(),
+                done: n as u64,
+                of,
+            },
+        );
+        // No lock held. This is the copy and the parse.
+        let read = match girsa_app::shelf::read_mine(&personal, &file, None) {
+            Ok(read) => read,
+            Err(e) => {
+                refused.push(Refusal {
+                    file: path,
+                    why: e.to_string(),
+                });
+                continue;
             }
-            Err(e) => refused.push(Refusal {
-                file: path,
-                why: e.to_string(),
-            }),
+        };
+        let slug = {
+            let mut state = shared.lock().map_err(|_| State::poisoned())?;
+            let mut shelf = state.shelf_mut()?;
+            let slug = shelf.took_mine(read);
+            if let Some(work) = shelf.work(&slug) {
+                added.push(Card::of(work));
+            }
+            slug
+        };
+        // Searchable now rather than at the next build (W11). A dropped
+        // handout is a few dozen segments; a PDF is pages with no words in
+        // them until it is OCR'd, and going in empty is what makes the results
+        // header able to count it as *not searchable yet* rather than leaving
+        // the sefer absent entirely.
+        //
+        // Off the lock as well: absorbing a work is a tantivy commit, and a
+        // commit per dropped file is exactly the shape that must not be
+        // serialised against the scroll handler.
+        if let Some(bar) = bar.as_ref() {
+            make_searchable(bar, &personal, &slug);
         }
     }
-    // Searchable now rather than at the next build (W11). A dropped handout is
-    // a few dozen segments; a PDF is pages with no words in them until it is
-    // OCR'd, and going in empty is what makes the results header able to count
-    // it as *not searchable yet* rather than leaving the sefer absent entirely.
-    for slug in fresh {
-        state.searchable(&slug);
-    }
+    let _ = app.emit(
+        DROP_EVENT,
+        girsa_app::view::DropProgress {
+            doing: "done",
+            what: String::new(),
+            done: of,
+            of,
+        },
+    );
     Ok(Dropped { added, refused })
 }
 
@@ -1545,15 +1859,14 @@ fn edit_shelf(
     change: impl FnOnce(&mut girsa_app::Arrangement) -> Result<(), girsa_app::arrangement::Refused>,
 ) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     shelf.edit(change).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Companion>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(shelf.companions(&slug))
 }
 
@@ -1568,6 +1881,7 @@ fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Comp
 /// The mefarshim on one sefer, and what the reader has ticked.
 #[tauri::command(async)]
 fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
+    hold_marks(&shared, &slug)?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     mefarshim_of(&mut state, &slug)
 }
@@ -1599,9 +1913,9 @@ fn mefarshim_of(state: &mut State, slug: &str) -> Result<Mefarshim, String> {
     // `Session::alongside`, and the Shulchan Arukh HaRav, which is the case that
     // needs them.
     let mine = state.session.alongside_of(&slug);
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(Mefarshim::of(
-        shelf, &marks, &slug, &chosen, language, &mine,
+        &shelf, &marks, &slug, &chosen, language, &mine,
     ))
 }
 
@@ -1683,6 +1997,7 @@ fn mefarshim_at(
     at: String,
 ) -> Result<Comments, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    hold_marks(&shared, &slug)?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
     let shemos = state.session.shemos;
@@ -1724,17 +2039,32 @@ fn mefarshim_at(
             girsa_app::view::only_when_it_changes(&mut lines);
             lines
         };
-        let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
+        // Named out of the shelf, in a scope of its own: `state.reading` above
+        // takes `&mut state`, so a guard that spanned the loop body would be a
+        // borrow error — which is the borrow checker saying the same thing
+        // this file says in prose, that a lock is held for the line it is
+        // needed on and not for the block around it.
+        let (he_title, en_title, address) = {
+            let shelf = state.shelf()?;
+            shelf.work(&one.work).map_or_else(
+                || (one.work.clone(), one.work.clone(), one.at.address()),
+                |w| {
+                    (
+                        w.he_title.clone(),
+                        w.en_title.clone(),
+                        // `רש״י על ברכות 2a:8:1` was the header on the release
+                        // build. The address a mefaresh's block carries is the
+                        // same kind of thing as the one in the margin, and it
+                        // goes through the same formatter.
+                        girsa_app::sending::printed_address(w, &one.at, style),
+                    )
+                },
+            )
+        };
         said.push(Said {
-            he_title: named.map_or_else(|| one.work.clone(), |w| w.he_title.clone()),
-            en_title: named.map_or_else(|| one.work.clone(), |w| w.en_title.clone()),
-            // `רש״י על ברכות 2a:8:1` was the header on the release build. The
-            // address a mefaresh's block carries is the same kind of thing as
-            // the one in the margin, and it goes through the same formatter.
-            address: named.map_or_else(
-                || one.at.address(),
-                |w| girsa_app::sending::printed_address(w, &one.at, style),
-            ),
+            he_title,
+            en_title,
+            address,
             work: one.work,
             lines,
         });
@@ -1760,6 +2090,7 @@ const A_WINDOW: usize = 600;
 
 #[tauri::command(async)]
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
+    hold(&shared, &slug)?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
     let shemos = state.session.shemos;
@@ -1815,6 +2146,7 @@ fn sefer_lines(
     from: usize,
     count: usize,
 ) -> Result<Vec<Line>, String> {
+    hold(&shared, &slug)?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
     let shemos = state.session.shemos;
@@ -1846,6 +2178,7 @@ fn sefer_contents(
     shared: tauri::State<'_, Shared>,
     slug: String,
 ) -> Result<Vec<girsa_app::contents::Entry>, String> {
+    hold(&shared, &slug)?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let style = state.session.cite;
     let (sefer, _) = state.reading(&slug)?;
@@ -1865,9 +2198,57 @@ fn sefer_index_of(
     at: String,
 ) -> Result<Option<usize>, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    hold(&shared, &slug)?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let sefer = state.sefer(&slug)?;
     Ok(sefer.position_of(&at))
+}
+
+/// The same question about many segments at once.
+///
+/// # Why there are two of these
+///
+/// [`sefer_index_of`] answers about one place, and its three callers in the
+/// window are each a single reader action — clicking a search hit, following a
+/// link — where one round trip is one round trip.
+///
+/// *Next highlight* is not that. `goToNextPlace` asked for every mark in the
+/// sefer, one at a time, on every press of the key: a reader with 200
+/// highlights in Mishnah Berurah paid 200 serialised IPC calls to answer
+/// *which is the next one*, and paid them again on the next press. The marks
+/// that miss the pane's own table are exactly the ones outside the window of
+/// lines it is holding, which on a long sefer is most of them.
+///
+/// The answers come back **in the order they were asked**, one slot per
+/// question, so a caller can zip them against its own list. `None` in a slot is
+/// *this sefer does not have that segment*, the same real answer the single
+/// version gives — and an id that will not parse is `None` too rather than a
+/// refusal for the whole batch, because one bad mark should not cost the
+/// reader the other 199.
+///
+/// `linksview.ts` already had the shape (`api.linkWords` takes an array); this
+/// is the same idea one file over.
+///
+/// # Errors
+///
+/// If there is no shelf, or the sefer will not read.
+#[tauri::command(async)]
+fn sefer_indices_of(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    ats: Vec<String>,
+) -> Result<Vec<Option<usize>>, String> {
+    hold(&shared, &slug)?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let sefer = state.sefer(&slug)?;
+    Ok(ats
+        .iter()
+        .map(|at| {
+            at.parse::<SegmentId>()
+                .ok()
+                .and_then(|at| sefer.position_of(&at))
+        })
+        .collect())
 }
 
 // ── Scans (spec.md §6.3, BUILDER.md W25) ────────────────────────────────────
@@ -1880,13 +2261,13 @@ fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, Stri
     // Where this scan was left last time. Looked up here rather than worked out
     // in the window from the id it remembered, for the reason in `page_of_id`.
     let left = state.session.positions.get(&slug).cloned();
-    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let shelf = state.shelf()?;
     let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+    let scan = girsa_app::scan_of(&shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
     let at = left
         .and_then(|id| girsa_app::scanning::page_of_id(sefer, &id))
         .unwrap_or(1);
-    Ok(view_of(shelf, sefer, &scan, at))
+    Ok(view_of(&shelf, sefer, &scan, at))
 }
 
 // ---------------------------------------------------------------------------
@@ -1911,12 +2292,10 @@ fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, Stri
 fn scan_reading(shared: tauri::State<'_, Shared>, slug: String) -> Result<ReadingRow, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
-    let personal = state
-        .shelf
-        .as_ref()
-        .ok_or("there is no shelf here")?
-        .personal()
-        .to_path_buf();
+    let personal = {
+        let shelf = state.shelf()?;
+        shelf.personal().to_path_buf()
+    };
     let sefer = state.open.peek(&slug).ok_or("not open")?;
     let pages = girsa_app::scanning::pages_of(sefer);
     // Held, not re-opened. `Words::open` parses the whole log to answer about
@@ -1949,7 +2328,7 @@ fn scan_read_page(
     // personal path itself is `State::words`'s to find now.
     {
         let state = shared.lock().map_err(|_| State::poisoned())?;
-        state.shelf.as_ref().ok_or("there is no shelf here")?;
+        let _shelf = state.shelf()?;
     }
     if width <= 0.0 || height <= 0.0 {
         return Err(girsa_app::trouble::refuse(
@@ -2006,12 +2385,9 @@ fn scan_ocr_page(
 ) -> Result<ReadingRow, String> {
     let personal = {
         let state = shared.lock().map_err(|_| State::poisoned())?;
-        state
-            .shelf
-            .as_ref()
-            .ok_or("there is no shelf here")?
-            .personal()
-            .to_path_buf()
+        let shelf = state.shelf()?;
+        let personal = shelf.personal().to_path_buf();
+        personal
     };
     let engine = girsa_scan::Tesseract::found(Some(&personal))
         .ok_or_else(|| girsa_scan::EngineError::NoEngine.to_string())?;
@@ -2126,9 +2502,11 @@ fn scan_mark(
         let mut mark = girsa_note::Mark::on_ink(at, ink, was, &who);
         mark.label = label;
         mark.colour = colour;
-        let trouble = state.trouble();
-        let shelf = state.shelf.as_mut().ok_or(trouble)?;
-        shelf.marks_mut().add(mark).map_err(|e| e.to_string())?;
+        state
+            .shelf_mut()?
+            .marks_mut()
+            .add(mark)
+            .map_err(|e| e.to_string())?;
     }
     scan_marks(shared, slug, page)
 }
@@ -2147,7 +2525,7 @@ fn scan_marks(
             .ok_or_else(|| format!("{slug} has no page {page}"))?
     };
     let read = state.words(&slug)?.page(page);
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     let standing = girsa_corpus::standing::Standing::just(at);
     let rows = shelf
         .marks()
@@ -2195,13 +2573,13 @@ fn scan_marks(
 #[tauri::command(async)]
 fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let shelf = state.shelf()?;
     let personal = shelf.personal().to_path_buf();
     // Where the index is, if it is anywhere: two of the three gaps are *since the
     // index was built*, so a window that cannot find one has a bigger gap to
     // report, not a smaller one.
     let index = girsa_app::find_index(shelf.root()).ok();
-    let gap = girsa_app::reading::gap(shelf, &personal, index.as_deref());
+    let gap = girsa_app::reading::gap(&shelf, &personal, index.as_deref());
     // Through `Unseen` rather than `Gap::said` directly: the window's header and
     // the MCP server's `did_not_search` are one sentence with one separator, and
     // the lane clause is one argument away from belonging here too.
@@ -2264,13 +2642,13 @@ fn scan_at(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let style = state.session.cite;
     state.sefer(&slug)?;
-    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let shelf = state.shelf()?;
     let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+    let scan = girsa_app::scan_of(&shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
 
     // A scan whose sefer is not on the shelf still shows its pages; what it
     // cannot do is print a mekor naming a sefer nobody here has.
-    let sent = girsa_app::scanning::naming(shelf, &scan)
+    let sent = girsa_app::scanning::naming(&shelf, &scan)
         .ok()
         .and_then(|naming| girsa_app::mareh_makom(&scan, page, &naming, &sefer.work, style));
     Ok(PageSaid {
@@ -2306,10 +2684,12 @@ fn scan_map(
     let paging = girsa_scan::Paging::declare(of, scheme, anchors?).map_err(|e| e.to_string())?;
 
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_mut().ok_or("there is no shelf here")?;
-    shelf
-        .declare_paging(&slug, paging)
-        .map_err(|e| e.to_string())?;
+    {
+        let mut shelf = state.shelf_mut()?;
+        shelf
+            .declare_paging(&slug, paging)
+            .map_err(|e| e.to_string())?;
+    }
     // What an address of this sefer means has changed, so the copy held open
     // is out of date (see `Open::paging`).
     state.reread(&slug);
@@ -2321,8 +2701,10 @@ fn scan_map(
 #[tauri::command(async)]
 fn scan_forget(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_mut().ok_or("there is no shelf here")?;
-    shelf.forget_paging(&slug).map_err(|e| e.to_string())?;
+    {
+        let mut shelf = state.shelf_mut()?;
+        shelf.forget_paging(&slug).map_err(|e| e.to_string())?;
+    }
     state.reread(&slug);
     drop(state);
     scan(shared, slug)
@@ -2341,9 +2723,9 @@ fn scan_page_of(
 ) -> Result<Option<usize>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
-    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let shelf = state.shelf()?;
     let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+    let scan = girsa_app::scan_of(&shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
 
     // A ref pasted in, or a place typed the way a reader writes one. Both are
     // read by `girsa-ref`, which is the one thing in this system that knows
@@ -2368,10 +2750,10 @@ fn scan_copy(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let style = state.session.cite;
     state.sefer(&slug)?;
-    let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
+    let shelf = state.shelf()?;
     let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let scan = girsa_app::scan_of(shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
-    let naming = girsa_app::scanning::naming(shelf, &scan).map_err(|e| e.to_string())?;
+    let scan = girsa_app::scan_of(&shelf, sefer).ok_or_else(|| format!("{slug} is not a scan"))?;
+    let naming = girsa_app::scanning::naming(&shelf, &scan).map_err(|e| e.to_string())?;
     let sent =
         girsa_app::mareh_makom(&scan, page, &naming, &sefer.work, style).ok_or_else(|| {
             format!("there is nothing printed on page {page} that a mekor could name")
@@ -2431,9 +2813,7 @@ fn fix(
     };
     let was = patch.was.clone();
 
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    shelf.fix(patch).map_err(|e| e.to_string())?;
+    state.shelf_mut()?.fix(patch).map_err(|e| e.to_string())?;
     state.reread(&slug);
 
     let (sefer, lexicon) = state.reading(&slug)?;
@@ -2462,9 +2842,8 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
     let style = state.session.cite;
     let slug = at.work().to_string();
 
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    let gone = shelf
+    let gone = state
+        .shelf_mut()?
         .unfix(&girsa_fix::PatchId::from(patch))
         .map_err(|e| e.to_string())?;
     if !gone {
@@ -2500,8 +2879,7 @@ fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), 
         girsa_fix::Showing::named(&showing).ok_or_else(|| format!("no such setting: {showing}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.showing = showing;
-    let trouble = state.trouble();
-    state.shelf.as_mut().ok_or(trouble)?.set_showing(showing);
+    state.shelf_mut()?.set_showing(showing);
     state.reread_everything();
     state.save();
     Ok(())
@@ -2512,8 +2890,8 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
     let state = shared.lock().map_err(|_| State::poisoned())?;
     // A patch row is a row about a place, like a hit and like a lane result —
     // and it was the fifth to work out a title and an address for itself.
-    let names = state.names().ok_or_else(|| state.trouble())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
+    let names = state.names(&shelf);
     let mut rows: Vec<PatchRow> = shelf
         .fixes()
         .all()
@@ -2578,14 +2956,14 @@ fn links(
     };
 
     let language = state.session.language;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let touching = girsa_app::touching(shelf, shelf.repairs(), &standing);
+    let shelf = state.shelf()?;
+    let touching = girsa_app::touching(&shelf, shelf.repairs(), &standing);
     let mut links = touching.links;
 
     // The words each link is about, where anything says — and the far end's
     // text is only consulted for seforim that are **already open**.
     for link in &mut links {
-        let far = state.open.peek(&link.work);
+        let far = state.open.peek(&link.work).map(AsRef::as_ref);
         link.span = girsa_app::links::span_on(link, &at, &base, &anchors, far, pointing);
     }
     if let (Some(from), Some(to)) = (from_char, to_char) {
@@ -2593,13 +2971,16 @@ fn links(
             links = girsa_app::links::touching_words(links, from..to);
         }
     }
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    // The guard taken above, not a second one. Shadowing it would have kept
+    // both alive to the end of the function, and a read-read reentry on one
+    // thread is how `std::sync::RwLock` deadlocks the moment a writer queues
+    // between them.
     let (lenses, trouble) = girsa_app::Lenses::load(shelf.personal());
     if let Some(said) = trouble {
         eprintln!("{said}");
     }
     if let Some(key) = lens.as_deref() {
-        links = lenses.through(key, shelf, links);
+        links = lenses.through(key, &shelf, links);
     }
 
     Ok(Links {
@@ -2642,11 +3023,10 @@ fn link_pin(
         ));
     }
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
     // Every work the chain holds went through the repair layer as it stood
     // when it was read, and this is about to change it. See `State::chains`.
     state.chains = girsa_link::chain::Cache::default();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let who = girsa_app::who();
     shelf
         .repairs_mut()
@@ -2688,11 +3068,10 @@ fn link_repair(
 ) -> Result<(), String> {
     use girsa_link::repair::Verdict;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
     // Every work the chain holds went through the repair layer as it stood
     // when it was read, and this is about to change it. See `State::chains`.
     state.chains = girsa_link::chain::Cache::default();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let who = girsa_app::who();
     let repairs = shelf.repairs_mut();
     match does.as_str() {
@@ -2745,11 +3124,10 @@ fn link_reanchor(
         }
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
     // Every work the chain holds went through the repair layer as it stood
     // when it was read, and this is about to change it. See `State::chains`.
     state.chains = girsa_link::chain::Cache::default();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let who = girsa_app::who();
     shelf
         .repairs_mut()
@@ -2775,11 +3153,10 @@ fn link_draw(
     let edge_type = girsa_link::touching::type_named(&kind)
         .ok_or_else(|| refuse(Code::NoSuch, format_args!("no such link type: {kind}")))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
     // Every work the chain holds went through the repair layer as it stood
     // when it was read, and this is about to change it. See `State::chains`.
     state.chains = girsa_link::chain::Cache::default();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let who = girsa_app::who();
     shelf
         .repairs_mut()
@@ -2832,38 +3209,46 @@ fn export_sefer(
 ) -> Result<Written, String> {
     let format =
         girsa_export::Format::named(&format).ok_or_else(|| format!("no such format: {format}"))?;
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let pointing = state.session.pointing;
-    let shemos = state.session.shemos;
-    let showing = state.session.showing;
-    let personal = state
-        .shelf
-        .as_ref()
-        .ok_or_else(|| state.trouble())?
-        .personal()
-        .to_path_buf();
-    // Remembered, so the next export opens where the last one went.
-    if let Some(chosen) = into.as_ref().filter(|p| !p.trim().is_empty()) {
-        state.session.export_into = Some(chosen.clone());
-        state.save();
-    }
-    let folder = state
-        .session
-        .export_into
-        .clone()
-        .map_or_else(|| personal.join("exports"), PathBuf::from);
-
-    // The sefer as it is being read — corrections already applied, because
-    // that is what `Open` is (W20). Nothing is applied here.
-    let sefer = state.sefer(&slug)?;
-    let to = folder.join(girsa_export::suggested_name(sefer, format));
-    let fixes = state
-        .shelf
-        .as_ref()
-        .ok_or("there is no shelf here")?
-        .fixes();
-    let sefer = state.open.peek(&slug).ok_or("not open")?;
-    let done = girsa_export::export(sefer, fixes, format, pointing, shemos, &to)
+    // **Everything the write needs, gathered under the lock; the write itself
+    // outside it.** A sefer is up to 17,418 segments and `session.export_into`
+    // is a folder the reader chose — which may be a network share or a stick
+    // they can pull out — so the duration of this file write is not something
+    // this process gets to bound. Holding the one state lock across it stops
+    // the daf beside it scrolling for however long that turns out to be.
+    let (sefer, fixes, to, showing, pointing, shemos) = {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        let showing = state.session.showing;
+        let pointing = state.session.pointing;
+        let shemos = state.session.shemos;
+        let personal = {
+            let shelf = state.shelf()?;
+            shelf.personal().to_path_buf()
+        };
+        // Remembered, so the next export opens where the last one went.
+        if let Some(chosen) = into.as_ref().filter(|p| !p.trim().is_empty()) {
+            state.session.export_into = Some(chosen.clone());
+            state.save();
+        }
+        let folder = state
+            .session
+            .export_into
+            .clone()
+            .map_or_else(|| personal.join("exports"), PathBuf::from);
+        // The sefer as it is being read — corrections already applied, because
+        // that is what `Open` is (W20). Nothing is applied here.
+        //
+        // One lookup, not two. This asked `state.sefer` to load it and then
+        // `state.open.peek` to borrow it back, because the first borrow ruled
+        // out reading the shelf in between; a handle rules out nothing.
+        let sefer = state.held(&slug)?;
+        let to = folder.join(girsa_export::suggested_name(&sefer, format));
+        let fixes = {
+            let shelf = state.shelf()?;
+            shelf.fixes().clone()
+        };
+        (sefer, fixes, to, showing, pointing, shemos)
+    };
+    let done = girsa_export::export(&sefer, &fixes, format, pointing, shemos, &to)
         .map_err(|e| e.to_string())?;
     Ok(Written {
         said: format!(
@@ -2942,9 +3327,9 @@ fn chain_walk(
         ..girsa_link::chain::Limits::default()
     };
     let (chain, kept) = {
-        let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+        let shelf = state.shelf()?;
         let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
-        let names = state.names().ok_or_else(|| state.trouble())?;
+        let names = state.names(&shelf);
         let mut graph =
             girsa_link::chain::Graph::resuming(shelf.root(), timeline, shelf.repairs(), held);
         let chain = girsa_app::chaining::walk(&mut graph, &names, &at, direction, limits);
@@ -2964,9 +3349,9 @@ fn chain_forks(
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let held = std::mem::take(&mut state.chains);
     let (forked, kept) = {
-        let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+        let shelf = state.shelf()?;
         let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
-        let names = state.names().ok_or_else(|| state.trouble())?;
+        let names = state.names(&shelf);
         let mut graph =
             girsa_link::chain::Graph::resuming(shelf.root(), timeline, shelf.repairs(), held);
         let forked = girsa_app::chaining::forked(
@@ -2990,36 +3375,43 @@ fn chain_forks(
 /// before it ran.
 #[tauri::command(async)]
 fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<SuspectRow>, String> {
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let names = state.names().ok_or_else(|| state.trouble())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let (queue, trouble) = girsa_fix::suspect::Queue::open(shelf.personal());
+    // The parse first, with no lock held. The queue is 28,124 lines on the
+    // real corpus and it is re-read every time the drawer opens — see the note
+    // above — so this is the one long read in the command and it needs the
+    // personal path and nothing else out of the state.
+    let personal = personal_of(&shared)?;
+    let (queue, trouble) = girsa_fix::suspect::Queue::open(&personal);
     for line in trouble {
         eprintln!("{line}");
     }
-    let rows = queue
-        .ranked(limit.clamp(1, 500))
-        .into_iter()
-        .map(|suspect| {
-            let at = suspect.places.first();
-            SuspectRow {
-                id: suspect.id.clone(),
-                rare: suspect.rare.clone(),
-                common: suspect.common.clone(),
-                rare_count: suspect.rare_count,
-                common_count: suspect.common_count,
-                confusion: suspect.confusion.clone(),
-                how: suspect.how.as_str(),
-                at: at.map(ToString::to_string),
-                work: at.map(|id| id.work().to_string()),
-                // The sixth. `Names::of` falls back to the slug rather than to
-                // `None`, so a suspect in a sefer the catalogue has not caught
-                // up with now draws a row with a name on it.
-                title: at.map(|id| names.of(id).title),
-                address: at.map(girsa_corpus::segment::SegmentId::address),
-            }
-        })
-        .collect();
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let rows: Vec<SuspectRow> = {
+        let shelf = state.shelf()?;
+        let names = state.names(&shelf);
+        queue
+            .ranked(limit.clamp(1, 500))
+            .into_iter()
+            .map(|suspect| {
+                let at = suspect.places.first();
+                SuspectRow {
+                    id: suspect.id.clone(),
+                    rare: suspect.rare.clone(),
+                    common: suspect.common.clone(),
+                    rare_count: suspect.rare_count,
+                    common_count: suspect.common_count,
+                    confusion: suspect.confusion.clone(),
+                    how: suspect.how.as_str(),
+                    at: at.map(ToString::to_string),
+                    work: at.map(|id| id.work().to_string()),
+                    // The sixth. `Names::of` falls back to the slug rather than to
+                    // `None`, so a suspect in a sefer the catalogue has not caught
+                    // up with now draws a row with a name on it.
+                    title: at.map(|id| names.of(id).title),
+                    address: at.map(girsa_corpus::segment::SegmentId::address),
+                }
+            })
+            .collect()
+    };
     state.queue = Some(queue);
     Ok(rows)
 }
@@ -3042,8 +3434,14 @@ fn suspect_at(
     at: String,
 ) -> Result<Standing, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
+    // The same 28,124-line read `suspects` does, and off the lock for the same
+    // reason.
+    let personal = personal_of(&shared)?;
+    let (queue, _) = girsa_fix::suspect::Queue::open(&personal);
+    let suspect = queue.get(&id).ok_or("there is no such candidate")?.clone();
+
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let pointing = state.session.pointing;
+    state.queue = Some(queue);
     // **No `shemos` here, and that is deliberate.** This is the correction
     // path: what it shows the reader is the word as the corpus has it, and
     // what they type goes back into their own layer as a claim about that
@@ -3051,10 +3449,7 @@ fn suspect_at(
     // reader to write a substitution into the corpus, which is the one place
     // this setting must not reach. `girsa_app::fixing` is silent about it for
     // the same reason.
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let (queue, _) = girsa_fix::suspect::Queue::open(shelf.personal());
-    let suspect = queue.get(&id).ok_or("there is no such candidate")?.clone();
-    state.queue = Some(queue);
+    let pointing = state.session.pointing;
 
     // Which page of the file, if this is a page at all. Counted through the
     // pages rather than read off the ordinal, because a page that was split by
@@ -3150,18 +3545,19 @@ fn suspect_decide(
             ))
         }
     };
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let personal = state
-        .shelf
-        .as_ref()
-        .ok_or_else(|| state.trouble())?
-        .personal()
-        .to_path_buf();
-    let mut queue = match state.queue.take() {
-        Some(queue) => queue,
-        None => girsa_fix::suspect::Queue::open(&personal).0,
+    // Take the held queue if there is one; read it off disk if there is not,
+    // and do that read with nothing locked.
+    let held = {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        state.queue.take()
     };
+    let mut queue = match held {
+        Some(queue) => queue,
+        None => girsa_fix::suspect::Queue::open(&personal_of(&shared)?).0,
+    };
+    // `decide` appends to the decisions log, which is a file write.
     let known = queue.decide(&id, decision).map_err(|e| e.to_string())?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.queue = Some(queue);
     if known {
         Ok(())
@@ -3233,17 +3629,15 @@ fn copy(
 
 #[tauri::command(async)]
 fn buffers(shared: tauri::State<'_, Shared>) -> Result<Vec<String>, String> {
-    let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    Ok(girsa_desk::Buffer::list(shelf.personal()))
+    let personal = personal_of(&shared)?;
+    Ok(girsa_desk::Buffer::list(&personal))
 }
 
 #[tauri::command(async)]
 fn buffer_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Writing, String> {
-    let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let buffer = girsa_desk::Buffer::open(shelf.personal(), &name).map_err(|e| e.to_string())?;
-    let path = girsa_desk::Buffer::path(shelf.personal(), &name).map_err(|e| e.to_string())?;
+    let personal = personal_of(&shared)?;
+    let buffer = girsa_desk::Buffer::open(&personal, &name).map_err(|e| e.to_string())?;
+    let path = girsa_desk::Buffer::path(&personal, &name).map_err(|e| e.to_string())?;
     Ok(Writing {
         name: buffer.name,
         text: buffer.text,
@@ -3257,12 +3651,11 @@ fn buffer_save(
     name: String,
     text: String,
 ) -> Result<String, String> {
-    let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let personal = personal_of(&shared)?;
     let mut buffer = girsa_desk::Buffer::new(name);
     buffer.text = text;
     Ok(buffer
-        .save(shelf.personal())
+        .save(&personal)
         .map_err(|e| e.to_string())?
         .display()
         .to_string())
@@ -3376,12 +3769,10 @@ fn who_cites(
 ) -> Result<Vec<girsa_desk::Citing>, String> {
     let place: girsa_ref::Ref = reference.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let personal = state
-        .shelf
-        .as_ref()
-        .ok_or_else(|| state.trouble())?
-        .personal()
-        .to_path_buf();
+    let personal = {
+        let shelf = state.shelf()?;
+        shelf.personal().to_path_buf()
+    };
     let documents = state.documents(&personal);
     Ok(girsa_desk::who_cites(&personal, documents, &place))
 }
@@ -3556,14 +3947,14 @@ fn open_set(shared: tauri::State<'_, Shared>) -> Result<Vec<OpenSefer>, String> 
         .active_tab()
         .and_then(|tab| tab.pane(tab.focused))
         .map(|pane| pane.slug.clone());
-    let shelf = state.shelf.as_ref();
+    let shelf = state.shelf().ok();
     Ok(state
         .session
         .workspace
         .open_set()
         .into_iter()
         .map(|slug| {
-            let named = shelf.and_then(|s| s.work(&slug));
+            let named = shelf.as_ref().and_then(|s| s.work(&slug));
             OpenSefer {
                 title: named.map_or_else(
                     || slug.clone(),
@@ -4024,35 +4415,37 @@ fn sefer_find(
     slug: String,
     query: String,
 ) -> Result<FoundHere, String> {
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let pointing = state.session.pointing;
-    let shemos = state.session.shemos;
-    let style = state.session.cite;
-
-    // The scope is this sefer, replaced on every ask. It is the one chip a
-    // reader cannot set here, because setting it is what would stop this being
-    // a find.
-    state.here_chips.scope = girsa_search::scope::Scope::everything()
-        .only([slug.clone()], girsa_app::inside::THIS_SEFER);
-    let chips = state.here_chips.clone();
-    if query.trim().is_empty() {
-        // The same rule the panel has: an empty box is not a refusal. The bar
-        // asks with `""` to draw its chip row before anything is typed.
-        return Ok(FoundHere {
-            places: Vec::new(),
-            total: 0,
-            chips: chips.row(),
-            refused: None,
-        });
-    }
-    let Some(bar) = state.bar.as_ref() else {
-        let why = state.no_search();
-        return Ok(FoundHere {
-            places: Vec::new(),
-            total: 0,
-            chips: chips.row(),
-            refused: Some(why),
-        });
+    // The find bar runs on every keystroke, so it is the *last* place that
+    // should hold the state lock across an engine call. Chips out, guard
+    // down, ask, then back in to draw. See `find` for the whole argument.
+    let (chips, bar) = {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        // The scope is this sefer, replaced on every ask. It is the one chip a
+        // reader cannot set here, because setting it is what would stop this
+        // being a find.
+        state.here_chips.scope = girsa_search::scope::Scope::everything()
+            .only([slug.clone()], girsa_app::inside::THIS_SEFER);
+        let chips = state.here_chips.clone();
+        if query.trim().is_empty() {
+            // The same rule the panel has: an empty box is not a refusal. The
+            // bar asks with `""` to draw its chip row before anything is typed.
+            return Ok(FoundHere {
+                places: Vec::new(),
+                total: 0,
+                chips: chips.row(),
+                refused: None,
+            });
+        }
+        let Some(bar) = state.bar.clone() else {
+            let why = state.no_search();
+            return Ok(FoundHere {
+                places: Vec::new(),
+                total: 0,
+                chips: chips.row(),
+                refused: Some(why),
+            });
+        };
+        (chips, bar)
     };
     let answer = bar.ask(
         &query,
@@ -4083,6 +4476,10 @@ fn sefer_find(
         // search panel, which is where a citation belongs, is one key away.
         Answer::Cited(_) => (Vec::new(), None),
     };
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let pointing = state.session.pointing;
+    let shemos = state.session.shemos;
+    let style = state.session.cite;
     let (sefer, _) = state.reading(&slug)?;
     let found = girsa_app::inside::where_marked(sefer, &hits, pointing, shemos, style);
     Ok(FoundHere {
@@ -4133,7 +4530,7 @@ fn luach(
         hour,
         state.session.day_turns_at,
     );
-    if let Some(shelf) = state.shelf.as_ref() {
+    if let Ok(shelf) = state.shelf() {
         for limud in luach.today.iter_mut().chain(luach.tomorrow.iter_mut()) {
             limud.here = shelf.work(&limud.slug).is_some();
         }
@@ -4428,7 +4825,7 @@ fn lane_ask(
     limit: Option<usize>,
 ) -> Result<LaneAnswer, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     let lane = state.lane.as_ref().ok_or_else(|| state.trouble())?;
     // Scoped by the same chip the literal search is scoped by, so *the whole
     // shelf* and *this sefer* mean the same thing in both columns.
@@ -4436,7 +4833,7 @@ fn lane_ask(
     // The same `Names` the search column uses, so the two columns beside each
     // other cannot call one sefer by two names.
     let names = girsa_app::Names::new(
-        shelf,
+        &shelf,
         state.timeline.as_ref(),
         state.session.language,
         state.session.cite,
@@ -4478,7 +4875,11 @@ fn lane_set(
     // Two disjoint fields: the shelf read, the lane written. Taken apart by
     // hand because a method on `State` would borrow the whole of it.
     let State { shelf, lane, .. } = &mut *state;
-    let shelf = shelf.as_ref().ok_or(no_shelf)?;
+    let shelf = shelf
+        .as_ref()
+        .ok_or(no_shelf)?
+        .read()
+        .map_err(|_| State::poisoned())?;
     let lane = lane.as_mut().ok_or("there is no lane here")?;
     let was = lane.lane().settings().clone();
     let settings = girsa_lane::Settings {
@@ -4486,7 +4887,9 @@ fn lane_set(
         model: model.map(PathBuf::from).or(was.model),
         may_fetch: was.may_fetch,
     };
-    lane.set(settings, shelf).map_err(|e| e.to_string())?;
+    let done = lane.set(settings, &shelf).map_err(|e| e.to_string());
+    drop(shelf);
+    done?;
     lane_row(&state)
 }
 
@@ -4502,13 +4905,19 @@ fn lane_allow_fetch(shared: tauri::State<'_, Shared>, allow: bool) -> Result<Lan
     // Two disjoint fields: the shelf read, the lane written. Taken apart by
     // hand because a method on `State` would borrow the whole of it.
     let State { shelf, lane, .. } = &mut *state;
-    let shelf = shelf.as_ref().ok_or(no_shelf)?;
+    let shelf = shelf
+        .as_ref()
+        .ok_or(no_shelf)?
+        .read()
+        .map_err(|_| State::poisoned())?;
     let lane = lane.as_mut().ok_or("there is no lane here")?;
     let settings = girsa_lane::Settings {
         may_fetch: allow,
         ..lane.lane().settings().clone()
     };
-    lane.set(settings, shelf).map_err(|e| e.to_string())?;
+    let done = lane.set(settings, &shelf).map_err(|e| e.to_string());
+    drop(shelf);
+    done?;
     lane_row(&state)
 }
 
@@ -4557,13 +4966,14 @@ fn lane_bring(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
                 // the directory they never chose would be a joke.
                 if let Ok(mut state) = tauri::Manager::state::<Shared>(&app).lock() {
                     let State { shelf, lane, .. } = &mut *state;
-                    if let (Some(shelf), Some(lane)) = (shelf.as_ref(), lane.as_mut()) {
+                    let shelf = shelf.as_ref().and_then(|s| s.read().ok());
+                    if let (Some(shelf), Some(lane)) = (shelf, lane.as_mut()) {
                         let settings = girsa_lane::Settings {
                             on: true,
                             model: Some(dir.clone()),
                             may_fetch: true,
                         };
-                        if let Err(e) = lane.set(settings, shelf) {
+                        if let Err(e) = lane.set(settings, &shelf) {
                             eprintln!("the model came in but the setting would not save: {e}");
                         }
                     }
@@ -4599,7 +5009,11 @@ fn lane_choose(
     // Two disjoint fields: the shelf read, the lane written. Taken apart by
     // hand because a method on `State` would borrow the whole of it.
     let State { shelf, lane, .. } = &mut *state;
-    let shelf = shelf.as_ref().ok_or(no_shelf)?;
+    let shelf = shelf
+        .as_ref()
+        .ok_or(no_shelf)?
+        .read()
+        .map_err(|_| State::poisoned())?;
     let lane = lane.as_mut().ok_or("there is no lane here")?;
     let mut chosen = lane.lane().chosen().clone();
     if all {
@@ -4623,7 +5037,9 @@ fn lane_choose(
             ));
         }
     }
-    lane.choose(chosen, shelf).map_err(|e| e.to_string())?;
+    let done = lane.choose(chosen, &shelf).map_err(|e| e.to_string());
+    drop(shelf);
+    done?;
     lane_row(&state)
 }
 
@@ -4638,12 +5054,12 @@ fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
     use tauri::Emitter;
     let (lane, root, slugs, titles, stop) = {
         let state = shared.lock().map_err(|_| State::poisoned())?;
-        let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+        let shelf = state.shelf()?;
         let held = state.lane.as_ref().ok_or("there is no lane here")?;
         if !held.state().is_on() {
             return Err(girsa_lane::LaneError::Off.to_string());
         }
-        let slugs = girsa_nearby::adjacent::in_the_lane(shelf, held.lane().chosen());
+        let slugs = girsa_nearby::adjacent::in_the_lane(&shelf, held.lane().chosen());
         let titles: HashMap<String, String> = slugs
             .iter()
             .map(|slug| {
@@ -4712,8 +5128,9 @@ fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
         // never cached and never guessed at from the counters above.
         if let Ok(mut state) = tauri::Manager::state::<Shared>(&app).lock() {
             let State { shelf, lane, .. } = &mut *state;
-            if let (Some(shelf), Some(held)) = (shelf.as_ref(), lane.as_mut()) {
-                held.refresh(shelf);
+            let shelf = shelf.as_ref().and_then(|s| s.read().ok());
+            if let (Some(shelf), Some(held)) = (shelf, lane.as_mut()) {
+                held.refresh(&shelf);
             }
         }
         let _ = app.emit(
@@ -4762,11 +5179,10 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
     }
 
     let leader_slug = at.work().to_string();
-    let root = state
-        .shelf
-        .as_ref()
-        .map(|s| s.root().to_path_buf())
-        .ok_or_else(|| state.trouble())?;
+    let root = {
+        let shelf = state.shelf()?;
+        shelf.root().to_path_buf()
+    };
 
     let wanted: Vec<(PaneId, String)> = followers
         .iter()
@@ -4801,8 +5217,8 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
         // of nothing, with `Beside::between` reached only in the `else` below —
         // so a scan open beside a Gemara, the case W9 was accepted on, never
         // touched the tested path.
-        if let Some(shelf) = state.shelf.as_ref() {
-            if let Some(scan) = girsa_app::scan_of(shelf, follower) {
+        if let Ok(shelf) = state.shelf() {
+            if let Some(scan) = girsa_app::scan_of(&shelf, follower) {
                 let joined = girsa_app::Joined::over_scan(scan, &leader_slug);
                 let beside = Beside::over(follower, &joined);
                 moves.push(Move {
@@ -4930,7 +5346,7 @@ pub fn run() {
             tauri::Manager::manage(
                 app,
                 Mutex::new(State {
-                    shelf,
+                    shelf: shelf.map(|shelf| Arc::new(std::sync::RwLock::new(shelf))),
                     documents: None,
                     timeline,
                     chains: girsa_link::chain::Cache::default(),
@@ -5001,6 +5417,7 @@ pub fn run() {
             open_sefer,
             sefer_lines,
             sefer_index_of,
+            sefer_indices_of,
             open_tab,
             sefer_contents,
             open_set,
@@ -5205,8 +5622,8 @@ fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> 
         .text()
         .to_string();
 
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let found = girsa_app::yours(shelf, &standing, &drawn);
+    let shelf = state.shelf()?;
+    let found = girsa_app::yours(&shelf, &standing, &drawn);
     Ok(Yours {
         notes: found
             .notes
@@ -5223,7 +5640,7 @@ fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> 
 #[tauri::command(async)]
 fn notes(shared: tauri::State<'_, Shared>) -> Result<Vec<NoteRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     let mut rows: Vec<NoteRow> = shelf.notes().all().map(NoteRow::of).collect();
     girsa_app::view::NoteRow::newest_first(&mut rows);
     Ok(rows)
@@ -5239,11 +5656,12 @@ fn note_write(
 ) -> Result<NoteRow, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = girsa_app::who();
-    let note = girsa_app::note_here(shelf, &at, title.as_deref(), &text, &who)
-        .map_err(|e| e.to_string())?;
+    let note = {
+        let mut shelf = state.shelf_mut()?;
+        girsa_app::note_here(&mut shelf, &at, title.as_deref(), &text, &who)
+            .map_err(|e| e.to_string())?
+    };
     let slug = note.slug.clone();
     state.searchable(&slug);
     Ok(NoteRow::of(&note))
@@ -5253,7 +5671,7 @@ fn note_write(
 #[tauri::command(async)]
 fn note_read(shared: tauri::State<'_, Shared>, note: String) -> Result<Vec<ParaRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     let held = shelf
         .notes()
         .get(&note)
@@ -5287,13 +5705,16 @@ fn note_edit(
     text: Option<String>,
 ) -> Result<Vec<ParaRow>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    let mut held = shelf
-        .notes()
-        .get(&note)
-        .cloned()
-        .ok_or_else(|| format!("there is no note called {note}"))?;
+    // Read out, edited in hand, written back. The shelf is not held open
+    // across the edit: nothing between the two locks touches it.
+    let mut held = {
+        let shelf = state.shelf()?;
+        shelf
+            .notes()
+            .get(&note)
+            .cloned()
+            .ok_or_else(|| format!("there is no note called {note}"))?
+    };
 
     let words = || text.clone().unwrap_or_default();
     let paragraph = |value: &Option<String>| -> Result<SegmentId, String> {
@@ -5347,7 +5768,10 @@ fn note_edit(
             ))
         }
     }
-    let written = shelf.write_note(held).map_err(|e| e.to_string())?;
+    let written = {
+        let mut shelf = state.shelf_mut()?;
+        shelf.write_note(held).map_err(|e| e.to_string())?
+    };
     let rows: Vec<ParaRow> = written
         .paras()
         .iter()
@@ -5368,12 +5792,14 @@ fn note_edit(
 #[tauri::command(async)]
 fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
-    // A note is a sefer, and a sefer that has gone may not stay open in a pane
-    // holding text nothing on the shelf accounts for.
-    let slug = shelf.notes().get(&note).map(|held| held.slug.clone());
-    let gone = shelf.forget_note(&note).map_err(|e| e.to_string())?;
+    let (slug, gone) = {
+        let mut shelf = state.shelf_mut()?;
+        // A note is a sefer, and a sefer that has gone may not stay open in a
+        // pane holding text nothing on the shelf accounts for.
+        let slug = shelf.notes().get(&note).map(|held| held.slug.clone());
+        let gone = shelf.forget_note(&note).map_err(|e| e.to_string())?;
+        (slug, gone)
+    };
     if let Some(slug) = slug {
         state.open.forget(&slug);
         state.unsearchable(&slug);
@@ -5430,8 +5856,7 @@ fn mark_here(
         made = made.coloured(colour);
     }
 
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let held = shelf
         .marks_mut()
         .add(made)
@@ -5445,8 +5870,7 @@ fn mark_here(
 #[tauri::command(async)]
 fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     shelf
         .marks_mut()
         .remove(&girsa_note::MarkId::from(mark))
@@ -5461,6 +5885,7 @@ fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, S
 /// is handed offsets into the text it was already sent, and works nothing out.
 #[tauri::command(async)]
 fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRow>, String> {
+    hold(&shared, &slug)?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
     let shemos = state.session.shemos;
@@ -5482,7 +5907,7 @@ fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRo
             })
             .collect()
     };
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(shelf
         .marks()
         .in_work(&slug)
@@ -5500,7 +5925,7 @@ fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRo
 #[tauri::command(async)]
 fn bookmarks(shared: tauri::State<'_, Shared>) -> Result<Vec<MarkRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(shelf
         .marks()
         .bookmarks()
@@ -5542,8 +5967,7 @@ fn query_keep(
         .within(state.chips.scope.works())
         .excluding(state.chips.scope.excluded_works().iter().cloned());
 
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let held = shelf
         .queries_mut()
         .save(kept)
@@ -5561,7 +5985,7 @@ fn query_keep(
 #[tauri::command(async)]
 fn queries(shared: tauri::State<'_, Shared>) -> Result<Vec<QueryRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     Ok(shelf
         .queries()
         .all()
@@ -5581,12 +6005,14 @@ fn queries(shared: tauri::State<'_, Shared>) -> Result<Vec<QueryRow>, String> {
 #[tauri::command(async)]
 fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let held = shelf
-        .queries()
-        .get(&name)
-        .ok_or_else(|| format!("there is no saved query called {name}"))?
-        .clone();
+    let held = {
+        let shelf = state.shelf()?;
+        shelf
+            .queries()
+            .get(&name)
+            .ok_or_else(|| format!("there is no saved query called {name}"))?
+            .clone()
+    };
 
     state.chips = Chips::default();
     for (chip, key) in &held.chips {
@@ -5607,8 +6033,7 @@ fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String
 #[tauri::command(async)]
 fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     shelf.queries_mut().remove(&name).map_err(|e| e.to_string())
 }
 
@@ -5616,8 +6041,8 @@ fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, 
 #[tauri::command(async)]
 fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let names = state.names().ok_or_else(|| state.trouble())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
+    let names = state.names(&shelf);
     Ok(shelf
         .collections()
         .all()
@@ -5671,8 +6096,7 @@ fn folder_edit(
 ) -> Result<usize, String> {
     let member: girsa_note::Member = member.parse()?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     let mut folder = shelf.collections().get(&name).cloned().unwrap_or_else(|| {
         girsa_note::Collection::new(&name, title.unwrap_or_else(|| name.clone()))
     });
@@ -5703,8 +6127,7 @@ fn folder_edit(
 #[tauri::command(async)]
 fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let trouble = state.trouble();
-    let shelf = state.shelf.as_mut().ok_or(trouble)?;
+    let mut shelf = state.shelf_mut()?;
     shelf
         .collections_mut()
         .remove(&name)
@@ -5715,7 +6138,7 @@ fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool,
 #[tauri::command(async)]
 fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     let counted = girsa_note::Tags::of(&shelf.layer());
     Ok(counted
         .iter()
@@ -5730,7 +6153,7 @@ fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
 #[tauri::command(async)]
 fn export_layer(shared: tauri::State<'_, Shared>, into: Option<String>) -> Result<String, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+    let shelf = state.shelf()?;
     let into = into.map_or_else(
         || shelf.personal().join("exports").join("my-layer"),
         PathBuf::from,

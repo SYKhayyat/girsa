@@ -277,6 +277,23 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    /// Stamp a file as though it had been written `ago` before now.
+    ///
+    /// The test needs two mtimes in a known order, not a second of real time
+    /// to pass. `File::set_modified` has been stable since Rust 1.75 and this
+    /// workspace is on 1.85, so the ordering is **said** instead of implied by
+    /// a `sleep` — which is also why it can no longer flake on a loaded
+    /// machine.
+    fn stamp(path: &Path, ago: std::time::Duration) {
+        let at = std::time::SystemTime::now() - ago;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+    }
+
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("girsa-documents-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -395,13 +412,15 @@ mod tests {
         let personal = dir.join("personal");
         std::fs::create_dir_all(&personal).unwrap();
         let doc = ksav(&dir, "א", &["girsa:tur:1"]);
+        // Back-dated, so the rewrite below is unambiguously later than
+        // what the first read recorded.
+        stamp(&doc, std::time::Duration::from_secs(10));
 
         let (mut documents, _) = Documents::open(&personal);
         documents.remember(&doc, None).unwrap();
         assert_eq!(documents.refreshed().unwrap(), 1, "the first read");
         assert_eq!(documents.refreshed().unwrap(), 0, "and not a second");
 
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(
             &doc,
             girsa_ksav::mekor("", Some("girsa:tur:2"), None) + "\n",

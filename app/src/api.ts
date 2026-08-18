@@ -1137,6 +1137,15 @@ export interface LaneProgress {
   trouble: string | null;
 }
 
+/** How far a drop has got (spec.md §5). One of these per file, then a `done`. */
+export interface DropProgress {
+  doing: "read" | "done";
+  /** The file being read, by its name. */
+  what: string;
+  done: number;
+  of: number;
+}
+
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 let invoke: Invoke | null = null;
@@ -1292,6 +1301,11 @@ export const api = {
    * which a link can honestly be. */
   seferIndexOf: (slug: string, at: string) =>
     call<number | null>("sefer_index_of", { slug, at }),
+  /** The same question about many segments at once, answered in the order they
+   * were asked. One round trip for *next highlight* instead of one per mark —
+   * see `sefer_indices_of`, which holds the argument. */
+  seferIndicesOf: (slug: string, ats: string[]) =>
+    call<(number | null)[]>("sefer_indices_of", { slug, ats }),
   /** The sefer's table of contents, built from its addresses (A3). One call per
    * sefer: the filter box filters the list it already has. */
   seferContents: (slug: string) => call<TocEntry[]>("sefer_contents", { slug }),
@@ -1829,6 +1843,23 @@ export async function pickFolder(title: string): Promise<string | null> {
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({ directory: true, multiple: false, title });
   return typeof picked === "string" ? picked : null;
+}
+
+/**
+ * Which of the dropped files is being read, as it is read.
+ *
+ * `add_mine` copies each file in, parses it and writes its segments back out —
+ * unbounded in the size of a file and in how many were dropped — and it does
+ * that with the state lock down, so the window stays alive for the whole of it.
+ * A window that stays alive and says nothing is a window that looks broken, so
+ * this is the saying-something half.
+ */
+export async function whenFilesRead(
+  handler: (progress: DropProgress) => void,
+): Promise<void> {
+  if (!invoke) return;
+  const { listen } = await import("@tauri-apps/api/event");
+  await listen<DropProgress>("add-mine", (event) => handler(event.payload));
 }
 
 export async function whenFilesDropped(handler: (paths: string[]) => void): Promise<void> {

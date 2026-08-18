@@ -931,6 +931,23 @@ pub(crate) mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    /// Stamp a file as though it had been written `ago` before now.
+    ///
+    /// The test needs two mtimes in a known order, not a second of real time
+    /// to pass. `File::set_modified` has been stable since Rust 1.75 and this
+    /// workspace is on 1.85, so the ordering is **said** instead of implied by
+    /// a `sleep` — which is also why it can no longer flake on a loaded
+    /// machine.
+    fn stamp(path: &Path, ago: std::time::Duration) {
+        let at = std::time::SystemTime::now() - ago;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+    }
+
     pub fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("girsa-note-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1222,11 +1239,14 @@ pub(crate) mod tests {
                 .contains("ראשון"),
             "the premise: writing a note shelves it"
         );
+        // Both files back-dated, with the shelf entry the newer of the two
+        // — which is the state `stale` is meant to read as *nothing to do*.
+        stamp(&md, std::time::Duration::from_secs(20));
+        stamp(&shelved, std::time::Duration::from_secs(10));
 
         // Now edit it the way the design invites, with something that is not
         // this application. `vim` rewrites the file whole; the front matter and
         // the banner survive because they are in the file it opened.
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         let edited = std::fs::read_to_string(&md)
             .expect("vim reads")
             .replace("ראשון", "שני");

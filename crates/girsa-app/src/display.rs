@@ -370,6 +370,17 @@ pub fn runs_citing(text: &str, marks: &[(usize, usize)], cites: &[crate::Linked]
     let hit = hit_chars(text, marks);
     let cited = cite_chars(cites);
     let mut out: Vec<Run> = Vec::new();
+    // **Which citation the run at the end of `out` is on, as an index.**
+    //
+    // `Run::cite` is a `String` because that is what goes over the wire, and
+    // the merge test below used to compare those strings — per character, for
+    // every character of every run. A reference such as
+    // `girsa:bavli/shabbat/12b:3#242` is about thirty bytes, so a citation
+    // spanning twenty characters was twenty allocations in the map, twenty
+    // more here, and twenty string comparisons to work out that a run of one
+    // citation is one run. It is an integer now, and the `String` is built
+    // once per run rather than once per letter.
+    let mut last_cite: Option<usize> = None;
     for bit in bits(text) {
         match bit {
             Bit::Letter { ch, style, at, len } => {
@@ -377,41 +388,60 @@ pub fn runs_citing(text: &str, marks: &[(usize, usize)], cites: &[crate::Linked]
                 let marked = (at..at + len.max(1)).any(|n| hit.contains(&n));
                 // …and as cited if any of it is, for the same reason: an
                 // entity is one letter to a reader.
-                let cite = (at..at + len.max(1)).find_map(|n| cited.get(&n)).cloned();
+                let cite = (at..at + len.max(1)).find_map(|n| cited.get(&n).copied());
                 match out.last_mut() {
                     Some(last)
-                        if last.style == style && last.hit == marked && last.cite == cite =>
+                        if last.style == style && last.hit == marked && last_cite == cite =>
                     {
                         last.text.push(ch);
                     }
-                    _ => out.push(Run {
-                        text: ch.to_string(),
-                        style,
-                        hit: marked,
-                        cite,
-                    }),
+                    _ => {
+                        out.push(Run {
+                            text: ch.to_string(),
+                            style,
+                            hit: marked,
+                            cite: cite
+                                .and_then(|nth| cites.get(nth))
+                                .map(|cite| cite.reference.clone()),
+                        });
+                        last_cite = cite;
+                    }
                 }
             }
-            Bit::Break => out.push(Run {
-                text: String::new(),
-                style: Style::Break,
-                hit: false,
-                cite: None,
-            }),
+            Bit::Break => {
+                out.push(Run {
+                    text: String::new(),
+                    style: Style::Break,
+                    hit: false,
+                    cite: None,
+                });
+                last_cite = None;
+            }
         }
     }
     out
 }
 
-/// Which character positions carry which ref.
+/// Which character positions carry which ref — **by index into `cites`**.
 ///
 /// A map and not a set, because unlike a search mark the answer is *where does
 /// this go*, and two citations on one line go to two different places.
-fn cite_chars(cites: &[crate::Linked]) -> std::collections::BTreeMap<usize, String> {
+///
+/// An index and not the reference itself. The map is still one entry per
+/// character, and that part is cheap and deliberately kept: it is what makes
+/// the lookup in [`runs_citing`] a point lookup, and it keeps the last-one-wins
+/// rule for citations whose ranges overlap — which `crate::linkify` never
+/// produces, since it advances past each citation it takes, but which this
+/// function cannot assume of a caller that built the slice some other way.
+///
+/// What is gone is the allocation. This cloned a ~30-byte reference **once per
+/// character** it covered, so the cost was O(characters) where the data is
+/// O(citations); `hit_chars` below already knew better and says so.
+fn cite_chars(cites: &[crate::Linked]) -> std::collections::BTreeMap<usize, usize> {
     let mut out = std::collections::BTreeMap::new();
-    for cite in cites {
+    for (nth, cite) in cites.iter().enumerate() {
         for n in cite.from..cite.to {
-            out.insert(n, cite.reference.clone());
+            out.insert(n, nth);
         }
     }
     out

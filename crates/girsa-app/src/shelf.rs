@@ -115,10 +115,41 @@ pub struct Shelf {
     /// so that the forty in front of the reader can be named; reading one when
     /// it is asked for pays for the forty.
     ///
-    /// `RefCell` because this is a cache and asking a question should not need a
-    /// mutable shelf. `Arc` so the answer can be handed out without copying a
-    /// map per row — the links panel asks 280 times for one line.
-    sections: std::cell::RefCell<HashMap<String, std::sync::Arc<Sections>>>,
+    /// A lock and not a `RefCell` because this is a cache and asking a question
+    /// should not need a mutable shelf — **and because a `RefCell` anywhere in
+    /// this struct makes the whole `Shelf` `!Sync`**, which is what kept it
+    /// inside the window's one global `Mutex` and every reader of it behind
+    /// every other. Nothing here is contended: the guard is held for a map
+    /// lookup and dropped before the read that fills it.
+    ///
+    /// `Arc` so the answer can be handed out without copying a map per row —
+    /// the links panel asks 280 times for one line.
+    sections: std::sync::Mutex<HashMap<String, std::sync::Arc<Sections>>>,
+}
+
+/// Read a file of yours into your own layer, **without a shelf**.
+///
+/// The expensive half of [`Shelf::add_mine`], split out so that it can run with
+/// no lock held. Everything here is disk — a file copied in, parsed, and
+/// written back out as segments with permanent ids — and none of it needs the
+/// catalogue: [`girsa_corpus::import::mine::add`] was already taking a path and
+/// not a shelf. The only reason it ever ran under a `&mut Shelf` is that its
+/// one caller held one.
+///
+/// Pair it with [`Shelf::took_mine`], which is the cheap half and is the only
+/// part that needs the shelf at all. [`Shelf::add_mine`] is the two together,
+/// for callers with nothing to gain by splitting them.
+///
+/// # Errors
+///
+/// If the file is of a kind nothing here reads, has nothing in it, or the
+/// personal layer will not take it. See [`girsa_corpus::import::mine::add`].
+pub fn read_mine(
+    personal: &Path,
+    file: &Path,
+    title: Option<&str>,
+) -> Result<import::ImportedWork, ShelfError> {
+    import::mine::add(personal, file, title).map_err(|e| ShelfError::Refused(e.to_string()))
 }
 
 /// What `girsa-companions` recorded about one sefer's joins.
@@ -300,7 +331,7 @@ impl Shelf {
             titles: std::sync::OnceLock::new(),
             shipped: taxonomy::Shipped::of(&works),
             linked: read_companions(root),
-            sections: std::cell::RefCell::new(HashMap::new()),
+            sections: std::sync::Mutex::new(HashMap::new()),
             root: root.to_path_buf(),
             personal: personal.to_path_buf(),
             arrangement,
@@ -637,13 +668,21 @@ impl Shelf {
     /// If the file is of a kind nothing here reads, has nothing in it, or the
     /// personal layer will not take it. See [`import::mine::add`].
     pub fn add_mine(&mut self, file: &Path, title: Option<&str>) -> Result<String, ShelfError> {
-        let added = import::mine::add(&self.personal, file, title)
-            .map_err(|e| ShelfError::Refused(e.to_string()))?;
+        let added = read_mine(&self.personal, file, title)?;
+        Ok(self.took_mine(added))
+    }
+
+    /// Record a work [`read_mine`] has already written into your layer.
+    ///
+    /// The cheap half of [`add_mine`](Shelf::add_mine): three in-memory writes
+    /// and a rebuild of the two derived tables. Nothing here touches the disk,
+    /// which is the point — see [`read_mine`] for the argument.
+    pub fn took_mine(&mut self, added: import::ImportedWork) -> String {
         let slug = added.work.slug.clone();
         self.by_slug.insert(slug.clone(), self.works.len());
         self.works.push(added.work);
         self.catalogue_changed();
-        Ok(slug)
+        slug
     }
 
     /// The seforim worth opening in the column beside this one, best first.
@@ -780,8 +819,17 @@ impl Shelf {
     /// exactly as it is printed now.
     #[must_use]
     pub fn sections(&self, slug: &str) -> std::sync::Arc<Sections> {
-        if let Some(found) = self.sections.borrow().get(slug) {
-            return std::sync::Arc::clone(found);
+        // Two short holds with the file read between them, rather than one
+        // hold across it. Two callers racing on the same work both read it and
+        // the second overwrites the first with an identical answer, which
+        // costs one wasted read and never blocks.
+        if let Some(found) = self
+            .sections
+            .lock()
+            .ok()
+            .and_then(|held| held.get(slug).map(std::sync::Arc::clone))
+        {
+            return found;
         }
         let read = self
             .work(slug)
@@ -792,9 +840,9 @@ impl Shelf {
             })
             .unwrap_or_default();
         let read = std::sync::Arc::new(read);
-        self.sections
-            .borrow_mut()
-            .insert(slug.to_string(), std::sync::Arc::clone(&read));
+        if let Ok(mut held) = self.sections.lock() {
+            held.insert(slug.to_string(), std::sync::Arc::clone(&read));
+        }
         read
     }
 
@@ -1702,7 +1750,7 @@ pub(crate) mod tests {
             works,
             commentaries,
             linked: HashMap::new(),
-            sections: std::cell::RefCell::new(HashMap::new()),
+            sections: std::sync::Mutex::new(HashMap::new()),
         }
     }
 

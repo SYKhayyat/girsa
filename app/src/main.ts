@@ -14,14 +14,19 @@ import {
   whenAskedToSearch,
   pickFolder,
   whenFilesDropped,
+  whenFilesRead,
   type AppState,
   type Asked,
   type Luach,
+  type MarkRow,
   type Mefarshim,
   type PaneId,
   type Presence,
   type SuspectRow,
   type Tab,
+  // Named apart from the DOM's `Text`, which is a global and would otherwise
+  // win the collision silently.
+  type Text as SeferText,
 } from "./api.ts";
 import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
@@ -200,11 +205,26 @@ async function main(): Promise<void> {
   yoursview.onChanged(repaintMarks);
   find.onKeep(keepQuery);
   document.addEventListener("keydown", shortcut);
-  await whenFilesDropped(whenDropped);
-  // Ksav, or a citation clicked in a document, asking for a page (§10.6).
-  await whenAskedToOpen(whenAskedFor);
-  await whenAskedToSearch((phrase) => void find.showPhrase(openFound, phrase));
-  await watchForKsav();
+  // **All four at once, because none of them waits on another.** Each is a
+  // dynamic `import()` of the Tauri event module plus an IPC round trip to
+  // register the listener (`api.ts`), and all four sat on the cold-start path
+  // ahead of `reload()` — which is the call that puts anything on the screen.
+  // Registered nose to tail they cost the sum; registered together they cost
+  // the slowest. A few tens of milliseconds off an already-good number, not a
+  // rescue: `docs/the-second-sitting.md` measures the cold start at 0.2–1.0 s
+  // and calls it the best screen in the application.
+  await Promise.all([
+    whenFilesDropped(whenDropped),
+    // …and which of them is being read, while it is (spec.md §5).
+    whenFilesRead((progress) => {
+      if (progress.doing === "done") return;
+      shelf.say(`${say("readingFiles")} ${progress.what} — ${progress.done + 1}/${progress.of}`, false);
+    }),
+    // Ksav, or a citation clicked in a document, asking for a page (§10.6).
+    whenAskedToOpen(whenAskedFor),
+    whenAskedToSearch((phrase) => void find.showPhrase(openFound, phrase)),
+    watchForKsav(),
+  ]);
   await reload();
   // …and back to the panel the reader was standing in when the window reloaded
   // itself. A language switch is a reload (see `onInterfaceChanged` above), and
@@ -534,6 +554,28 @@ async function draw(): Promise<void> {
     if (!open.panes.some((p) => p.id === id)) scans.delete(id);
   }
 
+  // **Every fresh pane's reads, started together.**
+  //
+  // Each pane used to be three awaits in a serial loop: `openSefer` (~11 ms),
+  // `marksIn` (0.07 s for Berakhot) and the mefarshim list. Three columns —
+  // the picture on the front of the README — paid all nine one after another,
+  // and no pane's chain depends on any other pane's.
+  //
+  // Only the *reads* are moved. Everything below still happens in pane order,
+  // one at a time, because it writes to the DOM and to `views`/`scans`/`named`
+  // — and because a pane that appears before the one to its right is not a
+  // thing worth racing for.
+  //
+  // The promises resolve rather than reject, so a pane whose sefer will not
+  // read cannot leave an unhandled rejection sitting in a queue while the loop
+  // is still working through the panes ahead of it.
+  const reads = new Map<PaneId, Promise<PaneRead>>();
+  for (const pane of open.panes) {
+    if (!slots.has(pane.id)) continue;
+    if (views.has(pane.id) || scans.has(pane.id)) continue;
+    reads.set(pane.id, readPane(pane.slug));
+  }
+
   for (const pane of open.panes) {
     const slot = slots.get(pane.id);
     if (!slot) continue;
@@ -556,14 +598,13 @@ async function draw(): Promise<void> {
     // this loop, after the chrome had been placed and before any pane was
     // built. The reader got a toolbar over an unlabelled black rectangle, and
     // every pane after the failing one was never drawn either.
-    let text;
-    try {
-      text = await api.openSefer(pane.slug);
-    } catch (e) {
-      sayTrouble(slot, e, "read_page");
+    const read = await reads.get(pane.id);
+    if (!read || "trouble" in read) {
+      sayTrouble(slot, read?.trouble, "read_page");
       slot.classList.add("pane-broken");
       continue;
     }
+    const { text } = read;
     named.set(pane.slug, text.work);
     // The tab was drawn before the title was known.
     redrawTabs();
@@ -588,8 +629,15 @@ async function draw(): Promise<void> {
     view.setFollowing(followLabel(pane.follows));
     view.show(text, pane.at ?? null);
     // Your highlights, where Rust placed them against the same lines this pane
-    // was just sent (W27). One call for the sefer rather than one a line.
-    view.setMarks(await api.marksIn(pane.slug));
+    // was just sent (W27). One call for the sefer rather than one a line —
+    // asked for above, beside the sefer itself.
+    //
+    // `null` where the read failed. It is not fatal here and it was: the marks
+    // call sat outside the `try` above, so one sefer whose layer would not read
+    // threw out of the middle of this loop and every pane after it went
+    // undrawn. `repaintMarks` already swallows the same failure for the same
+    // reason.
+    if (read.marks) view.setMarks(read.marks);
     // And which lines the mefarshim you ticked speak on (W43). Also one call:
     // `inbound.jsonl` is one file per sefer, and reading Berakhot's 21,065 rows
     // into per-line answers takes 0.07s.
@@ -597,19 +645,49 @@ async function draw(): Promise<void> {
     // A citation in your own writing, clicked (W19). The same landing a
     // `girsa://` link from Ksav takes, because it is the same question.
     view.whenCiting((reference) => void goToCitation(reference));
-    await drawMefarshim(view);
+    view.setMefarshim(read.mefarshim.marked, tickedCount(read.mefarshim));
   }
+}
+
+/**
+ * What one pane needs before it can be built.
+ *
+ * `trouble` and not a rejection, because these are started for every pane at
+ * once and awaited one at a time — a rejected promise nobody has reached yet
+ * is an unhandled rejection in every browser.
+ */
+type PaneRead =
+  | { text: SeferText; marks: MarkRow[] | null; mefarshim: Mefarshim }
+  | { trouble: unknown };
+
+/** One pane's three reads: the sefer, your marks on it, and its mefarshim. */
+async function readPane(slug: string): Promise<PaneRead> {
+  let text: SeferText;
+  try {
+    text = await api.openSefer(slug);
+  } catch (trouble) {
+    return { trouble };
+  }
+  const mefarshim = mefarshimFor(slug);
+  // A scan has no lines to place marks against; `ScanView` asks its own way.
+  if (text.work.scan) return { text, marks: null, mefarshim: await mefarshim };
+  const marks = api.marksIn(slug).catch(() => null);
+  return { text, marks: await marks, mefarshim: await mefarshim };
 }
 
 /** Ask again where your highlights land, after your layer changed. */
 async function repaintMarks(): Promise<void> {
-  for (const view of views.values()) {
-    try {
-      view.setMarks(await api.marksIn(view.slug));
-    } catch {
-      // A pane whose sefer has gone — a note you just deleted — has no marks
-      // to draw and is about to be closed by the reload that follows.
-    }
+  // One `marksIn` per view, all at once. Same shape as `draw` and the same
+  // argument: three panes' answers do not depend on each other, and each is a
+  // 0.07 s read.
+  const asked = [...views.values()].map(
+    async (view) =>
+      [view, await api.marksIn(view.slug).catch(() => null)] as const,
+  );
+  for (const [view, marks] of await Promise.all(asked)) {
+    // A pane whose sefer has gone — a note you just deleted — has no marks to
+    // draw and is about to be closed by the reload that follows.
+    if (marks) view.setMarks(marks);
   }
 }
 

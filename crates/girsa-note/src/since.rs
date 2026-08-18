@@ -544,13 +544,48 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    /// How far back a file is stamped when a test needs it to be older.
+    ///
+    /// Every comparison in this module is against a file's mtime, and the
+    /// tests used to establish *older* by sleeping 1.1 s past a one-second
+    /// boundary — fifteen times in this file alone. That is not a fast test
+    /// and, worse, it is not a **stated** one: it implies the ordering through
+    /// elapsed wall-clock, which is also why it can flake on a loaded machine.
+    ///
+    /// `File::set_modified` has been stable since Rust 1.75 and this workspace
+    /// is on 1.85, so no sleep and no new dependency. Ten seconds rather than
+    /// two, so that no filesystem's mtime granularity can make it a coin toss.
+    const A_WHILE: Duration = Duration::from_secs(10);
+
+    /// Stamp a file as though it had been written `ago` before now.
+    fn stamp(path: &Path, ago: Duration) {
+        let at = SystemTime::now() - ago;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+    }
+
+    /// A scratch layer whose index was built **a while ago**.
+    ///
+    /// The back-dated stamp is what every test here needs and what the sleeps
+    /// were buying: anything written after this call is newer than the build,
+    /// with no clock to wait for.
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("girsa-since-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("personal")).unwrap();
         std::fs::create_dir_all(dir.join("index")).unwrap();
         std::fs::write(dir.join("index").join(CACHE_STAMP_NAME), "{}").unwrap();
+        stamp(&dir.join("index").join(CACHE_STAMP_NAME), A_WHILE);
         dir
+    }
+
+    /// Where a note written by [`note`] sits.
+    fn note_path(personal: &Path, name: &str) -> PathBuf {
+        personal.join("notes").join(format!("{name}.md"))
     }
 
     fn note(personal: &Path, name: &str) {
@@ -571,7 +606,6 @@ mod tests {
     #[test]
     fn a_note_newer_than_the_index_is_counted_and_said() {
         let dir = scratch("notes");
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         note(&dir.join("personal"), "בדיקה");
         let at = Unindexed::of(Some(&dir.join("index")), &dir.join("personal"));
         assert_eq!(at.notes, Written::Since(1));
@@ -589,7 +623,7 @@ mod tests {
     fn a_note_older_than_the_index_is_not_a_gap() {
         let dir = scratch("older");
         note(&dir.join("personal"), "ותיקה");
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        stamp(&note_path(&dir.join("personal"), "ותיקה"), A_WHILE);
         // Restamp: the index is now newer than the note.
         std::fs::write(dir.join("index").join(CACHE_STAMP_NAME), "{}").unwrap();
         let at = Unindexed::of(Some(&dir.join("index")), &dir.join("personal"));
@@ -605,7 +639,6 @@ mod tests {
         // not build.
         let dir = scratch("absorbed");
         let (index, personal) = (dir.join("index"), dir.join("personal"));
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         note(&personal, "חבורה");
         assert_eq!(
             Unindexed::of(Some(&index), &personal).notes,
@@ -627,7 +660,6 @@ mod tests {
         // stamp. Re-stamping would have silenced all three of these.
         let dir = scratch("absorbed-narrow");
         let (index, personal) = (dir.join("index"), dir.join("personal"));
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         note(&personal, "ראשונה");
         note(&personal, "שנייה");
         std::fs::write(
@@ -656,15 +688,16 @@ mod tests {
         // *has it changed since* rather than *was it ever taken in*.
         let dir = scratch("absorbed-edited");
         let (index, personal) = (dir.join("index"), dir.join("personal"));
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         note(&personal, "נערכה");
+        // Back-dated *before* the absorb, so the record says `a while ago`
+        // and the rewrite below is unambiguously after it.
+        stamp(&note_path(&personal, "נערכה"), A_WHILE);
         assert!(absorbed(&index, &personal, "note/נערכה"));
         assert_eq!(
             Unindexed::of(Some(&index), &personal).notes,
             Written::Since(0)
         );
 
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(personal.join("notes").join("נערכה.md"), "# עוד\n").unwrap();
         assert_eq!(
             Unindexed::of(Some(&index), &personal).notes,
@@ -680,13 +713,14 @@ mod tests {
         // record on its own would report a note the rebuild had just indexed.
         let dir = scratch("absorbed-rebuilt");
         let (index, personal) = (dir.join("index"), dir.join("personal"));
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         note(&personal, "ישנה");
+        // Three moments in order, said rather than slept for: the record is
+        // oldest, the edit is after it, and the rebuild is after both.
+        stamp(&note_path(&personal, "ישנה"), A_WHILE * 3);
         assert!(absorbed(&index, &personal, "note/ישנה"));
 
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(personal.join("notes").join("ישנה.md"), "# שינוי\n").unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        stamp(&note_path(&personal, "ישנה"), A_WHILE * 2);
         std::fs::write(index.join(CACHE_STAMP_NAME), "{}").unwrap();
         assert_eq!(
             Unindexed::of(Some(&index), &personal).notes,
@@ -701,7 +735,6 @@ mod tests {
         // about a different note.
         let dir = scratch("absorbed-forgotten");
         let (index, personal) = (dir.join("index"), dir.join("personal"));
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         note(&personal, "נזרקה");
         assert!(absorbed(&index, &personal, "note/נזרקה"));
         assert!(absorbed_by(&index).contains_key("note/נזרקה"));
@@ -743,7 +776,6 @@ mod tests {
     #[test]
     fn corrections_with_no_timestamp_are_all_counted() {
         let dir = scratch("fixes-plain");
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(
             dir.join("personal").join("corrections.jsonl"),
             "{\"id\":\"a\"}\n{\"id\":\"b\"}\n",
@@ -762,7 +794,6 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(
             dir.join("personal").join("corrections.jsonl"),
             format!(
@@ -815,7 +846,6 @@ mod tests {
         // what you fixed, and you can still find what you unfixed. Nothing said
         // so.
         let dir = scratch("scan-fixes");
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         let words = dir.join("personal").join("words").join("user").join("a");
         std::fs::create_dir_all(&words).unwrap();
         std::fs::write(words.join("fixes.json"), "{\"3\":[]}").unwrap();
@@ -838,7 +868,7 @@ mod tests {
         let words = dir.join("personal").join("words").join("user").join("a");
         std::fs::create_dir_all(&words).unwrap();
         std::fs::write(words.join("fixes.json"), "{}").unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        stamp(&words.join("fixes.json"), A_WHILE);
         std::fs::write(dir.join("index").join(CACHE_STAMP_NAME), "{}").unwrap();
 
         let at = Unindexed::of(Some(&dir.join("index")), &dir.join("personal"));
@@ -853,7 +883,6 @@ mod tests {
         // no words, so *"not searchable yet"* is exactly true of it. Saying it
         // twice would be two sentences about one silence.
         let dir = scratch("scan-pages");
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         let words = dir.join("personal").join("words").join("user").join("a");
         std::fs::create_dir_all(&words).unwrap();
         std::fs::write(

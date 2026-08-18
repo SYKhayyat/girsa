@@ -19,6 +19,14 @@ import type { Choice, Listed, Source } from "./api.ts";
 type Chosen = (slugs: string[]) => void;
 
 /**
+ * How long a pause counts as *stopped typing*.
+ *
+ * The same number `findhere.ts` uses, and for the same reason: 160 ms is a
+ * pause a person makes between words and does not make inside one.
+ */
+const SETTLED = 160;
+
+/**
  * What the mefarshim door is opened with.
  *
  * Both jobs at once, because it is one list: `chosen` opens seforim into the
@@ -87,6 +95,20 @@ export class Picker {
   /** One answer at a time — see `latest.ts`. The filter asks per keystroke and a
    * slow early one used to land on top of a fast later one. */
   private readonly draws = new Latest();
+  /**
+   * The pending redraw, if the reader is still typing.
+   *
+   * `Latest` fixed the **ordering** — a slow answer to `ברכ` landing on top of
+   * the answer to `ברכות` — and that was a real correctness bug. It did
+   * nothing about the **cost**: every one of those calls still ran to
+   * completion in Rust over 7,189 works, and every answer but the last was
+   * thrown away. Typing `ברכות` was five fuzzy searches, four of them
+   * discarded before anybody saw them.
+   *
+   * A debounce and a stale-answer guard solve two different problems, so both
+   * are here.
+   */
+  private waiting: number | null = null;
 
   constructor() {
     this.element = document.createElement("div");
@@ -128,7 +150,7 @@ export class Picker {
     sheet.append(this.heading, this.input, this.usual, this.list, this.said, this.open);
     this.element.append(sheet);
 
-    this.input.addEventListener("input", () => void this.refresh());
+    this.input.addEventListener("input", () => this.typed());
     this.input.addEventListener("keydown", (event) => this.key(event));
     this.element.addEventListener("pointerdown", (event) => {
       if (event.target === this.element) this.close();
@@ -225,6 +247,21 @@ export class Picker {
     back?.focus({ preventScroll: true });
   }
 
+  /**
+   * A key went in. Redraw when the typing settles, and not before.
+   *
+   * Only the typing is debounced. Opening the door, ticking a mefaresh and
+   * everything else that redraws still calls [`Picker.refresh`] straight —
+   * those are answers to a click, and a click is already the pause.
+   */
+  private typed(): void {
+    if (this.waiting !== null) window.clearTimeout(this.waiting);
+    this.waiting = window.setTimeout(() => {
+      this.waiting = null;
+      void this.refresh();
+    }, SETTLED);
+  }
+
   private show(): void {
     this.element.hidden = false;
     this.input.value = "";
@@ -233,6 +270,10 @@ export class Picker {
   }
 
   close(): void {
+    // A redraw waiting on a box the reader has closed is a search for a query
+    // nobody is looking at any more.
+    if (this.waiting !== null) window.clearTimeout(this.waiting);
+    this.waiting = null;
     this.element.hidden = true;
   }
 
@@ -492,6 +533,19 @@ export class Picker {
       // cursor is on. One key, and it does what is in front of the reader.
       if (this.picked.length > 0) {
         this.takeAll();
+        return;
+      }
+      // **Type and press Enter is the whole gesture**, so a redraw still
+      // waiting on the debounce has to happen before the row under the cursor
+      // means anything. Without this, a fast typist opens the sefer the
+      // *previous* keystroke found.
+      if (this.waiting !== null) {
+        window.clearTimeout(this.waiting);
+        this.waiting = null;
+        void this.refresh().then(() => {
+          const row = this.rows[this.cursor];
+          if (row) this.take(row.slug, event.ctrlKey || event.metaKey ? "here" : this.plainly);
+        });
         return;
       }
       const row = this.rows[this.cursor];

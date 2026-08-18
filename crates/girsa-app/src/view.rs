@@ -1285,6 +1285,23 @@ pub struct LaneProgress {
     pub trouble: Option<String>,
 }
 
+/// How far a drop has got (spec.md §5).
+///
+/// Its own type and not [`LaneProgress`]: the shapes happen to agree today and
+/// the two jobs have nothing to do with each other, so one struct would be a
+/// coincidence the next field added to either of them would end.
+#[derive(Serialize, Clone)]
+pub struct DropProgress {
+    /// `read` while a file is being taken in, `done` when the drop is over.
+    pub doing: &'static str,
+    /// The file being read, by its name — the reader dropped it, so the name
+    /// is what they will recognise.
+    pub what: String,
+    /// How many files are finished with, and how many were dropped.
+    pub done: u64,
+    pub of: u64,
+}
+
 /// One rung, with the count clicking it will give.
 #[derive(Serialize)]
 pub struct OfferRow {
