@@ -82,15 +82,15 @@ pub struct Shelf {
     /// about — an arrangement file that would not read, so far.
     trouble: Option<String>,
     works: Vec<Work>,
-    /// Each work's title in the form the search box compares against, in
-    /// `works` order: the Hebrew through `girsa_hebrew::normalize`, the English
-    /// lowercased.
+    /// Each work's title in the forms the search box compares against, in
+    /// `works` order: the Hebrew through `girsa_hebrew::normalize`, the same
+    /// Hebrew through [`without_matres`], and the English lowercased.
     ///
     /// Built on the first search and dropped whenever the shelf changes.
     /// `Shelf::search` normalized **all 7,189 of them on every keystroke** —
     /// and recomputed `query.to_lowercase()` inside the loop, so once per work
     /// as well — in the most-typed-into box in the application.
-    titles: std::sync::OnceLock<Vec<(String, String)>>,
+    titles: std::sync::OnceLock<Vec<(String, String, String)>>,
     /// Where the corpus files each sefer, worked out once for the whole
     /// catalogue rather than per work per question — see
     /// [`crate::taxonomy::Shipped`]. Rebuilt by [`Shelf::catalogue_changed`],
@@ -853,22 +853,34 @@ impl Shelf {
         // inside the loop below — `query.to_lowercase()` 7,189 times for one
         // keypress, and `normalize` over every title in the catalogue.
         let lower = query.to_lowercase();
+        let bare_needle = without_matres(&needle);
         let titles = self.titles();
         let mut hits: Vec<(u8, usize, &Work)> = Vec::new();
         for (at, work) in self.works.iter().enumerate() {
-            let Some((he, en)) = titles.get(at) else {
+            let Some((he, bare, en)) = titles.get(at) else {
                 continue;
             };
-            let (he, en) = (he.as_str(), en.as_str());
+            let (he, bare, en) = (he.as_str(), bare.as_str(), en.as_str());
             // Rank by where the match is, not by how long the title is: a
             // reader typing `ברכות` wants Berakhot, not the forty seforim with
             // it somewhere in the middle of their name.
+            //
+            // Then the same three again over the **skeleton**, so a reader who
+            // spells it chaser still finds it — see [`without_matres`]. Below
+            // the literal three and never above them: somebody who typed the
+            // spelling the sefer uses should not be shown a near-miss first.
             let rank = if he == needle || en == lower {
                 0
             } else if he.starts_with(&needle) || en.starts_with(&lower) {
                 1
             } else if he.contains(&needle) || en.contains(&lower) {
                 2
+            } else if bare == bare_needle {
+                3
+            } else if bare.starts_with(&bare_needle) {
+                4
+            } else if bare.contains(&bare_needle) {
+                5
             } else {
                 continue;
             };
@@ -884,15 +896,14 @@ impl Shelf {
 
     /// The catalogue's titles in the form [`Shelf::search`] compares against,
     /// normalized once.
-    fn titles(&self) -> &[(String, String)] {
+    fn titles(&self) -> &[(String, String, String)] {
         self.titles.get_or_init(|| {
             self.works
                 .iter()
                 .map(|work| {
-                    (
-                        girsa_hebrew::normalize(&work.he_title),
-                        work.en_title.to_lowercase(),
-                    )
+                    let he = girsa_hebrew::normalize(&work.he_title);
+                    let bare = without_matres(&he);
+                    (he, bare, work.en_title.to_lowercase())
                 })
                 .collect()
         })
@@ -1508,6 +1519,56 @@ impl Open {
 /// A segment id's path is already canonical — the importer wrote it, and
 /// [`SegmentId::is_well_formed`] holds — so this cannot fail on anything that
 /// came off the shelf.
+/// A name with its optional vowel-letters taken out, for matching.
+///
+/// # The sefer a reader could not find by typing its name
+///
+/// > *"The sefer search does not match שלחן ערוך to שולחן ערוך."*
+///
+/// One sefer, two spellings, and the difference is a `ו` that is a *mater
+/// lectionis* — a consonant standing in for a vowel nobody wrote. Which of the
+/// two an edition prints is an editorial habit; the catalogue has
+/// `שולחן ערוך`, the reader typed the other, and a `contains` over the
+/// normalized title matched nothing at all. It is the first thing anybody types
+/// into that box.
+///
+/// `girsa_hebrew::ktiv` answers the same question for the search *index*, by
+/// generating candidate spellings — right there, because the index has to match
+/// exact terms. Here there are 7,189 short strings and one needle, so the
+/// cheaper direction works: collapse both sides to the skeleton and compare
+/// once.
+///
+/// # What counts as optional
+///
+/// A `ו` or `י` that is neither the first nor the last letter **of its word**,
+/// which is `girsa_hebrew::ktiv::spellings`' own boundary rule and is stated
+/// there: a leading `ו` is the conjunction, and a trailing `ו` or `י` is
+/// usually a suffix that means something — `רבו` is *his teacher*, not a
+/// misspelling of `רב`.
+///
+/// It is deliberately blunt. `דוד` and `דד` collapse together, and so will a
+/// handful of other short pairs; that is why [`Shelf::search`] ranks every
+/// skeleton match **below** every literal one. A reader who spelled it the way
+/// the sefer does still sees the sefer first.
+#[must_use]
+pub fn without_matres(name: &str) -> String {
+    // Interior is asked of the **neighbours**, not of an index into a word.
+    // Splitting on non-letters and taking `len - 1` as the last position makes
+    // the letter before a trailing space interior, so `רבו שלנו` lost the `ו`
+    // this function's own header says it never touches.
+    let letters: Vec<char> = name.chars().collect();
+    let mut out = String::with_capacity(name.len());
+    for (at, c) in letters.iter().enumerate() {
+        let held = |n: Option<&char>| n.copied().is_some_and(girsa_hebrew::is_hebrew_letter);
+        let interior = at > 0 && held(letters.get(at - 1)) && held(letters.get(at + 1));
+        if interior && (*c == 'ו' || *c == 'י') {
+            continue;
+        }
+        out.push(*c);
+    }
+    out
+}
+
 #[must_use]
 pub fn address_of(id: &SegmentId) -> Address {
     Address::parse(&id.address()).unwrap_or_default()
@@ -1773,6 +1834,55 @@ pub(crate) mod tests {
         assert_eq!(found("Berakhot"), "bavli/berakhot");
         // The comma in the corpus's title is not something a reader types.
         assert_eq!(found("שולחן ערוך אורח"), "shulchan-arukh/orach-chayim");
+        // Nor is the corpus's choice of spelling. *"The sefer search does not
+        // match שלחן ערוך to שולחן ערוך."* One sefer, one `ו`, no results.
+        assert_eq!(found("שלחן ערוך"), "shulchan-arukh/orach-chayim");
+        assert_eq!(found("שלחן"), "shulchan-arukh/orach-chayim");
+        // And the other direction, for a catalogue that spells it chaser.
+        let mut chaser = vec![work("shulchan-arukh/yoreh-deah")];
+        chaser[0].he_title = "שלחן ערוך, יורה דעה".into();
+        let other = shelf_of(chaser, &scratch("girsa-shelf-chaser"));
+        assert_eq!(
+            other
+                .search("שולחן ערוך", 5)
+                .first()
+                .map(|w| w.slug.clone()),
+            Some("shulchan-arukh/yoreh-deah".to_string())
+        );
+    }
+
+    #[test]
+    fn a_spelling_the_sefer_uses_outranks_one_it_does_not() {
+        // The skeleton match is deliberately blunt — `דוד` and `דד` collapse
+        // together — so it is only allowed to rank **below** every literal
+        // match. A reader who typed the catalogue's own spelling must not be
+        // shown a near-miss first.
+        let mut works = vec![work("a"), work("b")];
+        works[0].he_title = "דוד".into();
+        works[1].he_title = "דד".into();
+        let shelf = shelf_of(works, &scratch("girsa-shelf-blunt"));
+        let found: Vec<String> = shelf
+            .search("דוד", 5)
+            .iter()
+            .map(|w| w.slug.clone())
+            .collect();
+        assert_eq!(
+            found,
+            ["a", "b"],
+            "the exact spelling first, the other after"
+        );
+    }
+
+    #[test]
+    fn a_vav_at_either_end_of_a_word_is_left_alone() {
+        // `רבו` is *his teacher*, not a misspelling of `רב`, and a leading `ו`
+        // is the conjunction. Both are the boundary rule `girsa_hebrew::ktiv`
+        // states, and this used to break the trailing one: splitting on
+        // non-letters made the letter before a space interior.
+        assert_eq!(without_matres("רבו שלנו"), "רבו שלנו");
+        assert_eq!(without_matres("ושמואל"), "ושמאל");
+        assert_eq!(without_matres("שולחן ערוך"), "שלחן ערך");
+        assert_eq!(without_matres("שלחן ערך"), "שלחן ערך");
     }
 
     #[test]

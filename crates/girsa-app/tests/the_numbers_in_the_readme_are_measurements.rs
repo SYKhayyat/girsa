@@ -93,9 +93,24 @@ fn files_in(dir: &Path, extension: &str) -> usize {
 fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
     let shell = root.join("app/src-tauri/src/lib.rs");
     let mut out = BTreeMap::new();
+    // **The prefix, not the whole attribute.** This matched `#[tauri::command]`
+    // exactly, and the day every command in the shell became
+    // `#[tauri::command(async)]` — so that one blocked call could not hold the
+    // window still (finding 22) — the count fell from 132 to the 3 that stayed
+    // blocking. Which is this test working: it said the README was wrong by
+    // 129 rather than letting the number rot. But the README was right and the
+    // *measurement* had gone stale, which is the one failure mode a test that
+    // recounts a claim has, and the fix belongs here.
+    // …and **as an attribute**, which means at the head of a line. Counting
+    // occurrences anywhere in the file counts the two in the module's own
+    // header, which is a doc comment about the attribute rather than a use of
+    // it — the shell would gain two commands by explaining itself.
     out.insert(
         "commands",
-        read(&shell).matches("#[tauri::command]").count(),
+        read(&shell)
+            .lines()
+            .filter(|line| line.trim_start().starts_with("#[tauri::command"))
+            .count(),
     );
     out.insert("shell-lines", lines_of(&shell));
     out.insert(

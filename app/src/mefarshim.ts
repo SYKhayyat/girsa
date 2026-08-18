@@ -148,11 +148,40 @@ function alsoBehind(companions: Companion[]): string {
  * unticked mefarshim of one line to a reader who has ticked none of them
  * anywhere is answering a question they have not asked yet.
  */
-export function nothingHere(comments: Comments, chosen: number): string {
-  if (comments.said.length > 0) return "";
-  if (chosen === 0) return say("tickSomebody");
-  if (comments.others) return say("othersWroteHere");
-  return say("nobodyWroteHere");
+export function nothingHere(comments: Comments, chosen: number): Nothing {
+  if (comments.said.length > 0) return { said: "", mark: "", why: "" };
+  if (chosen === 0) return { said: say("tickSomebody"), mark: "", why: "" };
+  // > *"It says — mefarshim you have not ticked wrote here. If it is worth
+  // > mentioning this at all, it should be a discrete symbol, not words."*
+  //
+  // It is worth mentioning — it is the difference between *nobody wrote on this
+  // line* and *you have not asked to see who did*, and a reader who cannot tell
+  // those apart will conclude the line is bare. But it is a **footnote about the
+  // reader's own settings**, printed in the place a comment would have gone, in
+  // a full sentence, every time a line with no ticked mefaresh is clicked.
+  //
+  // So: the hollow diamond, which is the ticked-mefarshim marker with nothing
+  // filled in — the same glyph saying the same thing one step weaker — and the
+  // sentence on its title, where a reader who wants it can find it and a reader
+  // who does not is not told twice.
+  if (comments.others) return { said: "", mark: "◇", why: say("othersWroteHere") };
+  return { said: say("nobodyWroteHere"), mark: "", why: "" };
+}
+
+/**
+ * What to draw when a click opens nothing.
+ *
+ * Two ways of saying it, because the four cases are not four of a kind: two are
+ * *here is what to do next*, which needs words, and one is a note about the
+ * reader's own tick-list, which does not. `said` and `mark` are never both set.
+ */
+export interface Nothing {
+  /** A sentence, where one is owed. */
+  said: string;
+  /** A glyph, where a sentence would be too much. */
+  mark: string;
+  /** What the glyph means, for whoever hovers it or listens to it. */
+  why: string;
 }
 
 /**

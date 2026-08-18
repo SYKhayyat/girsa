@@ -110,6 +110,11 @@ const COMMENT = `
 /**
  * The header `pane.ts` builds, in the width a third of a 1360px window leaves
  * it — the case the 9 August sitting measured at zero.
+ *
+ * **All eight controls**, because five was the row as it stood in August and
+ * the row has grown since. The count is the whole of finding 8: five buttons
+ * fit a 430px pane and eight do not, and what a fixture short of the real row
+ * proves is that the shorter row fits.
  */
 const HEADER = `
 <div style="width: 430px" id="narrow-pane">
@@ -119,8 +124,11 @@ const HEADER = `
     <span class="pane-note is-empty" id="narrow-note">אין כאן</span>
     <div class="pane-tools" id="narrow-tools">
       <button class="tool">מפרשים · 34</button>
-      <button class="tool">גלילה משותפת</button>
+      <button class="tool">גלילה נפרדת</button>
       <button class="tool">קישורים</button>
+      <button class="tool">שלשלת המסירה</button>
+      <button class="tool">תוכן הספר</button>
+      <select class="pane-move"><option>העבר ללשונית</option></select>
       <button class="tool">ייצא</button>
       <button class="tool" id="narrow-last">סגור</button>
     </div>
@@ -324,10 +332,32 @@ const PRINT = `
 // `@media print` and does nothing until the browser is asked to pretend. It is
 // on the element here rather than added by an assertion so that what the print
 // pass looks at is the document the application really hands a printer.
+
+/**
+ * A split and its divider, with the two controls that hang off it.
+ *
+ * The controls are `opacity: 0` until the pointer is on the line — the same
+ * shape as the very first bug this tool was written for, a mefaresh's comment
+ * drawn at `opacity: 0` in a container 16px tall. A control that fades in is a
+ * control a source search cannot tell apart from one that never appears, so it
+ * is measured: zero before, something after, and inside the line it hangs off.
+ */
+const SPLIT = `
+<div class="split split-vertical" id="split-box" style="width: 620px; height: 260px">
+  <div class="slot" style="flex-basis: 50%"></div>
+  <div class="divider" id="split-divider" role="separator" tabindex="0" data-split="0">
+    <div class="divider-controls" id="split-controls">
+      <button type="button" class="divider-control" aria-label="שים זה מעל זה">⇅</button>
+      <button type="button" class="divider-control" aria-label="החלף בין הצדדים">⇌</button>
+    </div>
+  </div>
+  <div class="slot" style="flex-basis: 50%"></div>
+</div>`;
+
 const PAGE = (sheet) => `<!doctype html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8">
 <link rel="stylesheet" href="${sheet}"></head>
-<body style="margin:0" class="is-printing">${COMMENT}${HEADER}${HEADER_EN}${SHELF}${FIND}${LINKS}${DESKS}${PRINT}</body></html>`;
+<body style="margin:0" class="is-printing">${COMMENT}${HEADER}${HEADER_EN}${SHELF}${FIND}${LINKS}${DESKS}${SPLIT}${PRINT}</body></html>`;
 
 // -------------------------------------------------------------------- the eye
 
@@ -802,12 +832,17 @@ async function main() {
         const t = document.getElementById('narrow-title');
         const note = document.getElementById('narrow-note');
         const last = document.getElementById('narrow-last');
+        const box = pane.getBoundingClientRect();
+        const strays = [...document.getElementById('narrow-tools').children]
+          .map((c) => ({ said: c.textContent.trim(), r: c.getBoundingClientRect() }))
+          .filter((c) => c.r.left < box.left - 1 || c.r.right > box.right + 1);
         return {
           title: Math.round(t.getBoundingClientRect().width),
           note: Math.round(note.getBoundingClientRect().width),
           noteFits: note.scrollWidth <= note.getBoundingClientRect().width + 1,
           lastButton: Math.round(last.getBoundingClientRect().width),
           lastFits: last.scrollWidth <= last.getBoundingClientRect().width + 1,
+          strays: strays.map((c) => c.said),
         };
       };
       const out = { at430: measure(430), at240: measure(240), at1000: measure(1000) };
@@ -834,6 +869,15 @@ async function main() {
         `no button is clipped ${where}`,
         seenAt.lastFits,
         `the last button measured ${seenAt.lastButton}px around its own label`,
+      );
+      // Finding 8, and the reason the three assertions above did not catch it:
+      // every one of them is a **width**, and a control that has left the pane
+      // is the right width in the wrong place. `סגור` at x = -168 measures 33px
+      // and fits its own label perfectly.
+      seen(
+        `no control has left the pane ${where}`,
+        seenAt.strays.length === 0,
+        `${seenAt.strays.length} control(s) sat outside the pane: ${seenAt.strays.join(", ")}`,
       );
     }
 
@@ -884,6 +928,79 @@ async function main() {
       const r = b.getBoundingClientRect();
       return { width: Math.round(r.width), fits: b.scrollWidth <= r.width + 1 };
     })()`);
+    // ------------------------------------ what a divider can do (finding 9)
+    //
+    // > *"Tabs should be splittable in any way and movable, like we want in
+    // > ksav."*
+    //
+    // Two controls that live at `opacity: 0` until the pointer is on the line
+    // they hang off. Everything a string search can ask about them — the class
+    // exists, the rule exists, the button is built — is true of a control that
+    // never becomes visible, which is the first bug at the head of this file.
+    // So: nothing before, something after, and inside the line either way.
+    //
+    // `async`, and it waits: `.divider-controls` carries a 120ms opacity
+    // transition, so the computed value one statement after the class goes on
+    // is still the value it is animating *from*. Read straight through, this
+    // assertion measures the animation and reports the affordance broken.
+    const split = await eye.look(`(async () => {
+      const divider = document.getElementById('split-divider');
+      const controls = document.getElementById('split-controls');
+      const before = getComputedStyle(controls).opacity;
+      divider.classList.add('is-dragging');
+      await new Promise((r) => setTimeout(r, 300));
+      const after = getComputedStyle(controls).opacity;
+      const line = divider.getBoundingClientRect();
+      const box = controls.getBoundingClientRect();
+      const buttons = [...controls.children].map((b) => {
+        const r = b.getBoundingClientRect();
+        return { w: Math.round(r.width), h: Math.round(r.height),
+                 named: (b.getAttribute('aria-label') || '').length };
+      });
+      divider.classList.remove('is-dragging');
+      return {
+        before, after,
+        lineWidth: Math.round(line.width),
+        centred: Math.abs((box.left + box.right) / 2 - (line.left + line.right) / 2) < 2,
+        buttons,
+      };
+    })()`);
+
+    seen(
+      "a divider's controls are invisible until it is touched",
+      split.before === "0",
+      `they sat at opacity ${split.before} on a divider nobody was pointing at`,
+    );
+    seen(
+      "and visible once it is",
+      split.after === "1",
+      `hovering the divider left them at opacity ${split.after}`,
+    );
+    // The line is 5px and the buttons are about 20px. They must hang **off** it
+    // without widening it, or every turn of a split shifts both panes.
+    seen(
+      "the controls do not widen the line they sit on",
+      split.lineWidth <= 6,
+      `the divider measured ${split.lineWidth}px around a 5px rule`,
+    );
+    seen(
+      "and they sit on it rather than beside it",
+      split.centred,
+      "the control box was not centred on the divider",
+    );
+    for (const [at, button] of split.buttons.entries()) {
+      seen(
+        `divider control ${at} is big enough to hit`,
+        button.w >= 14 && button.h >= 14,
+        `it measured ${button.w}×${button.h}px`,
+      );
+      seen(
+        `divider control ${at} has a name`,
+        button.named > 0,
+        "a glyph with no aria-label is a button nothing can read out",
+      );
+    }
+
     // ----------------------------------------------------- the find bar (Ctrl+F)
     //
     // The four defects the `.find-here` block in `styles.css` was written to fix,

@@ -278,8 +278,60 @@ pub struct Graph<'a> {
     /// and the last. For a reader who has drawn nothing it is an empty `Vec`,
     /// which is the common case and now costs a length check.
     drawn: Vec<Repaired>,
-    by_work: HashMap<String, Held>,
+    by_work: Cache,
+    /// How many works this graph pulled off disk, as against found in the
+    /// cache it was resumed from.
+    read: usize,
     incoming_unknown: BTreeSet<String>,
+}
+
+/// The works a graph has read, kept so the next graph need not read them again.
+///
+/// # The chain that hung on the second click
+///
+/// > *"The chain seems to hang, when i clicked halacha and then where it came
+/// > from."*
+///
+/// That is two walks from one place, and a `Graph` lives for exactly one of
+/// them: [`Graph::new`] starts with nothing read, and the second walk re-read
+/// every shard the first had just finished with. Measured on the real shelf, a
+/// back-walk from `שולחן ערוך אורח חיים נ״ח` reads **24 works in 2.7 seconds**
+/// in a release build — so the reader's two clicks were two of those, back to
+/// back, in a debug shell, on the thread that paints the window.
+///
+/// Opaque on purpose. What is in it is this module's business, and a caller
+/// that could look inside would be a second thing that has to be right about
+/// when a repair invalidates it.
+///
+/// # When it has to be thrown away
+///
+/// Every work in here was put through the repair layer as it stood when it was
+/// read. Anything that changes a repair — confirming a link, denying one,
+/// retyping one, drawing one — makes it a lie, and the caller must drop it. It
+/// is a cache of a pure function of `(shard, repairs)`, and only half of that
+/// pair is on disk.
+#[derive(Default)]
+pub struct Cache {
+    works: HashMap<String, Held>,
+}
+
+impl Cache {
+    /// How many works it holds.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.works.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.works.is_empty()
+    }
+}
+
+impl std::fmt::Debug for Cache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cache").field("works", &self.len()).finish()
+    }
 }
 
 /// One work's edges, and a way into them that is not a full scan.
@@ -361,30 +413,60 @@ impl<'a> Graph<'a> {
             timeline,
             repairs,
             drawn: repairs.drawn().collect(),
-            by_work: HashMap::new(),
+            by_work: Cache::default(),
+            read: 0,
             incoming_unknown: BTreeSet::new(),
         }
     }
 
-    /// How many works have been read off disk.
+    /// The same, starting from what an earlier graph had already read.
+    ///
+    /// The caller owns the [`Cache`] and owns the decision about when it is
+    /// stale — see that type. Nothing here can tell a repaired shelf from an
+    /// unrepaired one.
+    #[must_use]
+    pub fn resuming(
+        root: &Path,
+        timeline: &'a Timeline,
+        repairs: &'a Repairs,
+        cache: Cache,
+    ) -> Self {
+        let mut graph = Self::new(root, timeline, repairs);
+        graph.by_work = cache;
+        graph
+    }
+
+    /// Hand back what was read, for the next walk.
+    #[must_use]
+    pub fn into_cache(self) -> Cache {
+        self.by_work
+    }
+
+    /// How many works **this** graph read off disk.
+    ///
+    /// Not how many it holds. A graph resumed from a [`Cache`] starts holding
+    /// two dozen and may read none, and *24 works read, 0.0s* would be a
+    /// sentence that contradicts itself in the same line.
     #[must_use]
     pub fn works_read(&self) -> usize {
-        self.by_work.len()
+        self.read
     }
 
     /// Every edge touching a work, each exactly once, with your layer over it —
     /// and an index into them.
     fn work(&mut self, slug: &str) -> Option<&Held> {
-        if !self.by_work.contains_key(slug) {
+        if !self.by_work.works.contains_key(slug) {
             let (edges, known) =
                 inbound::touching_work(&self.root, slug).unwrap_or_else(|_| (Vec::new(), false));
+            self.read += 1;
             if !known {
                 self.incoming_unknown.insert(slug.to_string());
             }
             self.by_work
+                .works
                 .insert(slug.to_string(), Held::of(self.repairs.apply(edges)));
         }
-        self.by_work.get(slug)
+        self.by_work.works.get(slug)
     }
 
     /// Everywhere a link joins to this anchor, in either stored direction.
@@ -1019,6 +1101,56 @@ mod tests {
             "the undated sefer is not walked through"
         );
         assert_eq!(trace.refused.undated, 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_second_walk_from_the_same_place_reads_nothing_twice() {
+        // > *"The chain seems to hang, when i clicked halacha and then where it
+        // > came from."*
+        //
+        // Two walks from one place. Each built its own `Graph`, so the second
+        // one re-read every shard the first had just finished with — measured
+        // at 24 works and 2.7 seconds for one back-walk on the real shelf, in a
+        // release build.
+        let (root, timeline) = shas("girsa-chain-resume");
+        let repairs = Repairs::nowhere();
+
+        let mut first = Graph::new(&root, &timeline, &repairs);
+        let there = trace(
+            &mut first,
+            &id("gemara", 1),
+            Direction::Forward,
+            Limits::default(),
+        );
+        assert!(there.works_read > 1, "the first walk pays for the shards");
+        let cache = first.into_cache();
+        assert_eq!(cache.len(), there.works_read);
+
+        let mut second = Graph::resuming(&root, &timeline, &repairs, cache);
+        let back = trace(
+            &mut second,
+            &id("gemara", 1),
+            Direction::Back,
+            Limits::default(),
+        );
+        assert_eq!(
+            second.works_read(),
+            0,
+            "and the second walk pays for none of them"
+        );
+        // Which is only worth anything if it is the same answer. A cache that
+        // changed the walk would be a fast wrong chain.
+        let mut fresh = Graph::new(&root, &timeline, &repairs);
+        let alone = trace(
+            &mut fresh,
+            &id("gemara", 1),
+            Direction::Back,
+            Limits::default(),
+        );
+        let names =
+            |t: &Trace| -> Vec<String> { t.steps.iter().map(|s| s.work().to_string()).collect() };
+        assert_eq!(names(&back), names(&alone));
         let _ = std::fs::remove_dir_all(&root);
     }
 

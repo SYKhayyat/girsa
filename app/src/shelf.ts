@@ -29,7 +29,7 @@ import { say } from "./say.ts";
  * that is not a mefaresh on the one beside it could only be opened by leaving
  * the tab.
  */
-export type Where = "tab" | "here";
+export type Where = "tab" | "here" | "newTab";
 
 type Opened = (slug: string, where: Where) => void;
 

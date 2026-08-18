@@ -64,6 +64,10 @@ const WORDS = {
   settings: ["הגדרות", "Settings"] as Both,
   settingsWhy: ["הגדרות הקריאה (Ctrl+,)", "reading settings (Ctrl+,)"] as Both,
   newTab: ["＋", "＋"] as Both,
+  newTabWhy: [
+    "לשונית חדשה — גם לספר שכבר פתוח",
+    "a new tab — for a sefer already open too",
+  ] as Both,
   closeTab: ["סגור", "Close"] as Both,
   renameTab: ["שנה שם ללשונית", "Rename this tab"] as Both,
   seforimCount: ["ספרים", "seforim"] as Both,
@@ -220,6 +224,23 @@ const WORDS = {
   ] as Both,
   closePane: ["סגור", "Close"] as Both,
   closePaneWhy: ["סגור את הטור (Ctrl+W)", "close this column (Ctrl+W)"] as Both,
+  /**
+   * The line between two panes, and what it can do.
+   *
+   * > *"Tabs should be splittable in any way and movable, like we want in
+   * > ksav."*
+   *
+   * The names are the arrangement each control **gives** you, not the one you
+   * are in — the same convention the three toolbar state buttons follow, for
+   * the reason written over `pointingWhy`.
+   */
+  dividerWhy: [
+    "גרור כדי לשנות את הרוחב, או בחצים. הכפתורים מסובבים את החלוקה ומחליפים בין הצדדים",
+    "drag to move it, or use the arrows. The buttons turn the split and change the sides over",
+  ] as Both,
+  splitStacked: ["שים זה מעל זה", "put them one above the other"] as Both,
+  splitBeside: ["שים זה לצד זה", "put them side by side"] as Both,
+  swapSplit: ["החלף בין הצדדים", "change the sides over"] as Both,
   /** The scroll link, named after what it does rather than after a participle. */
   linkScroll: ["גלילה משותפת", "Linked scroll"] as Both,
   unlinkScroll: ["גלילה נפרדת", "Own scroll"] as Both,
@@ -435,7 +456,27 @@ const WORDS = {
 
   // --- searching -----------------------------------------------------------
   searchBox: ["חיפוש בכל המדף", "Search the whole shelf"] as Both,
-  searchPlaceholder: ["חפש בכל המדף…", "search the whole shelf…"] as Both,
+  /**
+   * **The box says the second thing it does, with an example of it.**
+   *
+   * > *"The guide talks about a search box where you can write טור סימן א. I
+   * > can't find anything like that."*
+   *
+   * There is no such box and there was never going to be one: this box reads a
+   * mareh makom as a place and goes there, which is the better answer than a
+   * second box beside it. But the promise lived in `start-here.md` and in
+   * `searchNothingAsked` — a line printed on an *empty* panel, which a reader
+   * who typed something has already scrolled past — and the box itself said
+   * only *search the whole shelf*. A reader who came looking for the feature by
+   * name found a search box, which is what it said it was.
+   *
+   * The example is the guide's own, so somebody holding the two side by side
+   * sees the same string twice.
+   */
+  searchPlaceholder: [
+    "חפש בכל המדף — או מראה מקום: טור או״ח סימן א",
+    "search the whole shelf — or a mareh makom: שבת לא.",
+  ] as Both,
   keepQuery: ["שמור", "Keep"] as Both,
   keepQueryWhy: ["שמור את השאלה הזאת", "keep this question"] as Both,
   results: ["תוצאות", "Results"] as Both,
@@ -462,6 +503,24 @@ const WORDS = {
   scopeTake: ["הוצא", "Take out"] as Both,
   scopeDrop: ["הסר את השורה הזאת", "remove this row"] as Both,
   scopeFindSefer: ["חפש ספר להוסיף", "Find a sefer to add"] as Both,
+  /** The one line that says what the whole panel comes to. Two numbers, because
+   * a list of eight labels does not tell a reader whether they are about to
+   * search four seforim or four thousand. */
+  scopeCounted: ["מחפש ב: {n} מתוך {all} ספרים", "Searching: {n} of {all} seforim"] as Both,
+  /** The row a box is on, and what a click on it does. */
+  scopeTick: ["סמן — חפש כאן", "tick — search here"] as Both,
+  scopeUntick: ["בטל — אל תחפש כאן", "untick — do not search here"] as Both,
+  /** Both the *check everything* and the *clear all* a reader asked for: with
+   * nothing ticked the search runs over every sefer, so the two are one click. */
+  scopeClear: ["סמן הכל", "Tick everything"] as Both,
+  scopeClearWhy: [
+    "נקה את כל מה שסומן — חיפוש בכל המדף",
+    "clear every tick — search the whole shelf",
+  ] as Both,
+  /** Opening a shelf down to the seforim standing on it, so a single sefer can
+   * be ticked without knowing its name. */
+  scopeOpenShelf: ["הצג את הספרים שעל המדף הזה", "show the seforim on this shelf"] as Both,
+  scopeLoading: ["רגע…", "one moment…"] as Both,
   scanBadge: ["סריקה", "scan"] as Both,
   scanGuessedWhy: [
     "נקרא במכונה — יש לבדוק מול הצילום",
@@ -477,9 +536,15 @@ const WORDS = {
   andMore: ["ועוד", "and"] as Both,
   narrowTo: ["צמצם ל־", "narrow to"] as Both,
   takeOut: ["הוצא את", "take out"] as Both,
+  /** The same missing cache as [`linksNoInbound`], one panel over, and it was
+   * worded the same way. Same answer: the fact here, the command on the hover. */
   linkFacetUnbuilt: [
-    "לא נבנה — הרץ girsa-link-types ובנה אינדקס מחדש",
-    "not built — run girsa-link-types and rebuild the index",
+    "אי אפשר לצמצם לפי קישור — לא נבנה מה שסופר אותם",
+    "cannot narrow by link — what counts them was never built",
+  ] as Both,
+  linkFacetUnbuiltWhy: [
+    "שלב 5 בהקמת הספרייה: girsa-link-types corpus personal, ואחריו בניית האינדקס מחדש",
+    "step 5 of setting up the library: girsa-link-types corpus personal, then rebuild the index",
   ] as Both,
   uncatalogued: [
     "תוצאות בספרים שאינם בקטלוג — המדפים שלמעלה חסרים אותן",
@@ -537,6 +602,14 @@ const WORDS = {
   // typo the reader did not make. It is composed here now, from the chip row
   // that actually ran and from what the reader actually typed.
   askedFor: ["חיפשת", "Searched for"] as Both,
+  /** A result row has three landings and used to advertise none of them, so
+   * *"Ctrl+Enter is supposed to open in the same tab"* was true of the guide
+   * and not of the row. The row says it now, on hover, in the order the
+   * modifiers are held: nothing, Ctrl, Shift. */
+  findOpenWhy: [
+    "פתח — Ctrl בלשונית שאני קורא בה, Shift בלשונית משלו",
+    "Open — Ctrl beside what I am reading, Shift in a tab of its own",
+  ] as Both,
   /** A search with no hits used to be a bare `0` over an entirely blank panel. */
   foundNothing: ["לא נמצא כלום", "nothing was found"] as Both,
   foundNothingWhy: [
@@ -583,6 +656,14 @@ const WORDS = {
   ] as Both,
 
   linked: ["מקושר", "linked"] as Both,
+  /** Two columns keeping step because the reader put them side by side, not
+   * because the corpus joins them. Said out loud so a column that moves is
+   * never read as a column making a claim. */
+  roughly: ["בקירוב", "roughly"] as Both,
+  roughlyWhy: [
+    "אין קשר בין שני הספרים, אז שתי העמודות נשארות באותו מקום יחסי — ולא מול השורה",
+    "nothing joins these two seforim, so the two columns keep the same place in each — not the same line",
+  ] as Both,
 
   // --- the links panel -----------------------------------------------------
   linksTitle: ["קישורים", "Links"] as Both,
@@ -611,6 +692,27 @@ const WORDS = {
   linksUnreject: ["בטל דחייה", "Undo the rejection"] as Both,
   linksUnrejectWhy: ["החזר את הקישור", "put the link back"] as Both,
   linksKind: ["סוג הקישור", "Kind of link"] as Both,
+  /** The pin, in its two states. It reads as what it **is**, and its tooltip
+   * says what clicking it does — the same shape every toggle in this toolbar
+   * uses. */
+  /** The word in front of the lens row, which turns five nouns into a filter. */
+  linksShow: ["הצג:", "Show:"] as Both,
+  linksAllWhy: ["כל הקישורים — בלי סינון", "every link — nothing filtered out"] as Both,
+  linksLensKeeps: ["משאיר:", "keeps:"] as Both,
+  linksLensEras: ["תקופות", "eras"] as Both,
+  linksLensMine: ["רק מה שנגעת בו", "only what you have touched"] as Both,
+  linksLensAtLeast: ["ודאות {n}% ומעלה", "{n}% certainty and up"] as Both,
+  linksDrawOpen: ["צייר קשר משלך", "Draw a link of your own"] as Both,
+  linksFollowing: ["עוקב", "following"] as Both,
+  linksFollowingWhy: [
+    "הקישורים של השורה שאתה עומד בה — לחץ כדי לקבע כאן",
+    "the links on the line you are standing on — click to stay on this one",
+  ] as Both,
+  linksStaying: ["מקובע", "pinned"] as Both,
+  linksStayingWhy: [
+    "מקובע לשורה הזאת — לחץ כדי לעקוב שוב",
+    "pinned to this line — click to follow the reading again",
+  ] as Both,
   linksKindWhy: ["קבע את סוג הקשר", "say what kind of link this is"] as Both,
   linksKindPick: ["סוג…", "kind…"] as Both,
   linksMoveHere: ["העבר לכאן", "Move it here"] as Both,
@@ -644,9 +746,32 @@ const WORDS = {
   onWords: ["על מילים", "on words"] as Both,
   onWordsYours: ["על מילים (שלך)", "on words (yours)"] as Both,
   wasKind: ["היה", "was"] as Both,
+  /**
+   * **What is missing, in the words of the thing that is missing.**
+   *
+   * > *"the sentence of what I cannot see is hard to decipher."*
+   *
+   * It read: *no inbound cache — links into this line are not shown. Run
+   * girsa-link-types.* Three implementation nouns and a command name, printed
+   * at a person who came to read a sefer. A reader does not have a cache, has
+   * no way to know that *inbound* is the half of the graph that points **at**
+   * this line rather than out of it, and cannot run anything from inside the
+   * window.
+   *
+   * So the sentence says the fact — half the list is here and which half — in
+   * the terms the list itself is drawn in (`linksOut` is *from here to*,
+   * `linksIn` is *to here from*), and the command moves behind the hover, which
+   * is where [`othersWroteHere`] put the same kind of footnote. The step number
+   * is the one on the setup screen, so the two screens agree about which step
+   * it is.
+   */
   linksNoInbound: [
-    "אין מטמון נכנס — הקישורים אל השורה הזאת אינם מוצגים. הרץ girsa-link-types.",
-    "no inbound cache — links into this line are not shown. Run girsa-link-types.",
+    "מוצגים רק הקישורים היוצאים מן השורה הזאת. מי שמצביע עליה — מפרשים עליה, וספרים המצטטים אותה — חסר מן הרשימה.",
+    "Only the links leading out of this line are listed. What points at it — mefarshim on it, seforim quoting it — is missing from the list.",
+  ] as Both,
+  linksNoInboundWhy: [
+    "המטמון שקורא את הקישורים לאחור לא נבנה — שלב 5 בהקמת הספרייה: girsa-link-types corpus personal",
+    "the cache that reads the links backwards was never built — step 5 of setting up the library: girsa-link-types corpus personal",
   ] as Both,
 
   // --- the writing drawer --------------------------------------------------
@@ -824,6 +949,7 @@ const WORDS = {
   settingsHebrewFont: ["גופן עברי", "Hebrew font"] as Both,
   settingsLatinFont: ["גופן לטיני", "Latin font"] as Both,
   settingsSize: ["גודל הקריאה", "Reading size"] as Both,
+  settingsMefarshimSize: ["גודל המפרשים", "Mefarshim size"] as Both,
   settingsLeading: ["רווח בין השורות", "Line spacing"] as Both,
   settingsMeasure: ["רוחב הטור (אותיות, 0 = בלי הגבלה)", "Column width (characters, 0 = no limit)"] as Both,
   settingsPointing: ["ניקוד", "Pointing"] as Both,
@@ -1122,6 +1248,31 @@ const WORDS = {
   ] as Both,
   chainSteps: ["צעדים: {n}", "Hops: {n}"] as Both,
   chainNoDate: ["בלי תאריך", "no date"] as Both,
+  // --- what a kind of link is called ---------------------------------------
+  //
+  // > *"The latin text in links makes it hard to read. In general, it reads
+  // > like an AI. Same with the chain."*
+  //
+  // The chain printed `girsa_link::EdgeType::as_str` — `comments-on`,
+  // `parallel-to`, `references` — set left to right, in a right-to-left panel,
+  // beside Hebrew sefer names. Those are wire keys. They are the right thing to
+  // store, to index and to put in a shard, and they were never meant to be
+  // read by a person in either language.
+  //
+  // The links panel already drew them from `girsa_app::links::kinds`, which
+  // labels them — in Hebrew only, because when it was written the window had no
+  // other language. It has two now, so the words are here, where every other
+  // word the window says lives, and `linkKind` below is the one door to them.
+  linkKindCommentsOn: ["מפרש", "comments on"] as Both,
+  linkKindQuotes: ["מצטט", "quotes"] as Both,
+  linkKindParaphrases: ["מביא", "brings"] as Both,
+  linkKindCodifies: ["פוסק", "rules from"] as Both,
+  linkKindDisputes: ["חולק", "disputes"] as Both,
+  linkKindEmends: ["מגיה", "emends"] as Both,
+  linkKindParallelTo: ["מקביל", "parallel to"] as Both,
+  linkKindTranslates: ["מתרגם", "translates"] as Both,
+  /** Half this graph, and it asserts nothing — see `chain.rs`'s own tally. */
+  linkKindReferences: ["קשור", "connected to"] as Both,
   chainNoLabel: ["הקורפוס לא אמר כלום", "the corpus said nothing"] as Both,
   chainCorpusSaid: ["הקורפוס אמר: {label}", "the corpus said: {label}"] as Both,
   chainMine: ["שלך", "yours"] as Both,
@@ -1401,13 +1552,77 @@ export function switchInterfaceTo(language: Language): void {
   // relabels the window, and it reads that cache before anything else runs.
   speakInterface(language);
   if (typeof window === "undefined") return;
+  // **And come back to where the reader was standing.**
+  //
+  // > *"Setting the language closes settings immediately."*
+  //
+  // It did, and there was nothing wrong with the diagnosis in the settings
+  // panel's own header — a language switch is a reload, because eleven panels
+  // build their words in their constructors. What nobody had noticed is that
+  // the reader was *inside one of those panels* when they asked, so the reload
+  // that relabelled it also dismissed it, and the one control whose effect they
+  // most wanted to check went away at the moment of checking.
+  //
+  // A note in storage rather than a query string: this is a Tauri window, not a
+  // page with a URL a reader ever sees, and `main.ts` clears it as it reads it,
+  // so a crash between the two costs one unexpected panel and not a panel that
+  // reopens forever.
+  try {
+    localStorage.setItem(REOPEN, "settings");
+  } catch {
+    // See `lastKnown`. The switch still works; the reader lands on the window
+    // instead of on the panel.
+  }
   window.location.reload();
+}
+
+/** Where the reader was standing when the window reloaded itself. */
+const REOPEN = "girsa-reopen";
+
+/** What to open again after a reload the window asked for, once. */
+export function reopenAfterReload(): string | null {
+  try {
+    const held = localStorage.getItem(REOPEN);
+    localStorage.removeItem(REOPEN);
+    return held;
+  } catch {
+    return null;
+  }
 }
 
 /** What the window calls something, in the language it is in. */
 export function say(word: Word): string {
   const both = WORDS[word];
   return speaking === "hebrew" ? both[0] : both[1];
+}
+
+/**
+ * A kind of link, in the window's language.
+ *
+ * The wire keys are `girsa_link::EdgeType::as_str`, and they are the keys
+ * `girsa_app::links::kinds` is built from — so this table cannot drift out of
+ * step with the engine without a key falling off the end of it, which is what
+ * `null` is for. The caller then shows what Rust labelled it, and if there is
+ * no label either, the key: a slug on the screen is a bug somebody can report,
+ * and a blank is not.
+ */
+const LINK_KINDS: Record<string, Word> = {
+  "comments-on": "linkKindCommentsOn",
+  quotes: "linkKindQuotes",
+  paraphrases: "linkKindParaphrases",
+  codifies: "linkKindCodifies",
+  disputes: "linkKindDisputes",
+  emends: "linkKindEmends",
+  "parallel-to": "linkKindParallelTo",
+  translates: "linkKindTranslates",
+  references: "linkKindReferences",
+};
+
+/** What to call one kind of link, or `null` for a key this table has not heard
+ * of. */
+export function linkKind(key: string): string | null {
+  const word = LINK_KINDS[key];
+  return word ? say(word) : null;
 }
 
 /** The same, in a language given rather than the one set — for a test. */

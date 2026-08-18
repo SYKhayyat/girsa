@@ -94,7 +94,7 @@ export async function printSection(at: string): Promise<string> {
   head.append(where);
   page.append(head);
 
-  for (const line of found.lines) page.append(lineElement(line));
+  for (const line of found.lines) page.append(...lineElement(line));
 
   // The class is what the print stylesheet keys off, and it comes off again
   // whether the dialogue was accepted or dismissed — `print()` returns when the

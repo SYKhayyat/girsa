@@ -55,6 +55,7 @@ had not built this opened it and used it, written down without softening.
 |---|---|
 | [`the-five-minute-report.md`](the-five-minute-report.md) | five minutes, eighteen complaints, and what each fix was |
 | [`the-second-sitting.md`](the-second-sitting.md) | an hour with the running window afterwards: what got fixed, what came back, and a grade — then a second pass over the untested paths, which found that no build of the application had ever been produced |
+| [`the-third-sitting.md`](the-third-sitting.md) | twenty-four findings from the shipped window: two root causes account for six of them — a `/*` opened inside a CSS selector list, and an `AND` where the search meant `OR` — and every one re-measured against a 7,189-sefer shelf |
 
 Ksav's own pages are in the pen's repository, at `Ksav/docs/` — a
 getting-started, a *coming from Word*, and its own generated shortcut card. Not

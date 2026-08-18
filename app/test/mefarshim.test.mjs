@@ -181,29 +181,36 @@ export function run() {
   // has ticked nobody would be told nobody wrote.
   const SOMETHING = { said: [{ work: "bavli/rashi-on-berakhot", lines: [] }], others: false };
 
-  check("when there is something to read, nothing is said", nothingHere(SOMETHING, 3), "");
+  check("when there is something to read, nothing is said", nothingHere(SOMETHING, 3).said, "");
+  check("and no mark either", nothingHere(SOMETHING, 3).mark, "");
 
   ok(
     "having ticked nobody is reported as that, not as nobody having written",
-    nothingHere({ said: [], others: true }, 0).includes("סמן"),
+    nothingHere({ said: [], others: true }, 0).said.includes("סמן"),
   );
 
-  ok(
-    "a line others wrote on says they did, so a reader can widen their list",
-    nothingHere({ said: [], others: true }, 3).includes("לא סימנת"),
-  );
+  // > *"It says — mefarshim you have not ticked wrote here. If it is worth
+  // > mentioning this at all, it should be a discrete symbol, not words."*
+  //
+  // It is still said — it is the difference between *nobody wrote here* and
+  // *you did not ask* — and it is said in one character, with the sentence on
+  // the title where a reader who wants it can find it.
+  const others = nothingHere({ said: [], others: true }, 3);
+  check("a line others wrote on is marked and not narrated", others.said, "");
+  check("with the hollow diamond — the ticked marker, unfilled", others.mark, "◇");
+  ok("and the words on its title", others.why.includes("לא סימנת"));
 
   ok(
-    "a line nobody wrote on says nobody wrote on it",
-    nothingHere({ said: [], others: false }, 3).includes("אין"),
+    "a line nobody wrote on says nobody wrote on it, in words",
+    nothingHere({ said: [], others: false }, 3).said.includes("אין"),
   );
 
   // The message for *you ticked nobody* must not depend on whether anybody wrote
   // here, because the reader's next move is the same either way: tick somebody.
   check(
     "with nobody ticked the advice is the same whether or not others wrote",
-    nothingHere({ said: [], others: false }, 0),
-    nothingHere({ said: [], others: true }, 0),
+    nothingHere({ said: [], others: false }, 0).said,
+    nothingHere({ said: [], others: true }, 0).said,
   );
 
   // ------------------------------------------------- the sentence under the tick-list

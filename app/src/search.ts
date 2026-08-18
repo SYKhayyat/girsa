@@ -60,7 +60,33 @@ import { sayTrouble, trouble } from "./trouble.ts";
  * The second is W26's *read them*: a scan with no words has no segment worth
  * landing on, and the pane it opens is the one carrying the control that reads
  * it. */
-type Opened = (slug: string, id: string | null, marked?: string[]) => void;
+type Opened = (slug: string, id: string | null, marked?: string[], where?: Where) => void;
+
+/**
+ * Which of the three landings a click on a result asked for.
+ *
+ * > *"ctrl-enter is supposed to open in the same tab, i think. It does not."*
+ *
+ * It did — in the **picker**, where `Ctrl+Enter` has meant *beside what I am
+ * reading* since the door was written, and where the label says so. The results
+ * list had one gesture and no modifiers at all, so the key a reader had learned
+ * one screen over did nothing here.
+ *
+ * > *"There is no way to open one sefer in two tabs via search, at least."*
+ *
+ * And that is the third. Opening a sefer that is already open **goes to it**,
+ * which is `Workspace::open`'s ruling and the right default — but it left no
+ * gesture at all for *a second view of this*, which is the ordinary thing to
+ * want of a search result in a sefer you already have open somewhere else.
+ */
+type Where = "tab" | "here" | "fresh";
+
+/** What a click on a result asked for, from the keys held down with it. */
+export function landingOf(held: { ctrl: boolean; shift: boolean }): Where {
+  if (held.ctrl) return "here";
+  if (held.shift) return "fresh";
+  return "tab";
+}
 
 /** The facets, in the order spec.md §9.8 lists them. */
 const FACETS: { dimension: Dimension; label: () => string }[] = [
@@ -621,10 +647,20 @@ export class SearchView {
         row.append(badge);
       }
       row.append(text);
-      row.addEventListener("click", () => {
+      // Three landings, and the keys are the picker's: plain is a tab, Ctrl is
+      // beside what you are reading, Shift is a second view of its own. Said on
+      // the row's title, because a modifier nobody is told about is a modifier
+      // nobody presses.
+      row.title = say("findOpenWhy");
+      row.addEventListener("click", (event) => {
         // Docked, not closed (W48): the reader is going to want the next result.
         this.dock();
-        this.opened(hit.work, hit.id, hit.marked);
+        this.opened(
+          hit.work,
+          hit.id,
+          hit.marked,
+          landingOf({ ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey }),
+        );
       });
       this.list.append(row);
     }
@@ -690,6 +726,7 @@ export class SearchView {
         // what is commented on* are different statements (spec.md §9.7's rule,
         // one facet over).
         why.textContent = say("linkFacetUnbuilt");
+        why.title = say("linkFacetUnbuiltWhy");
         group.append(why);
         this.rail.append(group);
         continue;

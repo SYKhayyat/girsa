@@ -138,6 +138,21 @@ pub struct Session {
     /// unreadable in a way Latin text at the same size is not.
     #[serde(default = "hundred")]
     pub text_size: u16,
+    /// The mefarshim's size, as a percentage, **separately**.
+    ///
+    /// > *"I think it is a good idea to have a separate control for mefarshim
+    /// > and top level."*
+    ///
+    /// It is, and the reason is in the stylesheet already: a comment is set a
+    /// shade smaller than the daf because *the daf is what the reader is
+    /// reading*. That ratio is the application's opinion, and a reader whose
+    /// eyes are fine on a Gemara and not on Rashi's script has no way to argue
+    /// with it — one control moved both and kept the gap.
+    ///
+    /// Clamped by the same [`Session::sane`] and to the same bounds: a size is
+    /// a size, and two different floors would be two rules to keep in step.
+    #[serde(default = "hundred")]
+    pub mefarshim_size: u16,
     /// How a citation is printed when a source is sent (spec.md §10.2, W15).
     ///
     /// A preference and not a fact about the quote: what the document stores
@@ -514,6 +529,7 @@ impl Default for Session {
             desk: None,
             was_nikud: None,
             text_size: hundred(),
+            mefarshim_size: hundred(),
             cite: full(),
             language: Language::default(),
             interface: Language::default(),
@@ -573,6 +589,7 @@ impl Session {
             self.pointing = if on { Pointing::Full } else { Pointing::Plain };
         }
         self.text_size = self.text_size.clamp(SMALLEST_TEXT, LARGEST_TEXT);
+        self.mefarshim_size = self.mefarshim_size.clamp(SMALLEST_TEXT, LARGEST_TEXT);
         self.look = std::mem::take(&mut self.look).sane();
         self.workspace.sane();
     }

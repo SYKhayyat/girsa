@@ -17,7 +17,7 @@ import { about, button, shut } from "./controls.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { cssEscape } from "./pane.ts";
-import { fill, say } from "./say.ts";
+import { fill, linkKind, say } from "./say.ts";
 import { sayTrouble } from "./trouble.ts";
 
 /** Which walk is on the screen. */
@@ -242,7 +242,16 @@ export class ChainView {
 
     const kind = document.createElement("span");
     kind.className = "chain-kind";
-    kind.textContent = hop.edge_type;
+    // Not `hop.edge_type`, which is `girsa_link::EdgeType::as_str` — a wire key
+    // like `comments-on`, set left to right in a right-to-left column of Hebrew
+    // sefer names: *"the latin text … makes it hard to read."* The links panel
+    // had been labelling the same keys since it was written; the chain simply
+    // printed them. One door for both now — see `say.ts:linkKind`.
+    //
+    // Straight to `say.ts` and not through the links panel's three-deep
+    // fallback: a chain does not fetch links, so there is no Rust-labelled list
+    // in hand here to fall back to. The key itself is the last resort in both.
+    kind.textContent = linkKind(hop.edge_type) ?? hop.edge_type;
     // What the corpus actually said, where it said anything. Three quarters of
     // this graph carries no label at all, and *the corpus said nothing* is a
     // different fact from *the corpus said `related`*.

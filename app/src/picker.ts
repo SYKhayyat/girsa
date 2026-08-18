@@ -11,6 +11,7 @@ import { field, glyph } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { sameSeferTwice, sefer } from "./names.ts";
 import { say } from "./say.ts";
+import { cssEscape } from "./pane.ts";
 import { ticked } from "./mefarshim.ts";
 import type { Where } from "./shelf.ts";
 import type { Choice, Listed, Source } from "./api.ts";
@@ -79,6 +80,8 @@ export class Picker {
    * the sefer it comments on.
    */
   private where: Where = "tab";
+  /** What a plain click means from the door this picker was opened by. */
+  private plainly: Where = "tab";
   /** The sentence under the list: how much of the sefer has commentary at all. */
   private readonly said: HTMLElement;
   /** One answer at a time — see `latest.ts`. The filter asks per keystroke and a
@@ -139,10 +142,14 @@ export class Picker {
    * same tab/workspace."* It is the same door and a different landing, so it is
    * a second argument rather than a second door.
    */
-  openTab(chosen: (slug: string, where: Where) => void): void {
+  openTab(chosen: (slug: string, where: Where) => void, plainly: Where = "tab"): void {
     this.beside = null;
     this.picked = [];
-    this.where = "tab";
+    // What a plain Enter or click means here, which is not the same from every
+    // door: the toolbar's *open a sefer* goes to a sefer already open, and the
+    // `＋` on the tab strip is named after making a tab and makes one.
+    this.plainly = plainly;
+    this.where = plainly;
     this.chosen = (slugs) => {
       const first = slugs[0];
       if (first) chosen(first, this.where);
@@ -180,7 +187,42 @@ export class Picker {
   refreshMefarshim(slug: string, now: Mefarshim): void {
     if (this.beside !== slug) return;
     this.mefarshim = now;
-    if (this.isOpen) void this.refresh();
+    if (this.isOpen) void this.holdingPlace(() => this.refresh());
+  }
+
+  /**
+   * Redraw the list without moving the reader.
+   *
+   * > *"Checking off a box or unchecking be meforshim (not ticking - just
+   * > checking) brings you to the top of the meforshim box."*
+   *
+   * A tick is answered with the **whole** list from Rust — which is right, and
+   * is the argument `tickMefaresh` makes at length — and drawing it is
+   * `replaceChildren`, which resets `scrollTop` to zero and throws away the
+   * focused element. On a masechta with sixty mefarshim, ticking the fortieth
+   * put the reader back at the first and took the keyboard with it, so ticking
+   * two in a row meant scrolling back down in between.
+   *
+   * Not folded into `fill`: the same call draws the answer to a **search**, and
+   * there the top of the list is exactly where a reader should be. This is the
+   * one caller for which the list is the same list.
+   */
+  private async holdingPlace(redraw: () => Promise<void>): Promise<void> {
+    const was = this.list.scrollTop;
+    // Which row had the keyboard, by slug rather than by node: every node in
+    // the list is about to be a different node.
+    const focused = document.activeElement;
+    const held =
+      focused instanceof HTMLElement && this.list.contains(focused)
+        ? (focused.closest<HTMLElement>("[data-slug]")?.dataset.slug ?? null)
+        : null;
+    await redraw();
+    this.list.scrollTop = was;
+    if (!held) return;
+    const back = this.list.querySelector<HTMLElement>(
+      `[data-slug="${cssEscape(held)}"] input, [data-slug="${cssEscape(held)}"]`,
+    );
+    back?.focus({ preventScroll: true });
   }
 
   private show(): void {
@@ -313,6 +355,10 @@ export class Picker {
       }
       const node = document.createElement("li");
       node.className = "picker-row";
+      // So `holdingPlace` can find this row again after a redraw. Every node in
+      // the list is replaced when one box is ticked, and the slug is the only
+      // thing about a row that survives that.
+      node.dataset.slug = row.slug;
       if (row.depth) node.style.setProperty("--depth", String(row.depth));
       const title = document.createElement("span");
       title.className = "picker-row-title";
@@ -407,7 +453,7 @@ export class Picker {
         node.append(here);
       }
       node.append(title, aside);
-      node.addEventListener("pointerdown", () => this.take(row.slug));
+      node.addEventListener("pointerdown", () => this.take(row.slug, this.plainly));
       this.list.append(node);
       this.rows.push({ slug: row.slug, node });
     }
@@ -452,11 +498,11 @@ export class Picker {
       // Ctrl+Enter is the same row into the tab you are already in — the
       // keyboard half of the `⊞` beside it, so the gesture is reachable without
       // reaching for the mouse and the two cannot disagree about what they do.
-      if (row) this.take(row.slug, event.ctrlKey || event.metaKey ? "here" : "tab");
+      if (row) this.take(row.slug, event.ctrlKey || event.metaKey ? "here" : this.plainly);
     }
   }
 
-  private take(slug: string, where: Where = "tab"): void {
+  private take(slug: string, where: Where = this.plainly): void {
     this.where = where;
     this.close();
     this.chosen([slug]);

@@ -58,7 +58,10 @@ const CALLED = new Map([
   ["HitRow", "Hit"],
   ["LandingRow", "Landing"],
   ["LaneRow", "LaneState"],
-  ["LensRow", "LinkKind"],
+  // It was `LinkKind` — the lens row and the kind row are both `{key, title}`,
+  // so one TypeScript interface answered for both until the lens grew the four
+  // fields that say what it filters.
+  ["LensRow", "LensRow"],
   ["ModelOffer", "ModelOffer"],
   ["OfferRow", "Offer"],
   ["NearRow", "Near"],

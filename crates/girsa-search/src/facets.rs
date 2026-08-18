@@ -129,6 +129,28 @@ impl Dimension {
         }
     }
 
+    /// Which question this dimension asks of a sefer.
+    ///
+    /// Shelf and Sefer both answer *which seforim* — a shelf **is** the seforim
+    /// on it — so two clicks across the two of them add up rather than
+    /// intersecting. Era, author and tag are properties, and each is its own
+    /// question, so narrowing by one after another still means *and*. See
+    /// [`crate::scope::Asked`], which exists because ticking two masechtos used
+    /// to search neither.
+    ///
+    /// [`Self::Link`] never reaches here — it narrows through a column of the
+    /// index rather than through a scope step — and answers *which seforim*
+    /// only because the match arm has to say something.
+    #[must_use]
+    pub const fn asked(self) -> crate::scope::Asked {
+        match self {
+            Self::Sefer | Self::Shelf | Self::Link => crate::scope::Asked::Which,
+            Self::Era => crate::scope::Asked::When,
+            Self::Author => crate::scope::Asked::Who,
+            Self::Tag => crate::scope::Asked::Tagged,
+        }
+    }
+
     /// Where this dimension's rows come from. See [`Through`].
     #[must_use]
     pub const fn through(self) -> Through {
@@ -495,9 +517,12 @@ pub fn narrow(scope: &Scope, catalogue: &Catalogue, dimension: Dimension, row: &
             Some(kind) => scope.clone().linked(kind),
             None => scope.clone(),
         },
-        Through::Catalogue => scope
-            .clone()
-            .only(catalogue.seforim_under(dimension, &row.key), &row.label),
+        Through::Catalogue => scope.clone().only_by(
+            dimension.asked(),
+            &row.key,
+            catalogue.seforim_under(dimension, &row.key),
+            &row.label,
+        ),
     }
 }
 
@@ -509,9 +534,12 @@ pub fn exclude(scope: &Scope, catalogue: &Catalogue, dimension: Dimension, row: 
             Some(kind) => scope.clone().unlinked(kind),
             None => scope.clone(),
         },
-        Through::Catalogue => scope
-            .clone()
-            .without(catalogue.seforim_under(dimension, &row.key), &row.label),
+        Through::Catalogue => scope.clone().without_by(
+            dimension.asked(),
+            &row.key,
+            catalogue.seforim_under(dimension, &row.key),
+            &row.label,
+        ),
     }
 }
 

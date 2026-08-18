@@ -17,6 +17,30 @@
 //! in — is at `GIRSA_PERSONAL`, else `personal/` in the app's data directory.
 //! It is **never** under the corpus root: the corpus is re-downloadable and
 //! this is not.
+//!
+//! # Why every command is `#[tauri::command(async)]`
+//!
+//! > *"In general, it is a very unresponsive UI - almost like openoffice."*
+//!
+//! Every command in this file was `#[tauri::command]`, which is not a synonym
+//! for *async* with the ceremony left off. `tauri-macros`' `ExecutionContext`
+//! has two settings, and the default one — `Blocking` — runs the function
+//! **inline in the IPC handler**, on the thread that owns the webview and the
+//! window's message loop. `(async)` on a synchronous function puts it on the
+//! runtime's blocking pool instead; the macro's own name for that arm is
+//! `sync_threadpool`.
+//!
+//! So a search over 3.6 GB of index did not merely take two seconds — it took
+//! two seconds during which the window could not repaint, could not scroll, and
+//! could not process the click that would have cancelled it. Nothing in the
+//! window was slow. One thread was doing two jobs.
+//!
+//! The two exceptions are `copy` and `sefer_sheet`: the clipboard and the print
+//! sheet talk to the platform rather than to the shelf, they are fast, and
+//! moving them buys nothing to pay for the risk.
+//!
+//! What this does **not** change is that the state is one `Mutex`, so two
+//! commands still take their turn. It changes which thread waits.
 
 mod clipboard;
 mod post;
@@ -61,6 +85,12 @@ pub(crate) struct State {
     /// `Timeline` in scope was an accident of where the code was written, and
     /// this is the field that ends it.
     pub(crate) timeline: Option<girsa_corpus::era::Timeline>,
+    /// The link shards the chain has already read — see
+    /// `girsa_link::chain::Cache`, which holds the whole argument.
+    ///
+    /// Emptied wherever a repair is written, because every work in it went
+    /// through the repair layer as it stood when it was read.
+    pub(crate) chains: girsa_link::chain::Cache,
     /// The search bar, if there is an index to search. Kept beside the shelf
     /// rather than inside it because an index is a rebuildable cache and a
     /// shelf is not: a window with no index still reads seforim, and says why
@@ -437,7 +467,7 @@ impl State {
 
 pub(crate) type Shared = Mutex<State>;
 
-#[tauri::command]
+#[tauri::command(async)]
 fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // The queue is 28,124 lines on the real corpus and this is asked on every
@@ -453,6 +483,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
         pointing: state.session.pointing,
         shemos: state.session.shemos,
         text_size: state.session.text_size,
+        mefarshim_size: state.session.mefarshim_size,
         positions: state.session.positions.clone(),
         works: state.shelf.as_ref().map_or(0, |s| s.works().len()),
         trouble: state.said_trouble(),
@@ -504,7 +535,7 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
 ///   about a corpus that is no longer the one being read, and a stale answer
 ///   about a sefer that still exists in the new corpus is worse than no answer:
 ///   it looks right.
-#[tauri::command]
+#[tauri::command(async)]
 fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), String> {
     let at = PathBuf::from(&path);
     if !girsa_corpus::roots::is_corpus(&at) {
@@ -527,6 +558,8 @@ fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), S
     state.shelf = Some(shelf);
     state.trouble = opened.trouble;
     state.timeline = opened.timeline;
+    // A different corpus, so every shard read out of the old one is a lie.
+    state.chains = girsa_link::chain::Cache::default();
     state.bar = opened.bar;
     state.no_search = opened.no_search;
     state.lexicon = opened.lexicon;
@@ -541,7 +574,7 @@ fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), S
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search(shared: tauri::State<'_, Shared>, query: String) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -554,7 +587,7 @@ fn search(shared: tauri::State<'_, Shared>, query: String) -> Result<Vec<Card>, 
 
 /// The seforim a reader has been in, most recent first — what the picker shows
 /// before anything has been typed.
-#[tauri::command]
+#[tauri::command(async)]
 fn recent(shared: tauri::State<'_, Shared>) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let Some(shelf) = state.shelf.as_ref() else {
@@ -695,7 +728,7 @@ struct FoundPage {
 ///
 /// The chips are read from what was typed first (a sigil flips a chip — §9.5),
 /// so the row that comes back is the row the search actually ran under.
-#[tauri::command]
+#[tauri::command(async)]
 fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<FoundPage, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let size = girsa_app::enough::A_PAGE;
@@ -907,7 +940,7 @@ fn near_said(near: &girsa_search::citation::NearMiss) -> String {
 /// [`girsa_search::ladder::Widening::describe`], which is read off the query
 /// that ran. The undo is not a flag but the literal query, which is what
 /// `find` does without a rung.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_rung(
     shared: tauri::State<'_, Shared>,
     query: String,
@@ -983,14 +1016,14 @@ fn find_rung(
 ///
 /// Named rather than free-form: the window may choose among the options the
 /// engine offered and may not invent one.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_chip(shared: tauri::State<'_, Shared>, chip: String, key: String) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.chips.choose(&chip, &key).map_err(|e| e.to_string())
 }
 
 /// Click a facet row: narrow to it, or rule it out (spec.md §9.8).
-#[tauri::command]
+#[tauri::command(async)]
 fn find_narrow(
     shared: tauri::State<'_, Shared>,
     dimension: Dimension,
@@ -1011,7 +1044,7 @@ fn find_narrow(
 }
 
 /// Back to the whole shelf.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_whole_shelf(shared: tauri::State<'_, Shared>) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.chips.scope = girsa_search::scope::Scope::everything();
@@ -1027,6 +1060,12 @@ struct ScopeStep {
     exclude: bool,
     /// How many seforim it names, so a row can say what it is worth.
     seforim: usize,
+    /// The row it came from, so the tree can draw that row ticked.
+    ///
+    /// A shelf key and a sefer slug are both keys and they do not collide, so
+    /// the tree matches on this alone. The label will not do: every shelf has a
+    /// `ראשונים` under it.
+    key: String,
 }
 
 /// Where the search is looking, as a list a panel can draw and edit.
@@ -1039,6 +1078,17 @@ struct ScopeView {
     /// Whether this is the whole shelf — which is not the same as *no steps*
     /// once link types are in it.
     everything: bool,
+    /// How many seforim the search will actually look in, and how many there
+    /// are altogether.
+    ///
+    /// *"it should be more clear what is and is not included."* The panel listed
+    /// what had been clicked and never once said what that came to, so a reader
+    /// who had clicked eight times could read eight labels off the screen and
+    /// still not know whether they were about to search four seforim or four
+    /// thousand. Two numbers answer it in the one place the question is asked.
+    seforim: usize,
+    /// Every sefer on the shelf, to divide the first number by.
+    shelf: usize,
 }
 
 /// What the scope is now.
@@ -1053,11 +1103,36 @@ struct ScopeView {
 ///
 /// This is the scope itself, which exists before any search and outlives every
 /// one — asked for by the panel, not derived from an answer.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_scope(shared: tauri::State<'_, Shared>) -> Result<ScopeView, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
+    Ok(scope_view(&state))
+}
+
+/// The scope as the panel draws it, out of whatever state the caller holds.
+///
+/// Split out because every command that edits the scope ends by handing the
+/// whole of it back, and re-locking a mutex the caller still holds is a
+/// deadlock on Windows, where `std::sync::Mutex` is not reentrant. `find_scope`
+/// used to be called at the end of `find_scope_add` after an inner block had
+/// dropped the guard — which worked, and only because the block was there.
+fn scope_view(state: &State) -> ScopeView {
     let scope = &state.chips.scope;
-    Ok(ScopeView {
+    let shelf = state.shelf.as_ref().map_or(0, |shelf| shelf.works().len());
+    // What the search will actually look in. `works()` is empty when nothing
+    // has been narrowed, and empty there means *every sefer* — the one place
+    // that distinction has to be spelled out rather than counted.
+    let seforim = if scope.is_everything() {
+        shelf
+    } else {
+        let kept = scope.works();
+        if kept.is_empty() {
+            shelf.saturating_sub(scope.excluded_works().len())
+        } else {
+            kept.len()
+        }
+    };
+    ScopeView {
         said: scope.describe(),
         steps: scope
             .steps()
@@ -1066,42 +1141,66 @@ fn find_scope(shared: tauri::State<'_, Shared>) -> Result<ScopeView, String> {
                 label: step.label.clone(),
                 exclude: step.exclude,
                 seforim: step.len(),
+                key: step.key.clone(),
             })
             .collect(),
         everything: scope.is_everything(),
-    })
+        seforim,
+        shelf,
+    }
 }
 
-/// Add a shelf or a sefer to where the search looks, or take it out.
+/// Tick or untick one row of the scope tree.
 ///
-/// The same two clicks the facet rows carry, reachable **before** a search:
-/// `dimension` is `shelf` or `sefer`, `key` is a shelf key or a slug, and
-/// `label` is what to call it on the chip. Resolved through the same
-/// `facets::narrow`/`exclude` the rail uses, so a scope built from the panel and
-/// one built from a result row are the same scope.
-#[tauri::command]
-fn find_scope_add(
+/// The difference from [`find_scope_add`] is that this is a **checkbox**, so it
+/// is idempotent and it undoes itself: ticking a row that is already ticked
+/// does nothing, and unticking one takes back the step that row put in rather
+/// than adding an opposite step beside it. `find_scope_add` grew an
+/// ever-lengthening list of clicks that could only be undone by index, which is
+/// what a reader means by *"there should also be a clear all"*.
+///
+/// `on` is what the box should read after the click, not what was clicked.
+#[tauri::command(async)]
+fn find_scope_set(
     shared: tauri::State<'_, Shared>,
     dimension: Dimension,
     key: String,
     label: String,
-    exclude: bool,
+    on: bool,
 ) -> Result<ScopeView, String> {
     {
         let mut state = shared.lock().map_err(|_| State::poisoned())?;
         let Some(bar) = state.bar.as_ref() else {
             return Err(state.no_search());
         };
+        let asked = dimension.asked();
+        let mut scope = state.chips.scope.clone();
+        let was_in = scope.holds(asked, &key);
+        let was_out = scope.refuses(asked, &key);
+        // Whichever way this row was pointing, it is not pointing that way any
+        // more. Both directions come off first, so a tick after a `−` is a tick
+        // and not a `−` with a `+` stacked on it.
+        scope.drop_key(asked, &key);
+        let picked = scope.any_picked(asked);
         let row = Row {
             key,
             label,
             count: 0,
             depth: 0,
         };
-        let scope = if exclude {
-            facets::exclude(&state.chips.scope, bar.catalogue(), dimension, &row)
-        } else {
-            facets::narrow(&state.chips.scope, bar.catalogue(), dimension, &row)
+        // Three states, not two, and this is where they are resolved. A row is
+        // in scope because it was picked *or* because nothing was picked and
+        // the whole shelf is in — so unticking sometimes means *drop the pick*
+        // and sometimes means *rule it out*, and which one is not a property of
+        // the row.
+        scope = match (on, was_in, was_out, picked) {
+            // Ticking a row that was only ruled out, with nothing picked: the
+            // whole shelf is back in, and picking this row would narrow to it.
+            (true, _, true, false) => scope,
+            (true, ..) => facets::narrow(&scope, bar.catalogue(), dimension, &row),
+            // Unticking one of several picks: dropping it is the whole answer.
+            (false, true, ..) => scope,
+            (false, ..) => facets::exclude(&scope, bar.catalogue(), dimension, &row),
         };
         state.chips.scope = scope;
     }
@@ -1109,7 +1208,7 @@ fn find_scope_add(
 }
 
 /// Take one step back — the `×` on a row of the scope panel.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_scope_drop(shared: tauri::State<'_, Shared>, at: usize) -> Result<ScopeView, String> {
     {
         let mut state = shared.lock().map_err(|_| State::poisoned())?;
@@ -1287,14 +1386,14 @@ fn open_bar(corpus: &std::path::Path, shelf: Option<&Shelf>) -> (Option<Bar>, Op
 ///
 /// Counts only; the seforim themselves come one shelf at a time from
 /// [`shelf_works`]. 7,189 cards is not a browse, it is a dump.
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_tree(shared: tauri::State<'_, Shared>) -> Result<Vec<Branch>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(shelf.tree())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_works(shared: tauri::State<'_, Shared>, key: String) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -1318,7 +1417,7 @@ fn shelf_works(shared: tauri::State<'_, Shared>, key: String) -> Result<Vec<Card
 /// The catalogue knows all of them and costs nothing to ask: no segments are
 /// read, no sefer is opened, and the answer is one row per slug out of a map
 /// the shelf already holds.
-#[tauri::command]
+#[tauri::command(async)]
 fn titles(shared: tauri::State<'_, Shared>, slugs: Vec<String>) -> Result<Vec<Card>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -1330,7 +1429,7 @@ fn titles(shared: tauri::State<'_, Shared>, slugs: Vec<String>) -> Result<Vec<Ca
 }
 
 /// Put a sefer on a shelf.
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_put_work(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1344,7 +1443,7 @@ fn shelf_put_work(
 
 /// Put a shelf under another one. Refused if that would make it its own
 /// ancestor, and the refusal is shown rather than repaired.
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_put_shelf(
     shared: tauri::State<'_, Shared>,
     key: String,
@@ -1353,7 +1452,7 @@ fn shelf_put_shelf(
     edit_shelf(&shared, move |a| a.put_shelf(&key, &parent))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_rename(
     shared: tauri::State<'_, Shared>,
     key: String,
@@ -1366,7 +1465,7 @@ fn shelf_rename(
 }
 
 /// Pin a shelf, or a sefer, to the front of the one it is on.
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_pin(shared: tauri::State<'_, Shared>, parent: String, key: String) -> Result<(), String> {
     edit_shelf(&shared, move |a| {
         let mut order = a.order.get(&parent).cloned().unwrap_or_default();
@@ -1377,7 +1476,7 @@ fn shelf_pin(shared: tauri::State<'_, Shared>, parent: String, key: String) -> R
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_make(
     shared: tauri::State<'_, Shared>,
     parent: String,
@@ -1398,7 +1497,7 @@ fn shelf_make(
 
 /// Put the shelf back the way it shipped. Your seforim stay; only the
 /// arrangement goes.
-#[tauri::command]
+#[tauri::command(async)]
 fn shelf_reset(shared: tauri::State<'_, Shared>) -> Result<(), String> {
     edit_shelf(&shared, |a| {
         a.reset();
@@ -1407,7 +1506,7 @@ fn shelf_reset(shared: tauri::State<'_, Shared>) -> Result<(), String> {
 }
 
 /// Files dropped on the window become seforim.
-#[tauri::command]
+#[tauri::command(async)]
 fn add_mine(shared: tauri::State<'_, Shared>, paths: Vec<String>) -> Result<Dropped, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
@@ -1451,7 +1550,7 @@ fn edit_shelf(
     shelf.edit(change).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Companion>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -1467,7 +1566,7 @@ fn companions(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<Comp
 // split is untouched by any of it.
 
 /// The mefarshim on one sefer, and what the reader has ticked.
-#[tauri::command]
+#[tauri::command(async)]
 fn mefarshim(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     mefarshim_of(&mut state, &slug)
@@ -1518,7 +1617,7 @@ fn mefarshim_of(state: &mut State, slug: &str) -> Result<Mefarshim, String> {
 /// Answers with the whole list, the same as `choose_mefaresh`: the window used
 /// to patch its own copy after a tick and that is how a list drifts from what
 /// Rust holds.
-#[tauri::command]
+#[tauri::command(async)]
 fn pair_alongside(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1535,7 +1634,7 @@ fn pair_alongside(
 /// now.
 ///
 /// The **whole** list, not just the marked lines: see [`mefarshim_of`].
-#[tauri::command]
+#[tauri::command(async)]
 fn choose_mefaresh(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1561,7 +1660,7 @@ fn choose_mefaresh(
 ///
 /// **Ticks and never unticks.** A reader who has already opened Rashi and
 /// presses this wants Tosfos as well, not Rashi shut.
-#[tauri::command]
+#[tauri::command(async)]
 fn choose_the_usual(shared: tauri::State<'_, Shared>, slug: String) -> Result<Mefarshim, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let usual = mefarshim_of(&mut state, &slug)?
@@ -1577,7 +1676,7 @@ fn choose_the_usual(shared: tauri::State<'_, Shared>, slug: String) -> Result<Me
 }
 
 /// Click a line: read the ticked mefarshim on it.
-#[tauri::command]
+#[tauri::command(async)]
 fn mefarshim_at(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1618,10 +1717,12 @@ fn mefarshim_at(
                 .as_ref()
                 .and_then(|to| sefer.position_of(to))
                 .map_or(first, |to| to.max(first));
-            sefer.segments[first..=last]
+            let mut lines: Vec<Line> = sefer.segments[first..=last]
                 .iter()
                 .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
-                .collect()
+                .collect();
+            girsa_app::view::only_when_it_changes(&mut lines);
+            lines
         };
         let named = state.shelf.as_ref().and_then(|s| s.work(&one.work));
         said.push(Said {
@@ -1657,7 +1758,7 @@ fn mefarshim_at(
 /// carrying the whole sefer instead was costing.
 const A_WINDOW: usize = 600;
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
@@ -1676,16 +1777,27 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
     // still has nikud.
     let has_nikud = sefer.segments.iter().any(|s| display::has_marks(&s.text));
     let total = sefer.segments.len();
+    // Where the reader is: where they were last time if that segment is still
+    // in this sefer, else its first line. Never anything else — see `Text::at`,
+    // which is what carries the answer out to the pane.
     let at = left.and_then(|id| sefer.position_of(&id)).unwrap_or(0);
+    let going = sefer
+        .segments
+        .get(at)
+        .map(|s| s.id.to_string())
+        .unwrap_or_default();
     let from = at.saturating_sub(A_WINDOW / 2).min(total.saturating_sub(1));
     let to = (from + A_WINDOW).min(total);
+    let mut lines: Vec<Line> = sefer.segments[from..to]
+        .iter()
+        .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
+        .collect();
+    girsa_app::view::only_when_it_changes(&mut lines);
     Ok(Text {
         work: Card::of(&sefer.work),
-        lines: sefer.segments[from..to]
-            .iter()
-            .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
-            .collect(),
+        lines,
         from,
+        at: going,
         total,
         has_nikud,
     })
@@ -1696,7 +1808,7 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
 /// Clamped rather than refused: a pane asking past the end is a reader at the
 /// end of the sefer, and the honest answer is the last lines rather than an
 /// error.
-#[tauri::command]
+#[tauri::command(async)]
 fn sefer_lines(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1712,10 +1824,12 @@ fn sefer_lines(
     let (sefer, lexicon) = state.reading(&slug)?;
     let from = from.min(sefer.segments.len());
     let to = from.saturating_add(count).min(sefer.segments.len());
-    Ok(sefer.segments[from..to]
+    let mut lines: Vec<Line> = sefer.segments[from..to]
         .iter()
         .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
-        .collect())
+        .collect();
+    girsa_app::view::only_when_it_changes(&mut lines);
+    Ok(lines)
 }
 
 /// The table of contents of a sefer (A3).
@@ -1727,7 +1841,7 @@ fn sefer_lines(
 /// headings — see `girsa_app::contents`, which holds the argument. Answered per
 /// sefer and per open, not per keystroke: the filter box in the window filters
 /// the list it already has, the way Otzaria's does.
-#[tauri::command]
+#[tauri::command(async)]
 fn sefer_contents(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1744,7 +1858,7 @@ fn sefer_contents(
 /// hit, a link, a mefaresh's place. `None` is *this sefer does not have that
 /// segment*, which is a real answer and not an error: a link can point at a
 /// place a re-import moved, and W23's panel is where that gets repaired.
-#[tauri::command]
+#[tauri::command(async)]
 fn sefer_index_of(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1759,7 +1873,7 @@ fn sefer_index_of(
 // ── Scans (spec.md §6.3, BUILDER.md W25) ────────────────────────────────────
 
 /// Open a scan into a pane.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
@@ -1793,7 +1907,7 @@ fn scan(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, Stri
 // ---------------------------------------------------------------------------
 
 /// How far a scan has been read.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_reading(shared: tauri::State<'_, Shared>, slug: String) -> Result<ReadingRow, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&slug)?;
@@ -1822,7 +1936,7 @@ fn scan_reading(shared: tauri::State<'_, Shared>, slug: String) -> Result<Readin
 }
 
 /// Take the glyphs the window read off one page of a PDF and make words of them.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_read_page(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1881,7 +1995,7 @@ fn scan_read_page(
 }
 
 /// Look at the picture instead, for a page that carries no text of its own.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_ocr_page(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1914,7 +2028,7 @@ fn scan_ocr_page(
 }
 
 /// What is on a page, for drawing a highlight over the photograph.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_words(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1935,7 +2049,7 @@ fn scan_words(
 /// The whole of W26 in one call: what is written down is the rectangle, so the
 /// correction is still on the same word after the page has been read again by
 /// something better (`girsa-scan/tests/the_image_is_ground_truth.rs`).
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_fix(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -1979,7 +2093,7 @@ fn scan_fix(
 /// One rectangle per line rather than one for the run: the bounding box of a
 /// highlight spanning three lines also covers the ends of the lines it passes
 /// through, and redrawing from it would grow the mark by words nobody chose.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_mark(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -2020,7 +2134,7 @@ fn scan_mark(
 }
 
 /// The highlights on a page, with the words each one covers **now**.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_marks(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -2078,7 +2192,7 @@ fn scan_marks(
 /// them and none for the reader's own writing. A note written this morning and a
 /// typo fixed last night are equally absent from the index and were equally
 /// unmentioned, which is the state a bochur is in every single day.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_gap(shared: tauri::State<'_, Shared>) -> Result<Option<GapRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or("there is no shelf here")?;
@@ -2141,7 +2255,7 @@ fn view_of(shelf: &Shelf, sefer: &Open, scan: &girsa_scan::Scan, at: usize) -> S
 }
 
 /// What is printed on a page.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_at(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -2168,7 +2282,7 @@ fn scan_at(
 }
 
 /// Say which page is which daf — the once-per-sefer chore (spec.md §6.3).
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_map(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -2204,7 +2318,7 @@ fn scan_map(
 }
 
 /// Take a mapping back — better no mareh makom than a wrong one.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_forget(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanView, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_mut().ok_or("there is no shelf here")?;
@@ -2219,7 +2333,7 @@ fn scan_forget(shared: tauri::State<'_, Shared>, slug: String) -> Result<ScanVie
 /// `None` where this scan does not carry it, and never the nearest page it
 /// does: a scan opened one daf away with the header naming the daf that was
 /// asked for is wrong in the way nobody checks.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_page_of(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -2245,7 +2359,7 @@ fn scan_page_of(
 /// There is nothing to quote — the importer will not invent Hebrew it cannot
 /// read — so what goes down is the citation and the ref. `girsa-ksav` writes
 /// that as a mareh makom rather than as an empty quote block.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_copy(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -2278,7 +2392,7 @@ fn scan_copy(
 /// Ctrl+C makes — so there is nothing for the reader to look up and nothing to
 /// navigate to. What comes back is the one line, redrawn, so the window does
 /// not rebuild the sefer around them while they are reading it.
-#[tauri::command]
+#[tauri::command(async)]
 fn fix(
     shared: tauri::State<'_, Shared>,
     at: String,
@@ -2337,7 +2451,7 @@ fn fix(
 }
 
 /// Take a correction back.
-#[tauri::command]
+#[tauri::command(async)]
 fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<Fixed, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
@@ -2380,7 +2494,7 @@ fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<
 /// Three states rather than two, because a scanning error and an emendation are
 /// different claims — see [`girsa_fix::Showing`]. Everything open is re-read,
 /// which the window does by drawing again.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), String> {
     let showing =
         girsa_fix::Showing::named(&showing).ok_or_else(|| format!("no such setting: {showing}"))?;
@@ -2393,7 +2507,7 @@ fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), 
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<PatchRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     // A patch row is a row about a place, like a hit and like a lane result —
@@ -2430,7 +2544,7 @@ fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<P
 /// `lens` is one of yours by key, or nothing for all of them. `from_char`/
 /// `to_char` are a highlight in the line, and then only the links **not known
 /// to be about other words** come back (spec.md §8.4).
-#[tauri::command]
+#[tauri::command(async)]
 fn links(
     shared: tauri::State<'_, Shared>,
     at: String,
@@ -2501,6 +2615,10 @@ fn links(
             .map(|(key, lens)| LensRow {
                 key: key.clone(),
                 title: lens.title.clone(),
+                types: lens.types.clone(),
+                eras: lens.eras.clone(),
+                at_least: lens.at_least,
+                mine: lens.mine,
             })
             .collect(),
         lens,
@@ -2508,7 +2626,7 @@ fn links(
 }
 
 /// Pin a link onto the words it is about (spec.md §8.4).
-#[tauri::command]
+#[tauri::command(async)]
 fn link_pin(
     shared: tauri::State<'_, Shared>,
     edge: String,
@@ -2525,6 +2643,9 @@ fn link_pin(
     }
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
+    // Every work the chain holds went through the repair layer as it stood
+    // when it was read, and this is about to change it. See `State::chains`.
+    state.chains = girsa_link::chain::Cache::default();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = girsa_app::who();
     shelf
@@ -2558,7 +2679,7 @@ fn first_words(
 /// One command, because they are one thing: a statement about an edge, written
 /// into your layer. Which statement is named rather than free-form — the window
 /// may choose among what the engine offered and may not invent one.
-#[tauri::command]
+#[tauri::command(async)]
 fn link_repair(
     shared: tauri::State<'_, Shared>,
     edge: String,
@@ -2568,6 +2689,9 @@ fn link_repair(
     use girsa_link::repair::Verdict;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
+    // Every work the chain holds went through the repair layer as it stood
+    // when it was read, and this is about to change it. See `State::chains`.
+    state.chains = girsa_link::chain::Cache::default();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = girsa_app::who();
     let repairs = shelf.repairs_mut();
@@ -2600,7 +2724,7 @@ fn link_repair(
 ///
 /// The end being moved is named, because a link has two and moving the wrong
 /// one silently is exactly the class of guess rule 6 forbids.
-#[tauri::command]
+#[tauri::command(async)]
 fn link_reanchor(
     shared: tauri::State<'_, Shared>,
     edge: String,
@@ -2622,6 +2746,9 @@ fn link_reanchor(
     };
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
+    // Every work the chain holds went through the repair layer as it stood
+    // when it was read, and this is about to change it. See `State::chains`.
+    state.chains = girsa_link::chain::Cache::default();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = girsa_app::who();
     shelf
@@ -2631,7 +2758,7 @@ fn link_reanchor(
 }
 
 /// Draw a link by hand, from one place to another.
-#[tauri::command]
+#[tauri::command(async)]
 fn link_draw(
     shared: tauri::State<'_, Shared>,
     from: String,
@@ -2649,6 +2776,9 @@ fn link_draw(
         .ok_or_else(|| refuse(Code::NoSuch, format_args!("no such link type: {kind}")))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
+    // Every work the chain holds went through the repair layer as it stood
+    // when it was read, and this is about to change it. See `State::chains`.
+    state.chains = girsa_link::chain::Cache::default();
     let shelf = state.shelf.as_mut().ok_or(trouble)?;
     let who = girsa_app::who();
     shelf
@@ -2693,7 +2823,7 @@ fn parse_anchor(text: &str) -> Result<girsa_link::Anchor, String> {
 /// *the last one you chose*, and failing that the old default — so the second
 /// export does not ask again and a reader who never opens the dialog is exactly
 /// where they were.
-#[tauri::command]
+#[tauri::command(async)]
 fn export_sefer(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -2781,7 +2911,7 @@ fn no_timeline() -> String {
 /// terminal. What this adds is nothing: if the panel and the tool could
 /// disagree about which hops are real, they would be two answers to one
 /// question, and the shape of the answer is the whole claim.
-#[tauri::command]
+#[tauri::command(async)]
 fn chain_walk(
     shared: tauri::State<'_, Shared>,
     at: String,
@@ -2799,40 +2929,56 @@ fn chain_walk(
             ))
         }
     };
-    let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
-    let names = state.names().ok_or_else(|| state.trouble())?;
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    // Taken before anything borrows the state, and put back after everything
+    // that borrowed it is gone. See `State::chains`: the reader's two clicks
+    // are two walks from one place, and the second one used to re-read every
+    // shard the first had just finished with.
+    let held = std::mem::take(&mut state.chains);
     let limits = girsa_link::chain::Limits {
         depth: depth.map_or(girsa_link::chain::Limits::default().depth, |asked| {
             asked.clamp(1, CHAIN_DEEPEST)
         }),
         ..girsa_link::chain::Limits::default()
     };
-    let mut graph = girsa_link::chain::Graph::new(shelf.root(), timeline, shelf.repairs());
-    Ok(girsa_app::chaining::walk(
-        &mut graph, &names, &at, direction, limits,
-    ))
+    let (chain, kept) = {
+        let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+        let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
+        let names = state.names().ok_or_else(|| state.trouble())?;
+        let mut graph =
+            girsa_link::chain::Graph::resuming(shelf.root(), timeline, shelf.repairs(), held);
+        let chain = girsa_app::chaining::walk(&mut graph, &names, &at, direction, limits);
+        (chain, graph.into_cache())
+    };
+    state.chains = kept;
+    Ok(chain)
 }
 
 /// Where two rishonim read one gemara apart (spec.md §8.6).
-#[tauri::command]
+#[tauri::command(async)]
 fn chain_forks(
     shared: tauri::State<'_, Shared>,
     at: String,
 ) -> Result<girsa_app::chaining::Forked, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let state = shared.lock().map_err(|_| State::poisoned())?;
-    let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
-    let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
-    let names = state.names().ok_or_else(|| state.trouble())?;
-    let mut graph = girsa_link::chain::Graph::new(shelf.root(), timeline, shelf.repairs());
-    Ok(girsa_app::chaining::forked(
-        &mut graph,
-        &names,
-        &at,
-        girsa_link::chain::Limits::default(),
-    ))
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let held = std::mem::take(&mut state.chains);
+    let (forked, kept) = {
+        let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
+        let timeline = state.timeline.as_ref().ok_or_else(no_timeline)?;
+        let names = state.names().ok_or_else(|| state.trouble())?;
+        let mut graph =
+            girsa_link::chain::Graph::resuming(shelf.root(), timeline, shelf.repairs(), held);
+        let forked = girsa_app::chaining::forked(
+            &mut graph,
+            &names,
+            &at,
+            girsa_link::chain::Limits::default(),
+        );
+        (forked, graph.into_cache())
+    };
+    state.chains = kept;
+    Ok(forked)
 }
 
 // ── The OCR queue (spec.md §7.3, BUILDER.md W21) ────────────────────────────
@@ -2842,7 +2988,7 @@ fn chain_forks(
 /// Re-read from disk every time: `girsa-suspects` is a batch job that runs
 /// outside this window, and a queue held in memory would be the one from
 /// before it ran.
-#[tauri::command]
+#[tauri::command(async)]
 fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<SuspectRow>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let names = state.names().ok_or_else(|| state.trouble())?;
@@ -2889,7 +3035,7 @@ fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<Suspec
 /// empty string and every candidate on a scan answered *that word is not in
 /// that line any more*. The words of a page are in the reading, and the
 /// correction is by ink, so a page takes the other branch end to end.
-#[tauri::command]
+#[tauri::command(async)]
 fn suspect_at(
     shared: tauri::State<'_, Shared>,
     id: String,
@@ -2988,7 +3134,7 @@ fn suspect_at(
 ///
 /// Recorded so the batch job does not ask again — never so that anything is
 /// applied. The correction itself, if there is one, went through `fix`.
-#[tauri::command]
+#[tauri::command(async)]
 fn suspect_decide(
     shared: tauri::State<'_, Shared>,
     id: String,
@@ -3085,14 +3231,14 @@ fn copy(
 
 // ── The buffer (spec.md §10.3, BUILDER.md W17) ──────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 fn buffers(shared: tauri::State<'_, Shared>) -> Result<Vec<String>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
     Ok(girsa_desk::Buffer::list(shelf.personal()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn buffer_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Writing, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -3105,7 +3251,7 @@ fn buffer_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Writing
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn buffer_save(
     shared: tauri::State<'_, Shared>,
     name: String,
@@ -3133,7 +3279,7 @@ fn buffer_save(
 /// # Errors
 ///
 /// If the folder will not take the file, or the name is not one.
-#[tauri::command]
+#[tauri::command(async)]
 fn buffer_write_to(
     shared: tauri::State<'_, Shared>,
     name: String,
@@ -3169,7 +3315,7 @@ fn buffer_write_to(
 /// Ksav itself compiles — a second one written in TypeScript is precisely the
 /// drift spec.md §10.3 forbids, and it would show up as documents that differ
 /// depending on which end wrote them.
-#[tauri::command]
+#[tauri::command(async)]
 fn source_markup(
     shared: tauri::State<'_, Shared>,
     from: String,
@@ -3206,7 +3352,7 @@ fn source_markup(
 ///
 /// It is saved first, so what Ksav is given and what is on disk are the same
 /// words, and only offered when presence says Ksav would take it.
-#[tauri::command]
+#[tauri::command(async)]
 fn buffer_to_ksav(
     shared: tauri::State<'_, Shared>,
     name: String,
@@ -3223,7 +3369,7 @@ fn buffer_to_ksav(
 ///
 /// Only possible because the documents store **refs**: this is a scan, not a
 /// guess, and it is why `מקור:` exists.
-#[tauri::command]
+#[tauri::command(async)]
 fn who_cites(
     shared: tauri::State<'_, Shared>,
     reference: String,
@@ -3244,7 +3390,7 @@ fn who_cites(
 ///
 /// Everything ambiguous stays plain text. See `girsa_desk::citing` for the three
 /// rules and why each of them refuses more than it accepts.
-#[tauri::command]
+#[tauri::command(async)]
 fn linkify(
     shared: tauri::State<'_, Shared>,
     text: String,
@@ -3264,7 +3410,7 @@ fn linkify(
 /// [`crate::post::landing`] a `girsa://` link from another application takes,
 /// on purpose: a citation resolves to one place whether it was clicked in Ksav
 /// or in a note of your own, and two resolutions would drift.
-#[tauri::command]
+#[tauri::command(async)]
 fn cite_open(shared: tauri::State<'_, Shared>, reference: String) -> Result<post::Landing, String> {
     let place: girsa_ref::Ref = reference.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
@@ -3303,7 +3449,7 @@ fn cite_open(shared: tauri::State<'_, Shared>, reference: String) -> Result<post
 /// `presence()` does not read it; asking whether that pid is alive needs a
 /// process-table dependency on three platforms for one boolean, which is a
 /// worse trade than a sentence that names the cause.
-#[tauri::command]
+#[tauri::command(async)]
 fn ksav_presence() -> girsa_post::Presence {
     girsa_post::presence(girsa_post::App::Ksav)
 }
@@ -3313,7 +3459,7 @@ fn ksav_presence() -> girsa_post::Presence {
 /// The clipboard path (W15) works whether or not Ksav is running; this is the
 /// one that feels like AirDrop, and it is only offered when presence says it
 /// would land.
-#[tauri::command]
+#[tauri::command(async)]
 fn send_to_ksav(
     shared: tauri::State<'_, Shared>,
     from: String,
@@ -3353,7 +3499,7 @@ fn send_to_ksav(
 
 /// How citations print. A preference, and it moves nothing: the document
 /// stores the ref.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_cite_style(shared: tauri::State<'_, Shared>, style: String) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.cite =
@@ -3362,15 +3508,25 @@ fn set_cite_style(shared: tauri::State<'_, Shared>, style: String) -> Result<(),
     Ok(())
 }
 
-#[tauri::command]
-fn open_tab(shared: tauri::State<'_, Shared>, slug: String) -> Result<PaneId, String> {
+#[tauri::command(async)]
+fn open_tab(
+    shared: tauri::State<'_, Shared>,
+    slug: String,
+    again: Option<bool>,
+) -> Result<PaneId, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // A sefer reopens where it was left, which is the whole point of
     // remembering (BUILDER.md W9, per-sefer position memory).
     let at = state.session.where_i_was(&slug).cloned();
     // **Go to it if it is open**, rather than opening a second tab on one sefer
-    // — `Workspace::open`, and the reason is in its doc comment.
-    let pane = state.session.workspace.open(&slug, at);
+    // — `Workspace::open`, and the reason is in its doc comment. `again` is the
+    // reader having asked for the other thing in so many words: see
+    // `Workspace::open_again`.
+    let pane = if again.unwrap_or(false) {
+        state.session.workspace.open_again(&slug, at)
+    } else {
+        state.session.workspace.open(&slug, at)
+    };
     state.save();
     Ok(pane)
 }
@@ -3390,7 +3546,7 @@ struct OpenSefer {
 /// The open set is not the tab strip — see `girsa_app::workspace::Workspace`.
 /// A tab holding a Gemara, its Rashi and its Tosafos is one entry in the strip
 /// and three seforim that are open, and the strip cannot say so.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_set(shared: tauri::State<'_, Shared>) -> Result<Vec<OpenSefer>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let language = state.session.language;
@@ -3420,7 +3576,7 @@ fn open_set(shared: tauri::State<'_, Shared>) -> Result<Vec<OpenSefer>, String> 
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn split(
     shared: tauri::State<'_, Shared>,
     pane: PaneId,
@@ -3447,7 +3603,7 @@ fn split(
 /// anything moved, so the window can tell *there was nowhere to go* from *it
 /// went* — see `girsa_app::workspace::Workspace::move_pane`, which holds the
 /// two refusals.
-#[tauri::command]
+#[tauri::command(async)]
 fn move_pane(
     shared: tauri::State<'_, Shared>,
     pane: PaneId,
@@ -3459,7 +3615,7 @@ fn move_pane(
     Ok(moved)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn close_pane(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.close(pane);
@@ -3468,7 +3624,7 @@ fn close_pane(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), Stri
 }
 
 /// Close a whole tab, from the tab strip, without opening it first (W40).
-#[tauri::command]
+#[tauri::command(async)]
 fn close_tab(shared: tauri::State<'_, Shared>, index: usize) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.close_tab(index);
@@ -3476,7 +3632,7 @@ fn close_tab(shared: tauri::State<'_, Shared>, index: usize) -> Result<(), Strin
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn focus(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.workspace.focus(pane);
@@ -3484,7 +3640,7 @@ fn focus(shared: tauri::State<'_, Shared>, pane: PaneId) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_follows(
     shared: tauri::State<'_, Shared>,
     pane: PaneId,
@@ -3496,15 +3652,49 @@ fn set_follows(
     Ok(())
 }
 
-#[tauri::command]
-fn set_ratio(shared: tauri::State<'_, Shared>, pane: PaneId, ratio: u16) -> Result<(), String> {
+#[tauri::command(async)]
+fn set_ratio(shared: tauri::State<'_, Shared>, split: usize, ratio: u16) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    state.session.workspace.set_ratio(pane, ratio);
+    state.session.workspace.set_ratio(split, ratio);
     state.save();
     Ok(())
 }
 
-#[tauri::command]
+/// Turn the split this pane stands in, side by side to stacked and back.
+///
+/// > *"Tabs should be splittable in any way and movable, like we want in
+/// > ksav."*
+///
+/// Answers whether there was a split to turn, so the window can leave the
+/// control off a pane standing alone rather than offering a gesture that does
+/// nothing. See [`girsa_app::workspace::Workspace::turn_split`].
+#[tauri::command(async)]
+fn turn_split(shared: tauri::State<'_, Shared>, split: usize) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let turned = state.session.workspace.turn_split(split).is_some();
+    state.save();
+    Ok(turned)
+}
+
+/// Swap the two halves of the split this pane stands in.
+#[tauri::command(async)]
+fn swap_split(shared: tauri::State<'_, Shared>, split: usize) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let swapped = state.session.workspace.swap_split(split);
+    state.save();
+    Ok(swapped)
+}
+
+/// Move a tab along the strip — the drag half of *movable*.
+#[tauri::command(async)]
+fn move_tab(shared: tauri::State<'_, Shared>, from: usize, to: usize) -> Result<bool, String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    let moved = state.session.workspace.move_tab(from, to);
+    state.save();
+    Ok(moved)
+}
+
+#[tauri::command(async)]
 fn set_pointing(shared: tauri::State<'_, Shared>, pointing: String) -> Result<(), String> {
     let Some(pointing) = girsa_app::session::Pointing::named(&pointing) else {
         // Refused by name rather than defaulted. A window that sent a spelling
@@ -3534,7 +3724,7 @@ fn set_pointing(shared: tauri::State<'_, Shared>, pointing: String) -> Result<()
 /// installing means verifying a signature, and an updater that ran an unsigned
 /// binary off the internet would be the worst thing in the application by a
 /// distance.
-#[tauri::command]
+#[tauri::command(async)]
 fn check_for_update() -> Result<girsa_app::newer::Newer, String> {
     girsa_app::newer::check(env!("CARGO_PKG_VERSION"))
         .map_err(|e| girsa_app::trouble::refuse(girsa_app::trouble::Code::Offline, e.to_string()))
@@ -3545,7 +3735,7 @@ fn check_for_update() -> Result<girsa_app::newer::Newer, String> {
 /// No argument, on purpose: [`girsa_app::newer::open_releases`] opens one
 /// address, compiled in. A command that opened whatever URL it was handed is a
 /// command that opens whatever a bug hands it.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_releases() -> Result<(), String> {
     girsa_app::newer::open_releases()
         .map_err(|e| girsa_app::trouble::refuse(girsa_app::trouble::Code::Offline, e.to_string()))
@@ -3586,7 +3776,7 @@ fn desk_rows(state: &State) -> Vec<DeskRow> {
 }
 
 /// The arrangements the reader has named (`Session::desks`).
-#[tauri::command]
+#[tauri::command(async)]
 fn desks(shared: tauri::State<'_, Shared>) -> Result<Vec<DeskRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     Ok(desk_rows(&state))
@@ -3597,7 +3787,7 @@ fn desks(shared: tauri::State<'_, Shared>) -> Result<Vec<DeskRow>, String> {
 /// Overwrites a desk of the same name rather than minting `sugya (2)`: a reader
 /// typing a name they already used means *this one, as it is now*, and a second
 /// desk with a number after it is a thing nobody asked for and has to clean up.
-#[tauri::command]
+#[tauri::command(async)]
 fn desk_keep(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskRow>, String> {
     let name = name.trim().to_string();
     if name.is_empty() {
@@ -3621,7 +3811,7 @@ fn desk_keep(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskR
 /// switcher nobody uses twice — and the reader who is not sitting at a named
 /// desk loses nothing either, because the session's own arrangement is saved on
 /// every change and is what they come back to.
-#[tauri::command]
+#[tauri::command(async)]
 fn desk_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskRow>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let Some(going_to) = state.session.desks.get(&name).cloned() else {
@@ -3645,7 +3835,7 @@ fn desk_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskR
 /// The arrangement on screen is untouched, even when it is the desk being
 /// forgotten: *stop keeping this* is not *close everything*, and a reader who
 /// meant the second one can close the panes.
-#[tauri::command]
+#[tauri::command(async)]
 fn desk_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<DeskRow>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.desks.remove(&name);
@@ -3678,7 +3868,7 @@ fn desk_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<Vec<Des
 /// open, expanding any row in it costs nothing: the words are already here, and
 /// a reader walking seventy-eight ס״ק is not waiting on seventy-eight round
 /// trips.
-#[tauri::command]
+#[tauri::command(async)]
 fn link_words(
     shared: tauri::State<'_, Shared>,
     work: String,
@@ -3760,14 +3950,30 @@ fn sefer_sheet(shared: tauri::State<'_, Shared>, at: String, whole: bool) -> Res
     };
     let (from, to) = girsa_app::printing::run_of(sefer, &at, how)
         .ok_or_else(|| format!("{at} is not in this sefer"))?;
-    let lines: Vec<Line> = sefer.segments[from..to]
+    let mut lines: Vec<Line> = sefer.segments[from..to]
         .iter()
         .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
         .collect();
+    // The sheet's own from–to is read off the lines, so it has to be read
+    // before the repeats are emptied — otherwise a sheet running from the
+    // second mishnah of a perek is headed `משנה ב'` with no perek on it.
+    let whole_address = |line: Option<&Line>| {
+        line.map(|l| {
+            if l.above.is_empty() {
+                l.address.clone()
+            } else {
+                format!("{} {}", l.above, l.address)
+            }
+        })
+        .unwrap_or_default()
+    };
+    let address = whole_address(lines.first());
+    let to_address = whole_address(lines.last());
+    girsa_app::view::only_when_it_changes(&mut lines);
     Ok(Sheet {
         title: girsa_app::printing::header(sefer),
-        address: lines.first().map(|l| l.address.clone()).unwrap_or_default(),
-        to_address: lines.last().map(|l| l.address.clone()).unwrap_or_default(),
+        address,
+        to_address,
         lines,
     })
 }
@@ -3787,7 +3993,7 @@ struct Sheet {
 ///
 /// Named rather than free-form, like `find_chip`: the window may choose among
 /// the options the engine offered and may not invent one.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_here_chip(
     shared: tauri::State<'_, Shared>,
     chip: String,
@@ -3812,7 +4018,7 @@ fn find_here_chip(
 /// frame a reader would notice. An index would have to be invalidated by every
 /// correction the reader makes, which is a second copy of a problem
 /// `girsa-fix` already solved once.
-#[tauri::command]
+#[tauri::command(async)]
 fn sefer_find(
     shared: tauri::State<'_, Shared>,
     slug: String,
@@ -3911,7 +4117,7 @@ struct FoundHere {
 ///
 /// Each limud is marked for whether its sefer is actually on this shelf, so the
 /// window can offer the daf without promising a sefer nobody imported.
-#[tauri::command]
+#[tauri::command(async)]
 fn luach(
     shared: tauri::State<'_, Shared>,
     year: i32,
@@ -3944,7 +4150,7 @@ fn luach(
 /// of one. Every sefer solves it by changing a letter, and so does this — on
 /// the page, in the search results, in a quote and in an export, which is three
 /// surfaces more than Otzaria's own setting covers.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_shemos(shared: tauri::State<'_, Shared>, shemos: String) -> Result<(), String> {
     let Some(shemos) = girsa_app::shemos::Shemos::named(&shemos) else {
         // Refused by name rather than defaulted, for the reason `set_pointing`
@@ -3967,7 +4173,7 @@ fn set_shemos(shared: tauri::State<'_, Shared>, shemos: String) -> Result<(), St
 /// Refused outside 0–23 rather than clamped, for the reason `set_shemos` gives:
 /// a window sending 25 has a wiring bug, and a silently clamped 23 is how it
 /// would never be found.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_day_turns_at(shared: tauri::State<'_, Shared>, hour: u8) -> Result<(), String> {
     if hour > 23 {
         return Err(girsa_app::trouble::refuse(
@@ -3981,7 +4187,7 @@ fn set_day_turns_at(shared: tauri::State<'_, Shared>, hour: u8) -> Result<(), St
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let session = &state.session;
@@ -3991,6 +4197,7 @@ fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
         shemos: session.shemos,
         day_turns_at: session.day_turns_at,
         text_size: session.text_size,
+        mefarshim_size: session.mefarshim_size,
         language: session.language,
         interface: session.interface,
         cite: session.cite,
@@ -4022,7 +4229,7 @@ fn settings(shared: tauri::State<'_, Shared>) -> Result<SettingsView, String> {
 }
 
 /// How the reading looks (B13).
-#[tauri::command]
+#[tauri::command(async)]
 fn set_look(
     shared: tauri::State<'_, Shared>,
     look: girsa_app::session::Look,
@@ -4043,7 +4250,7 @@ fn set_look(
 /// An empty `to` **removes the reader's binding** rather than binding nothing, so
 /// the action goes back to whatever the table ships with. That is what a reset
 /// button needs and it is one code path rather than two.
-#[tauri::command]
+#[tauri::command(async)]
 fn bind_key(
     shared: tauri::State<'_, Shared>,
     action: String,
@@ -4077,7 +4284,7 @@ fn bind_key(
 }
 
 /// What a key press means (B13). The window asks; the table answers.
-#[tauri::command]
+#[tauri::command(async)]
 fn what_key(
     shared: tauri::State<'_, Shared>,
     press: girsa_app::keys::Press,
@@ -4092,7 +4299,7 @@ fn what_key(
 ///
 /// Every sefer name in the window follows it, so the whole reason it is one
 /// setting and not a per-row choice is that a shelf half in each is unreadable.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_language(
     shared: tauri::State<'_, Shared>,
     language: girsa_app::session::Language,
@@ -4111,7 +4318,7 @@ fn set_language(
 /// There is now, and they are two because they are two questions. A reader who
 /// learns in Hebrew and wants the buttons in English is ordinary; so is the
 /// reverse; and one setting could serve neither.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_interface(
     shared: tauri::State<'_, Shared>,
     language: girsa_app::session::Language,
@@ -4122,7 +4329,7 @@ fn set_interface(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_text_size(shared: tauri::State<'_, Shared>, percent: u16) -> Result<(), String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     // The clamp is `Session::sane`, which is also what `load` runs — this line
@@ -4130,6 +4337,24 @@ fn set_text_size(shared: tauri::State<'_, Shared>, percent: u16) -> Result<(), S
     // saying the clamping happens *"in one place, here, rather than in the
     // window and again in the command."*
     state.session.text_size = percent;
+    state.session.sane();
+    state.save();
+    Ok(())
+}
+
+/// The same, for the mefarshim beside the daf.
+///
+/// > *"I think it is a good idea to have a separate control for mefarshim and
+/// > top level."*
+///
+/// A second command rather than a second argument to the first: `A+` in the
+/// toolbar and `Ctrl+=` mean *the sefer*, and a size row that could silently be
+/// either would be one control with two meanings. The clamp is
+/// `Session::sane`'s, the same one, for the reason its own comment gives.
+#[tauri::command(async)]
+fn set_mefarshim_size(shared: tauri::State<'_, Shared>, percent: u16) -> Result<(), String> {
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    state.session.mefarshim_size = percent;
     state.session.sane();
     state.save();
     Ok(())
@@ -4188,7 +4413,7 @@ fn lane_row(state: &State) -> Result<LaneRow, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_state(shared: tauri::State<'_, Shared>) -> Result<LaneRow, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     lane_row(&state)
@@ -4196,7 +4421,7 @@ fn lane_state(shared: tauri::State<'_, Shared>) -> Result<LaneRow, String> {
 
 /// Ask the lane. Never an error — a lane that is off, adrift or empty comes
 /// back with `refused` set and the coverage sentence said.
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_ask(
     shared: tauri::State<'_, Shared>,
     text: String,
@@ -4242,7 +4467,7 @@ fn lane_ask(
 /// take a moment, and a model that will not load is **not** an error here. It is
 /// [`girsa_lane::State::Adrift`], which the header says out loud rather than a
 /// click that failed silently.
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_set(
     shared: tauri::State<'_, Shared>,
     on: bool,
@@ -4270,7 +4495,7 @@ fn lane_set(
 /// Its own command rather than a field on `lane_set`, because it is its own
 /// decision: spec.md §14 says Girsa never *needs* the network, and this is the
 /// switch that makes that sentence true in a fresh install.
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_allow_fetch(shared: tauri::State<'_, Shared>, allow: bool) -> Result<LaneRow, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let no_shelf = state.trouble();
@@ -4292,7 +4517,7 @@ fn lane_allow_fetch(shared: tauri::State<'_, Shared>, allow: bool) -> Result<Lan
 /// Runs on its own thread and emits [`BRING_EVENT`], so the panel draws a bar
 /// and the reader can carry on learning. Stopping is closing the panel: the
 /// `.part` file stays and the next press resumes where it left off.
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_bring(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result<(), String> {
     use tauri::Emitter;
     let (personal, may_fetch) = {
@@ -4362,7 +4587,7 @@ fn lane_bring(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
 }
 
 /// Put a sefer in the lane, or take it out. `all` chooses the whole library.
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_choose(
     shared: tauri::State<'_, Shared>,
     slug: Option<String>,
@@ -4408,7 +4633,7 @@ fn lane_choose(
 /// rather than loading a second — see `girsa_lane::Lane`. The state lock is held
 /// only long enough to take that clone, so nothing about reading a sefer waits
 /// on this.
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result<(), String> {
     use tauri::Emitter;
     let (lane, root, slugs, titles, stop) = {
@@ -4506,7 +4731,7 @@ fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
 }
 
 /// Stop the embedding job. Costs the batch it is on and nothing else.
-#[tauri::command]
+#[tauri::command(async)]
 fn lane_stop(shared: tauri::State<'_, Shared>) -> Result<(), String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     state
@@ -4521,7 +4746,7 @@ fn lane_stop(shared: tauri::State<'_, Shared>) -> Result<(), String> {
 /// [`Place`], which is three-valued on purpose: somewhere, *nowhere on this
 /// line*, or *nothing relates these two seforim*. The window shows the second
 /// and third rather than moving the column to something near.
-#[tauri::command]
+#[tauri::command(async)]
 fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<Vec<Move>, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
@@ -4708,6 +4933,7 @@ pub fn run() {
                     shelf,
                     documents: None,
                     timeline,
+                    chains: girsa_link::chain::Cache::default(),
                     bar,
                     no_search,
                     chips: Chips::default(),
@@ -4807,6 +5033,9 @@ pub fn run() {
             focus,
             set_follows,
             set_ratio,
+            turn_split,
+            swap_split,
+            move_tab,
             set_pointing,
             set_shemos,
             set_day_turns_at,
@@ -4828,6 +5057,7 @@ pub fn run() {
             bind_key,
             what_key,
             set_text_size,
+            set_mefarshim_size,
             moved,
             shelf_tree,
             shelf_works,
@@ -4845,7 +5075,7 @@ pub fn run() {
             find_narrow,
             find_whole_shelf,
             find_scope,
-            find_scope_add,
+            find_scope_set,
             find_scope_drop,
             copy,
             set_cite_style,
@@ -4951,7 +5181,7 @@ pub fn run() {
 // the writing side.
 
 /// What you have on the line you are standing on.
-#[tauri::command]
+#[tauri::command(async)]
 fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
@@ -4990,7 +5220,7 @@ fn yours(shared: tauri::State<'_, Shared>, at: String) -> Result<Yours, String> 
 }
 
 /// Every note you have, most recently touched first.
-#[tauri::command]
+#[tauri::command(async)]
 fn notes(shared: tauri::State<'_, Shared>) -> Result<Vec<NoteRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -5000,7 +5230,7 @@ fn notes(shared: tauri::State<'_, Shared>) -> Result<Vec<NoteRow>, String> {
 }
 
 /// Write a note about where you are standing. The three-second one.
-#[tauri::command]
+#[tauri::command(async)]
 fn note_write(
     shared: tauri::State<'_, Shared>,
     at: String,
@@ -5020,7 +5250,7 @@ fn note_write(
 }
 
 /// One note, paragraph by paragraph, for editing it.
-#[tauri::command]
+#[tauri::command(async)]
 fn note_read(shared: tauri::State<'_, Shared>, note: String) -> Result<Vec<ParaRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -5048,7 +5278,7 @@ fn note_read(shared: tauri::State<'_, Shared>, note: String) -> Result<Vec<ParaR
 /// Every one of these writes the whole note back, and none of them renumbers a
 /// paragraph: a paragraph put in the middle mints a child ordinal (spec.md §3),
 /// so an id the window is holding is still the id it was holding.
-#[tauri::command]
+#[tauri::command(async)]
 fn note_edit(
     shared: tauri::State<'_, Shared>,
     note: String,
@@ -5135,7 +5365,7 @@ fn note_edit(
 }
 
 /// Throw a note away — the file, the sefer and the catalogue line.
-#[tauri::command]
+#[tauri::command(async)]
 fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
@@ -5155,7 +5385,7 @@ fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, S
 ///
 /// The words are read out of the line as the pane drew it and stored with the
 /// mark, because an offset is not a place (`girsa_corpus::span`).
-#[tauri::command]
+#[tauri::command(async)]
 fn mark_here(
     shared: tauri::State<'_, Shared>,
     at: String,
@@ -5212,7 +5442,7 @@ fn mark_here(
 }
 
 /// Take a mark back.
-#[tauri::command]
+#[tauri::command(async)]
 fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
@@ -5229,7 +5459,7 @@ fn mark_forget(shared: tauri::State<'_, Shared>, mark: String) -> Result<bool, S
 /// **painted where it is**, and asking line by line would make that a hundred
 /// round trips a page. Where each one lands is still decided here — the window
 /// is handed offsets into the text it was already sent, and works nothing out.
-#[tauri::command]
+#[tauri::command(async)]
 fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRow>, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let pointing = state.session.pointing;
@@ -5267,7 +5497,7 @@ fn marks_in(shared: tauri::State<'_, Shared>, slug: String) -> Result<Vec<MarkRo
 }
 
 /// Every bookmark, most recent first — the *take me back* list.
-#[tauri::command]
+#[tauri::command(async)]
 fn bookmarks(shared: tauri::State<'_, Shared>) -> Result<Vec<MarkRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -5291,7 +5521,7 @@ fn bookmarks(shared: tauri::State<'_, Shared>) -> Result<Vec<MarkRow>, String> {
 /// saved as the seforim it comes to — a scope narrowed by three clicks comes
 /// back as one clause over the same seforim, which matches the same segments
 /// and no longer remembers the three clicks. Said here rather than discovered.
-#[tauri::command]
+#[tauri::command(async)]
 fn query_keep(
     shared: tauri::State<'_, Shared>,
     name: String,
@@ -5328,7 +5558,7 @@ fn query_keep(
 }
 
 /// The questions you have kept.
-#[tauri::command]
+#[tauri::command(async)]
 fn queries(shared: tauri::State<'_, Shared>) -> Result<Vec<QueryRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -5348,7 +5578,7 @@ fn queries(shared: tauri::State<'_, Shared>) -> Result<Vec<QueryRow>, String> {
 ///
 /// The line comes back rather than being searched here, because what goes in
 /// the box is the window's business and *what the chips are* is not.
-#[tauri::command]
+#[tauri::command(async)]
 fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -5374,7 +5604,7 @@ fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String
 }
 
 /// Forget a saved query.
-#[tauri::command]
+#[tauri::command(async)]
 fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
@@ -5383,7 +5613,7 @@ fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, 
 }
 
 /// Your chaburah folders.
-#[tauri::command]
+#[tauri::command(async)]
 fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let names = state.names().ok_or_else(|| state.trouble())?;
@@ -5431,7 +5661,7 @@ fn folders(shared: tauri::State<'_, Shared>) -> Result<Vec<FolderRow>, String> {
 
 /// Put something in a folder, or take it out. The folder is made if it is not
 /// there yet.
-#[tauri::command]
+#[tauri::command(async)]
 fn folder_edit(
     shared: tauri::State<'_, Shared>,
     name: String,
@@ -5470,7 +5700,7 @@ fn folder_edit(
 
 /// Throw a folder away. What was in it is untouched — it held members, not
 /// copies.
-#[tauri::command]
+#[tauri::command(async)]
 fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let trouble = state.trouble();
@@ -5482,7 +5712,7 @@ fn folder_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool,
 }
 
 /// Every tag across your whole layer.
-#[tauri::command]
+#[tauri::command(async)]
 fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;
@@ -5497,7 +5727,7 @@ fn tags(shared: tauri::State<'_, Shared>) -> Result<Vec<TagRow>, String> {
 ///
 /// Into `personal/exports/` by default, the way a corrected sefer goes out
 /// (W22): the files are the point and where they land is not.
-#[tauri::command]
+#[tauri::command(async)]
 fn export_layer(shared: tauri::State<'_, Shared>, into: Option<String>) -> Result<String, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
     let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?;

@@ -42,7 +42,14 @@ import { SuspectsView } from "./suspects.ts";
 import { WritingView } from "./writing.ts";
 import { YoursView } from "./yoursview.ts";
 import { GIRSA, type Named, sefer, speak } from "./names.ts";
-import { fill, ksavAs, say, speakInterface, switchInterfaceTo } from "./say.ts";
+import {
+  fill,
+  ksavAs,
+  reopenAfterReload,
+  say,
+  speakInterface,
+  switchInterfaceTo,
+} from "./say.ts";
 import {
   nextIn,
   POINTING_ROUND,
@@ -199,6 +206,12 @@ async function main(): Promise<void> {
   await whenAskedToSearch((phrase) => void find.showPhrase(openFound, phrase));
   await watchForKsav();
   await reload();
+  // …and back to the panel the reader was standing in when the window reloaded
+  // itself. A language switch is a reload (see `onInterfaceChanged` above), and
+  // the reader who asked for it was inside the settings panel — so the reload
+  // that relabelled the panel also dismissed it: *"Setting the language closes
+  // settings immediately."* Read once and cleared, in `say.ts`.
+  if (reopenAfterReload() === "settings") await settingsview.show();
 }
 
 /** Something asked for a place: Ksav over the loopback, or a `girsa://` link
@@ -404,7 +417,10 @@ async function openSeferAt(slug: string, where: Where = "tab"): Promise<void> {
     await openBeside(goes.beside, [slug]);
     return;
   }
-  await api.openTab(slug);
+  // `＋` said *a new tab*, so it makes one — even for a sefer already open. See
+  // `Workspace::open_again`: going to the open one is right for a click on a
+  // shelf row and wrong for the one control named after making a tab.
+  await api.openTab(slug, where === "newTab");
   await reload();
 }
 
@@ -423,6 +439,12 @@ async function reload(): Promise<void> {
   // and changed nothing anybody could see. The reader's fourth bug, second half:
   // *"Same for the two font size buttons."*
   document.documentElement.style.setProperty("--reading-size", String(state.text_size));
+  // And the mefarshim, which are a second setting: *"a separate control for
+  // mefarshim and top level."*
+  document.documentElement.style.setProperty(
+    "--mefarshim-size",
+    String(state.mefarshim_size),
+  );
   // The language the **seforim** are named in (W41), set once from the session so
   // that every `sefer()` in every module answers the same way.
   speak(state.language);
@@ -488,8 +510,14 @@ async function draw(): Promise<void> {
     return;
   }
 
-  const { root: boxes, slots } = build(open.layout, state.share_bounds, (pane, ratio) => {
-    void api.setRatio(pane, ratio);
+  const { root: boxes, slots } = build(open.layout, state.share_bounds, {
+    onRatio: (split, ratio) => void api.setRatio(split, ratio),
+    // Both redraw, because both change the shape of the tree and the tree is
+    // what this function walks. `setRatio` does not: the drag has already moved
+    // the boxes and a redraw would rebuild every pane under a reader who is
+    // still holding the mouse button down.
+    onTurn: (split) => void api.turnSplit(split).then(() => reload()),
+    onSwap: (split) => void api.swapSplit(split).then(() => reload()),
   });
   boxes.classList.add("panes");
   boxes.setAttribute("role", "main");
@@ -759,7 +787,7 @@ async function openComments(view: PaneView, at: string): Promise<void> {
   } catch (e) {
     // A read that failed is not *nobody wrote here*, and must not be shown as it.
     const t = trouble(e, "read_links");
-    view.showSaid(at, [], t.said);
+    view.showSaid(at, [], { said: t.said, mark: "", why: "" });
   }
 }
 
@@ -925,9 +953,19 @@ async function whenMoved(pane: PaneId, at: string): Promise<void> {
     const slug = here.panes.find((p) => p.id === pane)?.slug ?? null;
     tocview.moved(slug, views.get(pane)?.lineIndex() ?? 0);
   }
+  // …and the links panel follows too, unless the reader pinned it. Only from
+  // the focused pane: a window holding four seforim would otherwise have the
+  // links flicker between them as a follower pane is scrolled to keep up.
+  if (here?.focused === pane) void linksview.follow(at);
   const moves = await api.moved(pane, at);
+  // How far through the leader's sefer the reader is, for the followers nothing
+  // joins to it. See `PaneView.goToFraction`: the window decides to keep two
+  // unrelated columns in step, because that is a fact about two columns and not
+  // about two seforim — which is exactly why Rust refuses to answer it.
+  const through = views.get(pane)?.fraction() ?? 0;
   for (const move of moves) {
     views.get(move.pane)?.goTo(move.place, move.relation);
+    if (move.place.kind === "unrelated") views.get(move.pane)?.goToFraction(through);
     // A scan has no lines to scroll to: where it goes is a page, counted in
     // Rust. `undefined` is *the pane stays where it is*, which is what a daf
     // this scan does not carry has to do (W9's `NoPlace`, in a photograph).
@@ -979,6 +1017,50 @@ function tabLabel(open: Tab): string {
   const named = titleOf((led ?? focused)?.slug ?? "—");
   // A split says so, because the label is now about one pane out of several.
   return open.panes.length > 1 ? `${named} +${open.panes.length - 1}` : named;
+}
+
+/**
+ * Drag a tab along the strip.
+ *
+ * > *"Tabs should be splittable in any way and movable, like we want in ksav."*
+ *
+ * HTML's own drag and drop rather than pointer events, because a tab strip is
+ * exactly the list this API was built for: the browser draws the ghost, tracks
+ * which element is under the pointer and cancels on Escape, and none of that is
+ * worth reimplementing over `pointermove`.
+ *
+ * `dataset.tab` is the index that was picked up. It is read off the **drop
+ * target's** own dataset on arrival rather than kept in a module variable: a
+ * variable would survive a redraw that happens mid-drag and name a tab that has
+ * since moved.
+ */
+function dragTab(holder: HTMLElement, index: number): void {
+  holder.draggable = true;
+  holder.dataset.tab = String(index);
+  holder.addEventListener("dragstart", (event) => {
+    event.dataTransfer?.setData("text/plain", String(index));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    holder.classList.add("is-dragging");
+  });
+  holder.addEventListener("dragend", () => holder.classList.remove("is-dragging"));
+  holder.addEventListener("dragover", (event) => {
+    // Without this the drop never fires — the default is *refuse everything*.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    holder.classList.add("is-target");
+  });
+  holder.addEventListener("dragleave", () => holder.classList.remove("is-target"));
+  holder.addEventListener("drop", (event) => {
+    event.preventDefault();
+    holder.classList.remove("is-target");
+    const from = Number(event.dataTransfer?.getData("text/plain"));
+    const to = Number(holder.dataset.tab);
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return;
+    void (async () => {
+      await api.moveTab(from, to);
+      await reload();
+    })();
+  });
 }
 
 function tabBar(): HTMLElement {
@@ -1035,11 +1117,17 @@ function tabBar(): HTMLElement {
       });
       shut.classList.add("tab-shut");
       holder.append(go, shut);
+      dragTab(holder, index);
       strip.append(holder);
     });
     bar.append(strip);
   }
-  bar.append(button(say("newTab"), `${say("openSefer")} (Ctrl+O)`, openSomething));
+  // `＋` on the tab strip is the one control named after making a tab, so it
+  // makes one — for a sefer already open too. *"There should be a way to open a
+  // new window in a tab (and open whatever sefer you want)."* See
+  // `Workspace::open_again`; the toolbar's *open a sefer* keeps the other
+  // meaning, which is *go to it*.
+  bar.append(button(say("newTab"), say("newTabWhy"), openAnother));
   bar.append(button(say("browseShelf"), say("browseShelfWhy"), browseShelf));
   bar.append(button(say("search"), say("searchWhy"), search));
   bar.append(button(say("write"), say("writeWhy"), () => void writing.toggle()));
@@ -1078,8 +1166,27 @@ function search(): void {
 /// The scroll goes through the same `goTo` the commentary column uses, so a hit
 /// lands on the line by its **permanent id** and not by counting lines — which
 /// is the whole of W6 showing up in a place nobody would think to look.
-async function openFound(slug: string, id: string | null, marked?: string[]): Promise<void> {
-  await api.openTab(slug);
+async function openFound(
+  slug: string,
+  id: string | null,
+  marked?: string[],
+  where: "tab" | "here" | "fresh" = "tab",
+): Promise<void> {
+  // Three landings, and the two that are not the default are the reader's:
+  // *"ctrl-enter is supposed to open in the same tab"* and *"there is no way to
+  // open one sefer in two tabs via search"*. See `search.ts:landingOf`.
+  if (where === "here") {
+    const open = tab();
+    const beside = open?.panes.find((pane) => pane.id === open.focused)?.id ?? null;
+    if (beside !== null) {
+      await openBeside(beside, [slug]);
+      if (id !== null) views.get(beside)?.goTo({ kind: "at", ids: [id] }, "linked");
+      return;
+    }
+    // Nothing open to open beside, so a tab — the same answer `shelf.ts`'s
+    // `landing` gives, and for the reason it states.
+  }
+  await api.openTab(slug, where === "fresh");
   await reload();
   // No id is *open it where it was left*: a scan whose pages nobody has read
   // has no segment worth landing on, and the pane it opens is the one carrying
@@ -1712,6 +1819,22 @@ async function chooseCorpus(): Promise<void> {
 
 function openSomething(): void {
   picker.openTab(openTab);
+}
+
+/**
+ * A **new tab**, and whatever sefer the reader wants in it.
+ *
+ * > *"There should bw a way to open a new window in a tab (and open whatever
+ * > sefer you want)."*
+ *
+ * The `＋` did open the door — and the door then went to whichever tab already
+ * held the sefer that was picked, which is `Workspace::open`'s ruling and is
+ * right everywhere except under a control whose whole name is *new tab*. Same
+ * door, different landing, which is the shape `Picker.openTab` already had for
+ * `here`.
+ */
+function openAnother(): void {
+  picker.openTab((slug, where) => void openSeferAt(slug, where), "newTab");
 }
 
 /**

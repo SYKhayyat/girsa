@@ -42,6 +42,26 @@ girsa_corpus::spelled!(Axis {
     Horizontal => "horizontal",
 });
 
+impl Axis {
+    /// The other one.
+    ///
+    /// > *"Tabs should be splittable in any way and movable."*
+    ///
+    /// The tree has carried both axes since it was written and every caller in
+    /// the window passed [`Axis::Vertical`], so a reader could build any shape
+    /// of split they liked as long as every divider in it was upright. This is
+    /// the whole of *any way*: the axis is a property of a split that was
+    /// decided once, at the moment of opening, by a caller with no opinion —
+    /// and it is the reader's to change afterwards.
+    #[must_use]
+    pub fn turned(self) -> Self {
+        match self {
+            Self::Vertical => Self::Horizontal,
+            Self::Horizontal => Self::Vertical,
+        }
+    }
+}
+
 /// How a tab's panes divide the window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
@@ -122,6 +142,96 @@ impl Layout {
         }
     }
 
+    /// How many splits this tree has — how many dividers `layout.ts` draws.
+    #[must_use]
+    pub fn splits(&self) -> usize {
+        match self {
+            Self::Leaf { .. } => 0,
+            Self::Split { first, second, .. } => 1 + first.splits() + second.splits(),
+        }
+    }
+
+    /// Do something to one split, named by **which divider it is**.
+    ///
+    /// # Why a divider is not addressed by a pane
+    ///
+    /// It used to be. [`Self::set_ratio`] took a `PaneId` and looked for the
+    /// split one of whose children *is* that leaf, and `layout.ts` handed it
+    /// `firstPaneOf(layout.first)` — the leftmost leaf of the first child,
+    /// which for a nested first child is not a child of this split at all. So a
+    /// drag on the divider of
+    ///
+    /// ```text
+    /// Split { Split { Gemara | Rashi } | Tosafot }
+    /// ```
+    ///
+    /// resized the **inner** split: the pointer moved one line and a different
+    /// line moved. Quietly, because there is always some split that matches and
+    /// the wrong one is still a legal answer.
+    ///
+    /// The order is the order a pre-order walk meets them, which is the order
+    /// `layout.ts` builds the dividers in, and the window sends back the number
+    /// it drew. A tree that has changed under the click addresses a divider
+    /// that is not the one clicked — the same exposure `close_tab(index)`
+    /// carries, and a whole layout is redrawn on every answer.
+    fn at_split<T>(
+        &mut self,
+        which: usize,
+        next: &mut usize,
+        act: &mut impl FnMut(&mut Self) -> T,
+    ) -> Option<T> {
+        if matches!(self, Self::Leaf { .. }) {
+            return None;
+        }
+        let mine = *next;
+        *next += 1;
+        if mine == which {
+            return Some(act(self));
+        }
+        let Self::Split { first, second, .. } = self else {
+            return None;
+        };
+        match first.at_split(which, next, act) {
+            Some(done) => Some(done),
+            None => second.at_split(which, next, act),
+        }
+    }
+
+    /// Turn one split, and answer the axis it now has.
+    fn turn(&mut self, which: usize) -> Option<Axis> {
+        self.at_split(which, &mut 0, &mut |split| {
+            let Self::Split { axis, .. } = split else {
+                unreachable!("at_split only ever hands over a split");
+            };
+            *axis = axis.turned();
+            *axis
+        })
+    }
+
+    /// Swap the two halves of one split.
+    ///
+    /// **And invert the ratio**, because `ratio` is the *first* child's share.
+    /// Swapping without it moves the panes and leaves the widths where they
+    /// were, so a Gemara at 70% and a Rashi at 30% become a Gemara at 30% —
+    /// which is a resize the reader did not ask for wearing the clothes of a
+    /// move.
+    fn swap(&mut self, which: usize) -> bool {
+        self.at_split(which, &mut 0, &mut |split| {
+            let Self::Split {
+                ratio,
+                first,
+                second,
+                ..
+            } = split
+            else {
+                unreachable!("at_split only ever hands over a split");
+            };
+            std::mem::swap(first, second);
+            *ratio = 1000_u16.saturating_sub(*ratio);
+        })
+        .is_some()
+    }
+
     /// Clamp every ratio in this tree — see [`SMALLEST_SHARE`].
     fn sane(&mut self) {
         if let Self::Split {
@@ -137,24 +247,16 @@ impl Layout {
         }
     }
 
-    fn set_ratio(&mut self, at: PaneId, ratio: u16) -> bool {
-        match self {
-            Self::Leaf { .. } => false,
-            Self::Split {
-                first,
-                second,
-                ratio: r,
-                ..
-            } => {
-                if first.panes().contains(&at) && matches!(**first, Self::Leaf { .. })
-                    || second.panes().contains(&at) && matches!(**second, Self::Leaf { .. })
-                {
-                    *r = ratio.clamp(SMALLEST_SHARE, LARGEST_SHARE);
-                    return true;
-                }
-                first.set_ratio(at, ratio) || second.set_ratio(at, ratio)
-            }
-        }
+    /// Where one divider sits, as the first child's share. See [`Self::at_split`]
+    /// for why this is *which divider* and not *which pane*.
+    fn set_ratio(&mut self, which: usize, ratio: u16) -> bool {
+        self.at_split(which, &mut 0, &mut |split| {
+            let Self::Split { ratio: r, .. } = split else {
+                unreachable!("at_split only ever hands over a split");
+            };
+            *r = ratio.clamp(SMALLEST_SHARE, LARGEST_SHARE);
+        })
+        .is_some()
     }
 }
 
@@ -350,6 +452,29 @@ impl Workspace {
             }
             None => self.open_tab(slug, at),
         }
+    }
+
+    /// *Open this sefer **again*** — a second view of it, whatever is open.
+    ///
+    /// # The gesture that could not be made
+    ///
+    /// > *"There is no way to open one sefer in two tabs via search, at
+    /// > least."*
+    ///
+    /// [`Workspace::open`]'s ruling above is right and is not in question: a
+    /// reader who asks for Berakhos while Berakhos is open in front of them
+    /// means *go there*, and two identically-named tabs with no way to tell
+    /// them apart is what the old behaviour gave them. But it left **no**
+    /// gesture for the other thing — two places in one masechta, side by side —
+    /// except splitting, and splitting puts the second view inside the first
+    /// one's tab, which is not what *two tabs* means.
+    ///
+    /// So this is the other verb, reached from the gestures that carry the
+    /// intent: the `＋` on the tab strip, which is named after making a tab, and
+    /// Shift on a search result. Nothing calls it by accident, because nothing
+    /// calls it except a control that says so.
+    pub fn open_again(&mut self, slug: &str, at: Option<SegmentId>) -> PaneId {
+        self.open_tab(slug, at)
     }
 
     /// Open a sefer beside an open pane, following it.
@@ -586,10 +711,62 @@ impl Workspace {
         }
     }
 
-    pub fn set_ratio(&mut self, pane: PaneId, ratio: u16) {
-        if let Some(tab) = self.tab_holding_mut(pane) {
-            tab.layout.set_ratio(pane, ratio);
+    /// Where one divider of the tab being read sits.
+    ///
+    /// **The active tab**, because a divider is a thing on the screen and the
+    /// only dividers on the screen belong to the tab in front of the reader.
+    /// The same goes for the two below it.
+    pub fn set_ratio(&mut self, split: usize, ratio: u16) {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.layout.set_ratio(split, ratio);
         }
+    }
+
+    /// Turn one split — side by side becomes one above the other, and back.
+    /// Answers the axis it now has, or `None` where there is no such divider.
+    pub fn turn_split(&mut self, split: usize) -> Option<Axis> {
+        self.tabs.get_mut(self.active)?.layout.turn(split)
+    }
+
+    /// Swap the two halves of one split.
+    ///
+    /// The *movable* half of the finding, within a tab. [`Self::move_pane`]
+    /// already moves a pane **between** tabs; inside one there was no way to
+    /// put the Rashi on the right and the Gemara on the left short of closing
+    /// both and opening them the other way round.
+    pub fn swap_split(&mut self, split: usize) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return false;
+        };
+        let swapped = tab.layout.swap(split);
+        if swapped {
+            tab.layout.sane();
+        }
+        swapped
+    }
+
+    /// Move a tab along the strip.
+    ///
+    /// `to` is where it should end up **after** it has been taken out, which is
+    /// what a drop target on a strip means: dropping the third tab onto the
+    /// first makes it the first. The reader keeps looking at the tab they were
+    /// looking at, whichever one that is — the strip reordering under a person
+    /// and taking them somewhere else is two surprises for one gesture.
+    pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.tabs.len() || to >= self.tabs.len() || from == to {
+            return false;
+        }
+        // By the pane the reader is in, not by index: an index is exactly the
+        // thing this call changes.
+        let watching = self.tabs.get(self.active).map(|t| t.focused);
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        if let Some(watching) = watching {
+            if let Some(now) = self.tabs.iter().position(|t| t.focused == watching) {
+                self.active = now;
+            }
+        }
+        true
     }
 
     #[must_use]
@@ -920,7 +1097,7 @@ mod tests {
         let gemara = w.open_tab("bavli/berakhot", Some(id(3)));
         w.split(gemara, Axis::Vertical, "bavli/rashi-on-berakhot", true)
             .expect("splits");
-        w.set_ratio(gemara, 620);
+        w.set_ratio(0, 620);
 
         let text = serde_json::to_string(&w).expect("writes");
         let back: Workspace = serde_json::from_str(&text).expect("reads");
@@ -1012,5 +1189,165 @@ mod tests {
             None,
             "the Rashi is not following a pane that has left"
         );
+    }
+
+    /// > *"Tabs should be splittable in any way and movable."*
+    ///
+    /// The tree held both axes and nothing could reach the second one.
+    #[test]
+    fn a_split_can_be_turned_and_turned_back() {
+        let mut space = Workspace::default();
+        let gemara = space.open_tab("bavli/berakhot", None);
+        let rashi = space
+            .split(gemara, Axis::Vertical, "rashi-on-berakhot", true)
+            .expect("a split");
+
+        assert_eq!(space.turn_split(0), Some(Axis::Horizontal));
+        assert!(
+            matches!(
+                space.tabs[0].layout,
+                Layout::Split {
+                    axis: Axis::Horizontal,
+                    ..
+                }
+            ),
+            "the split is stacked"
+        );
+        assert_eq!(space.turn_split(0), Some(Axis::Vertical), "and back");
+        assert_eq!(
+            space.tabs[0].layout.panes(),
+            vec![gemara, rashi],
+            "turning moves nothing"
+        );
+    }
+
+    /// A pane alone in its tab stands in no split, and there is nothing to turn.
+    #[test]
+    fn one_pane_has_no_split_to_turn() {
+        let mut space = Workspace::default();
+        space.open_tab("bavli/berakhot", None);
+        assert_eq!(space.tabs[0].layout.splits(), 0, "no dividers to name");
+        assert_eq!(space.turn_split(0), None);
+        assert!(!space.swap_split(0));
+    }
+
+    /// The divider a control sits on is the reader's **own** divider, not the
+    /// outermost one — three panes, and turning the innermost split leaves the
+    /// one it hangs off alone.
+    #[test]
+    fn turning_a_split_turns_the_one_the_pane_stands_in() {
+        let mut space = Workspace::default();
+        let gemara = space.open_tab("bavli/berakhot", None);
+        let rashi = space
+            .split(gemara, Axis::Vertical, "rashi-on-berakhot", true)
+            .expect("a split");
+        space
+            .split(rashi, Axis::Vertical, "tosafot-on-berakhot", true)
+            .expect("a second split");
+        assert_eq!(space.tabs[0].layout.splits(), 2, "two dividers");
+
+        // Divider 1, not divider 0: pre-order meets the outer split first.
+        assert_eq!(space.turn_split(1), Some(Axis::Horizontal));
+        let Layout::Split { axis, second, .. } = &space.tabs[0].layout else {
+            panic!("the outer split");
+        };
+        assert_eq!(*axis, Axis::Vertical, "the outer one did not move");
+        assert!(
+            matches!(
+                **second,
+                Layout::Split {
+                    axis: Axis::Horizontal,
+                    ..
+                }
+            ),
+            "the inner one did"
+        );
+    }
+
+    /// Swapping moves the panes **and** the widths with them.
+    #[test]
+    fn swapping_the_halves_carries_the_widths_across() {
+        let mut space = Workspace::default();
+        let gemara = space.open_tab("bavli/berakhot", None);
+        let rashi = space
+            .split(gemara, Axis::Vertical, "rashi-on-berakhot", true)
+            .expect("a split");
+        space.set_ratio(0, 700);
+
+        assert!(space.swap_split(0));
+        assert_eq!(
+            space.tabs[0].layout.panes(),
+            vec![rashi, gemara],
+            "the Rashi is first now"
+        );
+        let Layout::Split { ratio, .. } = &space.tabs[0].layout else {
+            panic!("a split");
+        };
+        assert_eq!(
+            *ratio, 300,
+            "the Rashi keeps the 30% it had — the ratio is the first child's share"
+        );
+    }
+
+    /// **The divider that was dragged is the divider that moves.**
+    ///
+    /// `set_ratio` took a `PaneId`, matched the split one of whose children *is*
+    /// that leaf, and `layout.ts` handed it `firstPaneOf(layout.first)` — the
+    /// leftmost leaf of the first child. On a nested first child that leaf is a
+    /// grandchild, the outer split does not match it, and the recursion found
+    /// the **inner** split instead. So a drag on the outer divider resized the
+    /// inner one: the pointer moved one line and a different line moved.
+    #[test]
+    fn dragging_a_divider_moves_that_divider_and_not_the_one_inside_it() {
+        let mut space = Workspace::default();
+        let gemara = space.open_tab("bavli/berakhot", None);
+        space
+            .split(gemara, Axis::Vertical, "rashi-on-berakhot", true)
+            .expect("a split");
+        // Split the Gemara again, so the outer split's first child is a split
+        // and its leftmost leaf is a grandchild rather than a child.
+        space
+            .split(gemara, Axis::Horizontal, "tosafot-on-berakhot", true)
+            .expect("a second split");
+        assert_eq!(space.tabs[0].layout.splits(), 2);
+
+        space.set_ratio(0, 700);
+
+        let Layout::Split { ratio, first, .. } = &space.tabs[0].layout else {
+            panic!("the outer split");
+        };
+        assert_eq!(*ratio, 700, "the divider that was dragged");
+        let Layout::Split { ratio: inner, .. } = &**first else {
+            panic!("the inner split");
+        };
+        assert_eq!(*inner, 500, "and not the one inside it");
+    }
+
+    /// The strip reorders and the reader stays where they were looking.
+    #[test]
+    fn a_tab_moves_along_the_strip_without_taking_the_reader_with_it() {
+        let mut space = Workspace::default();
+        space.open_tab("bavli/berakhot", None);
+        space.open_tab("bavli/shabbat", None);
+        let third = space.open_tab("tur", None);
+        assert_eq!(space.active, 2);
+
+        assert!(space.move_tab(0, 2), "the first tab to the end");
+        assert_eq!(
+            space
+                .tabs
+                .iter()
+                .map(|t| t.panes[0].slug.as_str())
+                .collect::<Vec<_>>(),
+            vec!["bavli/shabbat", "tur", "bavli/berakhot"]
+        );
+        assert_eq!(
+            space.active_tab().and_then(|t| t.pane(third)).map(|p| p.id),
+            Some(third),
+            "the reader is still in the tab they were in"
+        );
+
+        assert!(!space.move_tab(1, 1), "nowhere is not a move");
+        assert!(!space.move_tab(0, 9), "and neither is off the end");
     }
 }

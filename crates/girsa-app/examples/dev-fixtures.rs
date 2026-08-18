@@ -67,7 +67,7 @@ fn main() -> std::process::ExitCode {
     let follower_pane = workspace
         .split(leader_pane, Axis::Vertical, FOLLOWER, true)
         .unwrap_or(leader_pane);
-    workspace.set_ratio(leader_pane, 550);
+    workspace.set_ratio(0, 550);
 
     // `girsa_app::view::Opening`, the real type.
     //
@@ -84,6 +84,7 @@ fn main() -> std::process::ExitCode {
         shemos: girsa_app::shemos::Shemos::AsWritten,
         interface: girsa_app::session::Language::Hebrew,
         text_size: 100,
+        mefarshim_size: 100,
         positions: session.positions.clone(),
         works: shelf.works().len(),
         trouble: None,
@@ -183,6 +184,13 @@ fn main() -> std::process::ExitCode {
             work: Card::of(&sefer.work),
             has_nikud: sefer.segments.iter().any(|s| display::has_marks(&s.text)),
             from: 0,
+            // A fixture nobody has read: the first line, which is what the
+            // shell says for a sefer with no remembered place.
+            at: sefer
+                .segments
+                .first()
+                .map(|s| s.id.to_string())
+                .unwrap_or_default(),
             total: sefer.segments.len(),
             lines: sefer
                 .segments

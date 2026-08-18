@@ -23,6 +23,10 @@
    * clamps it to 60-250. */
   --reading-size: 100;
 
+  /* And the mefarshim, on their own. Same units, same clamp, same reason for
+   * being a number — see `.said-line`. */
+  --mefarshim-size: 100;
+
   --ink: #e8e2d6;
   --ink-quiet: #9a9284;
   --page: #14130f;
@@ -285,6 +289,18 @@ body {
   border-color: var(--rule);
 }
 
+/* Dragged along the strip (finding 9). The tab being carried fades; the one it
+ * would land on shows the edge it would land against, so the drop is legible
+ * before it happens rather than explained afterwards by the strip moving. */
+.tab-holder.is-dragging {
+  opacity: 0.4;
+}
+
+.tab-holder.is-target {
+  border-color: var(--mark);
+  box-shadow: inset 0 -2px 0 var(--mark);
+}
+
 .tab-holder.is-active .tab {
   color: var(--ink);
 }
@@ -413,6 +429,9 @@ body {
   flex: 0 0 5px;
   background: var(--rule);
   cursor: col-resize;
+  /* The two buttons hang off the line without widening it: a divider that grew
+   * to 26px to hold a control would move both panes every time. */
+  position: relative;
 }
 
 .split-horizontal > .divider {
@@ -422,6 +441,72 @@ body {
 .divider:hover,
 .divider.is-dragging {
   background: var(--mark);
+}
+
+/* --- what a divider can do (finding 9) ---------------------------------
+ *
+ * > *"Tabs should be splittable in any way and movable, like we want in ksav."*
+ *
+ * Turning the split and changing the sides over are facts about the **split**,
+ * so they live on the line between the panes rather than in either pane's
+ * header — which in a small window could not show the controls it had already
+ * (finding 8, `.pane-tools`).
+ *
+ * Quiet until the pointer is on the line, the rule `.tab-shut` follows: two
+ * glyphs on every divider of a three-way split is a row of things to click by
+ * accident. The line's own `title` says what is there for whoever hovers it
+ * before they fade in.
+ */
+.divider-controls {
+  position: absolute;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease-in;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* `left`, not `inset-inline-start`, and deliberately: this centres the box on a
+ * 5px line, and centring has no direction. `inset-inline-start: 50%` is `right:
+ * 50%` in a right-to-left window while `translateX(-50%)` stays physical, so
+ * the pair pulls the box the same way twice and it lands beside the line. */
+.split-vertical > .divider > .divider-controls {
+  flex-direction: column;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.split-horizontal > .divider > .divider-controls {
+  inset-inline-start: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.divider:hover > .divider-controls,
+.divider:focus-within > .divider-controls,
+.divider.is-dragging > .divider-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.divider-control {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink-quiet);
+  background: var(--page-raised);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.divider-control:hover,
+.divider-control:focus-visible {
+  color: var(--ink);
+  border-color: var(--mark);
 }
 
 /* --- a column of reading ----------------------------------------------- */
@@ -476,6 +561,16 @@ body {
 
 .pane-note.is-empty {
   color: var(--mark);
+}
+
+/* *Roughly* — the two columns keep the same place in each sefer because the
+ * reader put them side by side, and not because anything joins them. Quieter
+ * than `is-empty`, which reports a fact about the corpus; this reports a fact
+ * about the window. */
+.pane-note.is-rough {
+  color: var(--ink-quiet);
+  font-style: italic;
+  cursor: help;
 }
 
 /* *"scrolling with ברכות"* is longer than *"גלילה עם ברכות"*, and in a narrow
@@ -690,11 +785,33 @@ body {
 
 /* The buttons, as one box. Fixed: they do not shrink and they do not clip — in
  * English the leftmost one used to be cut to `se` — and when the row cannot
- * hold both the name and them, this is what moves to the next line. */
+ * hold both the name and them, this is what moves to the next line.
+ *
+ * **And the box wraps inside itself**, which is finding 8:
+ *
+ * > *"a small window truncates its controls and is uncloseable."*
+ *
+ * `0 0 auto` said *never squeeze me*, and answered a real defect. What it did
+ * not say is what happens when the row is wider than the pane at any squeeze:
+ * eight controls measure 478px, a pane in a 720px window is about 310px, and
+ * the block simply hung off the inline edge — at x = -168 in a right-to-left
+ * window, under `body { overflow: hidden }`. What hangs off first is the
+ * furthest one, and the furthest one is **סגור**. The controls did not clip;
+ * they left, and the exit left with them.
+ *
+ * So: it may shrink (`0 1 auto`, `min-width: 0`) and it wraps, while the
+ * buttons keep `flex: 0 0 auto` and stay whole. Nothing is squeezed and nothing
+ * leaves — the row gets taller instead, which is the same answer `.pane-head`
+ * already gives one level up. `justify-content: flex-end` keeps each wrapped
+ * line against the inline end, where the block sat when it was one line. */
 .pane-tools {
   display: flex;
   align-items: baseline;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 2px;
+  min-width: 0;
   margin-inline-start: auto;
 }
 
@@ -730,8 +847,43 @@ body {
 /* The measure (B13). `none` by default, so nothing changes for a reader who has
  * not asked; centred when set, because a column pinned to one edge of a wide pane
  * reads worse than a narrow one in the middle. */
+/* # A comment inside a selector, and what it cost
+ *
+ * This block used to read:
+ *
+ *     .pane-body > .line,
+ *     .pane-body > |* The way out of a long comment... *|
+ *     .said-shut { … font-size: 12px; … }
+ *
+ * — an edit had dropped the second half of the selector and glued the next
+ * rule's comment into the gap. CSS does not mind: a comment between a combinator
+ * and a selector is whitespace, so the two lines parsed cleanly as one selector
+ * list, and **every line of every sefer took the close button's declarations**.
+ * `font-size: 12px`, at specificity `(0,2,0)` with a child combinator, beating
+ * `.line`'s own `calc(19px * var(--reading-size) / 100)` at `(0,1,0)`.
+ *
+ * > *"The font size buttons do not work; neither does setting it in settings.
+ * > They seem to work only on mefarshim actually."*
+ *
+ * Exactly that. `.said-line` is not a child of `.pane-body`, so the mefarshim
+ * scaled and the sefer did not, and every other symptom of this — the reading
+ * text set at 12px, a hairline rule drawn across every line, `cursor: pointer`
+ * over the words — was invisible as a *bug* because nobody had seen the page
+ * without it.
+ *
+ * The measure (B13) went with it: `max-width` and `margin-inline: auto` are what
+ * this rule was for, and no line of a sefer had been getting either. `none` by
+ * default, so nothing changes for a reader who has not asked; centred when set,
+ * because a column pinned to one edge of a wide pane reads worse than a narrow
+ * one in the middle. */
 .pane-body > .line,
-.pane-body > /* The way out of a long comment, at its foot (A14). Quiet, centred, and the
+.pane-body > .line-above,
+.pane-body > .line-said {
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+
+/* The way out of a long comment, at its foot (A14). Quiet, centred, and the
  * full width of the block, so it reads as the end of the block rather than as
  * one more control competing with the words above it. */
 .said-shut {
@@ -788,8 +940,17 @@ body {
  * `line-height` drops from 2.6 to 2.2 so the taller text keeps the same box and
  * stays on the first line's baseline. */
 .line-address {
-  flex: 0 0 auto;
-  min-width: 3.4em;
+  /* `0 0 auto` let it grow to whatever the address happened to be, and a
+   * Mishnah's address is two levels — so the column that was meant to hold
+   * `ב.` held `פרק ד משנה א`, and the words began wherever it ended. The reader
+   * read the result as one running sentence, which is what it was.
+   *
+   * `1 0 5.5em` gives it a floor and a ceiling: it may not grow past its basis,
+   * and a longer address wraps inside its own column instead of eating the
+   * text's. What used to make it long is in `.line-above` now. */
+  flex: 0 1 5.5em;
+  max-width: 5.5em;
+  overflow-wrap: anywhere;
   font-family: var(--plain);
   font-size: 13px;
   line-height: 2.2;
@@ -801,6 +962,31 @@ body {
 
 .line-text {
   flex: 1;
+  min-width: 0;
+}
+
+/* `פרק ד'` — what contains the lines under it, said once, on its own line.
+ *
+ * The reader's report was `פרק ד משנה אחייב אדם` and a drawing of what it
+ * should be instead: the perek on one line, the mishnah on the next, the words
+ * under them. This is the first of those. It is set like a heading rather than
+ * like a margin, because that is what it now is — it is no longer competing
+ * with the text for the width of a line box. */
+.line-above {
+  margin: 1.2em 0 0.35em;
+  font-family: var(--hebrew);
+  font-size: calc(19px * var(--reading-size) / 100);
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--mark);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+/* Not above the first thing on the page: a heading with nothing over it does
+ * not need to be pushed away from it. */
+.line-above:first-child {
+  margin-block-start: 0.2em;
 }
 
 /* The dibur hamatchil. Sefaria marks it `<b>`/`<big>`; without it a column of
@@ -1015,8 +1201,11 @@ body {
   margin: 0 0 0.35em;
   font-family: var(--hebrew);
   /* A shade smaller than the sefer: it is the commentary, and the daf is what
-   * the reader is reading. */
-  font-size: calc(17px * var(--reading-size) / 100);
+   * the reader is reading. That ratio is this application's opinion, and
+   * `--mefarshim-size` is where a reader argues with it — one control for the
+   * daf, one for what is written on it, because a reader whose eyes are fine on
+   * a Gemara and not on Rashi's script was moving both and keeping the gap. */
+  font-size: calc(17px * var(--mefarshim-size) / 100);
   line-height: 1.85;
   text-align: justify;
 }
@@ -1028,6 +1217,23 @@ body {
   font-family: var(--plain);
   font-size: 12px;
   color: var(--ink-quiet);
+}
+
+/* `◇` — the ticked-mefarshim `◆` with nothing filled in, which is what it
+ * means: somebody wrote here and you have not asked to see them.
+ *
+ * > *"If it is worth mentioning this at all, it should be a discrete symbol,
+ * > not words."*
+ *
+ * It was a full sentence in the place a comment would have gone, printed every
+ * time a line with no ticked mefaresh was clicked. The words are on its
+ * `title`. */
+.said-none.is-mark {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--mark);
+  opacity: 0.6;
+  cursor: help;
 }
 
 .tool.is-quiet {
@@ -1182,6 +1388,58 @@ body {
 .links-title {
   font-family: var(--hebrew);
   font-size: 17px;
+}
+
+/* Follow the reading, or stay put. Quiet when it is doing the ordinary thing
+ * and marked when it is not, because *pinned* is the state a reader can forget
+ * they are in and then wonder why the panel has stopped answering. */
+.links-pin {
+  flex: none;
+  margin-inline-start: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-quiet);
+  font-family: var(--hebrew);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* The word in front of the lens row. Five bare nouns in a line are five nouns;
+ * a line that begins *show:* is a filter with five settings. */
+.lenses-what {
+  font-family: var(--hebrew);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  align-self: center;
+}
+
+/* Drawing a link is the one thing this panel writes, so it is at the foot and
+ * folded. Open, it was a `<select>` of link kinds sitting directly under the
+ * lens row, which every reader is entitled to read as the control that filters
+ * the list. */
+.links-drawer {
+  margin-block-start: 12px;
+  padding-block-start: 8px;
+  border-top: 1px solid var(--rule);
+}
+
+.links-drawer > summary {
+  font-family: var(--hebrew);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  cursor: pointer;
+}
+
+.links-drawer > summary:hover {
+  color: var(--ink);
+}
+
+.links-pin.is-on {
+  border-color: var(--mark-quiet);
+  color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 10%, transparent);
 }
 
 .links-note {
@@ -3749,26 +4007,49 @@ body {
   padding: 0;
 }
 
-.scope-add,
-.scope-out {
-  width: 20px;
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  background: var(--page);
-  color: var(--ink-quiet);
+/* The box on a row. A state, not an event — the `+` and `−` it replaced could
+ * be read only by remembering having clicked them. */
+.scope-box-tick {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--mark);
   cursor: pointer;
-  font: inherit;
-  line-height: 1.4;
-  padding: 0;
 }
 
-.scope-add:hover {
+/* Ticked off, which is a third state and not the absence of the second: the
+ * whole shelf minus this one. `indeterminate` is where the box puts it and this
+ * is where the row says it. */
+.scope-row.is-out .scope-name {
+  color: var(--ink-quiet);
+  text-decoration: line-through;
+}
+
+.scope-row.is-in .scope-name {
   color: var(--mark);
-  border-color: var(--mark-quiet);
 }
 
-.scope-out:hover {
+.scope-row.is-waiting {
+  color: var(--ink-quiet);
+  font-family: var(--plain);
+  font-size: 12px;
+  padding-inline-start: 22px;
+}
+
+/* One line that says what the panel comes to, which is the question the panel
+ * is named after and which a list of labels cannot answer. */
+.scope-counted {
+  margin: 0;
+  font-family: var(--plain);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
+  white-space: nowrap;
+}
+
+.scope-counted.is-everything {
+  color: var(--ink-quiet);
 }
 
 /* The scope chip is a doorway rather than a setting, and says so by looking
@@ -3986,9 +4267,28 @@ body {
 :root.is-english-ui .panes,
 :root.is-english-ui .pane,
 :root.is-english-ui .line,
+:root.is-english-ui .line-above,
 :root.is-english-ui .find-text,
 :root.is-english-ui .said-line,
-:root.is-english-ui .link-preview {
+:root.is-english-ui .link-preview,
+/* The chain, which this list did not name and which is nothing *but* corpus
+ * text: a column of sefer titles with a line of each of them quoted under it.
+ * *"Chain is left-aligned in english (not good)"* — it was left-aligned
+ * because it inherited `dir="ltr"` from the document, along with every Hebrew
+ * name in it.
+ *
+ * The **list**, not the panel: the head, the three way-tabs and the tally are
+ * chrome and read in whichever language the window is in, so they turn. Only
+ * what holds the seforim is pinned. */
+:root.is-english-ui .chain-list,
+/* Same division on the links panel, which had one of its four corpus surfaces
+ * on this list. `.link-said` is the whole line; `.link-sefer` is the sefer's
+ * name and the range of it these rows cover. */
+:root.is-english-ui .link-said,
+:root.is-english-ui .link-sefer summary,
+/* And the two trees of sefer names a reader picks from. */
+:root.is-english-ui .scope-tree,
+:root.is-english-ui .scope-found {
   direction: rtl;
 }
 

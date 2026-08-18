@@ -105,7 +105,12 @@ export interface FixMark {
 
 export interface Line {
   id: string;
+  /** `משנה א'` — the deepest level of the address, and only that. What contains
+   * it is in `above`, said once. */
   address: string;
+  /** `פרק ד'` — what contains this line, on the first line it contains and
+   * absent on every other. See `girsa_app::view::only_when_it_changes`. */
+  above?: string;
   /** What kind of line this is. `note`, `item`, `row` and `quote` come from a
    * .ksav of your own (W29) and are drawn as themselves rather than as prose.
    * Absent means `text`, which nearly every line is. */
@@ -217,6 +222,27 @@ export interface LinkRow {
   curated: boolean;
 }
 
+/**
+ * One saved filter over the link graph (spec.md §8.5) — and what it keeps.
+ *
+ * The four fields after the title are the lens's whole definition, sent so the
+ * button can say what it does: *"I also can't tell what the filters are."*
+ * Every one of them is editable by the reader, so a sentence built from these
+ * stays true and a sentence written about `הלכה` would not.
+ */
+export interface LensRow {
+  key: string;
+  title: string;
+  /** The kinds it lets through. Empty is *any*. */
+  types: string[];
+  /** The eras of the sefer at the far end, as the catalogue codes them. */
+  eras: string[];
+  /** How strong a claim it has to be, 0.0–1.0. */
+  at_least: number;
+  /** Only links you drew, confirmed, or otherwise touched. */
+  mine: boolean;
+}
+
 export interface Links {
   links: LinkRow[];
   /** No companions cache, so the incoming half is missing — said, never
@@ -231,7 +257,7 @@ export interface Links {
    */
   types: LinkKind[];
   /** Your lenses (spec.md §8.5): saved filters, not hardcoded lists. */
-  lenses: { key: string; title: string }[];
+  lenses: LensRow[];
   lens: string | null;
 }
 
@@ -389,6 +415,9 @@ export interface Text {
   lines: Line[];
   /** Where that stretch begins, counted in segments from the start. */
   from: number;
+  /** The segment to stand on — where the reader was, or the sefer's first line.
+   * Deliberately not `from`, which is half a window earlier. */
+  at: string;
   /** How many segments the sefer has altogether. */
   total: number;
   has_nikud: boolean;
@@ -558,6 +587,8 @@ export interface Settings {
   /** The hour the daf turns over, 0–23. An approximation, not a tzeis. */
   day_turns_at: number;
   text_size: number;
+  /** The mefarshim, sized on their own. */
+  mefarshim_size: number;
   /** Which language the **seforim** are named in. */
   language: Language;
   /** And which language the **window** speaks. Two settings, two commands. */
@@ -808,6 +839,8 @@ export interface AppState {
   pointing: Pointing;
   shemos: Shemos;
   text_size: number;
+  /** The mefarshim, sized on their own. */
+  mefarshim_size: number;
   /** Which language the seforim are named in (W41). */
   language: Language;
   /** Which language the window itself speaks. */
@@ -1263,7 +1296,9 @@ export const api = {
    * sefer: the filter box filters the list it already has. */
   seferContents: (slug: string) => call<TocEntry[]>("sefer_contents", { slug }),
   /** Open a sefer — **or go to it**, where it is already open. */
-  openTab: (slug: string) => call<PaneId>("open_tab", { slug }),
+  /** Open a sefer — going to it where it already is, unless `again`, which is
+   * a second view of it in a tab of its own. See `Workspace::open_again`. */
+  openTab: (slug: string, again = false) => call<PaneId>("open_tab", { slug, again }),
   /** Every sefer that is open, most recently read first. Not the tab strip: a
    * tab holding a Gemara, its Rashi and its Tosafos is one entry in the strip
    * and three seforim that are open. */
@@ -1279,7 +1314,19 @@ export const api = {
   focus: (pane: PaneId) => call<void>("focus", { pane }),
   setFollows: (pane: PaneId, leader: PaneId | null) =>
     call<void>("set_follows", { pane, leader }),
-  setRatio: (pane: PaneId, ratio: number) => call<void>("set_ratio", { pane, ratio }),
+  /** **A divider is named by which divider it is**, not by a pane beside it:
+   * the splits of the tab being read, in the order `layout.ts` draws them,
+   * which is the order a pre-order walk meets them. See
+   * `girsa_app::workspace::Layout::at_split` — addressed by a pane, a drag on
+   * the outer divider of a nested split resized the inner one. */
+  setRatio: (split: number, ratio: number) => call<void>("set_ratio", { split, ratio }),
+  /** Turn one split — side by side to stacked and back. The answer is whether
+   * there was such a divider. */
+  turnSplit: (split: number) => call<boolean>("turn_split", { split }),
+  /** Swap the two halves of one split. */
+  swapSplit: (split: number) => call<boolean>("swap_split", { split }),
+  /** Move a tab along the strip. `to` is where it lands after being taken out. */
+  moveTab: (from: number, to: number) => call<boolean>("move_tab", { from, to }),
   setPointing: (pointing: Pointing) => call<void>("set_pointing", { pointing }),
   setShemos: (shemos: Shemos) => call<void>("set_shemos", { shemos }),
   /** **The window says which day, and what time it is.** `std::time` knows
@@ -1327,6 +1374,9 @@ export const api = {
   }) => call<void>("set_look", { look }),
   bindKey: (action: string, to: string) => call<Shortcut[]>("bind_key", { action, to }),
   setTextSize: (percent: number) => call<void>("set_text_size", { percent }),
+  /** The mefarshim, sized on their own — a second setting, not a second
+   * argument: `A+` and Ctrl+= mean the sefer. */
+  setMefarshimSize: (percent: number) => call<void>("set_mefarshim_size", { percent }),
   moved: (pane: PaneId, at: string) => call<Move[]>("moved", { pane, at }),
 
   // --- the shelf (W10) ----------------------------------------------------
@@ -1426,9 +1476,10 @@ export const api = {
   // next — *"often the tree to pick from … is not even visible - it flashes,
   // then flashes off."*
   findScope: () => call<ScopeView>("find_scope"),
-  findScopeAdd: (dimension: Dimension, key: string, label: string, exclude: boolean) =>
-    call<ScopeView>("find_scope_add", { dimension, key, label, exclude }),
   findScopeDrop: (at: number) => call<ScopeView>("find_scope_drop", { at }),
+  /** Tick or untick one row. `on` is what the box should read afterwards. */
+  findScopeSet: (dimension: Dimension, key: string, label: string, on: boolean) =>
+    call<ScopeView>("find_scope_set", { dimension, key, label, on }),
 
   // --- the semantic lane (spec.md §9.9, W30) ------------------------------
   //
@@ -1665,6 +1716,8 @@ export interface ScopeStep {
   label: string;
   exclude: boolean;
   seforim: number;
+  /** The row it came from, so the tree can draw that row ticked. */
+  key: string;
 }
 
 /** Where the search is looking, as a list the panel draws and edits. */
@@ -1673,6 +1726,9 @@ export interface ScopeView {
   said: string;
   steps: ScopeStep[];
   everything: boolean;
+  /** How many seforim the search will look in, and how many there are. */
+  seforim: number;
+  shelf: number;
 }
 
 export interface Hit extends At {
@@ -1833,6 +1889,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       pointing: "full",
       shemos: "as-written",
       text_size: 100,
+      mefarshim_size: 100,
       // The same numbers `girsa_app::workspace` holds. This literal is the
       // browser's last resort when even the fixture will not load, so it is not
       // a second rule so much as a second copy of one — and the fixture that
@@ -1968,6 +2025,9 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         ...whole,
         lines: whole.lines.slice(0, A_WINDOW),
         from: 0,
+        // The browser build remembers nothing, so the first line is the answer
+        // — which is what the shell would say for a sefer nobody has opened.
+        at: whole.lines[0]?.id ?? "",
         total: whole.lines.length,
       } as T;
     }
@@ -2132,6 +2192,7 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         pointing: fixtureState.pointing,
         shemos: fixtureState.shemos,
         text_size: fixtureState.text_size,
+        mefarshim_size: fixtureState.mefarshim_size,
         language: fixtureState.language,
         interface: fixtureState.interface,
         cite: fixtureState.cite,
@@ -2145,6 +2206,52 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         fonts: [],
         share_bounds: fixtureState.share_bounds,
       } as T;
+    // **How the panes are arranged**, kept in memory for the same reason the
+    // look settings below are: out here there is no session to write to, and a
+    // control that quietly does nothing is worse than one that refuses. These
+    // three change nothing but the shape of `fixtureState.workspace`, which is
+    // a tree this file is already holding.
+    //
+    // `girsa_app::workspace` is the authority and this is a second reading of
+    // it, the same way `open_set` above re-derives the open set — so the rules
+    // that matter are restated rather than referred to: pre-order for which
+    // divider, and the ratio inverts when the halves change places because it
+    // is the **first** child's share.
+    case "set_ratio":
+    case "turn_split":
+    case "swap_split": {
+      const tab = fixtureState.workspace.tabs[fixtureState.workspace.active];
+      const split = tab ? atSplit(tab.layout, Number(args?.split ?? 0)) : null;
+      if (!split) return false as T;
+      if (cmd === "set_ratio") {
+        const [low, high] = fixtureState.share_bounds;
+        split.ratio = Math.min(high, Math.max(low, Number(args?.ratio ?? split.ratio)));
+      } else if (cmd === "turn_split") {
+        split.axis = split.axis === "vertical" ? "horizontal" : "vertical";
+      } else {
+        const held = split.first;
+        split.first = split.second;
+        split.second = held;
+        split.ratio = 1000 - split.ratio;
+      }
+      keep();
+      return true as T;
+    }
+    case "move_tab": {
+      const tabs = fixtureState.workspace.tabs;
+      const from = Number(args?.from ?? -1);
+      const to = Number(args?.to ?? -1);
+      if (from < 0 || to < 0 || from >= tabs.length || to >= tabs.length || from === to) {
+        return false as T;
+      }
+      const watching = tabs[fixtureState.workspace.active]?.focused;
+      const [carried] = tabs.splice(from, 1);
+      if (carried) tabs.splice(to, 0, carried);
+      const now = tabs.findIndex((t) => t.focused === watching);
+      if (now >= 0) fixtureState.workspace.active = now;
+      keep();
+      return true as T;
+    }
     // The settings that are purely about **how the page looks**, kept in memory
     // so the browser build can be looked at with them changed.
     //
@@ -2163,6 +2270,10 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return undefined as T;
     case "set_text_size":
       fixtureState.text_size = Math.min(250, Math.max(60, Number(args?.percent ?? 100)));
+      keep();
+      return undefined as T;
+    case "set_mefarshim_size":
+      fixtureState.mefarshim_size = Math.min(250, Math.max(60, Number(args?.percent ?? 100)));
       keep();
       return undefined as T;
     case "set_showing":
@@ -2210,9 +2321,9 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // index out here. An empty one is the honest answer — the whole shelf —
     // rather than a panel that looks editable and forgets every click.
     case "find_scope":
-    case "find_scope_add":
+    case "find_scope_set":
     case "find_scope_drop":
-      return { said: "whole shelf", steps: [], everything: true } as T;
+      return { said: "", steps: [], everything: true, seforim: 0, shelf: 0 } as T;
     // Search is the shell's. The fixtures are static JSON written by
     // `dev-fixtures`, and a search index is neither static nor small — so the
     // browser says which of the two it is looking at rather than showing an
@@ -2271,6 +2382,22 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     default:
       return undefined as T;
   }
+}
+
+/**
+ * The `which`th split of a layout, counting the way a pre-order walk meets
+ * them — `girsa_app::workspace::Layout::at_split`, and `layout.ts` draws the
+ * dividers in the same order.
+ */
+function atSplit(
+  layout: Layout,
+  which: number,
+  counting = { next: 0 },
+): Extract<Layout, { kind: "split" }> | null {
+  if (layout.kind !== "split") return null;
+  if (counting.next === which) return layout;
+  counting.next += 1;
+  return atSplit(layout.first, which, counting) ?? atSplit(layout.second, which, counting);
 }
 
 /** The window `open_sefer` sends — `A_WINDOW` in the shell. */

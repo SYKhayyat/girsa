@@ -325,15 +325,15 @@ reading workspace compiles without any of them — it does not even depend on
 
 ### The window
 
-`app/` is the Tauri shell: a window and **132**<!--=commands--> commands, and
+`app/` is the Tauri shell: a window and **136**<!--=commands--> commands, and
 **nothing that decides anything**. Where a pane lands, what may sit beside what,
 and what the nikud toggle takes off are all answered in `girsa-app`, because
 those can be tested and a webview cannot. The window is
 **35**<!--=window-modules--> TypeScript modules and one stylesheet of
-**4,406**<!--=styles-lines--> lines — no framework, three runtime dependencies.
+**4,706**<!--=styles-lines--> lines — no framework, three runtime dependencies.
 
 That is a rule, not a description, and it is enforced. Of the shell's
-**5,523**<!--=shell-lines--> lines, about 150 were once genuine pass-through and
+**5,753**<!--=shell-lines--> lines, about 150 were once genuine pass-through and
 the rest decided cache policy, sort orders, truncation lengths, which fonts a
 Hebrew reader is offered, and what to do with a chip key it did not recognise.
 Each of those now lives in the crate whose subject it is, and two checks fail if
@@ -422,6 +422,7 @@ and used it, written down without softening.
 |---|---|
 | [`docs/the-five-minute-report.md`](docs/the-five-minute-report.md) | five minutes, eighteen complaints, and what each fix was |
 | [`docs/the-second-sitting.md`](docs/the-second-sitting.md) | an hour with the running window afterwards — and the finding that no build of the application had ever been produced |
+| [`docs/the-third-sitting.md`](docs/the-third-sitting.md) | twenty-four findings from the shipped window — a comment inside a CSS selector, an AND where the search meant OR, and one thread doing two jobs |
 
 Ksav's own pages are in the pen's repository, at `Ksav/docs/`. Not a link,
 because a link out of this repository is broken for anybody who cloned only this

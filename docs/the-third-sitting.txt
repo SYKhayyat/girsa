@@ -1,0 +1,34 @@
+1. When I search and open a sefer, it should start in the beginning (optionally a remembered part). It seems to start at a totally random spot in the middle.
+2. The font size buttons do not work; neither does setting it in settings. They seem to work only on mefarshim actually. I think it is a good idea to have a seperate control for mefarshim and top leve, but as of now, the top level one does not exist.
+3. Setting the language closes settings immediately.
+4. Big bug - the header is right in front of the actual text and just runs into it. It is like this:
+פרק ד משנה אחייב אדם
+It should be like this:
+פרק ד
+משנה א
+חייב אדם...
+משנה ב
+(This is a separate thing - it should not mention the perek by each one.)
+5. There should bw a way to open a new window in a tab (and open whatever sefer you want).
+6. Checking off a box or unchecking be meforshim (not ticking - just checking) brings you to the top of the meforshim box.
+7. It says - mefarshim you have not ticked wrote here. If it is worth mentioning this at all, it should be a discrete symbol, not words.
+8. A small window truncates its controls and is uncloseable.
+9. Tabs should be splittable in any way and movable, like we want in ksav.
+10. Even without own scroll on, the two are not linked. (I think this should be the default, but it should be linkable.)
+11. The latin text in links makes it hard to read. In general, it reads like an AI. Same with the chain.
+12. Links does not seem to filter based on the dropdown. I also can't tell what the filters are.
+13. Links is based on where you were when you opened it, and does not change.
+14. Chain is left-aligned in english (not good)
+15. The chain seems to hang, when i clicked halacha and then where it came from. 
+16. The sefer search does not match שלחן ערוך to שולחן ערוך.
+17. There is on way to open one sefer in two tabs via search, at least.
+18. ctrl-enter is supposed to open in the same tab, i think. It does not.
+19. In search, it should be more clear what is and is not included. There needs to be an easier way to check everything or uncheck everything, and for that to be clear.
+20. In search, you can only addd or subtract a folder, ont a single sefer. That should be changed. There should also be a clear all.
+21. there is something wrong with the search. It could not find חייב anywhere in shas. Then. when I expanded to a word contining, it stopped respondin, and still did not find anything. It does find when only some of shas is checked. Maybe it is just hanging. It says 0 found - which can't be, since some were found for parts of shas. Whatever it is, it is not acceptable - and should not happen.
+22. When xing out things to search in, the UI started hanging. In general, it is a very unresponsive UI - almost like openoffice. The search is objectively terrible.
+23. The guide talks about a search box where you can write טור סימן א. I can't find anything like that.
+24. the sentence of what I cannot see is hard to decipher.
+
+
+

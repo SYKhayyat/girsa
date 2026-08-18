@@ -232,6 +232,14 @@ export class SettingsView {
         void api.setTextSize(value).then(() => this.changed());
       }),
     );
+    // The mefarshim on their own — *"a separate control for mefarshim and top
+    // level"*. Beside the reading size and not folded into it, so a reader can
+    // see the two numbers together and read the gap off the screen.
+    this.body.append(
+      this.number(say("settingsMefarshimSize"), s.mefarshim_size, 60, 250, 5, "%", (value) => {
+        void api.setMefarshimSize(value).then(() => this.changed());
+      }),
+    );
     // In hundredths, because a session that stored 1.95 as a float would not
     // compare equal to itself after a round trip — the same reason a split's ratio
     // is in tenths of a percent.

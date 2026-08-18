@@ -254,6 +254,66 @@ pub fn printed_address_in(
     }
 }
 
+/// The address in two halves: what contains this line, and the line itself.
+///
+/// # The margin that ran into the words
+///
+/// > *"the header is right in front of the actual text and just runs into it.
+/// > It is like this: `פרק ד משנה אחייב אדם`. It should be like this:*
+/// > `פרק ד` *newline* `משנה א` *newline* `חייב אדם…` *(This is a separate
+/// > thing - it should not mention the perek by each one.)"*
+///
+/// Both halves of that are one fact: **the whole address was printed on every
+/// line**. A Mishnah's address is two levels, so every one of the six mishnayos
+/// in a perek carried `פרק ד` in front of it, in a margin whose `min-width` is
+/// `3.4em` and whose `flex` lets it grow — so the column that was supposed to
+/// hold `ב.` held `פרק ד משנה א`, and the words started wherever that ended.
+/// The reader did not misread it; there was nothing else it could look like.
+///
+/// A printed Mishnayos says `פרק ד` once, at the head of the perek, and then
+/// numbers the mishnayos under it. That is what this returns: everything above
+/// the deepest level, and the deepest level on its own. The caller says the
+/// first only when it changes — see [`crate::view::Text`], which is the only
+/// place that can see two lines at once.
+///
+/// # Why it is a strip and not a second formatter
+///
+/// Both halves come out of [`printed_address_in`]: the whole address, and the
+/// address of the path with its last level cut off. The second is a prefix of
+/// the first, so the leaf is what is left after taking it away. Rendering the
+/// leaf on its own would mean a second path through `girsa_cite` that could
+/// come to disagree with the first about a word, which is the failure
+/// [`printed_address`]'s own header is about. If the prefix does not strip —
+/// a formatter that reorders, an address that will not parse — the whole
+/// address stays in the margin and nothing is hoisted, which is exactly the
+/// behaviour of the day before this existed.
+#[must_use]
+pub fn printed_address_split_in(
+    work: &Work,
+    sections: Option<&girsa_corpus::sections::Sections>,
+    id: &SegmentId,
+    style: CiteStyle,
+) -> (String, String) {
+    let whole = printed_address_in(work, sections, id, style);
+    let path = id.path();
+    if path.len() < 2 {
+        return (String::new(), whole);
+    }
+    let above = SegmentId::new(
+        id.work(),
+        path[..path.len() - 1].to_vec(),
+        id.ordinal().clone(),
+    );
+    let head = printed_address_in(work, sections, &above, style);
+    if head.is_empty() {
+        return (String::new(), whole);
+    }
+    match whole.strip_prefix(&head) {
+        Some(leaf) if !leaf.trim().is_empty() => (head, leaf.trim().to_string()),
+        _ => (String::new(), whole),
+    }
+}
+
 /// The named sections at the front of a path, said the way the sefer says them.
 ///
 /// A section the schema does not name keeps the slug it has, which is at least
@@ -616,6 +676,83 @@ mod tests {
         format!("girsa:shulchan-arukh/orach-chayim/1:{n}#{n}")
             .parse()
             .expect("a segment id")
+    }
+
+    /// > *"the header is right in front of the actual text and just runs into
+    /// > it: `פרק ד משנה אחייב אדם`."*
+    ///
+    /// Both halves of the address were printed in a `3.4em` margin on every one
+    /// of a perek's mishnayos. Split, the margin holds `משנה א'` and the perek
+    /// is a heading the caller says once.
+    #[test]
+    fn a_perek_is_not_part_of_a_mishnahs_own_address() {
+        let mishnah = sefer(
+            "mishnah-bava-kamma",
+            "משנה בבא קמא",
+            &["פרק", "משנה"],
+            &[""],
+        );
+        let at = SegmentId::new(
+            "mishnah-bava-kamma",
+            vec!["4".into(), "1".into()],
+            girsa_corpus::segment::Ordinal::root(1),
+        );
+        let whole = printed_address_in(&mishnah.work, None, &at, CiteStyle::HebrewFull);
+        let (above, leaf) =
+            printed_address_split_in(&mishnah.work, None, &at, CiteStyle::HebrewFull);
+        assert!(!above.is_empty(), "the perek has to come off: {whole:?}");
+        assert!(above.contains('פ'), "and it is the perek: {above:?}");
+        assert!(
+            !leaf.contains(above.as_str()),
+            "the margin must not still hold it: {leaf:?}"
+        );
+        assert_eq!(
+            format!("{above} {leaf}"),
+            whole,
+            "and the two halves are the whole thing, with nothing invented"
+        );
+    }
+
+    /// A flat sefer has nothing above its lines, and nothing is hoisted out of
+    /// its margin. The daf a reader reads a Gemara *by* stays where it is.
+    #[test]
+    fn a_one_level_address_is_left_where_it_was() {
+        let flat = sefer("flat", "ספר", &["סימן"], &[""]);
+        let at = SegmentId::new(
+            "flat",
+            vec!["7".into()],
+            girsa_corpus::segment::Ordinal::root(1),
+        );
+        let whole = printed_address_in(&flat.work, None, &at, CiteStyle::HebrewFull);
+        let (above, leaf) = printed_address_split_in(&flat.work, None, &at, CiteStyle::HebrewFull);
+        assert_eq!(above, "");
+        assert_eq!(leaf, whole);
+    }
+
+    /// The pass that empties the repeats. Six mishnayos, one `פרק ד'`.
+    #[test]
+    fn a_perek_is_said_once_and_not_six_times() {
+        use crate::view::{only_when_it_changes, Line};
+        let line = |above: &str| Line {
+            id: String::new(),
+            address: String::new(),
+            above: above.to_string(),
+            kind: "text",
+            runs: Vec::new(),
+            opens: 0,
+            fixed: Vec::new(),
+            printed: None,
+        };
+        let mut lines = vec![
+            line("פרק ד'"),
+            line("פרק ד'"),
+            line("פרק ד'"),
+            line("פרק ה'"),
+            line("פרק ה'"),
+        ];
+        only_when_it_changes(&mut lines);
+        let said: Vec<&str> = lines.iter().map(|l| l.above.as_str()).collect();
+        assert_eq!(said, ["פרק ד'", "", "", "פרק ה'", ""]);
     }
 
     fn sent(selection: &Selection, pointing: Pointing) -> Sent {

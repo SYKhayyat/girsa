@@ -7,7 +7,7 @@
 import { api } from "./api.ts";
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
 import { glyph, toolStrip } from "./controls.ts";
-import { everywhereSaid, marking } from "./mefarshim.ts";
+import { everywhereSaid, marking, type Nothing } from "./mefarshim.ts";
 import { alsoCalled, sefer } from "./names.ts";
 import { fill, say } from "./say.ts";
 
@@ -305,9 +305,20 @@ export class PaneView {
     this.title.textContent = sefer(text.work);
     // The other name a hover away, rather than gone.
     this.title.title = alsoCalled(text.work);
-    const start = at ? (this.byId.get(at) ?? text.from) : text.from;
+    // Where to stand. The caller's `at` wins — a search hit, a link, a citation
+    // — and `text.at` is the fallback the shell worked out: where the reader
+    // was in this sefer, or its first line.
+    //
+    // It used to fall back to `text.from`, which is where the **fetch** starts,
+    // and the fetch starts half a window *before* the remembered place so there
+    // is something above to scroll into. So a sefer with a remembered position
+    // and no `at` from the caller opened three hundred segments before where
+    // the reader had been: *"a totally random spot in the middle."* There is no
+    // third place to land now — either the caller named one, or the shell did.
+    const going = at ?? text.at ?? null;
+    const start = going ? (this.byId.get(going) ?? text.from) : text.from;
     this.render(start);
-    if (at) void this.goToId(at, false);
+    if (going) void this.goToId(going, false);
   }
 
   /** File a stretch of lines at its true index, and index it by id. */
@@ -364,11 +375,36 @@ export class PaneView {
    * thing to look at than a page that arrives. */
   private drawn(from: number, to: number): HTMLElement[] {
     const out: HTMLElement[] = [];
+    // What the reader has most recently been told contains what they are
+    // reading. Rust empties a repeat within one fetched stretch; this catches
+    // the two cases it cannot see — a **seam**, where two stretches meet and
+    // the second opens by repeating the first's last heading, and the **top of
+    // the window**, which can land in the middle of a perek whose heading
+    // scrolled away with the lines above it.
+    let said = this.above(from);
+    if (said) out.push(aboveElement(said, this.lines[from]?.id ?? ""));
     for (let i = from; i < to; i += 1) {
       const line = this.lines[i];
-      if (line) out.push(lineElement(line));
+      if (!line) continue;
+      if (line.above && line.above === said) {
+        out.push(...lineElement({ ...line, above: "" }));
+        continue;
+      }
+      if (line.above) said = line.above;
+      out.push(...lineElement(line));
     }
     return out;
+  }
+
+  /** What contains the line at `at`, looked for backwards through what is
+   * loaded. Empty when nothing above it has said — a flat sefer, or a window
+   * that starts at the sefer's own first line. */
+  private above(at: number): string {
+    for (let i = at; i >= 0; i -= 1) {
+      const held = this.lines[i]?.above;
+      if (held) return i === at ? "" : held;
+    }
+    return "";
   }
 
   /**
@@ -422,7 +458,7 @@ export class PaneView {
    * Clicking the same line again closes it, so the gesture that opened it is the
    * gesture that puts the daf back.
    */
-  showSaid(at: string, said: Said[], message: string): void {
+  showSaid(at: string, said: Said[], message: Nothing): void {
     const row = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(at)}"]`);
     if (!row) return;
     const already = row.nextElementSibling;
@@ -431,9 +467,18 @@ export class PaneView {
       return;
     }
     const box = el("div", "line-said");
-    if (message) {
+    if (message.said) {
       const none = el("p", "said-none");
-      none.textContent = message;
+      none.textContent = message.said;
+      box.append(none);
+    }
+    if (message.mark) {
+      const none = el("p", "said-none is-mark");
+      none.textContent = message.mark;
+      none.title = message.why;
+      // A glyph is not a word, so what it means has to be readable by something
+      // that cannot see it.
+      none.setAttribute("aria-label", message.why);
       box.append(none);
     }
     for (const one of said) {
@@ -731,11 +776,53 @@ export class PaneView {
     return true;
   }
 
+  /** How far through the sefer the reader is, 0 to 1. */
+  fraction(): number {
+    const total = this.text?.total ?? 0;
+    return total <= 1 ? 0 : this.lineIndex() / (total - 1);
+  }
+
+  /**
+   * Go to the same fraction through this sefer — the fallback for two seforim
+   * nothing joins.
+   *
+   * **This is not a claim about the texts and it must never be mistaken for
+   * one.** `Place::At` is a place the corpus can point at; this is the reader's
+   * two columns keeping step, the way two windows scrolled side by side keep
+   * step, and the pane's note says so while it is happening.
+   */
+  goToFraction(through: number): void {
+    const total = this.text?.total ?? 0;
+    if (total === 0) return;
+    const at = Math.min(total - 1, Math.max(0, Math.round(through * (total - 1))));
+    const line = this.lines[at];
+    if (line) {
+      this.scrollTo([line.id], false);
+      return;
+    }
+    // Not loaded. Draw the window there and let the fetch fill it in — the same
+    // path `goToId` takes, without an id to ask about.
+    this.render(at);
+    void this.load(Math.max(0, at - WINDOW / 2), WINDOW);
+  }
+
   /** Move this pane because the pane it follows moved. */
   goTo(place: Place, relation: Relation): void {
     this.note.className = "pane-note";
     if (place.kind === "unrelated") {
-      this.note.textContent = "";
+      // Nothing joins these two seforim, so there is no place to go to — and
+      // the column used to sit still and say nothing at all, which is what a
+      // reader reported as *"even without own scroll on, the two are not
+      // linked."* They had linked them. There was simply nothing the corpus
+      // could do with that.
+      //
+      // The caller scrolls it proportionally and this says which of the two
+      // kinds of following is happening, because a column that moves is a
+      // column making a claim unless it says otherwise.
+      this.note.textContent = say("roughly");
+      this.note.title = say("roughlyWhy");
+      this.note.classList.add("is-rough");
+      this.highlight([]);
       return;
     }
     if (place.kind === "no_place") {
@@ -889,7 +976,12 @@ export class PaneView {
     if (at === undefined) return;
     this.lines[at] = line;
     const drawn = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(line.id)}"]`);
-    drawn?.replaceWith(lineElement(line));
+    // Its heading, where it has one, is a **sibling** and is already on the
+    // page. Replacing the row with both would draw the perek twice.
+    const heading = this.body.querySelector<HTMLElement>(
+      `.line-above[data-head-for="${cssEscape(line.id)}"]`,
+    );
+    drawn?.replaceWith(...lineElement(heading ? { ...line, above: "" } : line));
     // The line was redrawn from scratch, so anything painted on it went with
     // it. Where a highlight now lands is Rust's answer, not this one's — the
     // caller asks again after a correction.
@@ -1009,7 +1101,7 @@ export class PaneView {
 // Exported for the print sheet, which draws the same lines with the same
 // function on purpose: a printer path with its own idea of a line would be a
 // second answer to what the sefer says, and the two would drift.
-export function lineElement(line: Line): HTMLElement {
+export function lineElement(line: Line): HTMLElement[] {
   // A line of your own .ksav knows what it is — a footnote, a list item, a row
   // of a table, a block quote — and is drawn as that rather than as one more
   // paragraph. Nothing else in the corpus has these kinds, so nothing else
@@ -1060,7 +1152,29 @@ export function lineElement(line: Line): HTMLElement {
   }
   row.append(label, words);
   if (line.fixed?.length) row.append(fixMark(line));
-  return row;
+  if (!line.above) return [row];
+  return [aboveElement(line.above, line.id), row];
+}
+
+/**
+ * What contains a line, said once, above it.
+ *
+ * `פרק ד'` at the head of the perek instead of in front of all six of its
+ * mishnayos. Rust decides both *what* it says and *whether* it says it — see
+ * `sending::printed_address_split_in` and `view::only_when_it_changes` — and
+ * this only puts it on the page.
+ *
+ * Its own element rather than part of the row: a `.line` is a flex box with a
+ * margin and words in it, and a heading inside that box is a third column
+ * fighting the other two for the width. That fight is the defect this whole
+ * change is about — `פרק ד משנה א` in a `3.4em` gutter, with the words starting
+ * wherever it happened to end.
+ */
+function aboveElement(said: string, id: string): HTMLElement {
+  const head = el("p", "line-above");
+  head.dataset.headFor = id;
+  head.textContent = said;
+  return head;
 }
 
 /**

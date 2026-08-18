@@ -10,29 +10,31 @@
 // about the texts (`curated`) is answered in Rust, because it is a rule about
 // evidence and not about a stylesheet.
 
-import { api, type LinkKind, type LinkRow, type Links, type Yours } from "./api.ts";
+import { api, type LensRow, type LinkKind, type LinkRow, type Links, type Yours } from "./api.ts";
 
-/**
- * What a kind of link is called, out of the labelled list Rust sent.
- *
- * There used to be a lookup table here with a `?? kind` fallback, so **a tenth
- * edge type printed an English slug into a Hebrew interface** and nothing said
- * so. `girsa_app::links::kinds` is the list now — twenty lines below where this
- * file already draws the lenses from a labelled list and asks nothing about what
- * a lens is.
- *
- * A key the list does not carry cannot happen: it is built from
- * `EdgeType::ALL`. If it does, the key is shown, which is at least a bug a
- * reader can report.
- */
-function kindSaid(kinds: LinkKind[], key: string): string {
-  return kinds.find((kind) => kind.key === key)?.title ?? key;
-}
 import { sayTrouble } from "./trouble.ts";
 import { about, button, choice, shut } from "./controls.ts";
 import { Latest } from "./latest.ts";
-import { say } from "./say.ts";
+import { fill, linkKind, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
+
+/**
+ * What a kind of link is called.
+ *
+ * There used to be a lookup table here with a `?? kind` fallback, so **a tenth
+ * edge type printed an English slug into a Hebrew interface** and nothing said
+ * so. Then it was `girsa_app::links::kinds`, which labels every key — in Hebrew
+ * only, because when it was written the window spoke one language.
+ *
+ * `say.ts` owns what the window says in either of them, so it goes first; the
+ * Rust list is the fallback, and the key itself is the fallback for that. Three
+ * deep sounds like a lot for one word, and each rung answers a different way of
+ * being wrong: a language this table has not been translated into, a kind
+ * `say.ts` has not heard of, and a kind nothing has.
+ */
+export function kindSaid(kinds: LinkKind[], key: string): string {
+  return linkKind(key) ?? kinds.find((kind) => kind.key === key)?.title ?? key;
+}
 
 /** One sefer's links, in the order the panel had them. */
 interface Group {
@@ -43,6 +45,28 @@ interface Group {
 
 /** How many rows a sefer may have and still be drawn open. */
 const FEW = 4;
+
+/**
+ * What one lens keeps, in a sentence.
+ *
+ * Built from the lens's own four fields rather than from a table of
+ * explanations, so a lens the reader edits — and every one of them is editable
+ * — describes itself correctly without anybody writing a second sentence about
+ * it. A lens that constrains nothing says so, which is a real answer: `שלי` is
+ * *only what you have touched* and nothing else.
+ */
+function lensSays(lens: LensRow): string {
+  const parts: string[] = [];
+  if (lens.types.length > 0) {
+    parts.push(lens.types.map((key) => linkKind(key) ?? key).join(", "));
+  }
+  if (lens.eras.length > 0) parts.push(`${say("linksLensEras")}: ${lens.eras.join(", ")}`);
+  if (lens.mine) parts.push(say("linksLensMine"));
+  if (lens.at_least > 0) {
+    parts.push(fill("linksLensAtLeast", { n: Math.round(lens.at_least * 100) }));
+  }
+  return parts.length === 0 ? say("linksAllWhy") : `${say("linksLensKeeps")} ${parts.join(" · ")}`;
+}
 
 /**
  * The links, by sefer, in the order each sefer first appeared.
@@ -77,6 +101,9 @@ export class LinksView {
   private goTo: ((work: string, at: string) => Promise<void>) | null = null;
   /** Where the reader is standing, for *reanchor to here* and *draw from here*. */
   private here: (() => string | null) | null = null;
+  /** The *stay on this line* control, and whether it is on. */
+  private readonly pinned: HTMLButtonElement;
+  private stay = false;
 
   get isOpen(): boolean {
     return this.element.classList.contains("is-open");
@@ -93,8 +120,17 @@ export class LinksView {
     title.textContent = say("linksTitle");
     this.note = document.createElement("span");
     this.note.className = "links-note";
+    // Follow the reader, or stay put. See `follow` below for why this is a
+    // control and not simply the behaviour.
+    this.pinned = button(say("linksFollowing"), say("linksFollowingWhy"), () => {
+      this.stay = !this.stay;
+      this.drawPin();
+      if (!this.stay) void this.follow(this.here?.() ?? null);
+    });
+    this.pinned.classList.add("links-pin");
+    this.drawPin();
     const close = shut(() => this.close());
-    head.append(title, this.note, close);
+    head.append(title, this.note, this.pinned, close);
 
     this.list = document.createElement("div");
     this.list.className = "links-list";
@@ -103,6 +139,45 @@ export class LinksView {
 
   onOpen(goTo: (work: string, at: string) => Promise<void>): void {
     this.goTo = goTo;
+  }
+
+  /**
+   * The reader moved. Follow them, unless they said not to.
+   *
+   * > *"Links is based on where you were when you opened it, and does not
+   * > change."*
+   *
+   * It did not, and the reason is in `drawRow`'s own header: *"`from` is the
+   * line this panel opened on — it does not follow the reader, which is what
+   * makes the gesture possible."* Drawing a link needs two ends, and the two
+   * this window can name without asking are *where the panel opened* and *where
+   * you are now*. Pinning the panel is what keeps them different.
+   *
+   * That is a real argument for one gesture, and it was paying for it with the
+   * panel's whole ordinary use — a reader scrolls down a daf and the links stay
+   * on the line they left. So the pin is a **control** now: off by default,
+   * which is what a panel called *the links on this line* has to do, and on
+   * when the reader is about to draw one.
+   *
+   * A no-op when nothing has changed, because a pane reports a position on
+   * every scroll frame and each one of these is a read of that work's shards.
+   */
+  async follow(at: string | null): Promise<void> {
+    if (!this.isOpen || this.stay || !at || at === this.at) return;
+    this.at = at;
+    // A highlight is a narrower question about *these words on this line*, and
+    // the line under it has just changed. Keeping it would filter the new
+    // line's links by the old line's character offsets.
+    this.span = null;
+    await this.draw();
+  }
+
+  /** What the pin reads, in both of its states. */
+  private drawPin(): void {
+    this.pinned.textContent = this.stay ? say("linksStaying") : say("linksFollowing");
+    this.pinned.title = this.stay ? say("linksStayingWhy") : say("linksFollowingWhy");
+    this.pinned.setAttribute("aria-pressed", String(this.stay));
+    this.pinned.classList.toggle("is-on", this.stay);
   }
 
   /** The window says where the reader is, because which pane is focused is the
@@ -200,12 +275,28 @@ export class LinksView {
       const warn = document.createElement("p");
       warn.className = "links-warn";
       warn.textContent = say("linksNoInbound");
+      // The command, behind the hover. A reader cannot run it from in here and
+      // whoever set the library up can — so it is not nothing, and it is not
+      // the sentence either.
+      warn.title = say("linksNoInboundWhy");
       this.list.append(warn);
     }
-    this.list.append(this.drawRow(found.types));
     for (const group of grouped(found.links)) {
       this.list.append(this.sefer(group, found.types));
     }
+    // **Last, and folded.** It was directly under the lens row, and it is a
+    // `<select>` of link kinds: a dropdown at the top of a list of links reads
+    // as the control that filters the list, which is what a reader concluded —
+    // *"Links does not seem to filter based on the dropdown."* It never did. It
+    // says what kind a link **you draw** should be, and it is the one thing in
+    // this panel that writes rather than reads, so it goes where a writing
+    // control belongs: at the foot, behind its own name.
+    const drawer = document.createElement("details");
+    drawer.className = "links-drawer";
+    const what = document.createElement("summary");
+    what.textContent = say("linksDrawOpen");
+    drawer.append(what, this.drawRow(found.types));
+    this.list.append(drawer);
   }
 
   /**
@@ -360,16 +451,28 @@ export class LinksView {
   private lensRow(found: Links): HTMLElement {
     const row = document.createElement("div");
     row.className = "lenses";
-    const all = this.lensButton(null, say("linksAll"));
-    row.append(all);
-    for (const lens of found.lenses) row.append(this.lensButton(lens.key, lens.title));
+    // What the row **is**, said once in front of it. Five bare Hebrew words in
+    // a line under a panel heading are five words; a line that begins *show:*
+    // is a filter. That is half of *"I also can't tell what the filters are."*
+    const what = document.createElement("span");
+    what.className = "lenses-what";
+    what.textContent = say("linksShow");
+    row.append(what, this.lensButton(null, say("linksAll"), say("linksAllWhy")));
+    for (const lens of found.lenses) {
+      row.append(this.lensButton(lens.key, lens.title, lensSays(lens)));
+    }
     return row;
   }
 
-  private lensButton(key: string | null, title: string): HTMLElement {
+  private lensButton(key: string | null, title: string, why: string): HTMLElement {
     const button = document.createElement("button");
     button.className = "lens" + (this.lens === key ? " is-on" : "");
     button.textContent = title;
+    // And the other half: what this one keeps, out of the lens's own
+    // definition. A lens is a saved filter and its definition is four fields —
+    // nothing here is a guess at what somebody meant by `לומדות`.
+    button.title = why;
+    button.setAttribute("aria-label", `${title} — ${why}`);
     button.addEventListener("click", () => {
       this.lens = key;
       void this.draw();

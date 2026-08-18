@@ -146,9 +146,11 @@ at the top of it — the two printed on the page with the Gemara, in one press.
 The list under it stays in aleph-beis order, which is where you go when you want
 the Taz.
 
-Type a mekor at the search bar and it opens: `שבת לא.`, `שו"ע יו"ד סימן א`,
-`רמב"ם הלכות שחיטה א`, and — as of now — `טור או"ח סימן א` and `ערוך השולחן
-יורה דעה א`, which the branch works could not do before their chalakim had names
+There is no separate box for a mareh makom. Type it into the shelf search —
+`Ctrl+Shift+F`, the same box you searched for words in at step 1, which says so
+in its own placeholder — and it opens rather than searching: `שבת לא.`,
+`שו"ע יו"ד סימן א`, `רמב"ם הלכות שחיטה א`, `טור או"ח סימן א`, `ערוך השולחן
+יורה דעה א`. The branch works could not do this before their chalakim had names
 anything could read.
 
 ## What to read next

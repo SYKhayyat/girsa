@@ -1,8 +1,18 @@
-# Handoff — 17 August 2026
+# Handoff — 18 August 2026
 
-**`main` at `93f4979`, and `sefer-crates` at `779225d` (0.5.5). Working tree
-clean, in sync with both remotes, and `node tools/verify.mjs` was green 9 of 9
-before every commit.** Nothing is at risk and nothing is half-finished on disk.
+**`main` at `123ab41` plus the third sitting, and `sefer-crates` at `779225d`
+(0.5.5). Working tree clean, in sync with both remotes, and
+`node tools/verify.mjs` was green 9 of 9 before every commit.** Nothing is at
+risk and nothing is half-finished on disk.
+
+> **A reader sat with the shipped window on 18 August and wrote down
+> twenty-four things.** All twenty-four are closed at the root and re-measured in
+> that window against his own 7,189-sefer shelf —
+> [`docs/the-third-sitting.md`](docs/the-third-sitting.md) is the record, with
+> the two root causes that account for six of them. None of it touches the list
+> below, which is still the list: nothing he found was in the corpus, the
+> resolver, the addressing or the speed. `npm run eyes` went from 47 assertions
+> to 60 over the two findings only a browser could have caught.
 
 This page replaces the handoff of 16 August. Five of that page's seventeen items
 are closed and are not repeated here; the rest are renumbered, because a list

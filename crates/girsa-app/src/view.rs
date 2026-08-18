@@ -295,13 +295,47 @@ pub struct Refusal {
     pub why: String,
 }
 
+/// Say each containing address once, on the first line it contains.
+///
+/// [`Line::of`] fills [`Line::above`] on **every** line, because it is handed
+/// one segment and cannot know what came before it. This is the pass that can:
+/// run it over a stretch of lines and every repeat is emptied, so `פרק ד'` is
+/// said at the head of the perek and the five mishnayos under it carry only
+/// their own numbers.
+///
+/// Run over whatever stretch is being sent, which means the **first** line of a
+/// stretch always keeps its heading. That is deliberate: a reader who scrolls
+/// into a loaded window halfway through a perek should be told which perek they
+/// are in, and a heading at the top of the visible text is not a repeat of one
+/// they cannot see. `pane.ts` drops it at a seam, where they can.
+pub fn only_when_it_changes(lines: &mut [Line]) {
+    let mut said: Option<String> = None;
+    for line in lines.iter_mut() {
+        if said.as_deref() == Some(line.above.as_str()) {
+            line.above.clear();
+        } else if !line.above.is_empty() {
+            said = Some(line.above.clone());
+        }
+    }
+}
+
 /// One line of a sefer, ready to be put on the page.
 #[derive(Serialize)]
 pub struct Line {
     pub id: String,
-    /// `דף ב.` — the address, printed the way a citation prints it. See
-    /// [`crate::sending::printed_address`], which is the one formatter.
+    /// `משנה א'` — the deepest level of the address, printed the way a citation
+    /// prints it. See [`crate::sending::printed_address`], which is the one
+    /// formatter, and [`crate::sending::printed_address_split_in`] for why this
+    /// is the leaf and not the whole thing.
     pub address: String,
+    /// `פרק ד'` — what contains this line, said **once**, on the first line it
+    /// contains.
+    ///
+    /// Empty on every other line, and left off the wire there. See
+    /// [`only_when_it_changes`], which is what empties it: `Line::of` can see
+    /// one segment and the question *has this changed* needs two.
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub above: String,
     /// **Absent for an ordinary line of prose**, which nearly every line is —
     /// the same measurement `display::Run::style` records. `pane.ts` reads a
     /// missing kind as `text`.
@@ -400,6 +434,26 @@ pub struct Text {
     pub lines: Vec<Line>,
     /// Where that stretch begins, counted in segments from the start.
     pub from: usize,
+    /// The segment to put the reader on — where they were last time, or the
+    /// sefer's first line.
+    ///
+    /// # Why this is sent rather than inferred
+    ///
+    /// > *"When I search and open a sefer, it should start in the beginning
+    /// > (optionally a remembered part). It seems to start at a totally random
+    /// > spot in the middle."*
+    ///
+    /// [`Text::from`] is where the **fetch** begins, and it is deliberately half
+    /// a window earlier than the remembered place so that scrolling up has
+    /// something to scroll into. The window had nothing else to go on, so it
+    /// drew from `from` and stopped — landing the reader three hundred segments
+    /// before where they had been, which is not the beginning and is not where
+    /// they were. There was no spot in the middle it could not be.
+    ///
+    /// A number is not enough either: a pane files lines by index and looks
+    /// them up by id, and the id is the thing that survives the sefer being
+    /// re-imported.
+    pub at: String,
     /// How many segments the sefer has altogether.
     pub total: usize,
     /// Whether this sefer has any nikud at all, so the window can grey out a
@@ -982,6 +1036,26 @@ pub struct Links {
 pub struct LensRow {
     pub key: String,
     pub title: String,
+    /// What it lets through, so the button can say so.
+    ///
+    /// > *"I also can't tell what the filters are."*
+    ///
+    /// The row used to be a key and a title, so the buttons read `הלכה`
+    /// `לומדות` `פשט` `גרסה` `שלי` and a reader had no way to find out what any
+    /// of them meant short of clicking each and comparing the lists. A lens is
+    /// a saved filter — its whole definition is these four fields — and the
+    /// window words them because the words for a kind of link are the window's
+    /// (see `say.ts:linkKind`).
+    ///
+    /// Empty is *any*, in both lists, which is the same rule `Lens::takes`
+    /// applies.
+    pub types: Vec<String>,
+    /// The eras of the sefer at the far end, as the catalogue codes them.
+    pub eras: Vec<String>,
+    /// How strong a claim it has to be, 0.0–1.0.
+    pub at_least: f32,
+    /// Only links you drew, confirmed, or otherwise touched.
+    pub mine: bool,
 }
 
 /// What came out, and where it went.
@@ -1077,6 +1151,8 @@ pub struct SettingsView {
     /// an hour a reader sets rather than a nightfall this application computes.
     pub day_turns_at: u8,
     pub text_size: u16,
+    /// The mefarshim, sized on their own — see `Session::mefarshim_size`.
+    pub mefarshim_size: u16,
     /// Which language the **seforim** are named in.
     pub language: crate::session::Language,
     /// And which language the **window** speaks. Two settings, because a reader
@@ -1292,6 +1368,8 @@ pub struct Opening {
     /// because the pane redraws when it changes, exactly like the pointing.
     pub shemos: crate::shemos::Shemos,
     pub text_size: u16,
+    /// The mefarshim, sized on their own — see `Session::mefarshim_size`.
+    pub mefarshim_size: u16,
     /// Where you were in each sefer.
     pub positions: std::collections::BTreeMap<String, girsa_corpus::segment::SegmentId>,
     /// How many seforim are on the shelf.
@@ -1404,6 +1482,15 @@ impl Line {
             _ => Vec::new(),
         };
         let runs = display::runs_citing(&shown, &[], &cites);
+        // The margin says what a citation would say — and only the part of it
+        // that is about *this* line. See `printed_address_split_in`: a Mishnah
+        // printed its perek on all six of its mishnayos, in a 3.4em column.
+        let (above, leaf) = crate::sending::printed_address_split_in(
+            &sefer.work,
+            Some(sefer.sections()),
+            &segment.id,
+            style,
+        );
         Self {
             id: segment.id.to_string(),
             // **The margin says what a citation would say.** It used to be
@@ -1412,12 +1499,8 @@ impl Line {
             // `30b:11` and `31a:4` down its side while `girsa_cite` one call
             // away rendered the same place as `שבת דף לא. שורה א'`. One
             // formatter now: `crate::sending::printed_address`.
-            address: crate::sending::printed_address_in(
-                &sefer.work,
-                Some(sefer.sections()),
-                &segment.id,
-                style,
-            ),
+            address: leaf,
+            above,
             kind: segment.kind.as_str(),
             opens: opens_a_siman(segment, &runs),
             runs,
