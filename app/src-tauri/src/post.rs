@@ -49,6 +49,7 @@ use girsa_app::sending::about;
 use girsa_app::trouble::{refuse, Code};
 use girsa_cite::{cite, CiteStyle};
 use girsa_post::desk::{Desk, Reply};
+use girsa_post::routes;
 use girsa_post::{App, Errand};
 use girsa_ref::Ref;
 use serde::Deserialize;
@@ -140,12 +141,13 @@ fn answer(handle: &tauri::AppHandle, path: &str, body: &str) -> Reply {
         "/search" => return search(handle, body),
         "/linkify" => return linkify(handle, body),
         // `/document-saved`, and the name it had while it also meant *take this
-        // document* in the other direction. `girsa_post::routes::girsa` states
-        // both; they are literals here only because this tree's pin predates
-        // that module. Accepting the old name is what makes the rename safe
-        // without both applications releasing on the same day — see the note on
-        // `send_to_ksav_or_legacy` in `lib.rs`.
-        "/document-saved" | "/document" => return document(handle, body),
+        // document* in the other direction. Accepting the old name is what
+        // makes the rename safe without both applications releasing on the same
+        // day — see the note on `send_to_ksav_or_legacy` in `lib.rs`, and
+        // `girsa_post::routes` for the pair and the order they come out in.
+        p if p == routes::girsa::DOCUMENT_SAVED || p == routes::girsa::LEGACY_DOCUMENT => {
+            return document(handle, body)
+        }
         _ => {}
     }
 

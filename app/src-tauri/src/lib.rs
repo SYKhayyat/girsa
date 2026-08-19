@@ -4051,14 +4051,7 @@ fn buffer_to_ksav(
     send_to_ksav_or_legacy(TAKE_DOCUMENT, LEGACY_DOCUMENT, &errand)
 }
 
-/// What Ksav serves for *take this document*, and what it used to serve.
-///
-/// Both are stated in `girsa_post::routes::ksav`, which is the copy that
-/// matters — it is the one both applications compile. They are written out here
-/// rather than imported because this tree's `girsa-post` pin predates that
-/// module; the import replaces these two lines at the next bump.
-const TAKE_DOCUMENT: &str = "/take-document";
-const LEGACY_DOCUMENT: &str = "/document";
+use girsa_post::routes::ksav::{LEGACY_DOCUMENT, TAKE_DOCUMENT};
 
 /// One errand, addressed to the name Ksav answers to.
 ///
