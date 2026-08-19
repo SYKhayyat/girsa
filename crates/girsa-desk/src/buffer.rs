@@ -120,22 +120,41 @@ impl Buffer {
 
     /// Write it down.
     ///
+    /// Beside and renamed over. This is the **most frequently written file in
+    /// the application** — the drawer schedules a save 900 ms after every
+    /// keystroke — and it holds the one thing in the personal layer that cannot
+    /// be re-derived from anything else. A truncating write leaves it empty for
+    /// the length of the write, so a machine that stops in that window leaves
+    /// an empty document where the reader's writing was, and says nothing.
+    ///
     /// # Errors
     ///
     /// If the name is not a name, or the personal layer will not take it.
     pub fn save(&self, personal: &Path) -> Result<PathBuf, BufferError> {
         let path = Self::path(personal, &self.name)?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|source| BufferError::Io {
-                path: dir.display().to_string(),
-                source,
-            })?;
-        }
-        std::fs::write(&path, &self.text).map_err(|source| BufferError::Io {
+        girsa_personal::beside::write(&path, &self.text).map_err(|source| BufferError::Io {
             path: path.display().to_string(),
             source,
         })?;
         Ok(path)
+    }
+
+    /// Whether a document of this name is already on the shelf.
+    ///
+    /// Asked before a **rename**, which is the one write in this drawer that
+    /// can destroy a document the reader did not have open. `save` truncates
+    /// whatever is at the name it is given, and the name it is given on a
+    /// rename is a new one — so renaming *ראש השנה* to a name already in use
+    /// replaced the document that was there, with no prompt and no mention.
+    ///
+    /// Not asked before an ordinary save: saving over the document you are
+    /// looking at is what saving is.
+    ///
+    /// # Errors
+    ///
+    /// If the name is not a name.
+    pub fn taken(personal: &Path, name: &str) -> Result<bool, BufferError> {
+        Ok(Self::path(personal, name)?.exists())
     }
 
     /// Everything you have been writing, most recently touched first.

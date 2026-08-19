@@ -103,6 +103,30 @@ pub enum Code {
     /// window says it, and everything the window says has to come from one
     /// place.
     RungApplied,
+    /// Something is already at that name, and going ahead would replace it.
+    ///
+    /// A refusal that exists so that a **destructive** write cannot happen by
+    /// accident. Renaming a document to a name already in use used to save over
+    /// whatever was there, with no prompt and no mention — the drawer's own
+    /// comment is careful about the *old* file (*"a rename that quietly deleted
+    /// the thing you had been writing is not a rename"*) and never considered
+    /// the new one.
+    AlreadyThere,
+    /// A long job is already running and a second one was asked for.
+    ///
+    /// Not a failure of the ask. The lane's embedding and its model download
+    /// each take hours or hundreds of megabytes, and a second of either shares
+    /// one store with the first and clears the flag the first is stopping on.
+    /// One at a time, and the second caller is told which.
+    AlreadyWorking,
+    /// Going ahead would throw away an arrangement nobody has named.
+    ///
+    /// Sitting down at a saved desk replaces the panes and tabs on screen, and
+    /// the ones being replaced are only written back when the reader is already
+    /// sitting at a named desk. For a reader who has never named one, the
+    /// switch silently discarded every tab and pane they had. A refusal, so the
+    /// window can ask.
+    NotKept,
 }
 
 girsa_corpus::spelled!(Code {
@@ -124,6 +148,9 @@ girsa_corpus::spelled!(Code {
     NothingChosen => "nothing-chosen",
     Offline => "offline",
     RungApplied => "rung-applied",
+    AlreadyThere => "already-there",
+    AlreadyWorking => "already-working",
+    NotKept => "not-kept",
 });
 
 /// What separates the name from the prose.

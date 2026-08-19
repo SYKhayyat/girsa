@@ -210,6 +210,27 @@ fn urlencode_path(name: &str) -> String {
 ///
 /// Reserved device names get the same treatment: a file called `CON.json`
 /// cannot exist on Windows at any path, for reasons dating to CP/M.
+///
+/// # And it may not leave the corpus root
+///
+/// Everything above is about names Windows will not accept. This is about a
+/// name that would be accepted and should not be: **the name comes off the
+/// wire.** `target_from` takes `o.name` straight out of the bucket listing
+/// JSON, and `is_wanted_text` only asks that it contain `/Hebrew/` and end in
+/// `/merged.json` — which
+/// `anything/Hebrew/../../../../../evil/merged.json` satisfies. `root.join` on
+/// that escapes the corpus root and `fetch_one` writes there.
+///
+/// It needs a compromised bucket or a successful attack on HTTPS, so it is
+/// hardening rather than a bug being exploited. It is also four lines, and a
+/// sanitiser this careful about `?` and `CON` having no opinion about `..` is
+/// the kind of gap that reads as deliberate to whoever finds it next.
+///
+/// `..`, `.` and an empty component are **encoded rather than dropped**, which
+/// is the same call every other rule here makes: a name is refused or
+/// preserved, never silently repaired into a different name that then collides
+/// with a real one. An object genuinely called `..` — there is no such object —
+/// would land as `%2E%2E`, reversibly.
 fn disk_path(rel_path: &str) -> String {
     const FORBIDDEN: [char; 8] = ['<', '>', ':', '"', '\\', '|', '?', '*'];
     const RESERVED: [&str; 22] = [
@@ -217,6 +238,10 @@ fn disk_path(rel_path: &str) -> String {
         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
 
+    // A name that begins with a separator, or with a drive letter, is an
+    // **absolute** path, and `Path::join` throws the root away and takes it
+    // whole. Trimmed here so that every component below is a component.
+    let rel_path = rel_path.trim_start_matches(['/', '\\']);
     let mut out = String::with_capacity(rel_path.len());
     for (i, component) in rel_path.split('/').enumerate() {
         if i > 0 {
@@ -240,6 +265,15 @@ fn disk_path(rel_path: &str) -> String {
         let stem = encoded.split('.').next().unwrap_or("");
         if RESERVED.contains(&stem.to_ascii_uppercase().as_str()) {
             encoded.insert_str(0, "%00");
+        }
+        // A component that walks out of the root, or names the directory it is
+        // already in, or is nothing at all. See the note above: encoded, not
+        // dropped. The trailing-dot rule above already turns a bare `..` into
+        // `.%2E`, and that is not something to rely on — it is a rule about
+        // Windows that happens to help, and it would stop helping the moment
+        // somebody decided trailing dots were fine on this platform.
+        if encoded == ".." || encoded == "." || encoded.is_empty() {
+            encoded = encoded.replace('.', "%2E");
         }
 
         out.push_str(&encoded);
@@ -604,6 +638,39 @@ mod tests {
             disk_path("schemas/Connections.json"),
             "schemas/Connections.json"
         );
+    }
+
+    /// A name off the wire may not walk out of the corpus root.
+    ///
+    /// `is_wanted_text` asks only for `/Hebrew/` and `/merged.json`, and
+    /// `anything/Hebrew/../../../../../evil/merged.json` has both. This is
+    /// hardening — it needs a compromised bucket — and it is the one rule in
+    /// `disk_path` whose absence is a security property rather than a missing
+    /// sefer.
+    #[test]
+    fn a_downloaded_name_cannot_leave_the_corpus_root() {
+        let root = Path::new("/corpus");
+        for name in [
+            "json/Tanakh/Hebrew/../../../evil/merged.json",
+            "../evil/Hebrew/merged.json",
+            "a/./b/Hebrew/merged.json",
+            "/absolute/Hebrew/merged.json",
+            "a//b/Hebrew/merged.json",
+        ] {
+            let joined = root.join(disk_path(name));
+            assert!(
+                !joined
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir)),
+                "{name} -> {}",
+                joined.display()
+            );
+            assert!(
+                joined.starts_with(root),
+                "{name} left the root: {}",
+                joined.display()
+            );
+        }
     }
 
     #[test]

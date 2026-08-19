@@ -46,6 +46,7 @@
 //! one direction and no reply channel.
 
 use girsa_app::sending::about;
+use girsa_app::trouble::{refuse, Code};
 use girsa_cite::{cite, CiteStyle};
 use girsa_post::desk::{Desk, Reply};
 use girsa_post::{App, Errand};
@@ -82,9 +83,12 @@ pub(crate) fn landing(state: &mut crate::State, reference: &Ref) -> Result<Landi
     let slug = reference.work_slug();
     let sefer = state.sefer(&slug)?;
     let at = sefer.at(reference.from());
-    let first = at
-        .first()
-        .ok_or_else(|| format!("{slug} is on the shelf and has no {}", reference.from()))?;
+    let first = at.first().ok_or_else(|| {
+        refuse(
+            Code::NoSuch,
+            format!("{slug} is on the shelf and has no {}", reference.from()),
+        )
+    })?;
     Ok(Landing {
         reference: reference.to_string(),
         slug,
@@ -277,6 +281,29 @@ fn refresh(handle: &tauri::AppHandle, body: &str) -> Reply {
         return Reply::refused(400, "that is not a document");
     };
     let shared = handle.state::<Shared>();
+    // **Every sefer this document cites, read in before the guard is taken.**
+    //
+    // Regenerating a document's citations opens seforim as it goes, and on a
+    // cache miss that is a whole work off disk — 11 ms apiece in the published
+    // table, once per work the document names. All of it used to happen with
+    // the global state lock held, on the desk's single serving thread, which is
+    // the same defect `find` was fixed for and the version of it the reader did
+    // not ask for: this is Ksav's errand, and the pause lands in Girsa's window.
+    //
+    // `hold` is the call written for exactly this (see `open_sefer`). Distinct
+    // works only: a document citing forty se'ifim of one siman is one read.
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for cited in girsa_ksav::cited_in(&document.markup) {
+        if let Ok(reference) = cited.reference.parse::<Ref>() {
+            let slug = reference.work_slug();
+            if seen.insert(slug.clone()) {
+                // A sefer that will not open is not a reason to refuse the
+                // errand: the walk below turns it into one row with a reason in
+                // it, which is the whole shape of this errand.
+                let _ = crate::hold(&shared, &slug);
+            }
+        }
+    }
     let Ok(mut state) = shared.lock() else {
         return Reply::refused(500, "the library is busy");
     };
@@ -339,14 +366,22 @@ fn where_from(handle: &tauri::AppHandle, body: &str) -> Reply {
         Err(e) => return Reply::refused(400, format!("that is not a phrase: {e}")),
     };
     let shared = handle.state::<Shared>();
-    let Ok(state) = shared.lock() else {
-        return Reply::refused(500, "the library is busy");
-    };
-    let Some(bar) = state.bar.as_ref() else {
-        return Reply::refused(503, state.no_search());
+    // The bar is an `Arc` and holds nothing of ours, so the search runs with
+    // the guard let go — `find` makes this argument at length, and this is the
+    // same search on the desk's single serving thread, where a pause also
+    // stops `/health` being answered and makes the presence chip say *stale*
+    // about a Girsa that is merely busy.
+    let bar = {
+        let Ok(state) = shared.lock() else {
+            return Reply::refused(500, "the library is busy");
+        };
+        let Some(bar) = state.bar.as_ref() else {
+            return Reply::refused(503, state.no_search());
+        };
+        bar.clone()
     };
     let found = match girsa_search::mekoros::where_from(
-        bar,
+        &bar,
         &asked.phrase,
         asked.except.as_deref(),
         asked.limit.unwrap_or(8),
@@ -355,6 +390,9 @@ fn where_from(handle: &tauri::AppHandle, body: &str) -> Reply {
         Err(why) => return Reply::refused(400, why),
     };
 
+    let Ok(state) = shared.lock() else {
+        return Reply::refused(500, "the library is busy");
+    };
     let style = state.session.cite;
     let shelf = state.shelf().ok();
     let places: Vec<serde_json::Value> = found
@@ -480,6 +518,13 @@ fn document(handle: &tauri::AppHandle, body: &str) -> Reply {
         eprintln!("{line}");
     }
     if saved.forget {
+        // **The held copy is cleared here too.** `State::documents` reads the
+        // registry once and holds it, and the clear used to be on the add path
+        // only — so a document Ksav had told Girsa was gone went on answering
+        // *where did I use this* until the window restarted. The registry on
+        // disk was right and the copy in memory was not, which is the worst of
+        // the three possible arrangements.
+        state.documents = None;
         return match documents.forget(&path) {
             Ok(had) => Reply::ok(serde_json::json!({ "forgotten": had }).to_string()),
             Err(e) => Reply::refused(500, e.to_string()),

@@ -1576,7 +1576,9 @@ async function revertFix(view: PaneView, at: string, patch: string): Promise<voi
   try {
     const fixed = await api.unfix(at, patch);
     view.replaceLine(fixed.line);
-    announce(fixed.said, false);
+    // Said here and not in Rust. `unfix` used to return the Hebrew sentence
+    // itself, which an English window would have shown in Hebrew.
+    announce(say("unfixed"), false);
     if (state) state.fixes = Math.max(0, state.fixes - 1);
   } catch (e) {
     const t = trouble(e, "fix");
@@ -1758,7 +1760,20 @@ async function exportSefer(slug: string): Promise<void> {
     // find it — and what did *not* land, because exporting is the moment
     // somebody would otherwise never hear about a stale correction.
     const trouble = written.stale > 0 ? ` · ${written.stale} ${say("staleFixes")}` : "";
-    announce(`${say("wrote")} — ${written.said}${trouble} · ${written.path}`, written.stale > 0);
+    // Composed here, from a file name, a name for which text went out, and a
+    // number. The shell used to hand over the whole line — including a
+    // hand-rolled Hebrew agreement for the count, three weeks after `93f4979`
+    // settled that a count is said as *label: number* because agreement belongs
+    // to `girsa_plain::said` and to nothing else.
+    const showing = say(
+      written.showing === "as-printed"
+        ? "showingAsPrinted"
+        : written.showing === "fixed"
+          ? "showingFixed"
+          : "showingVariants",
+    );
+    const said = `${written.file} · ${showing} · ${say("wroteFixes")}: ${written.corrections}`;
+    announce(`${say("wrote")} — ${said}${trouble} · ${written.path}`, written.stale > 0);
   } catch (e) {
     const t = trouble(e, "export");
     announce(t.said, true, t.detail);
@@ -2279,13 +2294,38 @@ async function copySource(): Promise<void> {
   if (!view) return;
 
   const chosen = view.selection();
+  // Highlighted somewhere else. Said, rather than quietly copying the line the
+  // reader happens to be standing on in *this* pane — a different passage, with
+  // a correct-looking citation on it. See `PaneView.selection`.
+  if (chosen === "elsewhere") {
+    announce(say("highlightElsewhere"), true);
+    return;
+  }
+  // **A `catch`.** This branch had none, and the caller is `void copySource()`,
+  // so every refusal `girsa_app::send` can make died as an unhandled promise
+  // rejection and nothing at all appeared — including `SendError::Empty`, whose
+  // own doc explains that a quote is refused rather than sent empty because *"a
+  // quote block with no words in it arrives in the document looking like a
+  // failure of the paste"*. The refusal was made, correctly, and thrown away.
+  // Highlighting punctuation and pressing Ctrl+C did nothing and said nothing.
+  //
+  // The default is still not prevented, so the webview's own plain-text copy
+  // happens either way — which is exactly why the silence was so bad: the
+  // reader got *some* clipboard content and no sign the source packet never
+  // went.
   let copied;
-  if (chosen) {
-    copied = await api.copy(chosen.from, chosen.to, chosen.fromChar, chosen.toChar);
-  } else {
-    const here = view.here();
-    if (!here) return;
-    copied = await api.copy(here, here, 0, null);
+  try {
+    if (chosen === "none") {
+      const here = view.here();
+      if (!here) return;
+      copied = await api.copy(here, here, 0, null);
+    } else {
+      copied = await api.copy(chosen.from, chosen.to, chosen.fromChar, chosen.toChar);
+    }
+  } catch (e) {
+    const t = trouble(e, "copy_scan");
+    announce(t.said, true, t.detail);
+    return;
   }
 
   if (copied.put.trouble) {
@@ -2311,17 +2351,22 @@ async function sendToKsav(): Promise<void> {
   const view = views.get(open.focused);
   if (!view) return;
   const chosen = view.selection();
-  const here = chosen ? null : view.here();
-  if (!chosen && !here) return;
+  if (chosen === "elsewhere") {
+    announce(say("highlightElsewhere"), true);
+    return;
+  }
+  const here = chosen === "none" ? view.here() : null;
+  if (chosen === "none" && !here) return;
 
   // The one moment the answer matters. Asked here rather than every five
   // seconds, and asked *before* the send so a stale endpoint file is reported
   // as itself rather than as a timeout.
   await lookForKsav();
   try {
-    const sent = chosen
-      ? await api.sendToKsav(chosen.from, chosen.to, chosen.fromChar, chosen.toChar)
-      : await api.sendToKsav(here!, here!, 0, null);
+    const sent =
+      chosen === "none"
+        ? await api.sendToKsav(here!, here!, 0, null)
+        : await api.sendToKsav(chosen.from, chosen.to, chosen.fromChar, chosen.toChar);
     announce(fill("sentToKsavNamed", { ksav: ksavAs("ל"), what: sent.display }), false);
   } catch (e) {
     // "Ksav is not running" and "Ksav refused it" *are* different things to a
@@ -2352,11 +2397,26 @@ async function sourceForBuffer(): Promise<string | null> {
   const view = views.get(open.focused);
   if (!view) return null;
   const chosen = view.selection();
-  if (chosen) {
-    return api.sourceMarkup(chosen.from, chosen.to, chosen.fromChar, chosen.toChar);
+  // The same three-way answer, and the same reason: this used to read a
+  // highlight in the other pane as *no highlight* and put the wrong passage in
+  // the reader's own document.
+  if (chosen === "elsewhere") {
+    announce(say("highlightElsewhere"), true);
+    return null;
   }
-  const here = view.here();
-  return here ? api.sourceMarkup(here, here, 0, null) : null;
+  try {
+    if (chosen !== "none") {
+      return await api.sourceMarkup(chosen.from, chosen.to, chosen.fromChar, chosen.toChar);
+    }
+    const here = view.here();
+    return here ? await api.sourceMarkup(here, here, 0, null) : null;
+  } catch (e) {
+    // The same missing `catch` as `copySource`, in the command that writes into
+    // the drawer rather than onto the clipboard.
+    const t = trouble(e, "copy_scan");
+    announce(t.said, true, t.detail);
+    return null;
+  }
 }
 
 // ── Your own layer (spec.md §11, BUILDER.md W27) ───────────────────────────

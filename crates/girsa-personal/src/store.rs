@@ -253,7 +253,12 @@ pub fn open<S: Store>(mut store: S) -> (S, Vec<String>) {
     // twice what it holds. Failing to tidy up is not a reason to refuse a reader
     // their layer, so it is reported and not returned.
     if Log::bloated(live.lines, store.count()) {
-        if let Err(e) = store.compact() {
+        // `rewrite_after` and not `compact`: this rewrite replaces a file the
+        // replay above read a moment ago, and a second process holding the same
+        // layer open — the MCP server, `girsa-suspects` — may have appended to
+        // it in between. `live.bytes` is where this reading stopped, so
+        // everything past it is carried through rather than renamed away.
+        if let Err(e) = store.log().rewrite_after(store.records(), Some(live.bytes)) {
             trouble.push(e.to_string());
         }
     }

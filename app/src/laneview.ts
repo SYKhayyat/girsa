@@ -430,10 +430,18 @@ export class LanePanel {
       bring.textContent = fill("laneBringOne", { name: offer.name });
       bring.disabled = this.working;
       bring.addEventListener("click", async () => {
+        // The button was already disabled here and the view was not, which is
+        // the mirror of the defect below: a redraw brought a live button back
+        // while the download was still running.
         bring.disabled = true;
+        this.working = true;
         this.progress.hidden = false;
         this.progress.textContent = say("laneStarting");
-        await api.laneBring().catch((e) => this.trouble(e));
+        await api.laneBring().catch((e) => {
+          this.working = false;
+          bring.disabled = false;
+          this.trouble(e);
+        });
       });
       this.body.append(terms, about, why, bring);
     }
@@ -513,10 +521,22 @@ export class LanePanel {
       go.textContent = say("laneEmbed");
       go.disabled = this.working;
       go.addEventListener("click", async () => {
+        // Disabled on the button that was clicked, not only recorded on the
+        // view. `go.disabled = this.working` above is evaluated when the row is
+        // drawn, and the row is not redrawn until the first progress event
+        // arrives — so setting a field and leaving the button live left a gap
+        // in which two clicks started two jobs. Rust refuses the second one
+        // (`already-working`); this is so the reader never gets to make it.
+        go.disabled = true;
         this.working = true;
         this.progress.hidden = false;
         this.progress.textContent = say("laneStarting");
-        await api.laneEmbed().catch((e) => this.trouble(e));
+        await api.laneEmbed().catch((e) => {
+          // The job never started, so the button comes back.
+          this.working = false;
+          go.disabled = false;
+          this.trouble(e);
+        });
       });
       const stop = document.createElement("button");
       stop.className = "tool";

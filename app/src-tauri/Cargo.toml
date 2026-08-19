@@ -36,6 +36,11 @@ serde_json = { workspace = true }
 # the pin whose whole job is to make a bump deliberate did not apply to the one
 # crate that owns the interop.
 girsa-app = { workspace = true }
+# The reader's own layer. The shell reaches it for one thing only: `beside`,
+# the whole-file write that is a rename rather than a truncate. `buffer_write_to`
+# puts a copy in a folder the reader chose — a network share or a removable disk
+# as often as not — and that is the last place a truncate-then-write belongs.
+girsa-personal = { workspace = true }
 # Handing somebody a corrected sefer (spec.md §7.4, W22). Its own crate because
 # a .docx is a zip and the reading workspace has no use for one; the window
 # names a format and a path and decides nothing about what comes out.

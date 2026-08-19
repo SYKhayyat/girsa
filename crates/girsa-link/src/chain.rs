@@ -310,9 +310,32 @@ pub struct Graph<'a> {
 /// retyping one, drawing one — makes it a lie, and the caller must drop it. It
 /// is a cache of a pure function of `(shard, repairs)`, and only half of that
 /// pair is on disk.
+/// How many works' edges are kept at once.
+///
+/// # Why there is a number here at all
+///
+/// There was not one, and this cache is held for the **life of the process** —
+/// cleared only on a repair or a corpus change. A depth-12 walk crosses many
+/// works, Berakhot's shard is 3.4 MB and Shulchan Arukh Orach Chayim alone is
+/// 156,076 edges, so a reader who walks a few chains over an afternoon
+/// accumulates every work any of them touched and never gives one back.
+///
+/// `girsa_app::held::KEEP_OPEN` caps open seforim at twelve with the argument
+/// written beside it — *"a work is tens of megabytes of text and a reader has a
+/// handful open, not a library"*. The argument applies to edges and the cap did
+/// not. Sixteen rather than twelve because a single walk legitimately touches
+/// more works than a reader has panes: the measured back-walk reads 24, and the
+/// point of the number is to stop an afternoon accumulating, not to make one
+/// walk re-read itself.
+pub const KEEP_WORKS: usize = 16;
+
 #[derive(Default)]
 pub struct Cache {
     works: HashMap<String, Held>,
+    /// Least recently read first, so the one that goes is `order[0]`. The same
+    /// shape `girsa_app::held::Held` uses, and for the same reason: a `Vec` of
+    /// sixteen beats anything cleverer at this size.
+    order: Vec<String>,
 }
 
 impl Cache {
@@ -325,6 +348,19 @@ impl Cache {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.works.is_empty()
+    }
+
+    /// Note that this work was just read or used, and evict if that puts the
+    /// cache over [`KEEP_WORKS`].
+    fn touched(&mut self, slug: &str) {
+        if let Some(at) = self.order.iter().position(|held| held == slug) {
+            self.order.remove(at);
+        }
+        self.order.push(slug.to_string());
+        while self.order.len() > KEEP_WORKS {
+            let gone = self.order.remove(0);
+            self.works.remove(&gone);
+        }
     }
 }
 
@@ -466,6 +502,9 @@ impl<'a> Graph<'a> {
                 .works
                 .insert(slug.to_string(), Held::of(self.repairs.apply(edges)));
         }
+        // Marked used before it is handed out, so the eviction below never
+        // takes the work this call is about. See `KEEP_WORKS`.
+        self.by_work.touched(slug);
         self.by_work.works.get(slug)
     }
 

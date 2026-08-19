@@ -38,11 +38,14 @@
 //! And the file stays greppable and diffable (spec.md §4.1, §11), which was the
 //! reason it was jsonl in the first place.
 
+pub mod beside;
+pub mod lock;
 pub mod log;
 pub mod shared;
 pub mod store;
 pub mod who;
 
+pub use beside::write as write_beside;
 pub use log::{is_tombstone, replay, since, Live, Log, LogError, Since};
 pub use shared::{fingerprint, now_seconds, CORRECTIONS};
 pub use store::{open, Merged, Store};

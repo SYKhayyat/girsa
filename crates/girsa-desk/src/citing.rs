@@ -69,22 +69,41 @@ pub struct Citing {
 /// asked on a click.
 #[must_use]
 pub fn who_cites(personal: &Path, documents: &Documents, place: &Ref) -> Vec<Citing> {
-    let answers = |refs: Vec<String>| -> Vec<String> {
-        refs.into_iter()
-            .filter(|text| {
-                text.parse::<Ref>()
-                    .map(|stored| covers(&stored, place))
-                    .unwrap_or(false)
-            })
-            .collect()
-    };
+    let mut out = in_your_drawer(personal, place);
+    out.extend(in_your_documents(documents, place));
+    out
+}
 
+/// The refs of this document that cover `place`.
+fn answering(refs: impl IntoIterator<Item = String>, place: &Ref) -> Vec<String> {
+    refs.into_iter()
+        .filter(|text| {
+            text.parse::<Ref>()
+                .map(|stored| covers(&stored, place))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// The half that **reads files**: every buffer in the drawer, opened and
+/// scanned.
+///
+/// Split out from [`who_cites`] so a caller holding a lock can do this part
+/// without it. The shell's `who_cites` command is asked on every click on a
+/// line, and it used to run the whole of this under the global state guard —
+/// a `read_dir` and a full read of every document the reader is writing, with
+/// no cap on size or count, on the thread the scroll handler is waiting for.
+///
+/// Nothing here touches shared state, which is what makes the split honest
+/// rather than a rearrangement: the argument is a path.
+#[must_use]
+pub fn in_your_drawer(personal: &Path, place: &Ref) -> Vec<Citing> {
     let mut out = Vec::new();
     for name in Buffer::list(personal) {
         let Ok(buffer) = Buffer::open(personal, &name) else {
             continue;
         };
-        let refs = answers(girsa_ksav::refs_in(&buffer.text));
+        let refs = answering(girsa_ksav::refs_in(&buffer.text), place);
         if !refs.is_empty() {
             out.push(Citing {
                 name,
@@ -94,8 +113,18 @@ pub fn who_cites(personal: &Path, documents: &Documents, place: &Ref) -> Vec<Cit
             });
         }
     }
+    out
+}
+
+/// The half that **reads nothing**: the registry, which is already in memory.
+///
+/// String parsing over rows a caller is already holding. This is the part it
+/// is fair to do under a lock.
+#[must_use]
+pub fn in_your_documents(documents: &Documents, place: &Ref) -> Vec<Citing> {
+    let mut out = Vec::new();
     for document in documents.all() {
-        let refs = answers(document.refs.clone());
+        let refs = answering(document.refs.clone(), place);
         if !refs.is_empty() {
             out.push(Citing {
                 name: document.name.clone(),

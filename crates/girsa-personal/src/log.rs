@@ -205,6 +205,15 @@ pub struct Live<T> {
     /// How many lines the file held — records, repeats and tombstones alike.
     /// [`Log::bloated`] compares this against what survived.
     pub lines: usize,
+    /// How many **bytes** of the file this replay read.
+    ///
+    /// Not a duplicate of `lines`, and it answers a different question:
+    /// `lines` is *is this file worth compacting*, and this is *where does
+    /// everything I have not seen begin*. [`Log::rewrite_after`] needs the
+    /// second one — a compaction that replaces the file has to carry forward
+    /// whatever a second process appended between this replay and the rename,
+    /// and the only honest mark for "whatever" is an offset.
+    pub bytes: u64,
     /// A line that would not parse costs that record and is reported here.
     /// Never the whole file: one bad line silently un-correcting a library is
     /// the failure this shape exists to avoid.
@@ -230,6 +239,7 @@ pub fn replay<T: DeserializeOwned>(
     let mut live = Live {
         records: Vec::new(),
         lines: 0,
+        bytes: body.len() as u64,
         trouble: Vec::new(),
     };
     let mut held: BTreeMap<String, T> = BTreeMap::new();
@@ -309,6 +319,7 @@ impl Log {
             return Live {
                 records: Vec::new(),
                 lines: 0,
+                bytes: 0,
                 trouble: Vec::new(),
             };
         };
@@ -387,12 +398,62 @@ impl Log {
     /// whole queue wants. The one write in this module that is not an append,
     /// and so the one that still goes beside-and-renames.
     ///
+    /// # This one carries nothing forward
+    ///
+    /// It is [`Log::rewrite_after`] with no offset, which is to say: *these
+    /// records are the file, and anything a second process appended since you
+    /// last read it is not my business*. That is right for the caller this
+    /// exists for — a batch job that rebuilds a whole queue from scratch — and
+    /// it is **not** right for compaction, which rewrites a file the caller
+    /// replayed a moment ago and which another process may have appended to in
+    /// between. [`crate::open`] uses `rewrite_after` for exactly that reason,
+    /// with the offset [`Live::bytes`] gave it.
+    ///
     /// # Errors
     ///
     /// If a record will not serialize, or the file will not write or rename.
     pub fn rewrite<'a, T: Serialize + 'a>(
         &self,
         records: impl IntoIterator<Item = &'a T>,
+    ) -> Result<(), LogError> {
+        self.rewrite_after(records, None)
+    }
+
+    /// Replace the file with these records, keeping whatever arrived after
+    /// `read_from`.
+    ///
+    /// # The window this closes
+    ///
+    /// Compaction reads the live records, writes them beside and renames over.
+    /// Atomic against a crash; **not** against a second writer. Girsa ships two
+    /// other processes that open the same personal layer — the MCP server,
+    /// whose whole point is that a program can write into your own layer, and
+    /// `girsa-suspects` — and an append either of them makes between the read
+    /// and the rename lands in the file the rename is about to throw away.
+    /// Gone, with no error on either side, in the one place an append-only log
+    /// stops being append-only.
+    ///
+    /// Two things close it and both are needed:
+    ///
+    /// * the [`crate::lock`] file, so an append cannot be *in progress* while
+    ///   the rename happens;
+    /// * this offset, so an append that already completed is not thrown away.
+    ///   `read_from` is where the caller's own reading of the file stopped;
+    ///   everything past it is copied through verbatim, after the compacted
+    ///   body, in the order it was written. Last-one-wins over the whole file
+    ///   is what makes that correct rather than merely lossless: a record
+    ///   carried forward is a *later* line than the compacted version of the
+    ///   same key, so it still wins, exactly as it did before the compaction.
+    ///
+    /// `None` means carry nothing forward. See [`Log::rewrite`].
+    ///
+    /// # Errors
+    ///
+    /// If a record will not serialize, or the file will not write or rename.
+    pub fn rewrite_after<'a, T: Serialize + 'a>(
+        &self,
+        records: impl IntoIterator<Item = &'a T>,
+        read_from: Option<u64>,
     ) -> Result<(), LogError> {
         if self.is_nowhere() {
             return Ok(());
@@ -403,11 +464,32 @@ impl Log {
             body.push_str(&serde_json::to_string(record).map_err(|e| self.invalid(&e))?);
             body.push('\n');
         }
+        // Held across the read of the tail, the write and the rename — which is
+        // the whole of the compaction, and the only span over which holding it
+        // means anything. `hold` gives up rather than blocking for ever, and a
+        // racy write of a reader's own data beats no write of it; see the
+        // module note in `lock`.
+        let _held = crate::lock::hold(&self.path);
+        if let Some(from) = read_from {
+            let since = std::fs::read_to_string(&self.path).unwrap_or_default();
+            let from = usize::try_from(from).unwrap_or(usize::MAX);
+            // `get` and not a slice: the file may have *shrunk* — another
+            // process compacted it first — and a panic here would take the
+            // window down over a tidy-up nobody asked for.
+            if let Some(tail) = since.get(from..) {
+                if !tail.trim().is_empty() {
+                    if !body.is_empty() && !body.ends_with('\n') {
+                        body.push('\n');
+                    }
+                    body.push_str(tail);
+                }
+            }
+        }
         // Written beside and renamed over, so a machine that stops halfway
-        // through leaves the layer it had rather than half of it.
-        let temp = self.path.with_extension("jsonl.writing");
-        std::fs::write(&temp, body).map_err(|e| self.io(e))?;
-        std::fs::rename(&temp, &self.path).map_err(|e| self.io(e))
+        // through leaves the layer it had rather than half of it. That argument
+        // lives in `beside` now, which is where the three files that needed it
+        // and did not have it were sent.
+        crate::beside::write(&self.path, body).map_err(|e| self.io(e))
     }
 
     fn push(&self, lines: impl IntoIterator<Item = String>) -> Result<(), LogError> {
@@ -420,6 +502,11 @@ impl Log {
             return Ok(());
         }
         self.make_room()?;
+        // Taken for the append too, and that is not belt-and-braces: the whole
+        // point of the lock is that a compaction's rename cannot land between
+        // an append's open and its write. Cheap — one file created and removed
+        // — against a write that is already a syscall or three.
+        let _held = crate::lock::hold(&self.path);
         // One `write_all` on a handle opened for append, so the line lands
         // whole or the tear is at the end of the file, where replay can see it.
         let mut file = std::fs::OpenOptions::new()
@@ -785,5 +872,65 @@ mod tests {
                 after: 1
             }
         );
+    }
+
+    /// A record another process appended while a compaction was in flight
+    /// survives the compaction.
+    ///
+    /// The sequence is the real one, in order: this process replays the file;
+    /// a second process appends; this process rewrites what it replayed. Before
+    /// `rewrite_after`, the rename dropped the second process's line with no
+    /// error on either side — the one place an append-only log stops being
+    /// append-only.
+    #[test]
+    fn an_append_that_lands_during_a_compaction_is_not_renamed_away() {
+        let dir = std::env::temp_dir().join("girsa-log-compaction");
+        let _ = std::fs::remove_dir_all(&dir);
+        let log = Log::at(dir.join("things.jsonl"));
+        log.append(&thing("a", "one")).unwrap();
+        log.append(&thing("b", "two")).unwrap();
+
+        // What this process read, and where its reading stopped.
+        let live = log.live::<Thing>("a thing", |t| t.id.clone());
+        assert_eq!(live.records.len(), 2);
+
+        // The other process, in the window between the two.
+        log.append(&thing("c", "three")).unwrap();
+        // And an update to something the compactor is about to write out, which
+        // is the case that makes carrying the tail forward *correct* rather than
+        // merely lossless: it has to end up after the compacted copy.
+        log.append(&thing("a", "one again")).unwrap();
+
+        log.rewrite_after(live.records.iter(), Some(live.bytes))
+            .unwrap();
+
+        let after = log.live::<Thing>("a thing", |t| t.id.clone());
+        let says = |id: &str| {
+            after
+                .records
+                .iter()
+                .find(|t| t.id == id)
+                .map(|t| t.says.clone())
+        };
+        assert_eq!(says("c"), Some("three".to_string()), "{after:#?}");
+        assert_eq!(says("a"), Some("one again".to_string()), "{after:#?}");
+        assert_eq!(says("b"), Some("two".to_string()), "{after:#?}");
+    }
+
+    /// `rewrite` still means *these records are the file*.
+    ///
+    /// The batch-rebuild caller depends on it, and the difference between the
+    /// two is the whole reason there are two.
+    #[test]
+    fn rewrite_with_no_offset_carries_nothing_forward() {
+        let dir = std::env::temp_dir().join("girsa-log-rewrite-plain");
+        let _ = std::fs::remove_dir_all(&dir);
+        let log = Log::at(dir.join("things.jsonl"));
+        log.append(&thing("a", "one")).unwrap();
+        log.append(&thing("b", "two")).unwrap();
+        log.rewrite([&thing("c", "three")]).unwrap();
+        let after = log.live::<Thing>("a thing", |t| t.id.clone());
+        assert_eq!(after.records.len(), 1, "{after:#?}");
+        assert_eq!(after.records[0].id, "c");
     }
 }

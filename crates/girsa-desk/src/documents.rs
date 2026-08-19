@@ -72,6 +72,26 @@ pub struct Document {
     /// carries one — see `girsa_personal::since`.
     #[serde(default)]
     pub when: u64,
+    /// How many bytes the file was when its refs were read.
+    ///
+    /// The **second** half of the staleness question, and it exists because the
+    /// first half cannot answer it alone. `read_at` is a modification time
+    /// truncated to whole seconds, which is all the filesystem promises, and the
+    /// sequence that loses a save is the ordinary one: Ksav writes at second
+    /// *T* and posts `/document`; Girsa reads and records `read_at = T`; Ksav
+    /// writes again inside the same second. `T > T` is false, so the second
+    /// save was invisible to `who_cites` until some later write happened to
+    /// bump the clock.
+    ///
+    /// A size is not a hash and does not claim to be: two edits inside one
+    /// second that leave the file exactly as long are still missed. But a
+    /// document being typed changes length almost every save, and this costs
+    /// nothing — `metadata` was already being read for the time.
+    ///
+    /// `0` for a row written before this field existed, which reads as *no size
+    /// recorded* rather than as *the file was empty*; see `is_stale`.
+    #[serde(default)]
+    pub read_size: u64,
 }
 
 impl Document {
@@ -91,6 +111,7 @@ impl Document {
             path: path.display().to_string(),
             refs: Vec::new(),
             read_at: 0,
+            read_size: 0,
             when: now_seconds(),
         }
     }
@@ -99,9 +120,25 @@ impl Document {
     ///
     /// A file that has gone is **not** stale — there is nothing to re-read, and
     /// what is cached is the last true thing anybody knew about it.
+    ///
+    /// Two questions, because one whole-second timestamp cannot answer it: a
+    /// modification time **later** than the read, or a **different size** from
+    /// the one read. See [`Document::read_size`] for the save that used to
+    /// disappear between them.
     #[must_use]
     pub fn is_stale(&self) -> bool {
-        modified(Path::new(&self.path)).is_some_and(|now| now > self.read_at)
+        let path = Path::new(&self.path);
+        let Some(now) = modified(path) else {
+            return false;
+        };
+        if now > self.read_at {
+            return true;
+        }
+        // A row from before the size was recorded says `0`, and so does a row
+        // for a file that really is empty. Neither is a reason to claim a
+        // change: `read_at` still catches every save outside the second.
+        let size = size_of(path).unwrap_or(0);
+        self.read_size != 0 && size != self.read_size
     }
 
     /// Whether the file is where the registry says it is.
@@ -227,6 +264,9 @@ impl Documents {
             };
             row.refs = girsa_ksav::refs_in(&text);
             row.read_at = modified(&path).unwrap_or(0);
+            // Recorded from the text just read rather than from a second
+            // `metadata` call, so the size and the refs are of one reading.
+            row.read_size = text.len() as u64;
             row.when = now_seconds();
             read.push(row.clone());
         }
@@ -234,6 +274,11 @@ impl Documents {
         self.log.append_all(read.iter())?;
         Ok(did)
     }
+}
+
+/// A file's length in bytes, or nothing if it will not stat.
+fn size_of(path: &Path) -> Option<u64> {
+    std::fs::metadata(path).ok().map(|m| m.len())
 }
 
 /// A file's modification time, in seconds since the epoch.

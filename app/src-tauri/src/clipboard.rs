@@ -27,12 +27,27 @@ use girsa_app::trouble::{refuse, Code};
 use girsa_source::CLIPBOARD_MIME;
 use serde::Serialize;
 
-/// What actually reached the clipboard.
+/// What reached the clipboard.
 ///
-/// Reported rather than assumed. A copy that put down two flavours out of
-/// three is a paste into Ksav that arrives as plain text — which looks like
-/// Ksav ignoring the source, and is the kind of thing a reader would never
-/// think to check.
+/// # Three fields, and one fact
+///
+/// This used to promise that what reached the clipboard is *"reported rather
+/// than assumed"*, and it was not: `put` sets all three from a single `Ok(())`.
+/// The sentence and the code disagreed, and the sentence was the one making a
+/// claim a reader could act on.
+///
+/// The code is right and the sentence was wrong. `clipboard-rs` sets the whole
+/// list **inside one open** — which is the reason it is the dependency rather
+/// than two smaller ones, and the module note above says so — so the platform
+/// either took the list or it did not. There is no partial answer to report and
+/// no way to ask for one.
+///
+/// So the three fields are one fact in three places, and they stay three
+/// because the *window* has three things to say: a paste into Ksav that arrives
+/// as plain text is a different disappointment from one into Word that arrives
+/// unformatted, and a future clipboard backend that does put flavours down one
+/// at a time would fill these in separately without changing anything that
+/// reads them. What has gone is the claim that they are already independent.
 #[derive(Debug, Default, Serialize)]
 pub struct Put {
     /// `text/plain` — WhatsApp, a terminal, anything.
@@ -83,6 +98,8 @@ pub fn put(sent: &Sent) -> Put {
         ClipboardContent::Other(CLIPBOARD_MIME.to_string(), json.into_bytes()),
     ];
     match context.set(contents) {
+        // All three or none: one `set`, one open, one answer. See the note on
+        // `Put` for why this is honest rather than lazy.
         Ok(()) => Put {
             plain: true,
             html: true,

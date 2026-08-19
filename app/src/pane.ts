@@ -136,6 +136,21 @@ export function nextPlace(places: number[], from: number): number | null {
  * the size of the thing it caches is a cache; a document that never stops
  * growing is a leak.
  */
+/**
+ * What a pane has to say about the reader's highlight.
+ *
+ * A discriminated answer rather than `Selection | null`, because `null` was
+ * standing for two unrelated facts — *nothing is highlighted* and *the
+ * highlight is in the other pane* — and the caller could only act on one of
+ * them. See {@link PaneView.selection}.
+ */
+export type Chosen =
+  | { from: string; to: string; fromChar: number; toChar: number }
+  /** Nothing is highlighted in the text. The whole-line case. */
+  | "none"
+  /** Something is highlighted, in a different pane. */
+  | "elsewhere";
+
 export class PaneView {
   readonly id: PaneId;
   readonly slug: string;
@@ -981,22 +996,34 @@ export class PaneView {
    * deliberately excluded — a reader dragging across a se'if is not asking to
    * quote its number.
    *
-   * `null` when nothing here is selected: that is the whole-line case, and it
-   * is the caller's to decide, because "what is the reader standing on" is a
-   * different question.
+   * Three answers and not two. `"none"` is the whole-line case, and it is the
+   * caller's to decide, because *what is the reader standing on* is a different
+   * question. `"elsewhere"` is a highlight in **another pane**, which is not
+   * the same thing at all: the caller has something to say about it, and until
+   * this told them apart it quietly quoted the wrong passage instead.
    */
-  selection(): { from: string; to: string; fromChar: number; toChar: number } | null {
+  selection(): Chosen {
     const chosen = window.getSelection();
-    if (!chosen || chosen.isCollapsed || chosen.rangeCount === 0) return null;
+    if (!chosen || chosen.isCollapsed || chosen.rangeCount === 0) return "none";
     const range = chosen.getRangeAt(0);
     const from = lineOf(range.startContainer);
     const to = lineOf(range.endContainer);
-    if (!from || !to) return null;
-    if (!this.body.contains(from) || !this.body.contains(to)) return null;
+    if (!from || !to) return "none";
+    // **The highlight is somewhere, and it is not here.** This used to be
+    // `null`, the same answer as *nothing is selected* — so the caller took the
+    // whole-line branch and copied the line the reader was standing on **in the
+    // focused pane**: a different passage from the one they had highlighted,
+    // with a correct-looking citation on it and no error. That is the same
+    // class of wrongness `sending.rs` is proudest of refusing, and it is not
+    // the caller's fault, because there was no way for it to tell.
+    if (!this.body.contains(from) || !this.body.contains(to)) return "elsewhere";
 
     const fromChar = offsetIn(from, range.startContainer, range.startOffset);
     const toChar = offsetIn(to, range.endContainer, range.endOffset);
-    if (fromChar === null || toChar === null) return null;
+    // Inside this pane and not inside a line — the address label in the margin,
+    // or the gap between two lines. Nothing was chosen *in the text*, which is
+    // the whole-line case and not a mistake.
+    if (fromChar === null || toChar === null) return "none";
     return {
       from: from.dataset.id ?? "",
       to: to.dataset.id ?? "",
@@ -1071,7 +1098,10 @@ export class PaneView {
     printed: string | null;
   } | null {
     const chosen = this.selection();
-    if (!chosen || chosen.from !== chosen.to || !this.text) return null;
+    // A highlight in another pane is not this pane's words, and neither is no
+    // highlight at all. Both are `null` here, which is right — this method is
+    // asked *about this pane*.
+    if (typeof chosen === "string" || chosen.from !== chosen.to || !this.text) return null;
     const at = this.byId.get(chosen.from);
     if (at === undefined) return null;
     const line = this.lines[at];

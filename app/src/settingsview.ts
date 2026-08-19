@@ -296,6 +296,13 @@ export class SettingsView {
     // look in settings and needs to find this without hunting.
     //
     // The labels are `19:00`, which needs no word in either language.
+    //
+    // `00:00` is on the list and means what it says: the day turns over at
+    // midnight and not before. It did not always — `hour >= turns_at` with a
+    // turnover of zero is true at every hour of every day, so one click here
+    // put the luach permanently a day ahead, showing tomorrow's daf under
+    // today's date. `luach::at` now reads zero as *do not turn over early*,
+    // which is the same sentence the label makes.
     this.body.append(
       this.choice(
         say("settingsDayTurns"),

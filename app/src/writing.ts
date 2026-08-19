@@ -14,8 +14,8 @@
 
 import { api, isShell, pickFolder, type Presence } from "./api.ts";
 
-import { clearTrouble, sayTrouble } from "./trouble.ts";
-import { area, button, field, shut } from "./controls.ts";
+import { clearTrouble, codeOf, raw, sayTrouble } from "./trouble.ts";
+import { area, button, confirmThat, field, shut } from "./controls.ts";
 import { fill, ksavAs, say } from "./say.ts";
 
 /** How long after the last keystroke the buffer is written to disk. */
@@ -162,8 +162,44 @@ export class WritingView {
     if (!wanted || wanted === this.name) return;
     // Saved under the new name, and the old file stays where it is: a rename
     // that quietly deleted the thing you had been writing is not a rename.
+    //
+    // Neither is one that quietly deletes the thing you had been writing *at
+    // the other end*. This used to be a plain `save()`, which truncates
+    // whatever is at the name — so renaming onto a name already in use
+    // destroyed that document with no prompt and no mention. The refusal is
+    // Rust's (`buffer_rename`, `already-there`), because the loopback and the
+    // MCP server reach the layer too and neither one runs a dialog; what the
+    // window owns is asking, and going ahead if the answer is yes.
+    try {
+      this.note.title = await api.bufferRename(this.name, wanted, this.box.value, false);
+      clearTrouble(this.note);
+    } catch (e) {
+      if (codeOf(raw(e)) !== "already-there") {
+        sayTrouble(this.note, e, "write_note");
+        // The title box still says the new name and the document is still the
+        // old one, which would be a lie about what is on disk.
+        this.title.value = this.name;
+        return;
+      }
+      const yes = await confirmThat(fill("writingNameTaken", { name: wanted }), {
+        hint: say("writingNameTakenWhy"),
+        ok: say("writingNameTakenYes"),
+      });
+      if (!yes) {
+        this.title.value = this.name;
+        return;
+      }
+      try {
+        this.note.title = await api.bufferRename(this.name, wanted, this.box.value, true);
+        clearTrouble(this.note);
+      } catch (again) {
+        sayTrouble(this.note, again, "write_note");
+        this.title.value = this.name;
+        return;
+      }
+    }
     this.name = wanted;
-    await this.save();
+    this.note.textContent = say("writingSaved");
     await this.load(wanted);
   }
 

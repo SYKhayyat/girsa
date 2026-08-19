@@ -642,10 +642,32 @@ pub const TURNS_AT: u8 = 19;
 ///
 /// [`Luach::tomorrow`] is still named beside today's either way, so a reader
 /// whose hour is set wrong can see the daf they actually want.
+///
+/// # `turns_at == 0` is *never turn over*
+///
+/// Zero is a valid hour and it is not a valid turnover, and the difference cost
+/// a reader their whole luach. `hour >= 0` is true at every hour of every day,
+/// so a turnover of midnight did not mean *turn over at midnight* — it meant
+/// **turn over always**: tomorrow's daf shown all day, for ever, with today's
+/// date in the header above it, because [`of_fixed`] recomputes the civil date
+/// from the day it was handed.
+///
+/// The reader who reaches for this setting is, by the window's own words, one
+/// who has noticed the daf is a day behind at night — somebody already unsure
+/// which day the window is on. Handing them a one-click way to be permanently a
+/// day ahead is the worst outcome available.
+///
+/// So zero means the day does not turn over early at all, which is the
+/// behaviour a reader picking `00:00` off a list of hours is asking for:
+/// today's daf is today's until the date changes.
 #[must_use]
 pub fn at(date: Civil, hour: u8, turns_at: u8) -> Luach {
     let rd = fixed_from_civil(date);
-    of_fixed(if hour >= turns_at { rd + 1 } else { rd })
+    of_fixed(if turns_at > 0 && hour >= turns_at {
+        rd + 1
+    } else {
+        rd
+    })
 }
 
 /// The luach for a civil date, turning the day over at midnight.
@@ -1317,6 +1339,30 @@ mod tests {
         assert_eq!(where_is("קינים"), vec![23, 24, 25]);
         assert_eq!(where_is("תמיד").first(), Some(&26));
         assert_eq!(where_is("מדות"), vec![34, 35, 36, 37]);
+    }
+
+    /// Midnight in the Settings hour list means midnight, not *always*.
+    ///
+    /// The list offers all twenty-four hours, so `00:00` is one click away, and
+    /// `hour >= 0` is true at every hour of every day. A reader who picked it
+    /// got tomorrow's daf all day, for ever, with today's date in the header
+    /// above it — and the reader who reaches for this setting is by definition
+    /// one who has noticed the daf is a day behind at night, which is to say
+    /// already unsure which day the window is on.
+    ///
+    /// The fence is that a turnover of zero agrees with `of` at every hour.
+    #[test]
+    fn midnight_turns_the_day_over_at_midnight_and_not_at_every_hour() {
+        let fourth = civil(2020, 1, 4);
+        let daf = |luach: &Luach| luach.today[0].place.clone();
+        for hour in 0..24 {
+            assert_eq!(
+                daf(&at(fourth, hour, 0)),
+                daf(&of(fourth)),
+                "{hour}:00 with the turnover at midnight is still the fourth"
+            );
+            assert_eq!(at(fourth, hour, 0).civil, fourth, "and so is the header");
+        }
     }
 
     /// The evening hours, which are the only ones this changes.

@@ -407,10 +407,27 @@ pub fn send(
     // A highlight dragged upwards arrives with its ends the other way round.
     // Reading order is what a quote is in, so they are put back into it here
     // rather than at every later point that would have to remember.
+    //
+    // **And the offsets travel with the ends they belong to.** They used to be
+    // replaced with `0` and `None` — which silently widened the quote from a
+    // partial selection to whole segments, and a quote that is wider than the
+    // reader chose is the same class of wrongness as one that is next door.
+    // Unreachable from the window, where a DOM `Range` is always in document
+    // order; reachable from the MCP server and the loopback, which both take
+    // the offsets from a caller and are the two callers with no `Range` to keep
+    // them honest.
+    //
+    // Swapped rather than dropped: the far end's offset is where the quote now
+    // starts, and the near end's is where it now ends.
     let (first, last, from_char, to_char) = if first <= last {
         (first, last, selection.from_char, selection.to_char)
     } else {
-        (last, first, 0, None)
+        (
+            last,
+            first,
+            selection.to_char.unwrap_or(0),
+            Some(selection.from_char),
+        )
     };
 
     let mut lines: Vec<String> = Vec::new();

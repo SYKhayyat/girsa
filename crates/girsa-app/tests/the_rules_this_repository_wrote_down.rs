@@ -875,13 +875,48 @@ fn the_shell_does_not_write_sentences_for_the_reader() {
                 continue;
             }
             // A message being built out of words, rather than named.
+            //
+            // The first five shapes are the ones the original sweep looked
+            // for, and they were the two shapes that existed *on the paths it
+            // was written about*. A later sweep for the ones it does not see —
+            // `ok_or`, `ok_or_else`, `map_err` producing a literal or a
+            // `format!` — found **fifty-three more**, every one a sentence the
+            // shell composed for the reader. To be fair to the design that is
+            // not the original bug: `trouble.ts` falls back to
+            // `troubleUnknown`, so a Hebrew reader saw a Hebrew sentence with
+            // the English on the hover. The cost is different and still real —
+            // *"nobody has read page 12 of this scan"*, which is actionable,
+            // arrived as *"something went wrong"*, which is not.
             let composing = trimmed.contains("Err(format!(\"")
                 || trimmed.contains("trouble: Some(format!(\"")
                 || trimmed.contains("refused: Some(format!(\"")
                 || (trimmed.starts_with("return Err(\"") && trimmed.contains("\".to_string()"))
-                || (trimmed.starts_with("Err(\"") && trimmed.contains("\".to_string()"));
+                || (trimmed.starts_with("Err(\"") && trimmed.contains("\".to_string()"))
+                || trimmed.contains("ok_or(\"")
+                || trimmed.contains("ok_or_else(|| format!(\"")
+                || trimmed.contains("ok_or_else(|| \"")
+                || trimmed.contains("map_err(|_| \"");
             if composing {
                 prose.push(format!("{name}:{}: {}", at + 1, trimmed));
+            }
+            // **And the same defect pointing the other way.** A Hebrew string
+            // in this crate is a sentence an *English* window would show in
+            // Hebrew, which is what `unfix` and `export_sefer` were doing on
+            // their success paths — where the check above never looked, because
+            // it only looks at refusals. `export_sefer`'s was worse than a
+            // language bug: a hand-rolled Hebrew number agreement in the shell,
+            // three weeks after `93f4979` settled that a count is said as
+            // *label: number* because agreement is `girsa_plain::said`'s job.
+            //
+            // Every Hebrew string the reader sees belongs in `say.ts`. What is
+            // left in this crate is Hebrew that is *data* — a ref, a slug, a
+            // corpus word — and there is none, which is why this is a flat rule
+            // and not a list of exceptions.
+            if trimmed
+                .chars()
+                .any(|c| ('\u{0590}'..='\u{05FF}').contains(&c))
+            {
+                prose.push(format!("{name}:{}: (Hebrew) {}", at + 1, trimmed));
             }
         }
     }

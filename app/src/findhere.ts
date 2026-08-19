@@ -24,6 +24,7 @@
 import { api, type Chip, type Found } from "./api.ts";
 import { chipRow } from "./chips.ts";
 import { field, glyph } from "./controls.ts";
+import { Latest } from "./latest.ts";
 import { say } from "./say.ts";
 import { sayTrouble } from "./trouble.ts";
 import type { PaneView } from "./pane.ts";
@@ -103,6 +104,30 @@ export class FindHere {
   private waiting: number | null = null;
   /** What was last asked for, so a repeat keystroke does not re-ask. */
   private asked: string | null = null;
+  /**
+   * The stale-answer guard `latest.ts` exists so that no panel has to grow its
+   * own — and which this file, of all of them, did not use.
+   *
+   * Seven panels take tickets: the picker, the search panel, the shelf, the
+   * scope, the contents, the links and the chains. This one guarded with
+   * `if (query === this.asked) return`, and set `this.asked` **before** the
+   * await, which is not the same thing and misses in two ways:
+   *
+   * * **Out of order.** Clicking a chip resets `asked` to `null` and asks
+   *   again, so a chip changed mid-flight left two asks running and
+   *   `this.places` belonged to whichever came back last rather than to what
+   *   the reader last asked.
+   * * **A closed bar still moved the page.** `close()` hid the element and
+   *   cleared the debounce and did not cancel the ask — so an answer landing
+   *   after the close ran `show()` → `goToWords`, scrolling the reader
+   *   somewhere they had not asked to be. Directly against `close`'s own
+   *   comment that *the reader keeps the place the find put them on*.
+   *
+   * The debounce above is a different thing and both are needed: the picker's
+   * own note says so, and the picker has both. The file being held up as the
+   * model for the debounce had one.
+   */
+  private readonly draws = new Latest();
 
   constructor() {
     this.element = document.createElement("div");
@@ -195,6 +220,10 @@ export class FindHere {
     this.element.remove();
     if (this.waiting !== null) window.clearTimeout(this.waiting);
     this.waiting = null;
+    // Burns the ticket of anything in flight. The round trip still completes —
+    // `Latest` is not a cancellation — but nothing it comes back with may draw
+    // or scroll into a bar the reader has closed.
+    this.draws.take();
     // The reader keeps the place the find put them on. Nothing is scrolled
     // back.
     this.pane?.element.focus();
@@ -221,8 +250,14 @@ export class FindHere {
     if (query === this.asked) return;
     this.asked = query;
     this.note.replaceChildren();
+    // The ticket is taken here, checked before anything of this answer's is
+    // written down, and checked **again** before the page is scrolled — because
+    // between the two the reader may have closed the bar, and a scroll is the
+    // one thing this panel does that cannot be undrawn.
+    const ticket = this.draws.take();
     try {
       const found = await api.seferFind(pane.slug, query);
+      if (!ticket.current()) return;
       this.places = found.places;
       this.total = found.total;
       this.drawChips(found.chips);
@@ -231,13 +266,14 @@ export class FindHere {
       // quiet on a bad pattern reads as a bar that found nothing.
       if (found.refused) sayTrouble(this.note, found.refused, "general");
     } catch (e) {
+      if (!ticket.current()) return;
       this.places = [];
       this.total = 0;
       sayTrouble(this.note, e, "general");
     }
     this.at = 0;
     this.say();
-    if (this.places.length > 0) await this.show();
+    if (this.places.length > 0 && ticket.current() && this.open) await this.show();
   }
 
   /** The options, drawn by the same function the search panel draws them with. */

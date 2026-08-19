@@ -177,6 +177,18 @@ const CODED: Record<string, (doing: string) => string> = {
   // one place. It used to be a Hebrew sentence written out in `lib.rs`, which
   // an English window would have shown in Hebrew.
   "rung-applied": () => say("codeRungApplied"),
+  // Not a failure and not a note: a **stop**, on the one write in the drawer
+  // that can destroy a document the reader does not have open. The window
+  // catches this one by name (`writing.ts`) and asks rather than showing it —
+  // a line here so that any other caller that meets it says something real.
+  "already-there": () => say("codeAlreadyThere"),
+  // The lane's two long jobs, one at a time. The window disables the button
+  // too; this is what a second window, the loopback or the MCP server meets.
+  "already-working": () => say("codeAlreadyWorking"),
+  // Sitting down at a desk would throw away an arrangement nobody has named.
+  // The desks panel catches this one by name and offers to name it; a line here
+  // so any other caller that meets it says something real.
+  "not-kept": () => say("codeNotKept"),
 
   // `girsa_post::PostError::code()`. The three below used to be matched by
   // their English words, here *and* in Ksav's `diagnostics.ts`, with four

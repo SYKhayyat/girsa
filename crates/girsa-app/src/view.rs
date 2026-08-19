@@ -884,8 +884,17 @@ pub struct ScannedRow {
 #[derive(Serialize)]
 pub struct Fixed {
     pub line: Line,
-    /// What to say: the words, and what they now read.
-    pub said: String,
+    /// The words that changed — `was → now` — or nothing when nothing did.
+    ///
+    /// **Data, not a sentence.** Two words and an arrow, which read the same in
+    /// either language; the window puts `say("fixed")` in front of them. Taking
+    /// a correction back has no such pair, and it used to fill this in with a
+    /// Hebrew sentence written in the shell (`הוחזר כפי שנדפס`) — which an
+    /// English window would have shown in Hebrew, and which is the class
+    /// `the_shell_does_not_write_sentences_for_the_reader` exists to forbid.
+    /// `None` now, and the window says what happened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub said: Option<String>,
 }
 
 /// Your corrections — all of them, or one sefer's.
@@ -1066,8 +1075,21 @@ pub struct Written {
     pub corrections: usize,
     pub stale: usize,
     pub noted: usize,
-    /// What to say: the file, and what is in it.
-    pub said: String,
+    /// The file's own name, so the window can say it without parsing `path`.
+    pub file: String,
+    /// Which text went out — `as-printed`, `fixed`, `fixed-with-variants`.
+    ///
+    /// A **name**, not a sentence. `said` used to be a whole Hebrew string
+    /// composed in the shell, and the count in it was worked out by hand:
+    /// `בלי תיקונים` / `תיקון אחד` / `{n} תיקונים`, three weeks after `93f4979`
+    /// established that the window says a count as *label: number* precisely
+    /// because agreement is `girsa_plain::said`'s job and nobody else's. It was
+    /// the `1 arrangements` finding, in Rust, on the export toast — and an
+    /// English window would have shown it in Hebrew.
+    ///
+    /// The numbers are already on this struct. What was missing was which text
+    /// went out, so that is here as a name and the sentence is the window's.
+    pub showing: &'static str,
 }
 
 /// One candidate, as the queue shows it.

@@ -209,16 +209,20 @@ impl Arrangement {
 
     /// Write it back.
     ///
+    /// Beside and renamed over, not written in place. `load` above already
+    /// describes what a reader sees when this file will not read — *"your shelf
+    /// arrangement would not read … and the shipped shelf is being shown"* —
+    /// and a truncating write is the shortest route to exactly that: every
+    /// shelf they made, every sefer they moved and every rename replaced by the
+    /// shipped arrangement, because a machine stopped inside the write.
+    ///
     /// # Errors
     ///
     /// If the personal directory cannot be made or the file cannot be written.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
         let body = serde_json::to_vec_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, body)
+        girsa_personal::beside::write(path, body)
     }
 }
 

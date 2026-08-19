@@ -156,7 +156,10 @@ export interface TocEntry {
  * one line rather than rebuilding the sefer under the reader. */
 export interface Fixed {
   line: Line;
-  said: string;
+  /** `was → now`, or absent when a correction was taken back and there is no
+   * such pair. Two words and an arrow read the same in either language; the
+   * sentence around them is the window's. */
+  said?: string;
 }
 
 /** One of your corrections, as the list shows it. */
@@ -268,7 +271,13 @@ export interface Written {
   corrections: number;
   stale: number;
   noted: number;
-  said: string;
+  /** The file's own name. */
+  file: string;
+  /** Which text went out — a **name**, not a sentence: `as-printed`, `fixed`,
+   * `fixed-with-variants`. The shell used to compose the whole line in Hebrew
+   * and work out the Hebrew agreement of the count itself, which is `say`'s
+   * job and nobody else's. */
+  showing: "as-printed" | "fixed" | "fixed-with-variants";
 }
 
 /** One candidate from the OCR queue (spec.md §7.3, W21). A question, not a
@@ -1372,8 +1381,10 @@ export const api = {
    * compiled into Rust — see `girsa_app::newer::open_releases`. */
   openReleases: () => call<void>("open_releases"),
   desks: () => call<DeskRow[]>("desks"),
-  deskKeep: (name: string) => call<DeskRow[]>("desk_keep", { name }),
-  deskOpen: (name: string) => call<DeskRow[]>("desk_open", { name }),
+  /** `over` says the reader was asked before a desk of this name is replaced. */
+  deskKeep: (name: string, over: boolean) => call<DeskRow[]>("desk_keep", { name, over }),
+  /** `discard` says the reader was asked before an unnamed arrangement is lost. */
+  deskOpen: (name: string, discard: boolean) => call<DeskRow[]>("desk_open", { name, discard }),
   deskForget: (name: string) => call<DeskRow[]>("desk_forget", { name }),
   setLanguage: (language: Language) => call<void>("set_language", { language }),
   /** What the **window** says, as against what the seforim are called. */
@@ -1535,6 +1546,11 @@ export const api = {
   buffers: () => call<string[]>("buffers"),
   bufferOpen: (name: string) => call<Writing>("buffer_open", { name }),
   bufferSave: (name: string, text: string) => call<string>("buffer_save", { name, text }),
+  /** Save under a new name. Refuses with `already-there` when something is
+   * already at `to`, unless `over` says the reader has been asked. The check is
+   * in Rust because the DOM is not the only caller. */
+  bufferRename: (from: string, to: string, text: string, over: boolean) =>
+    call<string>("buffer_rename", { from, to, text, over }),
   /** Write a copy of the document into a folder the reader chose. The working
    * buffer stays where `buffers()` can find it. */
   bufferWriteTo: (name: string, text: string, into: string) =>

@@ -39,7 +39,7 @@ pub mod documents;
 pub mod refreshing;
 
 pub use buffer::{Buffer, BufferError};
-pub use citing::{who_cites, Citing};
+pub use citing::{in_your_documents, in_your_drawer, who_cites, Citing};
 pub use documents::Documents;
 // Linkify moved down to `girsa-app` so the reading pane could reach it — see
 // `citing`. Re-exported here because this is the name Ksav's loopback and the

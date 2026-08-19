@@ -598,9 +598,6 @@ impl Session {
     ///
     /// If the directory cannot be made or the file cannot be written.
     pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
         let body = serde_json::to_vec_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         // Beside and renamed over. This used to be written on **every scroll
@@ -612,9 +609,11 @@ impl Session {
         // The shell throttles the scroll now (`State::save_scroll`); every
         // actual decision still writes at once. What this call still owes is
         // the atomicity, which is why it is a rename and not a write.
-        let temp = path.with_extension("json.writing");
-        std::fs::write(&temp, body)?;
-        std::fs::rename(&temp, path)
+        // The four lines this used to spell out are `beside::write` now, and
+        // the argument moved into that module's note with them — because three
+        // other files in the layer needed the same four and got a plain
+        // `fs::write` instead.
+        girsa_personal::beside::write(path, body)
     }
 
     /// Remember where a reader is in a sefer.

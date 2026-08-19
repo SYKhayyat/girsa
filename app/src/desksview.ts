@@ -20,11 +20,11 @@
 // not have to know.
 
 import { api, type DeskRow } from "./api.ts";
-import { about, button, field, glyph, shut } from "./controls.ts";
+import { about, ask, button, confirmThat, field, glyph, shut } from "./controls.ts";
 import { undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { fill, say } from "./say.ts";
-import { sayTrouble } from "./trouble.ts";
+import { codeOf, raw, sayTrouble } from "./trouble.ts";
 
 /**
  * What the name box should hold after a list of arrangements arrives.
@@ -178,18 +178,54 @@ export class DesksView {
       return;
     }
     try {
-      this.show(await api.deskKeep(name));
+      this.show(await api.deskKeep(name, false));
     } catch (e) {
-      sayTrouble(this.note, e, "desks");
+      // A desk of this name already exists. Rust refuses rather than writing
+      // over it, because keeping over a desk destroys the arrangement it held
+      // and that used to happen without a word.
+      if (codeOf(raw(e)) !== "already-there") {
+        sayTrouble(this.note, e, "desks");
+        return;
+      }
+      if (!(await confirmThat(fill("desksReplace", { name }), { ok: say("desksReplaceYes") }))) {
+        return;
+      }
+      try {
+        this.show(await api.deskKeep(name, true));
+      } catch (again) {
+        sayTrouble(this.note, again, "desks");
+      }
     }
   }
 
   private async go(name: string): Promise<void> {
     try {
-      this.show(await api.deskOpen(name));
+      this.show(await api.deskOpen(name, false));
     } catch (e) {
-      sayTrouble(this.note, e, "desks");
-      return;
+      // The arrangement on screen has never been named, so there is nowhere to
+      // put it back and sitting down here would throw it away. Rust refuses;
+      // the window offers the obvious thing, which is to name it first.
+      if (codeOf(raw(e)) !== "not-kept") {
+        sayTrouble(this.note, e, "desks");
+        return;
+      }
+      const keep = await ask(say("desksNameThisFirst"), { hint: say("desksNameThisWhy") });
+      try {
+        if (keep !== null && keep.trim() !== "") {
+          await api.deskKeep(keep.trim(), false);
+          this.show(await api.deskOpen(name, false));
+        } else if (keep === null) {
+          // Cancelled. The arrangement stays where it is, which is the point.
+          return;
+        } else {
+          // An empty name is *do not keep it* — said by clearing the box, and
+          // answered by going ahead rather than by asking again.
+          this.show(await api.deskOpen(name, true));
+        }
+      } catch (again) {
+        sayTrouble(this.note, again, "desks");
+        return;
+      }
     }
     this.box.value = name;
     // Everything on screen came from the arrangement that was just replaced.

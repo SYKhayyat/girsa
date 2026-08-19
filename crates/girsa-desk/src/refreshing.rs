@@ -37,6 +37,23 @@
 //! that scanner on its own buffer and zips by position: one scanner, one order,
 //! and no ref matched by string.
 //!
+//! **Total, and that is the load-bearing word.** *One row per citation* is what
+//! makes zipping by position sound, so the count this returns has to be the
+//! count `cited_in` found — not the count of those this build happened to be
+//! able to parse. It was the second of those for a while: [`wanted`] dropped a
+//! `מקור:` whose value this build's ref parser rejected, so a document with one
+//! unreadable citation in the middle handed the pen *n* − 1 rows for *n*
+//! citations and every quote after the bad one was re-quoted **from the wrong
+//! place**, each row individually well-formed and carrying a plausible
+//! citation. `"total"` was the post-drop count too, so even a caller that
+//! wanted to check got the number that agreed with itself.
+//!
+//! `sending.rs` says what class that is: *a quote taken from the se'if next
+//! door is exactly the silent wrongness this system exists to make impossible*.
+//! So [`Wanted`] has a variant for *this one did not parse*, and a citation
+//! this library cannot look up is a row with a reason in it — the same answer
+//! this module already gave for a sefer the shelf does not have.
+//!
 //! The rows carry the citation as it prints *today* and the words as they read
 //! *today*. What to replace, whether to ask first, and where the cursor ends up
 //! are the pen's — this module has no opinion about somebody else's buffer.
@@ -47,33 +64,61 @@ use girsa_source::Range;
 use serde::{Deserialize, Serialize};
 
 /// One citation a document holds, ready to be asked about.
+///
+/// Two variants and not one, because the answer has to be **total**: see the
+/// module note. A citation this build cannot read is still a citation the
+/// document has, still a position in the order, and still a row the pen is
+/// going to zip against its own scan.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Wanted {
-    /// The place, parsed.
-    pub reference: Ref,
-    /// Which characters of it the citation quoted, as the document spelled it.
+pub enum Wanted {
+    /// A place this library can look up.
+    Parsed {
+        /// The place, parsed.
+        reference: Ref,
+        /// Which characters of it the citation quoted, as the document spelled
+        /// it.
+        ///
+        /// `None` is *the whole of what the ref names*. A document written
+        /// before the field existed says nothing, and regenerating the whole
+        /// place is all anyone can honestly do with it.
+        range: Option<Range>,
+    },
+    /// A `מקור:` whose value this build's ref parser rejects.
     ///
-    /// `None` is *the whole of what the ref names*. A document written before
-    /// the field existed says nothing, and regenerating the whole place is all
-    /// anyone can honestly do with it.
-    pub range: Option<Range>,
+    /// Not a failure of the document. A ref written by a newer Girsa whose
+    /// syntax this build does not know, a ref hand-edited in the `.typ`, a
+    /// `girsa:` string a copy-paste truncated — all of them reach here, and all
+    /// of them are things a reader can be told about and act on. What none of
+    /// them may do is vanish.
+    Unreadable {
+        /// The value as the document spells it, echoed back so the reader can
+        /// see which citation is meant.
+        text: String,
+        /// Which characters of it the citation claimed, if it said.
+        range: Option<Range>,
+    },
 }
 
-/// Every citation in the document that names a place this library could look
-/// up, in the order they appear.
+/// Every citation in the document, in the order they appear.
 ///
-/// A `מקור:` whose value does not parse as a ref is dropped rather than
-/// reported: it is not a citation into this library, and a document is allowed
-/// to contain other people's markup.
+/// One entry per `מקור:` [`girsa_ksav::cited_in`] found — the ones this build
+/// can parse as [`Wanted::Parsed`], the ones it cannot as
+/// [`Wanted::Unreadable`]. Nothing is dropped, because the caller zips by
+/// position and a dropped row moves every citation after it onto the wrong
+/// place.
 #[must_use]
 pub fn wanted(markup: &str) -> Vec<Wanted> {
     girsa_ksav::cited_in(markup)
         .into_iter()
-        .filter_map(|cited| {
-            Some(Wanted {
-                reference: cited.reference.parse().ok()?,
+        .map(|cited| match cited.reference.parse() {
+            Ok(reference) => Wanted::Parsed {
+                reference,
                 range: cited.range,
-            })
+            },
+            Err(_) => Wanted::Unreadable {
+                text: cited.reference,
+                range: cited.range,
+            },
         })
         .collect()
 }
@@ -104,10 +149,10 @@ pub struct Refreshed {
 impl Refreshed {
     /// A citation that came back.
     #[must_use]
-    fn found(wanted: &Wanted, sent: &Sent) -> Self {
+    fn found(reference: &Ref, range: Option<Range>, sent: &Sent) -> Self {
         Self {
-            reference: wanted.reference.to_string(),
-            range: wanted.range,
+            reference: reference.to_string(),
+            range,
             display: sent.display().to_string(),
             text: sent.packet.text.clone(),
             trouble: None,
@@ -116,13 +161,29 @@ impl Refreshed {
 
     /// A citation that did not, and why.
     #[must_use]
-    fn lost(wanted: &Wanted, why: String) -> Self {
+    fn lost(reference: &Ref, range: Option<Range>, why: String) -> Self {
         Self {
-            reference: wanted.reference.to_string(),
-            range: wanted.range,
+            reference: reference.to_string(),
+            range,
             display: String::new(),
             text: String::new(),
             trouble: Some(why),
+        }
+    }
+
+    /// A citation whose ref this build cannot read.
+    ///
+    /// The `ref` field carries the value the document spells rather than a
+    /// parsed one, which is the only honest thing to put there and is also the
+    /// thing the reader needs in order to go and look at it.
+    #[must_use]
+    fn unreadable(text: &str, range: Option<Range>) -> Self {
+        Self {
+            reference: text.to_string(),
+            range,
+            display: String::new(),
+            text: String::new(),
+            trouble: Some(format!("this build cannot read the ref {text}")),
         }
     }
 
@@ -179,21 +240,27 @@ pub fn refreshed_reporting(
     let mut moved = RedirectTable::new();
     let rows = wanted(markup)
         .into_iter()
-        .map(|one| match ask(&one.reference, one.range) {
-            Ok(sent) => {
-                // Only when it parses, and only when it differs. A packet whose
-                // ref this build cannot read is not evidence that anything
-                // moved; and a table with a row for every citation in the
-                // document would be saying *everything moved*, which carries
-                // the same information as saying nothing.
-                if let Ok(now) = sent.packet.reference.parse::<Ref>() {
-                    if now != one.reference {
-                        moved.insert(&one.reference, vec![now]);
+        .map(|one| match one {
+            // A ref this build cannot read is a row saying so. It is not asked
+            // about — there is nothing to ask with — and it is not skipped,
+            // because the row list is what the pen zips against.
+            Wanted::Unreadable { text, range } => Refreshed::unreadable(&text, range),
+            Wanted::Parsed { reference, range } => match ask(&reference, range) {
+                Ok(sent) => {
+                    // Only when it parses, and only when it differs. A packet
+                    // whose ref this build cannot read is not evidence that
+                    // anything moved; and a table with a row for every citation
+                    // in the document would be saying *everything moved*, which
+                    // carries the same information as saying nothing.
+                    if let Ok(now) = sent.packet.reference.parse::<Ref>() {
+                        if now != reference {
+                            moved.insert(&reference, vec![now]);
+                        }
                     }
+                    Refreshed::found(&reference, range, &sent)
                 }
-                Refreshed::found(&one, &sent)
-            }
-            Err(why) => Refreshed::lost(&one, why),
+                Err(why) => Refreshed::lost(&reference, range, why),
+            },
         })
         .collect();
     (rows, moved)
@@ -306,14 +373,49 @@ mod tests {
     }
 
     #[test]
-    fn a_mekor_that_is_not_a_girsa_ref_is_not_this_librarys_business() {
-        // A document is allowed to hold somebody else's markup. `cited_in`
-        // already drops what does not start `girsa:`; this is the second half —
-        // a `girsa:` string that is not a ref this library can parse.
+    fn a_mekor_this_build_cannot_read_is_a_row_with_a_reason_in_it() {
+        // This test used to assert the opposite — that such a citation is
+        // dropped, because *a document is allowed to hold somebody else's
+        // markup*. The premise is right and the conclusion was not: the pen
+        // zips these rows against its own scan **by position**, so a dropped
+        // row does not remove one citation, it moves every citation after it
+        // onto the words of a different place.
         let markup = "#מראה_מקום(מקור: \"girsa:\")[כלום]";
-        assert!(against(markup).is_empty());
-        assert!(wanted(markup).is_empty());
+        let rows = against(markup);
+        assert_eq!(rows.len(), 1, "{rows:#?}");
+        assert!(rows[0].is_trouble());
+        assert!(rows[0].text.is_empty());
+        assert_eq!(rows[0].reference, "girsa:");
+        assert_eq!(wanted(markup).len(), 1);
     }
+
+    #[test]
+    fn one_unreadable_citation_does_not_move_the_ones_after_it() {
+        // The fence for the whole finding: a malformed `מקור:` in the middle of
+        // good ones. Three citations in, three rows out, and the third row is
+        // still about the third citation.
+        let good = document();
+        let markup = format!(
+            "{good}#מראה_מקום(מקור: \"girsa:\")[כלום]\n{}",
+            girsa_ksav::mekor("שו\"ע או\"ח א' א'", Some(SEIF), None)
+        );
+        let rows = against(&markup);
+        assert_eq!(
+            rows.len(),
+            girsa_ksav::cited_in(&markup).len(),
+            "one row per citation, always: {rows:#?}"
+        );
+        assert_eq!(rows.len(), 4, "{rows:#?}");
+        assert!(rows[2].is_trouble(), "the unreadable one: {:#?}", rows[2]);
+        // The one after it is the one after it, and it came back with words.
+        assert!(!rows[3].is_trouble(), "{:#?}", rows[3]);
+        assert_eq!(rows[3].reference, SEIF);
+        assert_eq!(rows[3].text, rows[0].text, "the same se'if, the same words");
+    }
+
+    /// The first se'if of the pretend Shulchan Arukh, which `document()` also
+    /// cites first.
+    const SEIF: &str = "girsa:shulchan-arukh/orach-chayim/1:1";
 
     #[test]
     fn the_scanner_is_the_one_both_applications_compile() {
@@ -321,10 +423,18 @@ mod tests {
         // `girsa_ksav::cited_in`, the pen and the library are zipping two
         // different lists by index — which is the one way this errand can
         // silently put the wrong words in somebody's document.
-        let markup = document();
+        //
+        // Counted as well as compared, and over markup with an unreadable
+        // citation in it: agreeing about the refs they can both read is not the
+        // property that makes the zip sound. Agreeing about how many there are
+        // is.
+        let markup = format!("{}#מראה_מקום(מקור: \"girsa:\")[כלום]\n", document());
         let mine: Vec<String> = wanted(&markup)
             .iter()
-            .map(|w| w.reference.to_string())
+            .map(|w| match w {
+                Wanted::Parsed { reference, .. } => reference.to_string(),
+                Wanted::Unreadable { text, .. } => text.clone(),
+            })
             .collect();
         let theirs: Vec<String> = girsa_ksav::cited_in(&markup)
             .into_iter()

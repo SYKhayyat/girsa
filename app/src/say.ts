@@ -650,6 +650,18 @@ const WORDS = {
     "החל — לחזרה, חפש שוב בלי ההצעה",
     "applied — search again without the offer to go back",
   ] as Both,
+  codeAlreadyThere: [
+    "כבר יש שם משהו — לא הוחלף",
+    "something is already there — nothing was replaced",
+  ] as Both,
+  codeAlreadyWorking: [
+    "הנתיב כבר עובד — עצור אותו קודם, או המתן",
+    "the lane is already working — stop it first, or wait for it",
+  ] as Both,
+  codeNotKept: [
+    "לסידור שעל המסך אין שם, ואין לאן להחזיר אותו",
+    "the arrangement on screen has no name, so there is nowhere to put it back",
+  ] as Both,
   codeWillNotSerialize: [
     "המקור לא נארז כראוי — העתק שוב, ואם זה חוזר דווח על השורה",
     "the source would not pack — copy again, and if it keeps happening report the line",
@@ -797,7 +809,36 @@ const WORDS = {
   ] as Both,
   /** What the drawer says after a save. The path is on the hover: a reader
    * wants to know it was written, not where the application keeps its files. */
+  desksReplace: ["כבר יש שולחן בשם {name}. להחליף את הסידור השמור בו?", "you already have a desk called {name}. Replace the arrangement it holds?"] as Both,
+  desksReplaceYes: ["להחליף", "Replace"] as Both,
+  desksNameThisFirst: ["לתת שם לסידור שעל המסך?", "name the arrangement on screen?"] as Both,
+  desksNameThisWhy: [
+    "הסידור הנוכחי לא נשמר בשום שולחן, ופתיחת שולחן אחר תחליף אותו. השאר ריק כדי להמשיך בלי לשמור.",
+    "the arrangement you have now belongs to no desk, and sitting down at another one replaces it. Leave it empty to go ahead without keeping it.",
+  ] as Both,
+  /** Taking a correction back. Was a Hebrew string composed in `lib.rs`. */
+  unfixed: ["הוחזר כפי שנדפס", "back to what is printed"] as Both,
+  /** How many corrections went into an export — *label: number*, because
+   * agreement at one is `girsa_plain::said`'s job and the window does not do
+   * it by hand. See `93f4979`. */
+  wroteFixes: ["תיקונים", "corrections"] as Both,
   writingSaved: ["נשמר", "saved"] as Both,
+  // The rename that would land on a document you already have. Named rather
+  // than generic: *something went wrong* to somebody about to lose a week of
+  // writing is the silence this whole arrangement replaced.
+  writingNameTaken: ["כבר יש לך משהו בשם {name}. להחליף אותו?", "you already have something called {name}. Replace it?"] as Both,
+  writingNameTakenWhy: [
+    "המסמך שכתוב שם יימחק והמסמך הנוכחי יישמר במקומו. המסמך בשם הישן יישאר.",
+    "the document under that name is replaced by this one. The one under the old name stays where it is.",
+  ] as Both,
+  writingNameTakenYes: ["להחליף", "Replace"] as Both,
+  // The highlight is in the *other* pane. Named rather than silent, because
+  // the alternative the window used to take was to copy the line the reader was
+  // standing on here — the wrong passage, with a right-looking citation on it.
+  highlightElsewhere: [
+    "ההדגשה נמצאת בעמודה אחרת — לחץ בה ואז העתק",
+    "the highlight is in the other column — click in it, then copy",
+  ] as Both,
   nothingChosen: ["לא נבחר כלום בספר", "nothing is highlighted in the sefer"] as Both,
   saveACopy: ["שמור עותק…", "Save a copy…"] as Both,
   saveACopyWhy: [
