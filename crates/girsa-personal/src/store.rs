@@ -109,6 +109,24 @@ pub trait Store: Sized {
     /// can offer it as a public operation — `girsa-fix` compacts on demand
     /// after a merge — without six copies of one line.
     ///
+    /// # Warning: this discards anything another process appended
+    ///
+    /// *Exactly what the index holds* is the whole hazard. The index was built
+    /// when the store was opened; a second Girsa on the same layer that has
+    /// appended since is not in it, and this rewrites the file without those
+    /// lines. They are not recoverable — the file was the only copy.
+    ///
+    /// The automatic compaction in [`open`] does not have this problem: it
+    /// re-reads from the offset it last read to and carries forward whatever it
+    /// finds, with a test that fails without it. Closing the same gap **here**
+    /// means a read offset threaded through this trait and all six stores that
+    /// implement it, which is a wider change than the finding that fixed
+    /// [`open`] called for and is deliberately not smuggled into it.
+    ///
+    /// Until then: call this only from a tool that owns the layer for the
+    /// duration. `girsa-fix` is such a tool by convention and not by
+    /// enforcement, which is the honest statement of where this stands.
+    ///
     /// # Errors
     ///
     /// If a record will not serialize, or the file will not write or rename.

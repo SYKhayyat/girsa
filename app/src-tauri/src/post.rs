@@ -12,7 +12,7 @@
 //! | `POST /where-from` | *where is this phrase from?* — cite-on-selection (W18) |
 //! | `POST /search` | *nothing fitted* — put the phrase in the search and open it |
 //! | `POST /linkify` | *which of these are citations?* — the certain ones (W19) |
-//! | `POST /document` | *I have saved a document here* — so *where did I use this* is true (§10.4) |
+//! | `POST /document-saved` | *I have saved a document here* — so *where did I use this* is true (§10.4) |
 //!
 //! (It said *three* while there were six of them, then seven. The count is in
 //! the same sentence as the list now, which is the only arrangement that
@@ -139,7 +139,13 @@ fn answer(handle: &tauri::AppHandle, path: &str, body: &str) -> Reply {
         "/refresh" => return refresh(handle, body),
         "/search" => return search(handle, body),
         "/linkify" => return linkify(handle, body),
-        "/document" => return document(handle, body),
+        // `/document-saved`, and the name it had while it also meant *take this
+        // document* in the other direction. `girsa_post::routes::girsa` states
+        // both; they are literals here only because this tree's pin predates
+        // that module. Accepting the old name is what makes the rename safe
+        // without both applications releasing on the same day — see the note on
+        // `send_to_ksav_or_legacy` in `lib.rs`.
+        "/document-saved" | "/document" => return document(handle, body),
         _ => {}
     }
 

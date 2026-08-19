@@ -575,7 +575,7 @@ the answer came from the stale one.
 
 There is nowhere to walk instead. A reader's documents live wherever they keep
 documents — a shiur folder, a synced drive, a stick — and Girsa has no business
-enumerating a disk. So Ksav says so: **`/document` on the desk**, and the path
+enumerating a disk. So Ksav says so: **`/document-saved` on the desk**, and the path
 lands in `personal/documents.jsonl`, a `girsa_personal::Log` like everything
 else in the layer. This region argued for exactly that shape at length, for the
 link graph (`links.rs`'s module note), and then wrote a directory walk.

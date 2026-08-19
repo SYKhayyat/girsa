@@ -333,7 +333,7 @@ those can be tested and a webview cannot. The window is
 **4,706**<!--=styles-lines--> lines — no framework, three runtime dependencies.
 
 That is a rule, not a description, and it is enforced. Of the shell's
-**6,748**<!--=shell-lines--> lines, about 150 were once genuine pass-through and
+**6,781**<!--=shell-lines--> lines, about 150 were once genuine pass-through and
 the rest decided cache policy, sort orders, truncation lengths, which fonts a
 Hebrew reader is offered, and what to do with a chip key it did not recognise.
 Each of those now lives in the crate whose subject it is, and two checks fail if

@@ -116,7 +116,7 @@ answer:
 | `POST /where-from` | *where is this phrase from?* — cite-on-selection |
 | `POST /search` | *nothing fitted* — put the phrase in the search and open it |
 | `POST /linkify` | *which of these are citations?* — only the certain ones |
-| `POST /document` | *I have saved a document here* — so *where did I use this* is true |
+| `POST /document-saved` | *I have saved a document here* — so *where did I use this* is true |
 
 `/cite` and `/quote` are what make a citation alive. Because a Ksav document
 stores the **ref** and not the printed string, a whole sefer can be switched

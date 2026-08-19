@@ -621,7 +621,7 @@ fn documents(shelf: &Shelf) -> Result<(), String> {
 
 /// Tell Girsa about a document, or take one off the list.
 ///
-/// The desk's `/document` is how this normally happens — Ksav says so when it
+/// The desk's `/document-saved` is how this normally happens — Ksav says so when it
 /// saves. This is the same errand from a terminal, because a feature that can
 /// only be seen by installing a second application is a feature nobody can
 /// check (BUILDER.md §0.3).

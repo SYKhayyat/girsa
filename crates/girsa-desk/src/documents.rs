@@ -22,7 +22,7 @@
 //! There is nowhere to walk. A reader's documents live wherever they keep
 //! documents — a Dropbox folder, a shiur directory, a USB stick — and Girsa has
 //! no business enumerating a disk. So the desk tells it: Ksav posts
-//! `/document` when it saves, and the path lands here.
+//! `/document-saved` when it saves, and the path lands here.
 //!
 //! `personal/documents.jsonl`, a [`girsa_personal::Log`] like everything else in
 //! the layer. This region already argued for exactly this shape at length, for
@@ -78,7 +78,7 @@ pub struct Document {
     /// first half cannot answer it alone. `read_at` is a modification time
     /// truncated to whole seconds, which is all the filesystem promises, and the
     /// sequence that loses a save is the ordinary one: Ksav writes at second
-    /// *T* and posts `/document`; Girsa reads and records `read_at = T`; Ksav
+    /// *T* and posts `/document-saved`; Girsa reads and records `read_at = T`; Ksav
     /// writes again inside the same second. `T > T` is false, so the second
     /// save was invisible to `who_cites` until some later write happened to
     /// bump the clock.
@@ -200,7 +200,7 @@ impl Documents {
         self.by_path.get(&path.display().to_string())
     }
 
-    /// Remember a document — the desk's `/document`, and the shell's command.
+    /// Remember a document — the desk's `/document-saved`, and the shell's command.
     ///
     /// Idempotent: saving the same file twice is one row. Re-registering a path
     /// keeps the refs already cached and takes the new name, because the name

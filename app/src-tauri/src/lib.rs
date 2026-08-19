@@ -98,7 +98,7 @@ pub(crate) struct State {
     ///
     /// Read once and held, like the catalogue: `who_cites` is asked on a click
     /// and re-reading the registry per click would be a file read per click.
-    /// The desk's `/document` clears it, because that is where a row is added.
+    /// The desk's `/document-saved` clears it, because that is where a row is added.
     pub(crate) documents: Option<girsa_desk::documents::Documents>,
     /// When each work was written, read once beside the catalogue.
     ///
@@ -623,7 +623,7 @@ impl State {
     ///
     /// Refreshed on open — a `stat` per document, once, rather than a file read
     /// per click. A document saved while the window is up arrives through the
-    /// desk's `/document`, which clears this.
+    /// desk's `/document-saved`, which clears this.
     fn documents(&mut self, personal: &std::path::Path) -> &girsa_desk::documents::Documents {
         if self.documents.is_none() {
             let (mut documents, trouble) = girsa_desk::documents::Documents::open(personal);
@@ -4048,9 +4048,42 @@ fn buffer_to_ksav(
 ) -> Result<(), String> {
     buffer_save(shared, name.clone(), text.clone())?;
     let errand = serde_json::json!({ "name": name, "text": text }).to_string();
-    girsa_post::send(girsa_post::App::Ksav, "/document", Some(&errand))
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    send_to_ksav_or_legacy(TAKE_DOCUMENT, LEGACY_DOCUMENT, &errand)
+}
+
+/// What Ksav serves for *take this document*, and what it used to serve.
+///
+/// Both are stated in `girsa_post::routes::ksav`, which is the copy that
+/// matters — it is the one both applications compile. They are written out here
+/// rather than imported because this tree's `girsa-post` pin predates that
+/// module; the import replaces these two lines at the next bump.
+const TAKE_DOCUMENT: &str = "/take-document";
+const LEGACY_DOCUMENT: &str = "/document";
+
+/// One errand, addressed to the name Ksav answers to.
+///
+/// `/document` used to mean two unrelated things depending on which way it was
+/// travelling, which is why it is `/take-document` now. The rename looked like
+/// it needed both applications in one commit — two repositories, so never. It
+/// does not: a path only collides *across* the seam, so each side can answer to
+/// both names and each sender can try the new one and fall back. Old Girsa with
+/// new Ksav, and new Girsa with old Ksav, both work, and the two releases are
+/// independent.
+///
+/// **404 only.** A refusal for any other reason is Ksav having heard the errand
+/// and declined it, and asking again under an older name would be asking a
+/// second time for something already answered.
+fn send_to_ksav_or_legacy(path: &str, legacy: &str, errand: &str) -> Result<(), String> {
+    let app = girsa_post::App::Ksav;
+    match girsa_post::send(app, path, Some(errand)) {
+        Ok(_) => Ok(()),
+        Err(girsa_post::PostError::Refused { status: 404, .. }) => {
+            girsa_post::send(app, legacy, Some(errand))
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Which of your own documents cite this place (spec.md §10.4).

@@ -633,6 +633,13 @@ impl Queue {
         // A rebuild is a replacement, so this is the one write that is still a
         // whole file — and it is also the compaction, since it lands exactly
         // the entries the queue now holds.
+        //
+        // **This is the on-demand compaction `Store::compact` warns about.** It
+        // writes the entries this process holds and nothing else, so a second
+        // Girsa that decided a finding while the scan was running loses that
+        // decision. It is bounded — one queue, and a decision is one word — and
+        // it is not fixed here, because the fix is a read offset on the `Store`
+        // trait rather than a special case in this one caller.
         self.compact()?;
         Ok(report)
     }
