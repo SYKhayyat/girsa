@@ -1,0 +1,5 @@
+# Pinned toolchain. Do not change this to "stable" - an exact version is what
+# makes this project still build years from now. rustup installs it automatically.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
