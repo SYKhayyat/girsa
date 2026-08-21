@@ -59,7 +59,7 @@ cargo run -p girsa-search --bin girsa-index build index corpus personal  # the s
 ```
 
 `<library>` is a `.txt` tree with an `אוצריא/` directory in it — the Otzaria
-copy you downloaded yourself, which is step 2 of the six in the README and the
+copy you downloaded yourself, which is step 2 of the seven in the README and the
 one nothing here fetches for you. The two tools that take it refuse without it.
 
 **[`the-libraries.md`](the-libraries.md) says where to get one**, for each part

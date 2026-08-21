@@ -6,8 +6,9 @@
 // Everything Girsa needs to be a library rather than an empty window: Sefaria
 // fetched, a `.txt` library downloaded and unpacked, both imported onto
 // permanent ids, the link graph built, the caches that read it backwards, and
-// the search index. Six steps, in the order they have to happen, with the two
-// downloads that were previously a paragraph telling you to go and get them.
+// which seforim are worth opening beside which, and the search index. Seven
+// steps, in the order they have to happen, with the two downloads that were
+// previously a paragraph telling you to go and get them.
 //
 // # Why this exists
 //
@@ -122,6 +123,7 @@ const CRATE_OF = {
   "girsa-link-import": "girsa-link",
   "girsa-link-types": "girsa-link",
   "girsa-index": "girsa-search",
+  "girsa-companions": "girsa-app",
 };
 function tool(name) {
   const exe = join(root, "target", "release", process.platform === "win32" ? `${name}.exe` : name);
@@ -261,6 +263,20 @@ async function main() {
   // 5 · The caches. Skipping this is why a daf has no mefarshim.
   say("the caches that read the links backwards");
   run(tool("girsa-link-types"), [corpus, personal]);
+
+  // 6 · Which seforim are worth opening beside which.
+  //
+  // **This was not in the six steps, and leaving it out is invisible.** The
+  // shelf still opens, every daf still has its links, and the מפרשים list
+  // simply offers the *declared* commentaries only — which for a `.txt`
+  // library is none of them, because nothing in a `.txt` declares a base text.
+  // The Encyclopedia Talmudit's own footnote volume, 5,657 edges of it per
+  // letter, would not be offered beside the entry it annotates.
+  //
+  // `docs/tools.md` calls this one "worth running, and nothing refuses without
+  // it", which is exactly the shape of a step that stops being run.
+  say("which seforim are worth opening beside which");
+  run(tool("girsa-companions"), [corpus]);
 
   // 6 · Search.
   if (has("--skip-search")) {

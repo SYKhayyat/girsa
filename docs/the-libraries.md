@@ -12,8 +12,9 @@ node tools/build-a-shelf.mjs corpus --download-otzaria
 ```
 
 Sefaria fetched, Otzaria's library downloaded and unpacked, both imported onto
-permanent ids, the link graph built, the caches that read it backwards, and the
-search index. About two hours, mostly the index, and **~15 GB** at the end.
+permanent ids, the link graph built, the caches that read it backwards, which
+seforim open beside which, and the search index. About two hours, mostly the
+index, and **~15 GB** at the end.
 
 Add `--otzarlib` to clone [OtzarLib](#otzarlib-and-the-tool-that-lays-it-out)
 and lay it out as well — it prints that collection's terms when you pass it.
@@ -208,20 +209,29 @@ and linkable to the sugya like anything else. See
 
 ---
 
-## After the seforim: the four steps that make them usable
+## After the seforim: the steps that make them usable
 
 Steps 1 and 2 above put text on the shelf. These make it behave like a library:
 
 ```sh
 girsa-link-import corpus <library>...        # the links between seforim
 girsa-link-types  corpus personal            # the caches that read them backwards
+girsa-companions  corpus                     # which seforim open beside which
 girsa-index build index corpus personal      # search, about 4 GB
 ```
 
-**Skip the middle one and no mefaresh will ever appear**, on any daf — the
+**Skip `girsa-link-types` and no mefaresh will ever appear**, on any daf — the
 מפרשים button reads `לצד` on every sefer and the panel says *I have not been
 told*, which is the honest sentence for a missing cache and is indistinguishable
-from a sefer nobody wrote on. It is the step most people miss.
+from a sefer nobody wrote on.
+
+**Skip `girsa-companions` and the list is offered but short.** It decides which
+seforim are worth opening beside which, and without it the shelf offers only the
+commentaries a *schema* declares — which for a `.txt` library is none of them,
+because nothing in a `.txt` declares a base text. The Encyclopedia Talmudit's
+own footnote volume would not be offered beside the entry it annotates, though
+all 5,657 of its edges per letter are there. That is the step easiest to miss,
+because nothing refuses without it.
 
 Skip the last and everything still opens; search says why it cannot search.
 

@@ -119,7 +119,7 @@ about two hours, mostly the search index, and ~15 GB at the end. Add
 `--otzarlib` for a second library, `--dry-run` to see the plan, `--help` for the
 rest.
 
-The six steps it performs, for when you want to do them yourself:
+The seven steps it performs, for when you want to do them yourself:
 
 | | Step | Command | On disk after it |
 |---|---|---|---|
@@ -128,7 +128,8 @@ The six steps it performs, for when you want to do them yourself:
 | 3 | Build the shelf | `girsa-import corpus <library>...` | 4.9 GB |
 | 4 | The links between them | `girsa-link-import corpus <library>...` | 1.5 GB |
 | 5 | The caches that read them backwards | `girsa-link-types corpus personal` | |
-| 6 | Build search | `girsa-index build index corpus personal` | 4.0 GB |
+| 6 | Which seforim open beside which | `girsa-companions corpus` | |
+| 7 | Build search | `girsa-index build index corpus personal` | 4.0 GB |
 
 Those are `du` on one machine with Sefaria and two `.txt` libraries — Otzaria's
 and OtzarLib's, 7,316 works between them — measured over `corpus/sefaria`,

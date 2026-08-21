@@ -222,15 +222,23 @@ export async function run() {
 //
 // Adding them meant renumbering by hand, twice, and a `4.` where a `5.` belongs
 // is invisible until somebody with an empty corpus reads the screen. So this
-// asserts the shape rather than the wording: the numbers run 1..6 in order, in
-// both languages. What it cannot check is whether the steps are the right ones;
-// that took running them.
+// asserts the shape rather than the wording: the numbers run in order from one,
+// in both languages. What it cannot check is whether the steps are the right
+// ones; that took running them.
+//
+// It happened again on 21 August. `girsa-companions` — *which seforim are worth
+// opening beside which* — was never on this screen, and a `.txt` library made
+// that matter: nothing in a `.txt` declares a base text, so without it the
+// Encyclopedia Talmudit's own footnote volume is not offered beside the entry it
+// annotates. This guard caught the renumbering; nothing caught the missing step
+// for five days.
 const CORPUS_STEPS = [
   "corpusStepFetch",
   "corpusStepOtzaria",
   "corpusStepImport",
   "corpusStepLinks",
   "corpusStepLinkTypes",
+  "corpusStepCompanions",
   "corpusStepIndex",
 ];
 
@@ -242,9 +250,9 @@ function stepNumber(line) {
 
 for (const language of ["hebrew", "english"]) {
   check(
-    `the first screen's steps are numbered 1..6 in order, in ${language}`,
+    `the first screen's steps are numbered from one, in order, in ${language}`,
     CORPUS_STEPS.map((word) => stepNumber(sayIn(word, language))),
-    [1, 2, 3, 4, 5, 6],
+    CORPUS_STEPS.map((_, at) => at + 1),
   );
 }
 

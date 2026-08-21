@@ -1050,7 +1050,7 @@ const WORDS = {
    * no corpus is a question with no answer available, so the steps are on the
    * screen.
    *
-   * **These are the same six commands the README's table gives**, and they have
+   * **These are the same commands the README's table gives**, and they have
    * drifted from it before: the archive was named here without the platform it
    * is named with, and step 3 said `<otzaria>` for a week after the tools began
    * taking a list. Nothing checks that these agree, so when one moves the other
@@ -1092,9 +1092,25 @@ const WORDS = {
     "5. המטמונים שקוראים אותם לאחור: girsa-link-types corpus personal",
     "5. The caches that read them backwards: girsa-link-types corpus personal",
   ] as Both,
+  /**
+   * The step that is invisible when it is missing, which is why it is here.
+   *
+   * `girsa-companions` decides **which seforim are worth opening beside which**.
+   * Without it the shelf offers the commentaries a *schema* declares — and
+   * nothing in a `.txt` library declares a base text, so for those seforim it
+   * offers none. The Encyclopedia Talmudit's own footnote volume sat unoffered
+   * beside the entry it annotates with all 5,657 of its edges per letter
+   * already imported, because this ran five days before the seforim did.
+   *
+   * Nothing refuses without it, which is exactly how a step stops being run.
+   */
+  corpusStepCompanions: [
+    "6. אילו ספרים נפתחים זה לצד זה: girsa-companions corpus",
+    "6. Which seforim open beside which: girsa-companions corpus",
+  ] as Both,
   corpusStepIndex: [
-    "6. לחיפוש — כ־4 ג׳יגה: girsa-index build index corpus personal",
-    "6. For search — about 4 GB: girsa-index build index corpus personal",
+    "7. לחיפוש — כ־4 ג׳יגה: girsa-index build index corpus personal",
+    "7. For search — about 4 GB: girsa-index build index corpus personal",
   ] as Both,
   corpusStepsWhere: [
     "את הכלים מורידים מדף השחרור — girsa-tools-windows-x86_64.zip",

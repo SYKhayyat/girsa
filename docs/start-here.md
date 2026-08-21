@@ -16,7 +16,7 @@ sense.
 ## Before you start
 
 You need the corpus on disk. It is not in the repository — it is a download, and
-by the end of the six commands below it is **about 15 GB**, of which roughly a
+by the end of the seven commands below it is **about 15 GB**, of which roughly a
 third is the search index. **One step in the middle is yours to do by hand**:
 Sefaria's half is fetched for you and the `.txt` libraries are not, so
 `<library>` below is a path to a tree you downloaded yourself.
@@ -27,7 +27,7 @@ Sefaria's half is fetched for you and the `.txt` libraries are not, so
 node tools/build-a-shelf.mjs corpus --download-otzaria
 ```
 
-Or, if you would rather run the six yourself:
+Or, if you would rather run the seven yourself:
 
 ```sh
 cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim, 3.4 GB
@@ -35,6 +35,7 @@ cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the s
 cargo run -p girsa-corpus --bin girsa-import      corpus <library>...    # onto permanent ids
 cargo run -p girsa-link   --bin girsa-link-import corpus <library>...    # the links between them
 cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards
+cargo run --release -p girsa-app --bin girsa-companions corpus           # which seforim open beside which
 cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index, 4.0 GB
 ```
 

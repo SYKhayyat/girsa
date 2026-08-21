@@ -1864,14 +1864,16 @@ function noCorpus(): HTMLElement[] {
   const title = document.createElement("p");
   title.className = "empty-hint";
   title.textContent = say("corpusStepsTitle");
-  // Six, not four. The four that were here left a reader with a shelf and no
-  // link graph — see `corpusStepLinks` in say.ts for what that costs them.
+  // Seven, not four. The four that were here left a reader with a shelf and no
+  // link graph — see `corpusStepLinks` in say.ts — and the sixth was added when
+  // a `.txt` library turned up whose commentaries nothing declares.
   for (const word of [
     "corpusStepFetch",
     "corpusStepOtzaria",
     "corpusStepImport",
     "corpusStepLinks",
     "corpusStepLinkTypes",
+    "corpusStepCompanions",
     "corpusStepIndex",
   ] as const) {
     const step = document.createElement("li");

@@ -234,11 +234,16 @@ early August and 6,461 at the start of 21 August. The 224 that are not are
 counted apart, because they have four different causes and only one of them is a
 defect:
 
-> **That measurement is from before OtzarLib went on the shelf**, which added
-> 122 works and 672,502 segments. The population it counted is a smaller
-> library than the one on disk now, so re-run it before quoting the number —
-> the three causes below are properties of the resolver and will not have
-> changed, but the totals will have.
+> **Re-measured against the two-library shelf on 21 August: identical.** Same
+> 840 works, same 7,627, same 7,403, same three buckets — and that is a fact
+> about the measurement rather than a coincidence. It counts *works whose
+> schema names their sections*, and *no `.txt` work has a schema at all*:
+> 978 from Otzaria and 122 from OtzarLib, none with one. Only Sefaria ships
+> schemas, so a `.txt` library cannot move this number in either direction.
+>
+> Sections in those 1,100 works are reached by a different road — the labels
+> the importer read off the file, matched by `Sections::joined` — which this
+> measurement does not cover and nothing else measures yet.
 
 | | |
 |---|---|

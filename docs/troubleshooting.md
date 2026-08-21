@@ -45,7 +45,7 @@ is anything else.
 The window looks for the corpus in three places, in this order: `GIRSA_CORPUS`,
 then beside the executable, then two levels up from it. Nothing about a missing
 corpus is an error — a fresh install *is* a window with no seforim — so the
-question is only ever which of the six steps in the README's [Getting
+question is only ever which of the seven steps in the README's [Getting
 it](../README.md) table has not been run.
 
 Check what the shelf actually holds without opening the window at all:
@@ -222,7 +222,7 @@ split and where.
 cargo run -p girsa-search --bin girsa-index build index corpus personal
 ```
 
-It is the longest of the six steps and the one people leave for later and then
+It is the longest of the seven steps and the one people leave for later and then
 forget — 4.2 GB on the shelf these numbers were measured on. The window opens
 without it on purpose, which is what makes it forgettable.
 
