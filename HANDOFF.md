@@ -1,14 +1,28 @@
 # Handoff — 21 August 2026
 
 **Working tree clean, in sync with both remotes, `node tools/verify.mjs` green
-9 of 9 before every commit, and `cargo test -- --ignored` green against a real
-shelf.** `sefer-crates` is pinned at `7d64cba` (0.5.6). Nothing is at risk and
-nothing is half-finished on disk.
+9 of 9 before every commit, CI green on `main`, and `cargo test --release --
+--ignored` green — nineteen tests, against the two-library shelf described
+below rather than the one they were last run against.** `sefer-crates` is pinned
+at `7d64cba` (0.5.6). Nothing is at risk and nothing is half-finished on disk.
 
-> The shelf is now built from **two** libraries: Otzaria's, and OtzarLib. Both
-> are downloads, neither is in this repository, and `girsa-import` takes as many
-> as you name. If you are setting a machine up from nothing, that is the only
-> thing about steps 3 and 4 that has changed — see the README's table.
+**[v0.1.2 is out](https://github.com/SYKhayyat/girsa/releases/tag/v0.1.2)** —
+public, eight assets, installers for Windows and bundles for macOS and Linux,
+plus the five-tool archive for each. Downloaded and run before this was written,
+rather than assumed from the asset list.
+
+> **The shelf is built from two libraries now**: Otzaria's and OtzarLib's.
+> Neither is in this repository and neither is fetched; `girsa-import` and
+> `girsa-link-import` take as many as you name, in order.
+> [`docs/the-libraries.md`](docs/the-libraries.md) is where each part of a shelf
+> comes from, with the downloads and the terms, and
+> `tools/lay-out-otzarlib.mjs` is the tool that turns OtzarLib's folder of
+> seforim into a library — its output is byte-identical to the tree that was
+> actually imported, and `diff -rq` is the check.
+>
+> On this machine: 7,316 works, 5,689,894 segments, 4,365,852 edges, ~15 GB with
+> the search index. Every work records `license: None`, because that is what
+> every library on this shelf actually states.
 
 > **Everything left on this page is something nobody at this desk can do.**
 > That is the whole point of the rewrite: it used to be a work list with the
@@ -31,6 +45,7 @@ items below stop needing what they need, delete this page.
 | | |
 |---|---|
 | What it does, for a reader | [`docs/start-here.md`](docs/start-here.md) |
+| Where a shelf's seforim come from | [`docs/the-libraries.md`](docs/the-libraries.md) |
 | When it will not do it | [`docs/troubleshooting.md`](docs/troubleshooting.md) |
 | The rules that bind every change | [`BUILDER.md`](BUILDER.md) §0 |
 | What is honestly not done | [`docs/not-yet.md`](docs/not-yet.md) |
@@ -43,8 +58,27 @@ node tools/verify.mjs          # the gate, from the repository root. Nine steps.
                                # the README states and step 2 re-measures.
 bash tools/check-card.sh       # docs/shortcuts.md against girsa-card
 bash tools/check-ksav-fixture.sh
-cargo test -- --ignored        # the nineteen that need the corpus
+cargo test --release -- --ignored   # the ones that need the real corpus
 ```
+
+Rebuilding this machine's shelf, both libraries, in the order they must go:
+
+```sh
+girsa-fetch       corpus/sefaria
+node tools/lay-out-otzarlib.mjs ~/Downloads/otzarlib ~/Downloads/otzarlib-shelf
+girsa-import      corpus ~/Downloads/otzaria_latest ~/Downloads/otzarlib-shelf
+girsa-link-import corpus ~/Downloads/otzaria_latest ~/Downloads/otzarlib-shelf
+girsa-link-types  corpus personal
+girsa-index build index corpus personal
+```
+
+**Name the libraries in the same order to both importers.** A title an earlier
+one supplied is not read again from a later one, and the link importer looks up
+a sidecar by filename in the order it was given.
+
+`--metadata-only` rewrites every work's metadata in a minute instead of an
+hour — and for a work from a `.txt` library that includes its edition, which is
+the only place that fact lives.
 
 Working on Girsa and `sefer-crates` at once: `.cargo/config.toml` carries a
 commented-out `paths` override with the reasoning on it. Use that, never
@@ -80,10 +114,20 @@ What is untested is everything after `window.print()`. No dialogue has been
 accepted, no sheet has come out, and on a machine whose printer is a PDF writer,
 where the file lands is unverified too.
 
-## 4 · Two release-shaped things — *needs a password and a key*
+## 4 · Signing and notarisation — *needs a certificate somebody has to buy*
 
-A local Linux build under WSL, which needs your password and which CI covers the
-same ground as. And macOS signing and notarisation.
+**Not "the bundles do not build".** They do: v0.1.2 shipped a Windows `.exe` and
+`.msi`, a macOS `.dmg` and a Linux `.AppImage` and `.deb`, from one tag, and all
+three legs were green. What none of them is, on any platform, is **signed**.
+
+So Windows SmartScreen says *unrecognised app* and macOS refuses a downloaded
+`.dmg` outright until it is opened by right-click or has its quarantine
+attribute stripped. The release notes say so and give the incantation for each,
+which is the honest thing and not a fix. The fix is a code-signing certificate
+and an Apple developer account, and both are a purchase rather than a task.
+
+A local Linux build under WSL also needs your password, and CI covers the same
+ground.
 
 The Intel Mac row of the bundle matrix is **not** on this list: it is a
 deliberate omission written into `ci.yml`, not a backlog item.
@@ -189,6 +233,12 @@ cargo run --release -p girsa-search --example measure-branch-citations -- corpus
 early August and 6,461 at the start of 21 August. The 224 that are not are
 counted apart, because they have four different causes and only one of them is a
 defect:
+
+> **That measurement is from before OtzarLib went on the shelf**, which added
+> 122 works and 672,502 segments. The population it counted is a smaller
+> library than the one on disk now, so re-run it before quoting the number —
+> the three causes below are properties of the resolver and will not have
+> changed, but the totals will have.
 
 | | |
 |---|---|
