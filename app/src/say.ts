@@ -1044,23 +1044,30 @@ const WORDS = {
   /**
    * What it takes to get seforim, said out loud on the first screen.
    *
-   * The installer carries the window and the three tools; it does not carry
-   * 11 GB of Torah, and one leg of the road — Otzaria — is a download this
-   * project does not automate. A folder picker on a machine with no corpus is
-   * a question with no answer available, so the steps are on the screen.
+   * The installer carries the window and the five tools; it does not carry
+   * 15 GB of Torah, and one leg of the road — the `.txt` libraries — is a
+   * download this project does not automate. A folder picker on a machine with
+   * no corpus is a question with no answer available, so the steps are on the
+   * screen.
+   *
+   * **These are the same six commands the README's table gives**, and they have
+   * drifted from it before: the archive was named here without the platform it
+   * is named with, and step 3 said `<otzaria>` for a week after the tools began
+   * taking a list. Nothing checks that these agree, so when one moves the other
+   * has to be moved by hand.
    */
   corpusStepsTitle: ["איך מביאים ספרים", "How to bring in seforim"] as Both,
   corpusStepFetch: [
-    "1. הורד את ספריא — כ־2.2 ג׳יגה: girsa-fetch corpus\\sefaria",
-    "1. Fetch Sefaria — about 2.2 GB: girsa-fetch corpus\\sefaria",
+    "1. הורד את ספריא — כ־3.4 ג׳יגה: girsa-fetch corpus\\sefaria",
+    "1. Fetch Sefaria — about 3.4 GB: girsa-fetch corpus\\sefaria",
   ] as Both,
   corpusStepOtzaria: [
-    "2. הורד את אוצריא בעצמך — הפרויקט הזה אינו מוריד אותו",
-    "2. Download Otzaria yourself — this project does not fetch it",
+    "2. הורד ספריית טקסטים בעצמך — הפרויקט הזה אינו מוריד אותה",
+    "2. Download a library of .txt seforim yourself — this project does not fetch it",
   ] as Both,
   corpusStepImport: [
-    "3. בנה את המדף: girsa-import corpus <אוצריא>",
-    "3. Build the shelf: girsa-import corpus <otzaria>",
+    "3. בנה את המדף: girsa-import corpus <ספרייה>...",
+    "3. Build the shelf: girsa-import corpus <library>...",
   ] as Both,
   /**
    * The two steps this screen did not have, and the reason it needs them.
@@ -1078,20 +1085,20 @@ const WORDS = {
    * and neither was on this screen or in the README's table.
    */
   corpusStepLinks: [
-    "4. הקשרים בין הספרים: girsa-link-import corpus <אוצריא>",
-    "4. The links between them: girsa-link-import corpus <otzaria>",
+    "4. הקשרים בין הספרים: girsa-link-import corpus <ספרייה>...",
+    "4. The links between them: girsa-link-import corpus <library>...",
   ] as Both,
   corpusStepLinkTypes: [
     "5. המטמונים שקוראים אותם לאחור: girsa-link-types corpus personal",
     "5. The caches that read them backwards: girsa-link-types corpus personal",
   ] as Both,
   corpusStepIndex: [
-    "6. לחיפוש — כ־3.6 ג׳יגה: girsa-index build index corpus personal",
-    "6. For search — about 3.6 GB: girsa-index build index corpus personal",
+    "6. לחיפוש — כ־4 ג׳יגה: girsa-index build index corpus personal",
+    "6. For search — about 4 GB: girsa-index build index corpus personal",
   ] as Both,
   corpusStepsWhere: [
-    "את הכלים מורידים מדף השחרור — girsa-tools-windows.zip",
-    "the tools are on the release page — girsa-tools-windows.zip",
+    "את הכלים מורידים מדף השחרור — girsa-tools-windows-x86_64.zip",
+    "the tools are on the release page — girsa-tools-windows-x86_64.zip",
   ] as Both,
   chooseCorpusWhy: [
     "התיקייה שהייבוא כתב אליה — זו שיש בה works/index.jsonl",

@@ -1,6 +1,6 @@
 [package]
 name = "girsa-shell"
-version = "0.1.1"
+version = "0.1.2"
 description = "Girsa — a Torah library that assumes you are going to write something"
 authors = ["Shaul Khayyat"]
 license = "MIT OR Apache-2.0"

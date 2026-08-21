@@ -92,7 +92,7 @@ Said here rather than discovered later:
   most important line in any of them, and it is still true.
 - **No sync, no account.** Your notes and corrections are files on your machine.
   A second machine is a copy, not a login.
-- **The corpus is a download, not a repository.** About 13 GB once search is
+- **The corpus is a download, not a repository.** About 15 GB once search is
   built. The installer is 7 MB and carries no seforim.
 - **The link graph is incomplete**, visibly: a sefer with no links says *nothing
   links here* when the cache exists and *I have not been told* when it does not.
@@ -112,18 +112,18 @@ and the first screen says so too:
 | | Step | Command | On disk after it |
 |---|---|---|---|
 | 1 | Fetch Sefaria | `girsa-fetch corpus\sefaria` | 3.4 GB |
-| 2 | Get Otzaria | **you download this yourself** — nothing here fetches it | |
-| 3 | Build the shelf | `girsa-import corpus <library>...` | 4.4 GB |
-| 4 | The links between them | `girsa-link-import corpus <library>...` | 1.4 GB |
+| 2 | Get a library of `.txt` seforim | **you download this yourself** — nothing here fetches it | |
+| 3 | Build the shelf | `girsa-import corpus <library>...` | 4.9 GB |
+| 4 | The links between them | `girsa-link-import corpus <library>...` | 1.5 GB |
 | 5 | The caches that read them backwards | `girsa-link-types corpus personal` | |
-| 6 | Build search | `girsa-index build index corpus personal` | 4.2 GB |
+| 6 | Build search | `girsa-index build index corpus personal` | 4.0 GB |
 
-Those are `du` on one machine with Sefaria and a 7,189-sefer Otzaria shelf —
-`corpus/sefaria`, `corpus/works`, `corpus/links` and `index/` — and the column
-says *on disk after it* rather than *download*, because the two are not the same
-number and the one you have to have room for is this one. Step 3 is the one that
-moves with what you brought: it is Otzaria's half, and a smaller shelf is a
-smaller number.
+Those are `du` on one machine with Sefaria and two `.txt` libraries — Otzaria's
+and OtzarLib's, 7,316 works between them — measured over `corpus/sefaria`,
+`corpus/works`, `corpus/links` and `index/`. The column says *on disk after it*
+rather than *download*, because the two are not the same number and the one you
+have to have room for is this one. Step 3 is the one that moves with what you
+brought: it is the `.txt` half, and a smaller shelf is a smaller number.
 
 **`<library>` is any `.txt` tree with an `אוצריא/` in it, and you may name more
 than one.** Otzaria's first, then anything else you have — the same list, in the
@@ -213,7 +213,7 @@ cargo test
 **Cloning Girsa alone builds, and no corpus is needed to work on it.** The
 shared crates are pinned by git rev in [`Cargo.toml`](Cargo.toml); the test suite
 builds its own synthetic shelf through the real importer in about two seconds,
-so `cargo test` needs none of the 13 GB. The nineteen checks that genuinely need
+so `cargo test` needs none of the 15 GB. The nineteen checks that genuinely need
 the download are `#[ignore]`d rather than skipped — on a machine that has run
 `girsa-import`:
 
