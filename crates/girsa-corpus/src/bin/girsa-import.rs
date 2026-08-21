@@ -460,7 +460,25 @@ fn rewrite_metadata(root: &Path, catalogue: &Catalogue) -> (usize, usize) {
         };
         let mut work = work.clone();
         if let Ok(on_disk) = serde_json::from_str::<Work>(&existing) {
-            work.version = on_disk.version;
+            // **Which of the two knows the edition depends on the source.**
+            //
+            // Sefaria's is read out of the text file during a full import and
+            // the catalogue has never opened one, so on disk is the only copy
+            // and taking the catalogue's `None` would erase 3,000 real
+            // editions. A work read out of a `.txt` library is the other way
+            // round: nothing is in the text to read, the catalogue's
+            // `Library` is the only thing that knows, and the file on disk is
+            // a stale copy of an answer that may since have changed.
+            //
+            // It changed. Otzaria's library was recorded as `Unlicense` — the
+            // application's licence, not the seforim's — and a `--metadata-only`
+            // pass that kept the on-disk value could not correct the one field
+            // it was run to correct.
+            if work.source == Source::Otzaria {
+                // Keep the catalogue's.
+            } else {
+                work.version = on_disk.version;
+            }
         }
         match serde_json::to_vec_pretty(&work) {
             Ok(body) => {
