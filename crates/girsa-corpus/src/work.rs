@@ -978,11 +978,26 @@ impl Library {
 /// Both marks, and both are its own: a `metadata.json` at the root beside the
 /// `אוצריא/` directory the seforim are under. A directory holding only one of
 /// them is not being recognised on a guess.
+///
+/// # It states no licence, because the library does not
+///
+/// This used to answer `Unlicense`, and that was the Unlicense on
+/// **`Sivan22/otzaria`, the application**. `Sivan22/otzaria-library`, where the
+/// seforim are, carries no `LICENSE` file, no SPDX id and no terms in its
+/// README — so Girsa was putting a licence on 6,000 seforim that nobody had
+/// put on them.
+///
+/// It is the same mistake [`Library`] exists to stop, surviving on the one path
+/// that does not read a declaration, and it is worth saying plainly: recognising
+/// a tree tells you *which* library it is, and that is all it tells you. If the
+/// library states terms one day, it can say so in a `library.json` like any
+/// other, and that will be a fact rather than an inference from a neighbouring
+/// repository.
 fn the_otzaria_library(root: &Path) -> Option<Version> {
     (root.join("metadata.json").is_file() && root.join("אוצריא").is_dir()).then(|| Version {
         edition: "Otzaria".to_string(),
         provenance: Some("https://github.com/Sivan22/otzaria-library".to_string()),
-        license: Some("Unlicense".to_string()),
+        license: None,
     })
 }
 

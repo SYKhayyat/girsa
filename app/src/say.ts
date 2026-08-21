@@ -1062,8 +1062,8 @@ const WORDS = {
     "1. Fetch Sefaria — about 3.4 GB: girsa-fetch corpus\\sefaria",
   ] as Both,
   corpusStepOtzaria: [
-    "2. הורד ספריית טקסטים בעצמך — הפרויקט הזה אינו מוריד אותה",
-    "2. Download a library of .txt seforim yourself — this project does not fetch it",
+    "2. הורד ספריית טקסטים — למשל אוצריא: github.com/Sivan22/otzaria-library",
+    "2. Get a library of .txt seforim — e.g. Otzaria: github.com/Sivan22/otzaria-library",
   ] as Both,
   corpusStepImport: [
     "3. בנה את המדף: girsa-import corpus <ספרייה>...",

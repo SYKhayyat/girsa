@@ -112,7 +112,7 @@ and the first screen says so too:
 | | Step | Command | On disk after it |
 |---|---|---|---|
 | 1 | Fetch Sefaria | `girsa-fetch corpus\sefaria` | 3.4 GB |
-| 2 | Get a library of `.txt` seforim | **you download this yourself** — nothing here fetches it | |
+| 2 | Get a library of `.txt` seforim | **you download this yourself** — [where from](docs/the-libraries.md) | |
 | 3 | Build the shelf | `girsa-import corpus <library>...` | 4.9 GB |
 | 4 | The links between them | `girsa-link-import corpus <library>...` | 1.5 GB |
 | 5 | The caches that read them backwards | `girsa-link-types corpus personal` | |
@@ -125,14 +125,19 @@ rather than *download*, because the two are not the same number and the one you
 have to have room for is this one. Step 3 is the one that moves with what you
 brought: it is the `.txt` half, and a smaller shelf is a smaller number.
 
+**Step 2 is the one nothing here automates, and
+[`docs/the-libraries.md`](docs/the-libraries.md) is where each part of a shelf
+comes from** — the exact download for Otzaria's library, what it costs, what its
+terms are, and how to point Girsa at anything else laid out the same way. Read
+that one first if you are filling a shelf from nothing.
+
 **`<library>` is any `.txt` tree with an `אוצריא/` in it, and you may name more
 than one.** Otzaria's first, then anything else you have — the same list, in the
 same order, to both steps 3 and 4. A title an earlier library supplied is not
 read again from a later one, which is the precedence Sefaria already has over
 all of them, so a second library adds what it alone has and quietly declines to
 argue about the rest. Each one says where it came from in a `library.json` at
-its root, and a tree that says nothing has nothing recorded for it — see
-[`docs/tools.md`](docs/tools.md#building-the-shelf).
+its root, and a tree that says nothing has nothing recorded for it.
 
 **Four of these used to be the whole list, and steps 4 and 5 were the missing
 two.** A reader who did the other four had a shelf with no link graph: no

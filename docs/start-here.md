@@ -35,8 +35,11 @@ Every one of those takes its roots as words on the line, and every one answers
 
 `<library>` is a `.txt` tree with an `אוצריא/` in it. You can name more than
 one — Otzaria's first, then any others — and the same list, in the same order,
-goes to both tools. [`docs/tools.md`](tools.md) has the rest of it, including
-the `library.json` a tree uses to say where its seforim came from.
+goes to both tools.
+
+**[`the-libraries.md`](the-libraries.md) is where each part of a shelf comes
+from**, with the exact download for Otzaria's library and what its terms are.
+[`tools.md`](tools.md) is the command reference.
 
 Then open Girsa. If it says **there is no shelf here**, it did not find the
 corpus: it looks at `GIRSA_CORPUS`, then beside the executable, then two levels

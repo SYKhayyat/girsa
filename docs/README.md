@@ -25,6 +25,7 @@ for pages that are not:
 | Page | For |
 |---|---|
 | [`start-here.md`](start-here.md) | **read this first.** The five minutes that are the whole idea, end to end |
+| [`the-libraries.md`](the-libraries.md) | where every part of a shelf comes from — the exact downloads, what each costs, and what its terms are |
 | [`from-otzar.md`](from-otzar.md) | you use Otzar HaChochma — what is worse here, and what you can do that you could not |
 | [`from-bar-ilan.md`](from-bar-ilan.md) | you use Bar Ilan — including where Girsa is genuinely behind |
 | [`troubleshooting.md`](troubleshooting.md) | when it will not do what these pages say it does — by symptom, with the command that fixes it |

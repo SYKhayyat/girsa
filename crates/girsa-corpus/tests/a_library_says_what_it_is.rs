@@ -80,7 +80,11 @@ fn the_otzaria_library_is_recognised_without_a_file() {
         version.provenance.as_deref(),
         Some("https://github.com/Sivan22/otzaria-library")
     );
-    assert_eq!(version.license.as_deref(), Some("Unlicense"));
+    // And it states **no licence**. The Unlicense is on `Sivan22/otzaria`, the
+    // application; `Sivan22/otzaria-library`, where the seforim are, carries no
+    // LICENSE file, no SPDX id and no terms in its README. Recognising a tree
+    // says which library it is, and that is all it says.
+    assert_eq!(version.license, None);
 }
 
 #[test]

@@ -50,6 +50,24 @@ cargo run -p girsa-search --bin girsa-index build index corpus personal  # the s
 copy you downloaded yourself, which is step 2 of the six in the README and the
 one nothing here fetches for you. The two tools that take it refuse without it.
 
+**[`the-libraries.md`](the-libraries.md) says where to get one**, for each part
+of a shelf, with the download link and the terms.
+
+A folder of seforim is not yet a library: `girsa-import` shelves a sefer in the
+folder it finds it in, so where the files sit is where a reader will look for
+them. For OtzarLib, which arrives under its own categories with three `.docx`
+in it, that work is a tool:
+
+```sh
+node tools/lay-out-otzarlib.mjs <checkout> <destination> [--dry-run]
+```
+
+It maps every sefer onto the categories Otzaria's library already uses,
+converts the `.docx`, drops a byte-identical duplicate, flattens the `links/`
+sidecars and writes the `library.json`. It **refuses to place a file it has no
+rule for** — the unplaced are listed and the run exits non-zero, because that is
+a decision for a person.
+
 **More than one is allowed**, and the order matters: a title an earlier library
 supplied is not read again from a later one, the same precedence Sefaria has
 over all of them. Name Otzaria's first, and give the same list in the same
