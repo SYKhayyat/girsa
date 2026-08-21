@@ -66,6 +66,63 @@ folder you unpacked either of them into.
 
 ---
 
+## A library you added is not on the shelf
+
+**What you see:** `girsa-import` ran, said nothing was wrong, and the seforim you
+put in a second library are not there.
+
+`girsa-import corpus <library>...` reads a library through its **`אוצריא/`
+directory**, the same way it reads Otzaria's. A tree whose seforim sit directly
+in its root, or under a folder called anything else, gets
+`CatalogueError::Missing` naming the directory it wanted — that one is loud.
+
+The quiet one is **precedence**. A title an earlier library already supplied is
+not read again from a later one, and Sefaria outranks all of them, so a sefer
+that is already on the shelf under the same name will not appear twice and will
+not say why. That is the intended behaviour and it is how a second library adds
+what it alone has without arguing about the rest — but it does mean *the sefer I
+added is missing* and *the sefer I added is already here under another
+library's copy* look identical from the window. The line at the top of the run
+is the one to read:
+
+```text
+7311 works: 5637 shared (Sefaria supplies them), 1100 Otzaria-only, 574 Sefaria-only
+```
+
+Grep `corpus/works/index.jsonl` for the title to settle it.
+
+## A sefer says nothing about where it came from
+
+**What you see:** a work on the shelf with no edition, no provenance and no
+licence, where the ones beside it have all three.
+
+Working as intended. A library states those in a `library.json` at its root:
+
+```json
+{ "edition": "OtzarLib", "provenance": "https://github.com/YairDaniel123/OtzarLib" }
+```
+
+A tree with no such file has nothing recorded for it, and Otzaria's own library
+is the one exception — recognised by the `metadata.json` beside its `אוצריא/`.
+`girsa-import` prints what it decided for each library before it does any work:
+
+```text
+library C:/Users/…/otzaria_latest: Otzaria (Unlicense)
+library C:/Users/…/otzarlib:       OtzarLib (no licence stated)
+```
+
+**This used to be a constant**, and every work walked out of any `.txt` tree was
+stamped `Otzaria`, Sivan22's repository, `Unlicense`. That was true of the only
+tree Girsa had ever been pointed at and false for every other one. Leave
+`license` out when you do not know it: a blank is a thing a reader can act on
+and a confident wrong licence is not.
+
+If a `library.json` will not parse, the run **stops** and names the file rather
+than falling back — silently reverting to *no claim* would hide the reason at
+exactly the moment somebody is asking where a sefer came from.
+
+---
+
 ## The daf has no mefarshim, on any sefer
 
 **What you see:** the מפרשים button reads `לצד` on every sefer, no `◆` markers in
@@ -98,6 +155,33 @@ cargo run -p girsa-link --bin girsa-link-orient corpus
 
 Without `girsa-companions` the shelf offers the declared commentaries only and
 says so rather than pretending the list is complete.
+
+## One sefer has no links, and the rest of the shelf is fine
+
+**What you see:** `girsa-link-import` printed a line like
+
+```text
+<slug>: …/<sefer>.txt: 7026 lines against 7027 segments on the shelf —
+the file has changed since the import, and mapping them anyway would anchor
+every link in this sefer one segment out
+```
+
+and that sefer alone has nothing on any line.
+
+**Usually it means what it says**: the `.txt` was edited or replaced after
+`girsa-import` ran, and the two no longer describe the same sefer. Re-run
+`girsa-import`, then `girsa-link-import`.
+
+**But check the size of the gap first.** A difference of one or two, in a sefer
+with long sections, is the other cause: the importer **splits** a segment too
+long to name a place — `#7` becomes `#7.1` and `#7.2` — so a source file's lines
+and the shelf's segments are no longer one to one. That used to refuse the whole
+mapping and cost six of the ten Encyclopedia Talmudit volumes every footnote
+link they had. Fixed on 21 August 2026; if you are seeing it with a small gap on
+a build from before that, the sefer is fine and only its links are missing.
+
+`cargo run -p girsa-corpus --example measure-oversized -- corpus` lists what was
+split and where.
 
 ---
 

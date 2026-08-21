@@ -2,8 +2,13 @@
 
 **Working tree clean, in sync with both remotes, `node tools/verify.mjs` green
 9 of 9 before every commit, and `cargo test -- --ignored` green against a real
-11 GB shelf.** `sefer-crates` is pinned at `a324852` (0.5.6). Nothing is at risk
-and nothing is half-finished on disk.
+shelf.** `sefer-crates` is pinned at `7d64cba` (0.5.6). Nothing is at risk and
+nothing is half-finished on disk.
+
+> The shelf is now built from **two** libraries: Otzaria's, and OtzarLib. Both
+> are downloads, neither is in this repository, and `girsa-import` takes as many
+> as you name. If you are setting a machine up from nothing, that is the only
+> thing about steps 3 and 4 that has changed — see the README's table.
 
 > **Everything left on this page is something nobody at this desk can do.**
 > That is the whole point of the rewrite: it used to be a work list with the

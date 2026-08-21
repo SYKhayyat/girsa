@@ -39,13 +39,44 @@ use crate::work::Work;
 
 /// Read one Otzaria `.txt` into segments, in reading order.
 ///
+/// # Two grammars in one tree
+///
+/// A `.txt` in a library laid out this way is not always marked up the way this
+/// module reads. Otzaria's own files are; a file added to the tree from a
+/// Bar-Ilan / DBS export states its structure in words instead, and
+/// [`super::dbs`] reads those.
+///
+/// **Which one is asked is decided by the file, not by configuration.** A file
+/// that carries a heading is read as headings; a file that carries none is read
+/// as a DBS export. Nothing is declared anywhere, nothing has to be kept in step
+/// with the tree, and a file that is neither still imports — both readers put
+/// everything they do not recognise into section `0` rather than refusing it.
+///
+/// The `Source` is `Otzaria` either way, because a source says which *library*
+/// a work's text came from and both of these came from a tree of `.txt` files.
+/// How a particular file spells its structure is a smaller question than that,
+/// and answering it with a fourth `Source` would have put the grammar of one
+/// file into a field that every downstream reader has to match on.
+///
 /// # Errors
 ///
 /// If the file cannot be read. Nothing about its *contents* is an error: this
 /// is a conversion of a conversion and every shape in it has to be tolerated.
 pub fn read(work: &Work) -> Result<Vec<RawSegment>, ImportError> {
     let body = fs::read_to_string(&work.origin).map_err(ImportError::io(&work.origin))?;
-    Ok(parse(&body))
+    Ok(super::from_a_txt_library(&body, &work.he_title)
+        .into_iter()
+        .map(|(_, segment)| segment)
+        .collect())
+}
+
+/// Does this file mark its structure up the way this module reads it?
+///
+/// One heading is enough, and every Otzaria file has at least the `<h1>` naming
+/// the sefer. Asked of the whole file rather than the first line, because the
+/// front matter above the first heading can run to dozens of lines.
+pub(super) fn has_a_heading(body: &str) -> bool {
+    body.lines().any(|line| heading(line.trim()).is_some())
 }
 
 /// The label of the section that holds everything above the first heading.
@@ -223,6 +254,24 @@ fn heading(line: &str) -> Option<(u8, String)> {
 ///
 /// **Written in their normal form**, final letters folded — `סעיף` normalizes
 /// to `סעיפ`, and a list holding the printed spelling never matches.
+///
+/// # This is a second list, and it stays one on purpose
+///
+/// `girsa_ref::resolve::is_section_word` answers the same question over 45
+/// words, [`super::dbs`] uses it, and every instinct says these fourteen should
+/// be deleted in favour of it. They are not, and the reason is spec.md §3.
+///
+/// This list decides **section labels**, and a section label is half of a
+/// permanent id. Widen it and headings that read `כלל א` stop being labelled
+/// `כלל_א` and start being labelled `1` — which is the better label, and which
+/// silently moves the id of every segment under them in works that are already
+/// on somebody's shelf, with their marks and their citations pointing at the
+/// old ones. Decision 2 says an id is minted once.
+///
+/// So the two lists are allowed to differ, and the difference is not drift:
+/// `מסכת` is here and not there, and the other thirty-one are there and not
+/// here. Changing this one is its own work order, with the re-segmentation
+/// counted and the continuity report read, and it is not a tidy-up.
 const SECTION_WORDS: [&str; 14] = [
     "סימנ",
     "סעיפ",

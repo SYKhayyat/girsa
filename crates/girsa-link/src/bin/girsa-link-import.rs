@@ -2,12 +2,15 @@
 //!
 //! ```sh
 //! cargo run --release -p girsa-link --bin girsa-link-import -- \
-//!     corpus "C:/Users/Administrator/Downloads/otzaria_latest"
+//!     corpus "C:/Users/Administrator/Downloads/otzaria_latest" \
+//!            "C:/Users/Administrator/Downloads/otzarlib"
 //! ```
 //!
 //! Sefaria's `links*.csv` for everything, resolved through `girsa-ref` onto the
-//! ids `girsa-import` minted; Otzaria's `*_links.json` only for the 978 works
-//! Sefaria has no text for (spec.md §8.1).
+//! ids `girsa-import` minted; each library's `*_links.json` only for the works
+//! Sefaria has no text for (spec.md §8.1). Name the libraries in the same order
+//! as `girsa-import`, so that a filename two of them share is looked for first
+//! in the library that supplied the text.
 //!
 //! # It reports what it dropped
 //!
@@ -37,9 +40,12 @@ use girsa_ref::Lexicon;
 const FLUSH_AT_BYTES: usize = 64 * 1024 * 1024;
 
 const USAGE: &str = "\
-usage: girsa-link-import <corpus> <otzaria>
+usage: girsa-link-import <corpus> <library>...
 
-  Reads Otzaria's link CSVs and writes the edge store, oriented as it goes.";
+  Reads Sefaria's link CSVs and each library's links/ sidecars, and writes the
+  edge store, oriented as it goes.
+
+  Name the same libraries, in the same order, as girsa-import.";
 
 fn main() -> std::process::ExitCode {
     let typed: Vec<String> = std::env::args().skip(1).collect();
@@ -53,11 +59,21 @@ fn main() -> std::process::ExitCode {
             return argv::refuse(USAGE);
         }
     };
-    let (Some(corpus_root), Some(otzaria_root)) = (args.word(0), args.word(1)) else {
+    let Some(corpus_root) = args.word(0) else {
         return argv::refuse(USAGE);
     };
+    if args.words().len() < 2 {
+        return argv::refuse(USAGE);
+    }
     let corpus_root = PathBuf::from(corpus_root);
-    let otzaria_root = PathBuf::from(otzaria_root);
+    // Every library's sidecars, searched in the order the libraries were named.
+    // A work is looked up by its filename, so the directories are tried rather
+    // than merged: two libraries may hold a file of the same name and the first
+    // one named is the one that supplied the text.
+    let links_dirs: Vec<PathBuf> = args.words()[1..]
+        .iter()
+        .map(|w| Path::new(w).join("links"))
+        .collect();
 
     let lexicon = match load_lexicon(&corpus_root) {
         Ok(l) => l,
@@ -125,7 +141,7 @@ fn main() -> std::process::ExitCode {
     );
     let otzaria = import_otzaria(
         &corpus_root,
-        &otzaria_root,
+        &links_dirs,
         &works,
         &mut resolver,
         &index,
@@ -319,7 +335,7 @@ fn import_sefaria(
 
 fn import_otzaria(
     corpus_root: &Path,
-    otzaria_root: &Path,
+    links_dirs: &[PathBuf],
     works: &[Work],
     resolver: &mut Resolver<'_>,
     index: &SegmentIndex,
@@ -327,7 +343,6 @@ fn import_otzaria(
     oriented: &mut girsa_link::orient::Orienting<'_>,
 ) -> OtzariaTally {
     let titles = TitleIndex::build(works);
-    let links_dir = otzaria_root.join("links");
     let mut target_lines: HashMap<String, Option<LineMap>> = HashMap::new();
     let mut tally = OtzariaTally::default();
 
@@ -344,10 +359,13 @@ fn import_otzaria(
         let Some(stem) = work.origin.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
-        let path = links_dir.join(format!("{stem}_links.json"));
-        if !path.is_file() {
+        let Some(path) = links_dirs
+            .iter()
+            .map(|dir| dir.join(format!("{stem}_links.json")))
+            .find(|path| path.is_file())
+        else {
             continue;
-        }
+        };
         with_links += 1;
 
         let source_lines = match LineMap::build(corpus_root, work) {

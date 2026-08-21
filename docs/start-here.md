@@ -24,14 +24,19 @@ path to a copy you downloaded yourself.
 ```sh
 cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim, 3.4 GB
 #                            download Otzaria yourself — nothing here fetches it
-cargo run -p girsa-corpus --bin girsa-import      corpus <otzaria>       # onto permanent ids
-cargo run -p girsa-link   --bin girsa-link-import corpus <otzaria>       # the links between them
+cargo run -p girsa-corpus --bin girsa-import      corpus <library>...    # onto permanent ids
+cargo run -p girsa-link   --bin girsa-link-import corpus <library>...    # the links between them
 cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards
 cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index, 4.2 GB
 ```
 
 Every one of those takes its roots as words on the line, and every one answers
 `--help` if you would rather read it there than here.
+
+`<library>` is a `.txt` tree with an `אוצריא/` in it. You can name more than
+one — Otzaria's first, then any others — and the same list, in the same order,
+goes to both tools. [`docs/tools.md`](tools.md) has the rest of it, including
+the `library.json` a tree uses to say where its seforim came from.
 
 Then open Girsa. If it says **there is no shelf here**, it did not find the
 corpus: it looks at `GIRSA_CORPUS`, then beside the executable, then two levels

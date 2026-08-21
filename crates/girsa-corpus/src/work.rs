@@ -403,22 +403,37 @@ impl Overlap {
 }
 
 impl Catalogue {
-    /// Read both corpora and decide, per work, where its text comes from.
+    /// Read the corpora and decide, per work, where its text comes from.
     ///
-    /// `sefaria_root` is the directory holding `schemas/` and `json/`;
-    /// `otzaria_root` is the one holding `אוצריא/` and `metadata.json`.
+    /// `sefaria_root` is the directory holding `schemas/` and `json/`.
+    /// `libraries` are the `.txt` trees, each holding `אוצריא/` — more than one,
+    /// because a shelf may be built from Otzaria's library **and** another one
+    /// beside it, and each says for itself what it is (see [`Library`]).
+    ///
+    /// Read in the order given, and a work already claimed by an earlier
+    /// library is not read again from a later one: the first library named owns
+    /// any title two of them share, which is the same precedence Sefaria has
+    /// over all of them.
     ///
     /// # Errors
     ///
-    /// If either root cannot be read at all. A single unreadable schema is
-    /// counted and skipped — one sefer missing is a smaller failure than no
-    /// catalogue — and the count is returned so the caller can be loud.
+    /// If a root cannot be read at all. A single unreadable schema is counted
+    /// and skipped — one sefer missing is a smaller failure than no catalogue —
+    /// and the count is returned so the caller can be loud.
     pub fn build(
         sefaria_root: &Path,
-        otzaria_root: &Path,
+        libraries: &[Library],
     ) -> Result<(Self, usize), CatalogueError> {
         let (mut sefaria, skipped, declared) = read_sefaria(sefaria_root)?;
-        let otzaria = read_otzaria(otzaria_root)?;
+        let mut otzaria: Vec<Work> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for library in libraries {
+            for work in read_otzaria(library)? {
+                if seen.insert(match_key(&work.he_title)) {
+                    otzaria.push(work);
+                }
+            }
+        }
 
         // A declared base text is a **title**; a pane needs a slug. This is the
         // first point at which every title on the shelf is known, so it is the
@@ -798,8 +813,13 @@ fn index_hebrew_texts(json_root: &Path) -> Result<BTreeMap<String, PathBuf>, Cat
     Ok(out)
 }
 
-/// Every `.txt` in Otzaria's `אוצריא/` tree, with what `metadata.json` knows.
-fn read_otzaria(root: &Path) -> Result<Vec<Work>, CatalogueError> {
+/// Every `.txt` in a library's `אוצריא/` tree, with what `metadata.json` knows.
+///
+/// The edition every work here gets is [`Library::version`] — the tree's own
+/// answer about itself, which may be nothing at all. It used to be a constant,
+/// and [`Library`] is the record of what that cost.
+fn read_otzaria(library: &Library) -> Result<Vec<Work>, CatalogueError> {
+    let root = library.root();
     let tree = root.join("אוצריא");
     if !tree.is_dir() {
         return Err(CatalogueError::Missing(tree.display().to_string()));
@@ -858,11 +878,7 @@ fn read_otzaria(root: &Path) -> Result<Vec<Work>, CatalogueError> {
                 author: meta.and_then(|m| m.author.clone()),
                 era: None,
                 comp_date: meta.and_then(|m| m.comp_date.clone()),
-                version: Some(Version {
-                    edition: "Otzaria".to_string(),
-                    provenance: Some("https://github.com/Sivan22/otzaria-library".to_string()),
-                    license: Some("Unlicense".to_string()),
-                }),
+                version: library.version().cloned(),
                 // Otzaria ships no schemas, so nothing here declares a base
                 // text. `קרן אורה על נדרים` is plainly a commentary on Nedarim
                 // and this leaves it unsaid rather than reading it off the
@@ -873,6 +889,101 @@ fn read_otzaria(root: &Path) -> Result<Vec<Work>, CatalogueError> {
         }
     }
     Ok(works)
+}
+
+/// A tree of `.txt` seforim, and what may **truthfully** be said about where it
+/// came from.
+///
+/// # Why this is a type and not a constant
+///
+/// It was a constant. [`read_otzaria`] stamped every work it walked with
+/// `edition: "Otzaria"`, Sivan22's repository as provenance, and `Unlicense` —
+/// true of the one tree it had ever been pointed at, and false the moment a
+/// second one existed. Point it at somebody else's seforim laid out the same
+/// way and the shelf records, as fact, a repository they did not come from and
+/// a licence they are not under.
+///
+/// spec.md §13 wants a work to be able to say where its text is from. A field
+/// that answers wrongly is worse than a field that does not answer: `None` is
+/// something a reader can act on and a confident wrong licence is not.
+///
+/// So a library **declares itself**, in a `library.json` at its root:
+///
+/// ```json
+/// { "edition": "OtzarLib",
+///   "provenance": "https://github.com/YairDaniel123/OtzarLib" }
+/// ```
+///
+/// A tree that declares nothing has nothing claimed for it. The single
+/// exception is Sivan22's own library, which is *recognised* — by the
+/// `metadata.json` beside an `אוצריא/` that nothing else has — rather than
+/// assumed, so nobody has to add a file to a 13 GB download for the shelf to go
+/// on saying what it always correctly said. A recognition that can be wrong
+/// about one specific tree is a different thing from a default that is wrong
+/// about every tree but one.
+#[derive(Debug, Clone)]
+pub struct Library {
+    root: PathBuf,
+    version: Option<Version>,
+    trouble: Option<String>,
+}
+
+impl Library {
+    /// Read what this tree says about itself.
+    #[must_use]
+    pub fn at(root: &Path) -> Self {
+        let (version, trouble) = match fs::read_to_string(root.join("library.json")) {
+            Ok(body) => match serde_json::from_str::<Version>(&body) {
+                Ok(version) => (Some(version), None),
+                // Not silence. A library that tried to say something and failed
+                // must not fall back to being recognised as somebody else, and
+                // must not disappear into a tree that says nothing — either way
+                // the reason would be invisible at exactly the moment somebody
+                // is asking where a sefer came from.
+                Err(e) => (
+                    None,
+                    Some(format!("{}: {e}", root.join("library.json").display())),
+                ),
+            },
+            Err(_) => (the_otzaria_library(root), None),
+        };
+        Self {
+            root: root.to_path_buf(),
+            version,
+            trouble,
+        }
+    }
+
+    /// Where this library's seforim sit.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// What every work read out of it may say about its edition, or nothing.
+    #[must_use]
+    pub fn version(&self) -> Option<&Version> {
+        self.version.as_ref()
+    }
+
+    /// A declaration that would not parse, for the caller to be loud about.
+    #[must_use]
+    pub fn trouble(&self) -> Option<&str> {
+        self.trouble.as_deref()
+    }
+}
+
+/// Is this Sivan22's Otzaria library?
+///
+/// Both marks, and both are its own: a `metadata.json` at the root beside the
+/// `אוצריא/` directory the seforim are under. A directory holding only one of
+/// them is not being recognised on a guess.
+fn the_otzaria_library(root: &Path) -> Option<Version> {
+    (root.join("metadata.json").is_file() && root.join("אוצריא").is_dir()).then(|| Version {
+        edition: "Otzaria".to_string(),
+        provenance: Some("https://github.com/Sivan22/otzaria-library".to_string()),
+        license: Some("Unlicense".to_string()),
+    })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1060,8 +1171,8 @@ mod tests {
             ],
         );
 
-        let (catalogue, _) =
-            Catalogue::build(&root, &root.join("otzaria")).expect("the catalogue builds");
+        let (catalogue, _) = Catalogue::build(&root, &[Library::at(&root.join("otzaria"))])
+            .expect("the catalogue builds");
         let rashi = catalogue
             .works()
             .iter()
@@ -1106,8 +1217,8 @@ mod tests {
                 }),
             )],
         );
-        let (catalogue, _) =
-            Catalogue::build(&root, &root.join("otzaria")).expect("the catalogue builds");
+        let (catalogue, _) = Catalogue::build(&root, &[Library::at(&root.join("otzaria"))])
+            .expect("the catalogue builds");
         assert!(catalogue.works()[0].commentary_on.is_empty());
         let _ = fs::remove_dir_all(&root);
     }

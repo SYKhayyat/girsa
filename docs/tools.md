@@ -40,15 +40,37 @@ walkthrough; this is the list.
 
 ```sh
 cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim
-cargo run -p girsa-corpus --bin girsa-import      corpus <otzaria>       # onto permanent ids
-cargo run -p girsa-link   --bin girsa-link-import corpus <otzaria>       # the links between them
+cargo run -p girsa-corpus --bin girsa-import      corpus <library>...    # onto permanent ids
+cargo run -p girsa-link   --bin girsa-link-import corpus <library>...    # the links between them
 cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards
 cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index
 ```
 
-`<otzaria>` is a copy of the Otzaria tree you downloaded yourself — step 2 of
-the six in the README, and the one nothing here fetches for you. The two that
-take it refuse without it.
+`<library>` is a `.txt` tree with an `אוצריא/` directory in it — the Otzaria
+copy you downloaded yourself, which is step 2 of the six in the README and the
+one nothing here fetches for you. The two tools that take it refuse without it.
+
+**More than one is allowed**, and the order matters: a title an earlier library
+supplied is not read again from a later one, the same precedence Sefaria has
+over all of them. Name Otzaria's first, and give the same list in the same
+order to both tools so that a filename two libraries share is looked for in the
+one that supplied the text.
+
+```sh
+cargo run -p girsa-corpus --bin girsa-import corpus ~/Downloads/otzaria_latest ~/Downloads/otzarlib
+```
+
+Each library says where it came from, in a `library.json` at its root:
+
+```json
+{ "edition": "OtzarLib", "provenance": "https://github.com/YairDaniel123/OtzarLib" }
+```
+
+A tree with no such file has **no edition and no licence recorded** for the
+seforim in it, which is the honest answer rather than a flattering one. Only
+Otzaria's own library is recognised without one, by the `metadata.json` beside
+its `אוצריא/`. Omit `license` when you do not know it; a wrong licence on a
+sefer is worse than a blank.
 
 Two more that are worth running and that nothing refuses without:
 

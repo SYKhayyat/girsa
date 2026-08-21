@@ -17,8 +17,8 @@
 //! **T1** — both ends are line numbers, which is the addressing this whole
 //! project exists to leave. They are translated into segment ids here, once,
 //! from a mapping recomputed out of the text file each run
-//! ([`girsa_corpus::import::otzaria::parse_with_lines`]) and never written
-//! down.
+//! ([`girsa_corpus::import::from_a_txt_library`], which is also what chose the
+//! grammar at import) and never written down.
 //!
 //! **T2** — `"Conection Type"`, misspelled.
 //!
@@ -46,7 +46,7 @@ use std::path::Path;
 
 use girsa_corpus::import;
 use girsa_corpus::index::SegmentIndex;
-use girsa_corpus::segment::SegmentId;
+use girsa_corpus::segment::{Ordinal, SegmentId};
 use girsa_corpus::work::{match_key, Source, Work};
 use serde_json::Value;
 
@@ -64,6 +64,64 @@ pub struct LineMap {
     by_line: HashMap<usize, SegmentId>,
 }
 
+/// The id that begins each source line, one per line, in reading order.
+///
+/// # Why this is not just the segments
+///
+/// A segment too long to name a place is **split** at import — `#7` becomes
+/// `#7.1` and `#7.2`, and the parent is deleted. So one line of the source file
+/// can be several segments on the shelf, and a mapping that zips lines against
+/// segments one-to-one runs out of line before it runs out of segment.
+///
+/// It refused rather than mis-mapping, which is right, but it refused a lot: six
+/// of the ten Encyclopedia Talmudit volumes lost **every one of their footnote
+/// links** to an off-by-one — `7026 lines against 7027 segments` — because a
+/// single ערך in each was long enough to be cut in two. The Rambam's Mishnah
+/// commentaries were losing theirs the same way and had been all along.
+///
+/// # Grouping by the first component is not enough
+///
+/// [`girsa_corpus::segment::Ordinal::child`] has **two callers that mean
+/// opposite things by it**, and `Ordinal::covers` says so in as many words: a
+/// cut carving `#7` into pieces, and continuity naming a line upstream inserted
+/// after `#7`. Both produce `#7.1`. Only the first is `#7`'s words; the second
+/// is a line of its own and has to start one.
+///
+/// What tells them apart is a fact about the shelf rather than about the name:
+/// **a cut deletes its parent and an insertion does not.** So `#7.1` beside a
+/// live `#7` is a new line, and `#7.1` where `#7` is gone is the first piece of
+/// the line `#7` used to be.
+///
+/// Reading it the crude way cost a volume of the encyclopedia its links in
+/// *both* directions on successive runs — one segment too many before a
+/// re-import, one too few after it, because that run minted 17,107 ids between
+/// neighbours.
+fn where_each_line_starts(segments: &[girsa_corpus::import::Segment]) -> Vec<SegmentId> {
+    let present: std::collections::HashSet<Ordinal> =
+        segments.iter().map(|s| s.id.ordinal().clone()).collect();
+    segments
+        .iter()
+        .filter(|segment| {
+            let ordinal = segment.id.ordinal();
+            // A root is always the start of its own line.
+            let Some(parent) = ordinal.parent() else {
+                return true;
+            };
+            // The parent is still here, so this was inserted beside it rather
+            // than carved out of it.
+            if present.contains(&parent) {
+                return true;
+            }
+            // A piece of a split. Only the first piece present starts the line.
+            let Some(k) = ordinal.at(ordinal.depth() - 1) else {
+                return true;
+            };
+            !(1..k).any(|earlier| present.contains(&parent.child(earlier)))
+        })
+        .map(|segment| segment.id.clone())
+        .collect()
+}
+
 impl LineMap {
     /// Zip the ids already on the shelf against the lines they came from.
     ///
@@ -78,9 +136,13 @@ impl LineMap {
         let imported = import::read_back(root, &work.slug)?;
         let body =
             fs::read_to_string(&work.origin).map_err(import::ImportError::io(&work.origin))?;
-        let lines = import::otzaria::parse_with_lines(&body);
+        // The same choice of grammar the import made — see
+        // [`import::from_a_txt_library`]. Asking it differently here is how a
+        // mapping ends up one segment out on purpose.
+        let lines = import::from_a_txt_library(&body, &work.he_title);
+        let starts = where_each_line_starts(&imported.segments);
 
-        if lines.len() != imported.segments.len() {
+        if lines.len() != starts.len() {
             return Err(import::ImportError::malformed(
                 &work.origin,
                 format!(
@@ -88,7 +150,7 @@ impl LineMap {
                      since the import, and mapping them anyway would anchor every link \
                      in this sefer one segment out",
                     lines.len(),
-                    imported.segments.len()
+                    starts.len()
                 ),
             ));
         }
@@ -96,8 +158,8 @@ impl LineMap {
         Ok(Self {
             by_line: lines
                 .into_iter()
-                .zip(imported.segments)
-                .map(|((line, _), segment)| (line, segment.id))
+                .zip(starts)
+                .map(|((line, _), id)| (line, id))
                 .collect(),
         })
     }
@@ -358,6 +420,83 @@ mod tests {
     // library code, where a panic would take the reader's window with it.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    /// A segment as the shelf holds it, with the ordinal spelled out.
+    fn seg(work: &str, path: &[&str], ordinal: &[u32]) -> girsa_corpus::import::Segment {
+        let id = SegmentId::new(
+            work,
+            path.iter().map(|p| (*p).to_string()).collect(),
+            ordinal
+                .iter()
+                .skip(1)
+                .fold(girsa_corpus::segment::Ordinal::root(ordinal[0]), |o, k| {
+                    o.child(*k)
+                }),
+        );
+        girsa_corpus::import::Segment {
+            id,
+            kind: girsa_corpus::import::SegmentKind::Text,
+            text: String::new(),
+            anchors: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_line_split_in_two_is_still_one_line() {
+        // The defect: a segment too long to name a place is cut into `#7.1` and
+        // `#7.2` and its parent deleted, so four source lines can be five
+        // segments. Zipping them one-to-one made the counts disagree, and the
+        // map was refused — which cost six of the ten Encyclopedia Talmudit
+        // volumes every footnote link they had.
+        let segments = vec![
+            seg("s", &["0"], &[1]),
+            seg("s", &["0"], &[2, 1]),
+            seg("s", &["0"], &[2, 2]),
+            seg("s", &["0"], &[3]),
+        ];
+        let starts = where_each_line_starts(&segments);
+        assert_eq!(starts.len(), 3, "three lines, not four segments");
+        assert_eq!(
+            starts.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            [
+                "girsa:s/0#1".to_string(),
+                "girsa:s/0#2.1".to_string(),
+                "girsa:s/0#3".to_string()
+            ],
+            "the split line is anchored at the first of its children, where its words start"
+        );
+    }
+
+    #[test]
+    fn a_line_inserted_beside_its_neighbour_is_a_line_of_its_own() {
+        // The other caller of `Ordinal::child`, and the one that made the
+        // crude reading wrong in the opposite direction. A re-import that mints
+        // 17,107 ids between neighbours produces `#2.1` **beside a living
+        // `#2`** — upstream added a line, and it is a line. Grouping on the
+        // first component swallowed it into `#2` and the count came out one
+        // short instead of one long.
+        let segments = vec![
+            seg("s", &["0"], &[1]),
+            seg("s", &["0"], &[2]),
+            seg("s", &["0"], &[2, 1]),
+            seg("s", &["0"], &[3]),
+        ];
+        assert_eq!(
+            where_each_line_starts(&segments).len(),
+            4,
+            "`#2` is still here, so `#2.1` was inserted rather than carved out"
+        );
+    }
+
+    #[test]
+    fn nothing_split_is_one_start_per_segment() {
+        let segments = vec![
+            seg("s", &["1"], &[1]),
+            seg("s", &["1"], &[2]),
+            seg("s", &["1"], &[3]),
+        ];
+        assert_eq!(where_each_line_starts(&segments).len(), 3);
+    }
 
     #[test]
     fn a_line_index_reads_as_a_float_and_as_a_string() {

@@ -41,7 +41,31 @@
 //! exactly as long as nobody re-ran the importer. See [`continuity`].
 
 pub mod continuity;
+pub mod dbs;
 pub mod mine;
+
+/// Read a `.txt` out of a library, with the 1-based line each segment came from.
+///
+/// **The one place the grammar is chosen.** A `.txt` in a library laid out
+/// Otzaria's way is not always marked up Otzaria's way: its own files carry
+/// `<h1>`, and a file added from a Bar-Ilan / DBS export states its structure in
+/// words instead. A file that carries a heading is read as headings; a file that
+/// carries none is read as a DBS export.
+///
+/// It is a function rather than two call sites because there were two, and they
+/// disagreed. [`otzaria::read`] asked the question and `girsa_link`'s `LineMap`
+/// — which zips a source file's lines against the ids already on the shelf —
+/// did not, so a DBS file's links would have been mapped by the parser that did
+/// not import it. Nothing had a sidecar for which that was true yet, which is
+/// the kind of luck that stops being luck.
+#[must_use]
+pub fn from_a_txt_library(body: &str, title: &str) -> Vec<(usize, RawSegment)> {
+    if otzaria::has_a_heading(body) {
+        otzaria::parse_with_lines(body)
+    } else {
+        dbs::parse_with_lines(body, title)
+    }
+}
 pub mod otzaria;
 pub mod sefaria;
 

@@ -2,8 +2,14 @@
 //!
 //! ```sh
 //! cargo run --release -p girsa-corpus --bin girsa-import -- \
-//!     corpus "C:/Users/Administrator/Downloads/otzaria_latest"
+//!     corpus "C:/Users/Administrator/Downloads/otzaria_latest" \
+//!            "C:/Users/Administrator/Downloads/otzarlib"
 //! ```
+//!
+//! One or more `.txt` libraries, Otzaria's named first. Each says where it came
+//! from in its own `library.json` — see [`girsa_corpus::work::Library`], which
+//! exists because this file used to say it for them and was wrong the moment
+//! there was a second one.
 //!
 //! Sefaria spine, Otzaria fill (spec.md §2.3b, decision 1). Every segment gets
 //! a permanent id here and never again (§3, decision 2), and the files it
@@ -30,14 +36,25 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use girsa_corpus::import::{self, Counts, SegmentKind};
-use girsa_corpus::work::{Catalogue, Source, Work};
+use girsa_corpus::work::{Catalogue, Library, Source, Work};
 use girsa_plain::argv::{self, Argv};
 
 const USAGE: &str = "\
-usage: girsa-import [--metadata-only] <corpus> <otzaria>
+usage: girsa-import [--metadata-only] <corpus> <library>...
 
-  Reads an Otzaria tree and writes it into the corpus as seforim with
-  permanent segment ids.
+  Reads one or more `.txt` libraries — each a directory holding `אוצריא/` —
+  and writes them into the corpus as seforim with permanent segment ids.
+
+  Name Otzaria's library first. A later library does not re-import a title an
+  earlier one already supplied.
+
+  Each library says where it came from in a `library.json` at its root:
+
+      { \"edition\": \"OtzarLib\",
+        \"provenance\": \"https://github.com/YairDaniel123/OtzarLib\" }
+
+  A tree with no such file has no edition or licence recorded for it, and
+  Otzaria's own library is recognised without one.
 
   --metadata-only        rebuild the catalogue and leave the text alone";
 
@@ -62,15 +79,44 @@ fn main() -> std::process::ExitCode {
     // has to be re-imported to learn one new fact about a sefer is a shelf
     // nobody will ever add a field to again.
     let metadata_only = args.switch("--metadata-only");
-    let (Some(corpus_root), Some(otzaria_root)) = (args.word(0), args.word(1)) else {
+    let Some(corpus_root) = args.word(0) else {
         return argv::refuse(USAGE);
     };
+    if args.words().len() < 2 {
+        return argv::refuse(USAGE);
+    }
     let corpus_root = PathBuf::from(corpus_root);
-    let otzaria_root = PathBuf::from(otzaria_root);
+    let otzaria_root = PathBuf::from(args.word(1).unwrap_or_default());
+    let libraries: Vec<Library> = args.words()[1..]
+        .iter()
+        .map(|w| Library::at(Path::new(w)))
+        .collect();
+    for library in &libraries {
+        // Loud, and before an hour of work rather than after it. A declaration
+        // that would not parse means a shelf about to record nothing about
+        // where a sefer came from, which is the failure this file exists to
+        // stop being silent.
+        if let Some(trouble) = library.trouble() {
+            eprintln!("cannot read a library's declaration — {trouble}");
+            return std::process::ExitCode::FAILURE;
+        }
+        match library.version() {
+            Some(version) => eprintln!(
+                "library {}: {} ({})",
+                library.root().display(),
+                version.edition,
+                version.license.as_deref().unwrap_or("no licence stated")
+            ),
+            None => eprintln!(
+                "library {}: says nothing about itself, so nothing will be recorded",
+                library.root().display()
+            ),
+        }
+    }
     let sefaria_root = corpus_root.join("sefaria");
 
     eprintln!("cataloguing …");
-    let (catalogue, skipped) = match Catalogue::build(&sefaria_root, &otzaria_root) {
+    let (catalogue, skipped) = match Catalogue::build(&sefaria_root, &libraries) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("cannot build a catalogue: {e}");
@@ -148,17 +194,34 @@ fn main() -> std::process::ExitCode {
     }
 
     let mut checks = Checks::default();
+    // §2.3 counted the overlap between **two** corpora — Sefaria's and
+    // Otzaria's — and both numbers below are about that pair. Add a third
+    // library and `otzaria_only` stops being the quantity the spec named: it
+    // becomes *everything Sefaria does not have*, across however many trees
+    // were given. Comparing that to 978 does not fail the way a regression
+    // fails; it fails the way a different measurement fails.
+    //
+    // So the rows are still printed — the numbers are worth seeing — but they
+    // are not judged. BUILDER.md Appendix B.5 asks for loudness when the data
+    // stops matching §2, and the loud, honest thing here is to say the shelf is
+    // no longer the shelf §2 described rather than to quietly widen a tolerance
+    // until it passes.
+    let as_measured = if libraries.len() > 1 {
+        Tolerance::NotComparable
+    } else {
+        Tolerance::Approximate
+    };
     checks.check(
         "spec.md §2.3 · works in the union",
         7576,
         overlap.union(),
-        Tolerance::Approximate,
+        as_measured,
     );
     checks.check(
-        "spec.md §2.3 · Otzaria-only works",
+        "spec.md §2.3 · works Sefaria does not supply",
         978,
         overlap.otzaria_only,
-        Tolerance::Approximate,
+        as_measured,
     );
     checks.check(
         "no segment id carries a separator that would re-read it elsewhere",
@@ -185,21 +248,28 @@ enum Tolerance {
     Exact,
     /// The spec writes `~`, and the corpus is a moving target. Within 2%.
     Approximate,
+    /// The spec's number and this one are not measurements of the same thing,
+    /// so the comparison is meaningless and is not made.
+    ///
+    /// Printed anyway. A row that vanishes is a row nobody can tell was ever
+    /// there, and the measured value is the interesting half.
+    NotComparable,
 }
 
 #[derive(Debug, Default)]
 struct Checks {
-    rows: Vec<(String, usize, usize, bool)>,
+    rows: Vec<(String, usize, usize, Option<bool>)>,
 }
 
 impl Checks {
     fn check(&mut self, what: &str, want: usize, got: usize, tolerance: Tolerance) {
         let ok = match tolerance {
-            Tolerance::Exact => got == want,
+            Tolerance::Exact => Some(got == want),
             Tolerance::Approximate => {
                 let slack = want / 50;
-                got.abs_diff(want) <= slack
+                Some(got.abs_diff(want) <= slack)
             }
+            Tolerance::NotComparable => None,
         };
         self.rows.push((what.to_string(), want, got, ok));
     }
@@ -218,9 +288,15 @@ impl Checks {
                 "  {:>10}  {:>10}   {}  {what}",
                 want,
                 got,
-                if *ok { "ok  " } else { "DIFF" }
+                match ok {
+                    Some(true) => "ok  ",
+                    Some(false) => "DIFF",
+                    // The shelf is not the shelf the spec measured, so the two
+                    // numbers are not two measurements of one thing.
+                    None => "n/a ",
+                }
             );
-            failed += usize::from(!ok);
+            failed += usize::from(*ok == Some(false));
         }
         if failed == 0 {
             println!("\nall {} checks green", self.rows.len());
