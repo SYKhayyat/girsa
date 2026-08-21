@@ -256,6 +256,11 @@ through to the health check, which stays the authority.
 what you mean first* (`nothing-chosen`), it is not a failure. Nothing was
 highlighted.
 
+If the chip is happy and a **citation in a finished PDF** still does not open
+the page it names, that half is Ksav's: see
+[Ksav's troubleshooting](https://github.com/SYKhayyat/ksav/blob/main/docs/troubleshooting.md).
+Girsa answers the request; Ksav is what wrote the ref into the document.
+
 ---
 
 ## The window draws nothing, or opens white
