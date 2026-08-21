@@ -44,5 +44,14 @@ thiserror.workspace = true
 # search server is not something a reader should have to run.
 tantivy = "0.26"
 
+[dev-dependencies]
+# The synthetic shelf, so a test about *which place a citation lands on* has a
+# real schema, a real lexicon and real segments to land on — built through the
+# real importer rather than hand-written. The dependency points back at this
+# crate through the fixture's optional `search` feature, which is off here;
+# cargo permits the cycle for a dev-dependency either way, and `girsa-corpus`
+# already carries the same one for the same reason.
+girsa-fixture.workspace = true
+
 [lints]
 workspace = true

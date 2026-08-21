@@ -41,8 +41,8 @@ use girsa_corpus::import::{self, Segment};
 use girsa_corpus::index::{Run, WorkSegments};
 use girsa_corpus::sections::Sections;
 use girsa_ref::lexicon::Lexicon;
-use girsa_ref::resolve::{resolve_in_context, Context, Resolution};
-use girsa_ref::Ref;
+use girsa_ref::resolve::{resolve_in_context, resolve_labels_as_names, Context, Resolution};
+use girsa_ref::{Level, Ref};
 
 /// How many spellings are offered when nothing resolved.
 ///
@@ -236,7 +236,7 @@ impl Citations {
     /// is standing.
     #[must_use]
     pub fn look_up(&self, typed: &str, context: &Context) -> Landing {
-        let resolution = resolve_in_context(&self.lexicon, typed, context);
+        let resolution = self.reading_the_schema_confirms(typed, context);
         let mut places = Vec::new();
         let mut near = Vec::new();
 
@@ -361,6 +361,78 @@ impl Citations {
         match reference.to() {
             Some(to) => Ref::span(reference.work().to_vec(), from, sections.slugged(to)),
             None => Ref::point(reference.work().to_vec(), from),
+        }
+    }
+
+    /// The resolver reads a level word two ways; this asks the schema which.
+    ///
+    /// `סימן א'` is siman one and the word `סימן` addresses nothing — right
+    /// almost always, and wrong in a sefer whose schema names a section by
+    /// exactly that word. `עטרת זקנים שער א'` came back as `1`, which is a real
+    /// perek of that sefer and not the place anybody asked for: **a wrong
+    /// landing that looks exactly like a right one**, which this module's own
+    /// header calls the worst kind of wrong there is.
+    ///
+    /// `girsa_ref::resolve::resolve_labels_as_names` is the same citation read
+    /// with the word kept. Neither reading is better in general and this does
+    /// not prefer one — the schema decides, and only when it says both of these
+    /// things about the word:
+    ///
+    /// * it **is** the title of a section of this work
+    ///   ([`Sections::section_of`], which refuses a name two sections share);
+    /// * it is **not** a level name this work uses
+    ///   ([`Sections::is_level_name`]) — so the label reading is labelling with
+    ///   a word this sefer never labels anything with.
+    ///
+    /// Both, or nothing changes. Deliberately narrow in two more ways: it only
+    /// looks when both readings come back `Exact`, so a citation that is
+    /// already a choice between works stays exactly the choice it was; and it
+    /// only swaps when the second reading names a place that is really there,
+    /// so a schema-confirmed guess that lands nowhere never replaces a landing.
+    ///
+    /// Measured on the shelf: 166 chalakim of 7,627.
+    fn reading_the_schema_confirms(&self, typed: &str, context: &Context) -> Resolution {
+        let plain = resolve_in_context(&self.lexicon, typed, context);
+        // A choice between works stays the choice it was. The two cases worth
+        // a second reading are *one answer, and it may be the wrong one* and
+        // *no answer at all* — the second because the ordinary reading refuses
+        // an address that is a section name with no number after it, on the
+        // ground that it cannot tell a section from a stray word. It cannot;
+        // the schema can.
+        match plain {
+            Resolution::Exact(_) | Resolution::Unresolved => {}
+            Resolution::Ambiguous(_) => return plain,
+        }
+        let named = resolve_labels_as_names(&self.lexicon, typed, context);
+        let Some(kept) = named.exact() else {
+            return plain;
+        };
+        if plain
+            .exact()
+            .is_some_and(|ordinary| kept.work() != ordinary.work())
+        {
+            return plain;
+        }
+        let slug = kept.work_slug();
+        let sections = self.sections_of(&slug);
+        // `addressed` is what turns names into the slugs the segments carry —
+        // the same path `look_up` takes below — and asking it rather than
+        // asking `section_of` about the raw words is what lets a level holding
+        // **several** section names answer: one level can hold two of them, and
+        // `Sections::slugged` is the one place that knows how to split it.
+        let addressed = self.addressed(&slug, kept);
+        let Some(word) = kept.from().levels().first().map(Level::as_str) else {
+            return plain;
+        };
+        let Some(front) = addressed.from().levels().first().map(Level::as_str) else {
+            return plain;
+        };
+        if sections.titled(front).is_none() || sections.is_level_name(word) {
+            return plain;
+        }
+        match self.segments_of(&slug) {
+            Some(work) if work.resolve_in(&slug, &addressed).is_some() => named,
+            _ => plain,
         }
     }
 

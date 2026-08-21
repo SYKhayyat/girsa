@@ -135,17 +135,33 @@ fn spelled_out(level: &str) -> String {
 
 /// A spelling with everything a person varies taken out of it.
 ///
-/// Gershayim, geresh, apostrophes, the ASCII stand-ins for both, every space,
-/// and the whole nikud-and-te'amim block. What is left is letters, which is the
-/// only part of `או"ח` / `או׳׳ח` / `אוח` that is the same in all three.
+/// Gershayim, geresh, apostrophes and their ASCII stand-ins, every space, the
+/// whole nikud-and-te'amim block, and every other mark a title carries and a
+/// reader does not retype — a colon, a bracket, a comma, a dash. What is left is
+/// letters and digits, which is the only part of `או"ח` / `או׳׳ח` / `אוח` that
+/// is the same in all three, and the only part of `חלק א': בית נתיבות` that
+/// survives being cut into levels on the way here.
 fn spelling(said: &str) -> String {
     said.chars()
-        .filter(|c| !c.is_whitespace())
-        .filter(|c| !matches!(c, '\'' | '"'))
         // U+0591..U+05C7 is the cantillation and vowel block, and it carries
         // the geresh and gershayim punctuation at U+05F3/U+05F4 just above it.
+        // Rust calls the marks alphanumeric, so they come off before the test
+        // below rather than being caught by it.
         .filter(|c| !('\u{0591}'..='\u{05C7}').contains(c))
         .filter(|c| !matches!(c, '\u{05F3}' | '\u{05F4}'))
+        // **Letters and digits, and nothing else.** This kept everything that
+        // was not a space, a quote or a nikud mark, which was enough while the
+        // titles being compared were words. Sefaria's are not always words:
+        // `חלק א': בית נתיבות` and `אדרת אליהו (ר' יוסף חיים)` carry a colon and
+        // a bracket inside the **name**, and nobody typing that mekor
+        // reproduces the punctuation — the resolver least of all, which cuts an
+        // address on a colon long before this is asked anything.
+        //
+        // Widening cannot make a wrong section be chosen. Two titles that
+        // collide once their punctuation is gone are an ambiguity, and
+        // [`Sections::section_of`] refuses an ambiguity rather than picking
+        // from it.
+        .filter(|c| c.is_alphanumeric())
         .collect()
 }
 
@@ -507,6 +523,31 @@ impl Sections {
                 .join(" ");
             self.front(&said).map(|slugs| (slugs, take))
         })
+    }
+
+    /// Whether this schema uses `said` as the name of a **level** — a פרק, a
+    /// סימן, a פסקה — anywhere in the work.
+    ///
+    /// The other half of the question [`Sections::section_of`] answers, and the
+    /// two together are what let a caller choose between the resolver's two
+    /// readings of a level word without guessing at either.
+    ///
+    /// `עטרת זקנים שער א'`: the resolver's ordinary reading takes `שער` for a
+    /// label and hands back `1`, which is a real perek of that sefer and not
+    /// the place anybody asked for. Its second reading — `girsa_ref::resolve::
+    /// resolve_labels_as_names` — keeps the word. Which is right is the
+    /// schema's to say, and it says it twice over: `שער` **is** the title of a
+    /// section here, and it is **not** a level name here (the levels are פרק
+    /// and פסקה). Both facts, or the ordinary reading stands.
+    #[must_use]
+    pub fn is_level_name(&self, said: &str) -> bool {
+        let wanted = spelling(said);
+        !wanted.is_empty()
+            && self
+                .levels
+                .values()
+                .flatten()
+                .any(|name| spelling(name) == wanted)
     }
 
     /// Whether this schema calls more than one section `said`.
@@ -944,6 +985,48 @@ mod tests {
             slugged("הפטרת אחרון:330:פסח"),
             "haftarah_of_the_last_day_of_pesach"
         );
+    }
+
+    #[test]
+    fn a_title_with_punctuation_in_it_is_matched_on_its_letters() {
+        // Sefaria writes section titles with punctuation inside the name:
+        // `חלק א': בית נתיבות` has a colon in it, and the colon is what an
+        // address is cut on — so the two halves arrive as two levels and
+        // neither is the title. Compared letter by letter they are.
+        //
+        // 253 chalakim of 7,627, measured, which is what a colon costs.
+        let sections = Sections::of(
+            &serde_json::json!({
+                "schema": {
+                    "title": "Avodat HaKodesh", "heTitle": "עבודת הקדש",
+                    "nodes": [
+                        {"title": "Part One", "heTitle": "חלק א': בית נתיבות",
+                         "heSectionNames": ["פסקה"]},
+                        {"title": "Part Two", "heTitle": "חלק ב': בית מועד",
+                         "heSectionNames": ["פסקה"]},
+                    ],
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            sections.section_of("חלק א' בית נתיבות"),
+            Some("part_one"),
+            "the colon is not a letter of the name"
+        );
+        assert_eq!(sections.section_of("חלק א בית נתיבות"), Some("part_one"));
+        // The address, cut on the colon and put back together across levels.
+        assert_eq!(
+            sections
+                .slugged(&Address::parse("חלק א':בית נתיבות:1").unwrap())
+                .to_string(),
+            "part_one:1"
+        );
+        // And a name that is genuinely another section is still another
+        // section: widening what counts as the same spelling must not make two
+        // titles one.
+        assert_eq!(sections.section_of("חלק ב' בית מועד"), Some("part_two"));
     }
 
     #[test]

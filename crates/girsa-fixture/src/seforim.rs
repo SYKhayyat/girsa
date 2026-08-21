@@ -841,6 +841,21 @@ pub fn shelf() -> Vec<Sefer> {
                             "depth": 1,
                             "addressTypes": ["Integer"],
                         },
+                        // **A section whose name is also a level word.** `שער`
+                        // is one of the 29 words the resolver reads as a label
+                        // — `שער א'` is gate one — so a citation into this
+                        // section resolves to perek א' of the default node
+                        // instead, which is a real place and the wrong one.
+                        // Nothing else on this shelf is shaped that way, and it
+                        // is not a rare shape: 122 chalakim of the 7,627 on a
+                        // real shelf are still it.
+                        {
+                            "title": "Gate",
+                            "heTitle": "שער",
+                            "nodeType": "JaggedArrayNode",
+                            "depth": 1,
+                            "addressTypes": ["Integer"],
+                        },
                         {
                             "title": "",
                             "default": true,
@@ -852,6 +867,7 @@ pub fn shelf() -> Vec<Sefer> {
                 }),
                 json!({
                     "Introduction": ["אמר יצחק בן יהודה אברבנאל", "הנה ראיתי לבאר"],
+                    "Gate": ["שער ראשון - בטעם הנבואה"],
                     "": [["ויהי בשלשים שנה - הנבואה הראשונה"]],
                 }),
                 &[],
