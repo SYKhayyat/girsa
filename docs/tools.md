@@ -35,6 +35,18 @@ takes `[corpus] [personal]`, both default and you can usually leave them off.
 
 ## Building the shelf
 
+**All of it, in one command, downloads included:**
+
+```sh
+node tools/build-a-shelf.mjs <corpus> --download-otzaria [--otzarlib] [--dry-run]
+```
+
+It runs the five below in order, fetches what they need, skips any step whose
+output already exists, and stops the whole run on the first failure rather than
+leaving a shelf with a hole in it. `--help` for the options.
+
+The rest of this section is what it does, for when you want to do it by hand.
+
 In this order, once, before anything else. `docs/start-here.md` is the
 walkthrough; this is the list.
 
@@ -81,7 +93,7 @@ cargo run -p girsa-corpus --bin girsa-import corpus ~/Downloads/otzaria_latest ~
 Each library says where it came from, in a `library.json` at its root:
 
 ```json
-{ "edition": "OtzarLib", "provenance": "https://github.com/YairDaniel123/OtzarLib" }
+{ "edition": "OtzarLib", "provenance": "https://github.com/gwngdwl/seforim" }
 ```
 
 A tree with no such file has **no edition and no licence recorded** for the

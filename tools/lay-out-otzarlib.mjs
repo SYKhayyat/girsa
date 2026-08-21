@@ -11,7 +11,7 @@
 //
 //     node tools/lay-out-otzarlib.mjs <checkout> <destination> [--dry-run]
 //
-//     git clone --depth 1 https://github.com/YairDaniel123/OtzarLib.git otzarlib
+//     git clone --depth 1 https://github.com/gwngdwl/seforim.git otzarlib
 //     node tools/lay-out-otzarlib.mjs otzarlib otzarlib-shelf
 //     girsa-import      corpus <otzaria> otzarlib-shelf
 //     girsa-link-import corpus <otzaria> otzarlib-shelf
@@ -109,7 +109,7 @@ const IGROS = "שות/מחברי זמננו";
  */
 const DECLARATION = {
   edition: "OtzarLib",
-  provenance: "https://github.com/YairDaniel123/OtzarLib",
+  provenance: "https://github.com/gwngdwl/seforim",
 };
 
 /** Every file under a directory, recursively. */
@@ -207,7 +207,7 @@ function main() {
   if (words.length !== 2) {
     console.error(
       "usage: node tools/lay-out-otzarlib.mjs <checkout> <destination> [--dry-run]\n\n" +
-        "  <checkout>     a clone of https://github.com/YairDaniel123/OtzarLib\n" +
+        "  <checkout>     a clone of https://github.com/gwngdwl/seforim\n" +
         "  <destination>  written fresh; anything already there is removed\n\n" +
         "  Read that repository's README before you run this. It states that parts\n" +
         "  of its contents may not be redistributed. Girsa neither fetches nor ships\n" +

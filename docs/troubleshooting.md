@@ -66,6 +66,34 @@ folder you unpacked either of them into.
 
 ---
 
+## `build-a-shelf.mjs` stopped partway
+
+**What you see:** the run ends with something like `girsa-import exited 1.
+Nothing after this has run.`
+
+That sentence is the design. A shelf missing its middle is worse than one that
+is obviously not built, so the first failure ends the run — and `girsa-link-types`
+in particular fails *usefully silently*: skip it and every daf simply has no
+mefarshim, which reads exactly like a sefer nobody wrote on.
+
+**Run it again.** Every step checks whether its output is already there and
+skips it, so a re-run resumes rather than restarting. A download that was
+interrupted resumes too — `girsa-fetch` is resumable by design and the zip is
+only fetched when it is not already on disk.
+
+Common stops, in the order you will meet them:
+
+| It said | What to do |
+|---|---|
+| `git exited 128` … `Repository not found` | the library's URL has moved. Clone it by hand and pass the path |
+| `could not unpack …` | no `tar`, `unzip` or PowerShell that reads a zip. Unpack by hand, then `--otzaria <path>` |
+| `no library` | pass `--otzaria <path>` or `--download-otzaria`; see [`the-libraries.md`](the-libraries.md) |
+| `<path> has no אוצריא/ in it` | you pointed at the folder above or below the library. It is the one holding `אוצריא/` |
+| a `girsa-*` step exited non-zero | its own output says why, above the summary line. The sections below cover each |
+
+`--dry-run` prints every command it would run and touches nothing, which is the
+fastest way to see whether it is about to do what you meant.
+
 ## A library you added is not on the shelf
 
 **What you see:** `girsa-import` ran, said nothing was wrong, and the seforim you
@@ -99,7 +127,7 @@ licence, where the ones beside it have all three.
 Working as intended. A library states those in a `library.json` at its root:
 
 ```json
-{ "edition": "OtzarLib", "provenance": "https://github.com/YairDaniel123/OtzarLib" }
+{ "edition": "OtzarLib", "provenance": "https://github.com/gwngdwl/seforim" }
 ```
 
 A tree with no such file has nothing recorded for it, and Otzaria's own library

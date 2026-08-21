@@ -51,7 +51,7 @@ usage: girsa-import [--metadata-only] <corpus> <library>...
   Each library says where it came from in a `library.json` at its root:
 
       { \"edition\": \"OtzarLib\",
-        \"provenance\": \"https://github.com/YairDaniel123/OtzarLib\" }
+        \"provenance\": \"https://github.com/gwngdwl/seforim\" }
 
   A tree with no such file has no edition or licence recorded for it, and
   Otzaria's own library is recognised without one.

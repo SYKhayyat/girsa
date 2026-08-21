@@ -911,7 +911,7 @@ fn read_otzaria(library: &Library) -> Result<Vec<Work>, CatalogueError> {
 ///
 /// ```json
 /// { "edition": "OtzarLib",
-///   "provenance": "https://github.com/YairDaniel123/OtzarLib" }
+///   "provenance": "https://github.com/gwngdwl/seforim" }
 /// ```
 ///
 /// A tree that declares nothing has nothing claimed for it. The single

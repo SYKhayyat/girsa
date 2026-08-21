@@ -21,9 +21,17 @@ third is the search index. **One step in the middle is yours to do by hand**:
 Sefaria's half is fetched for you and the `.txt` libraries are not, so
 `<library>` below is a path to a tree you downloaded yourself.
 
+**One command does all of it**, downloads included:
+
+```sh
+node tools/build-a-shelf.mjs corpus --download-otzaria
+```
+
+Or, if you would rather run the six yourself:
+
 ```sh
 cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim, 3.4 GB
-#                            download a .txt library yourself — nothing here fetches it
+#                            download a .txt library yourself — the-libraries.md says where
 cargo run -p girsa-corpus --bin girsa-import      corpus <library>...    # onto permanent ids
 cargo run -p girsa-link   --bin girsa-link-import corpus <library>...    # the links between them
 cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards

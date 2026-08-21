@@ -5,6 +5,34 @@ This page is where each part of that comes from, what it costs, and what its
 terms are — because "download it yourself" without a *from where* is not an
 instruction.
 
+## The whole thing, in one command
+
+```sh
+node tools/build-a-shelf.mjs corpus --download-otzaria
+```
+
+Sefaria fetched, Otzaria's library downloaded and unpacked, both imported onto
+permanent ids, the link graph built, the caches that read it backwards, and the
+search index. About two hours, mostly the index, and **~15 GB** at the end.
+
+Add `--otzarlib` to clone [OtzarLib](#otzarlib-and-the-tool-that-lays-it-out)
+and lay it out as well — it prints that collection's terms when you pass it.
+`--dry-run` prints every command and runs none of them. `--skip-search` stops
+before the long step.
+
+**Every step skips itself if its output is already there**, so an interrupted
+run is resumed by running it again, and any step that fails ends the run rather
+than leaving a shelf with a hole in the middle.
+
+```sh
+node tools/build-a-shelf.mjs --help
+```
+
+The rest of this page is what that command is doing, source by source, for when
+you want to do it yourself or when something goes wrong.
+
+---
+
 You do not need all of it. Sefaria alone is a working library. Each row below
 adds to the shelf and none of them is required by another.
 
@@ -99,7 +127,7 @@ Put a `library.json` at the root:
 ```json
 {
   "edition": "OtzarLib",
-  "provenance": "https://github.com/YairDaniel123/OtzarLib",
+  "provenance": "https://github.com/gwngdwl/seforim",
   "license": "CC-BY-4.0"
 }
 ```
@@ -111,11 +139,18 @@ recorded for it, which is a perfectly good answer.
 
 ### OtzarLib, and the tool that lays it out
 
-**OtzarLib** — <https://github.com/YairDaniel123/OtzarLib> — is ~130 files
+**OtzarLib** — <https://github.com/gwngdwl/seforim> — is ~130 files
 including the whole Encyclopedia Talmudit with its footnote apparatus, Yabia
 Omer, Minchas Yitzchak, Shevet HaLevi, Minchas Shlomo, the Rashba's teshuvos,
 Piskei Ri"d, Ravyah, and the Brisker chiddushim. Most of it is in neither
 library above.
+
+> **That link is a mirror, and it is the one that exists.** The collection calls
+> itself OtzarLib and its own README points at `YairDaniel123/OtzarLib`, which
+> is a 404 — the upstream is gone, renamed or private. This repository recorded
+> that dead URL as the provenance of 122 seforim for exactly as long as it took
+> to run the clone and watch it fail, which is the argument for running a thing
+> rather than reading it.
 
 **Read its README before you do anything with it.** It states that parts of its
 contents are subject to copyright and are *forbidden for public distribution,
@@ -135,7 +170,7 @@ imports as a heap.
 So there is a tool, and it does the whole of that:
 
 ```sh
-git clone --depth 1 https://github.com/YairDaniel123/OtzarLib.git otzarlib
+git clone --depth 1 https://github.com/gwngdwl/seforim.git otzarlib
 node tools/lay-out-otzarlib.mjs otzarlib otzarlib-shelf --dry-run   # see the plan
 node tools/lay-out-otzarlib.mjs otzarlib otzarlib-shelf             # write it
 

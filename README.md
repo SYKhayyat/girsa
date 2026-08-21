@@ -106,8 +106,20 @@ job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the real
 Windows build and uploads the NSIS `.exe` and the MSI.
 
 **The installer carries the application and the tools. It does not carry the
-library.** A fresh install is a window with no seforim. Filling it is six steps,
-and the first screen says so too:
+library.** A fresh install is a window with no seforim.
+
+From a clone of this repository, filling it is one command:
+
+```sh
+node tools/build-a-shelf.mjs corpus --download-otzaria
+```
+
+That is everything below, in order, resumable, with the downloads done for you —
+about two hours, mostly the search index, and ~15 GB at the end. Add
+`--otzarlib` for a second library, `--dry-run` to see the plan, `--help` for the
+rest.
+
+The six steps it performs, for when you want to do them yourself:
 
 | | Step | Command | On disk after it |
 |---|---|---|---|

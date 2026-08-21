@@ -10,6 +10,13 @@
 *.sqlite-journal
 *.sqlite-wal
 
+# Downloaded libraries of seforim, and the trees generated from them.
+# `tools/build-a-shelf.mjs` unpacks them here by default. Somebody else's
+# seforim, gigabytes of them, and not this repository's to carry.
+/libraries/
+/otzaria_latest*
+/otzarlib*
+
 # Derived indices. Rebuildable by definition (spec.md §4.1).
 /index/
 

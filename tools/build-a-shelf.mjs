@@ -1,0 +1,285 @@
+#!/usr/bin/env node
+// Build a whole shelf from a fresh clone, in one command.
+//
+//     node tools/build-a-shelf.mjs corpus --download-otzaria
+//
+// Everything Girsa needs to be a library rather than an empty window: Sefaria
+// fetched, a `.txt` library downloaded and unpacked, both imported onto
+// permanent ids, the link graph built, the caches that read it backwards, and
+// the search index. Six steps, in the order they have to happen, with the two
+// downloads that were previously a paragraph telling you to go and get them.
+//
+// # Why this exists
+//
+// The steps were written down in four places and performed by hand. Written
+// down is not the same as reproducible: a shelf built by reading a table and
+// typing is a shelf whose exact contents nobody can recreate, including the
+// person who built it. This is the difference between *here is how* and *here*.
+//
+// # It stops rather than half-doing
+//
+// Every step checks whether its output is already there and skips it if so, so
+// an interrupted run is resumed by running it again. Any step that fails ends
+// the run — a shelf missing its middle is worse than a shelf that is obviously
+// not built, and `girsa-link-types` in particular fails *silently useful*: skip
+// it and every daf simply has no mefarshim, which reads exactly like a sefer
+// nobody wrote on.
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const OTZARIA_ZIP =
+  "https://github.com/Sivan22/otzaria-library/releases/download/latest/otzaria_latest.zip";
+const OTZARLIB_GIT = "https://github.com/gwngdwl/seforim.git";
+
+/** What OtzarLib's own README says, which anybody taking it should read. */
+const OTZARLIB_TERMS = `
+  OtzarLib states that parts of its contents are subject to copyright and are
+  forbidden for public distribution, copying or commercial use; that the files
+  are for private use only; and that uploading them waives nothing. The
+  repository carries no licence.
+
+  Girsa does not fetch it by default, does not ship it, and does not
+  redistribute it. Passing --otzarlib is you choosing to put it on your own
+  machine, and the terms above are between you and whoever wrote them.
+`;
+
+const argv = process.argv.slice(2);
+/** The flags that take a value, so the value is not read as a word. */
+const TAKES_A_VALUE = new Set(["--otzaria", "--index", "--personal", "--libraries"]);
+const has = (flag) => argv.includes(flag);
+const value = (flag) => {
+  const at = argv.indexOf(flag);
+  return at >= 0 ? (argv[at + 1] ?? null) : null;
+};
+const words = argv.filter(
+  (a, i) => !a.startsWith("--") && !(i > 0 && TAKES_A_VALUE.has(argv[i - 1])),
+);
+const dryRun = has("--dry-run");
+
+if (words.length !== 1 || has("--help") || has("-h")) {
+  console.log(`usage: node tools/build-a-shelf.mjs <corpus> [options]
+
+  <corpus>              where the shelf is written. 15 GB when it is done.
+
+  --otzaria <path>      an Otzaria library already on disk
+  --download-otzaria    fetch and unpack it instead (1.28 GB)
+  --otzarlib            also clone OtzarLib and lay it out — read its terms,
+                        printed when you pass it
+  --libraries <path>    where downloaded libraries are unpacked
+                        (default: a libraries/ folder beside <corpus>)
+  --index <path>        where the search index goes (default: ./index)
+  --personal <path>     your own layer (default: ./personal)
+  --skip-search         stop before the search index, which is the long step
+  --dry-run             print every command and run none of them
+
+  Steps already done are skipped, so an interrupted run resumes by being run
+  again. Nothing is deleted except a library tree this script generated itself.`);
+  process.exit(words.length === 1 ? 0 : 2);
+}
+
+const corpus = resolve(words[0]);
+const index = resolve(value("--index") ?? "index");
+// Downloaded libraries land here rather than in whatever directory this was
+// run from. A fresh clone is run from the repository root, and 1 GB of
+// somebody else's seforim appearing as untracked files inside it is not a
+// thing to do to a person.
+const librariesDir = resolve(value("--libraries") ?? join(corpus, "..", "libraries"));
+const personal = resolve(value("--personal") ?? "personal");
+// `fileURLToPath`, never `.pathname`. The latter stays percent-encoded, so a
+// checkout under `C:\Users\Some One\` resolves to `Some%20One` and every path
+// built from it points at nothing. The window suite forbids the other form by
+// name, and caught this line.
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+let step = 0;
+const say = (message) => console.log(`\n── ${++step} · ${message}`);
+
+/** Run a command, echoing it, and stop the whole run if it fails. */
+function run(command, args, options = {}) {
+  console.log(`   ${command} ${args.join(" ")}`);
+  if (dryRun) return;
+  const result = spawnSync(command, args, { stdio: "inherit", ...options });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    console.error(`\n${command} exited ${result.status}. Nothing after this has run.`);
+    process.exit(result.status ?? 1);
+  }
+}
+
+/**
+ * A Girsa binary, built in release if it is not there yet.
+ *
+ * `cargo run` would rebuild-check on every call and print its own noise between
+ * steps; building once up front and then calling the executables keeps the
+ * output of a two-hour run readable.
+ */
+const CRATE_OF = {
+  "girsa-fetch": "girsa-corpus",
+  "girsa-import": "girsa-corpus",
+  "girsa-link-import": "girsa-link",
+  "girsa-link-types": "girsa-link",
+  "girsa-index": "girsa-search",
+};
+function tool(name) {
+  const exe = join(root, "target", "release", process.platform === "win32" ? `${name}.exe` : name);
+  if (!existsSync(exe) && !dryRun) {
+    run("cargo", ["build", "--release", "-p", CRATE_OF[name], "--bin", name], { cwd: root });
+  }
+  return exe;
+}
+
+/** Unpack a zip with whatever this machine has. */
+function unzip(archive, into) {
+  mkdirSync(into, { recursive: true });
+  const candidates = [
+    // bsdtar, which is `tar` on Windows 10+ and macOS and does read zips.
+    ["tar", ["-xf", archive, "-C", into]],
+    ["unzip", ["-q", "-o", archive, "-d", into]],
+    [
+      "powershell",
+      ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${into}' -Force`],
+    ],
+  ];
+  for (const [command, args] of candidates) {
+    console.log(`   ${command} ${args.join(" ")}`);
+    if (dryRun) return;
+    const result = spawnSync(command, args, { stdio: "inherit" });
+    if (!result.error && result.status === 0) return;
+    console.log(`   (${command} could not do it, trying the next)`);
+  }
+  throw new Error(
+    `could not unpack ${archive}. Unpack it by hand and re-run with --otzaria <path>.`,
+  );
+}
+
+/** Download to a file, saying how far along it is. */
+async function download(url, to) {
+  console.log(`   GET ${url}`);
+  if (dryRun) return;
+  const response = await fetch(url, { redirect: "follow" });
+  if (!response.ok) throw new Error(`${url} — ${response.status} ${response.statusText}`);
+  const total = Number(response.headers.get("content-length") ?? 0);
+  const { createWriteStream } = await import("node:fs");
+  const out = createWriteStream(to);
+  let seen = 0;
+  let printed = 0;
+  for await (const chunk of response.body) {
+    seen += chunk.length;
+    out.write(chunk);
+    const percent = total ? Math.floor((seen / total) * 100) : 0;
+    if (percent >= printed + 5) {
+      printed = percent;
+      process.stdout.write(`\r   ${percent}%  ${(seen / 1048576).toFixed(0)} MB`);
+    }
+  }
+  out.end();
+  process.stdout.write("\n");
+}
+
+/** Is this path a directory with anything in it? */
+const built = (path) => {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+async function main() {
+  console.log(`Building a shelf in ${corpus}`);
+  if (dryRun) console.log("(--dry-run: printing the plan, running nothing)");
+
+  // 1 · Sefaria.
+  say("Sefaria — 3.4 GB, resumable");
+  if (built(join(corpus, "sefaria", "schemas"))) {
+    console.log("   already fetched, skipping");
+  } else {
+    run(tool("girsa-fetch"), [join(corpus, "sefaria")]);
+  }
+
+  // 2 · A `.txt` library.
+  say("a .txt library");
+  const libraries = [];
+  let otzaria = value("--otzaria");
+  if (otzaria) {
+    otzaria = resolve(otzaria);
+    if (!built(join(otzaria, "אוצריא"))) {
+      console.error(`   ${otzaria} has no אוצריא/ in it — is that an Otzaria library?`);
+      process.exit(1);
+    }
+    console.log(`   using ${otzaria}`);
+  } else if (has("--download-otzaria")) {
+    otzaria = join(librariesDir, "otzaria_latest");
+    if (built(join(otzaria, "אוצריא"))) {
+      console.log(`   ${otzaria} is already unpacked, skipping`);
+    } else {
+      const zip = join(librariesDir, "otzaria_latest.zip");
+      mkdirSync(librariesDir, { recursive: true });
+      if (!existsSync(zip)) await download(OTZARIA_ZIP, zip);
+      unzip(zip, otzaria);
+      // Some builds of the archive nest one level. Point at whichever holds it.
+      if (!built(join(otzaria, "אוצריא"))) {
+        const inner = join(otzaria, basename(otzaria));
+        if (built(join(inner, "אוצריא"))) otzaria = inner;
+      }
+    }
+  } else {
+    console.error(
+      "   no library. Pass --otzaria <path> if you have one, or --download-otzaria\n" +
+        "   to fetch it. docs/the-libraries.md says where every part of a shelf\n" +
+        "   comes from and what its terms are.",
+    );
+    process.exit(2);
+  }
+  libraries.push(otzaria);
+
+  // 2b · OtzarLib, opt-in.
+  if (has("--otzarlib")) {
+    say("OtzarLib — opt-in");
+    console.log(OTZARLIB_TERMS);
+    const clone = join(librariesDir, "otzarlib");
+    const shelf = join(librariesDir, "otzarlib-shelf");
+    if (!dryRun) mkdirSync(librariesDir, { recursive: true });
+    if (!built(clone)) run("git", ["clone", "--depth", "1", OTZARLIB_GIT, clone]);
+    else console.log(`   ${clone} is already cloned, skipping`);
+    if (!dryRun) rmSync(shelf, { recursive: true, force: true });
+    run(process.execPath, [join(root, "tools", "lay-out-otzarlib.mjs"), clone, shelf]);
+    libraries.push(shelf);
+  }
+
+  // 3 · Onto permanent ids.
+  say("the shelf — permanent segment ids");
+  run(tool("girsa-import"), [corpus, ...libraries]);
+
+  // 4 · The links.
+  say("the links between them");
+  run(tool("girsa-link-import"), [corpus, ...libraries]);
+
+  // 5 · The caches. Skipping this is why a daf has no mefarshim.
+  say("the caches that read the links backwards");
+  run(tool("girsa-link-types"), [corpus, personal]);
+
+  // 6 · Search.
+  if (has("--skip-search")) {
+    say("search — skipped");
+    console.log("   --skip-search: nothing is searchable until girsa-index runs");
+  } else {
+    say("search — about 4 GB, the long one");
+    run(tool("girsa-index"), ["build", index, corpus, personal]);
+  }
+
+  console.log(`
+Done. Point Girsa at it:
+
+    GIRSA_CORPUS=${corpus}
+
+Girsa looks there first, then beside the executable, then two levels up.`);
+}
+
+main().catch((error) => {
+  console.error(`\n${error.message}`);
+  process.exit(1);
+});

@@ -50,7 +50,7 @@ fn a_tree_that_declares_itself_is_believed() {
     let d = dir("declares");
     fs::write(
         d.as_path().join("library.json"),
-        r#"{"edition":"OtzarLib","provenance":"https://github.com/YairDaniel123/OtzarLib"}"#,
+        r#"{"edition":"OtzarLib","provenance":"https://github.com/gwngdwl/seforim"}"#,
     )
     .expect("write");
     let library = Library::at(d.as_path());
@@ -58,7 +58,7 @@ fn a_tree_that_declares_itself_is_believed() {
     assert_eq!(version.edition, "OtzarLib");
     assert_eq!(
         version.provenance.as_deref(),
-        Some("https://github.com/YairDaniel123/OtzarLib")
+        Some("https://github.com/gwngdwl/seforim")
     );
     assert_eq!(
         version.license, None,
