@@ -18,12 +18,15 @@
 //! that same segment. Nothing is inferred from the code: every row goes through
 //! the same [`girsa_search::citation::Citations`] the search bar uses.
 //!
-//! Three outcomes are counted apart, because they have three different causes:
+//! Outcomes are counted apart, because they have different causes and
+//! different owners:
 //!
 //! * **the sefer has no title the lexicon carries** — a gap in `lexicon.tsv`
 //!   and nothing to do with sections;
 //! * **landed on the segment** — the thing this measures;
-//! * **did not land** — a real miss, and the first thirty are listed.
+//! * **did not land**, and then broken up by *why* — see [`why`]. One of those
+//!   reasons is a refusal this repository makes **on purpose**, and printing
+//!   one number for all of them made a working guard read as a defect.
 
 // A measurement is a program that prints a number and stops. Panicking on a
 // corpus that is not there is the honest failure — see `measure-ids`, which
@@ -54,7 +57,7 @@ fn main() {
     let mut untitled = 0usize;
     let mut asked = 0usize;
     let mut landed = 0usize;
-    let mut missed: Vec<String> = Vec::new();
+    let mut missed: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
 
     for work in &works {
         let sections = Sections::beside(&root, work.schema.as_deref());
@@ -75,7 +78,7 @@ fn main() {
             untitled += samples.len();
             continue;
         }
-        for (typed, id) in samples {
+        for (typed, id, depth) in samples {
             let typed = format!("{} {typed}", work.he_title);
             asked += 1;
             let landing = citations.look_up(&typed, &nowhere);
@@ -85,22 +88,70 @@ fn main() {
             {
                 landed += 1;
             } else {
-                missed.push(typed);
+                missed
+                    .entry(why(&sections, &landing, depth))
+                    .or_default()
+                    .push(typed);
             }
         }
     }
 
+    let short: usize = missed.values().map(Vec::len).sum();
     println!("works whose schema names sections:  {branch}");
     println!("chalakim in a sefer with no title:  {untitled}  (a lexicon gap, not this one)");
     println!("chalakim asked for by name:         {asked}");
     println!("landed on the segment:              {landed}");
-    println!("did not land:                       {}", missed.len());
-    for one in missed.iter().take(30) {
-        println!("  {one}");
+    println!("did not land:                       {short}");
+    println!();
+    for (why, ones) in &missed {
+        println!("{:>5}  {why}", ones.len());
+        for one in ones.iter().take(6) {
+            println!("         {one}");
+        }
+        if ones.len() > 6 {
+            println!("         … and {} more", ones.len() - 6);
+        }
     }
-    if missed.len() > 30 {
-        println!("  … and {} more", missed.len() - 30);
+}
+
+/// Why one address did not land, in the words of the cause.
+///
+/// **Not every miss is a defect, and a measurement that cannot say which is
+/// which reports a working guard as a bug.** The Chafetz Chaim's schema calls
+/// two different sections `הקדמה`; `girsa_corpus::sections` refuses an
+/// ambiguous name rather than picking one, which is BUILDER rule 6, and this
+/// counted all 192 of those as failures for as long as it printed one number.
+///
+/// The three causes are told apart by what came back rather than by reading the
+/// string:
+///
+/// * an address holding a name **this schema uses twice** was refused on
+///   purpose;
+/// * an address **shallower** than the segment's own path lost a level on the
+///   way — a section named by a word the resolver knows as a level label,
+///   `שער`, `חלק`, `פרשת`, where the word is swallowed and its number taken;
+/// * an address that is neither is a name the schema does not carry in a form
+///   this can match, which is the residue worth working on.
+fn why(
+    sections: &Sections,
+    landing: &girsa_search::citation::Landing,
+    depth: usize,
+) -> &'static str {
+    let Some(reference) = landing.resolution.candidates().first() else {
+        return "the resolver read no reference out of it at all";
+    };
+    let address = sections.slugged(reference.from());
+    if address
+        .levels()
+        .iter()
+        .any(|level| sections.ambiguous(level.as_str()))
+    {
+        return "refused: this schema calls two sections by that name (rule 6)";
     }
+    if address.depth() < depth {
+        return "a word of the name was read as a level label and its number taken";
+    }
+    "the name is not one this schema carries in a form we can match"
 }
 
 /// One segment per named section, and the address a person would type for it.
@@ -110,11 +161,14 @@ fn main() {
 /// section this schema is silent about — is skipped rather than typed as a
 /// slug: that would be this measurement inventing a citation nobody would write
 /// and then reporting the refusal as a defect.
-fn one_per_section(root: &Path, slug: &str, sections: &Sections) -> Vec<(String, String)> {
+fn one_per_section(root: &Path, slug: &str, sections: &Sections) -> Vec<(String, String, usize)> {
     let Ok(work) = girsa_corpus::import::read_back(root, slug) else {
         return Vec::new();
     };
-    let mut out: BTreeMap<String, (String, String)> = BTreeMap::new();
+    // The third of each row is how deep the segment's own address is, which is
+    // what makes *a level went missing on the way* a thing `why` can see rather
+    // than guess at.
+    let mut out: BTreeMap<String, (String, String, usize)> = BTreeMap::new();
     for segment in &work.segments {
         let path = segment.id.path();
         let named = sections.named(path);
@@ -138,7 +192,10 @@ fn one_per_section(root: &Path, slug: &str, sections: &Sections) -> Vec<(String,
             }
         });
         if sayable {
-            out.insert(chelek.clone(), (said.join(" "), segment.id.to_string()));
+            out.insert(
+                chelek.clone(),
+                (said.join(" "), segment.id.to_string(), path.len()),
+            );
         }
     }
     out.into_values().collect()

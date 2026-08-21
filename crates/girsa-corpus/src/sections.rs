@@ -115,6 +115,24 @@ fn read_as(title: &str) -> impl Iterator<Item = u32> + '_ {
         .filter_map(girsa_ref::numerals::parse_hebrew)
 }
 
+/// How many levels a section name may have been cut into.
+///
+/// Five, which covers the longest name on the shelf — `ימים ראשונים של סוכות`,
+/// four words of which one is a numeral — with a word to spare.
+const SPREAD: usize = 5;
+
+/// A level, as the word it was before the resolver read it as a number.
+///
+/// The inverse of the reading that broke the name up: a level that is a number
+/// is spelled back out in letters, and a level that is a word is itself.
+/// `to_hebrew` writes the gershayim, which [`spelling`] takes straight back
+/// off — the marks are how a person writes it and not part of the word.
+fn spelled_out(level: &str) -> String {
+    level
+        .parse::<u32>()
+        .map_or_else(|_| level.to_string(), girsa_ref::numerals::to_hebrew)
+}
+
 /// A spelling with everything a person varies taken out of it.
 ///
 /// Gershayim, geresh, apostrophes, the ASCII stand-ins for both, every space,
@@ -397,24 +415,43 @@ impl Sections {
     /// longest match first, and a level that does not split cleanly all the way
     /// through is left exactly as it was rather than half-translated.
     #[must_use]
+    /// # A name and its number can arrive as two levels
+    ///
+    /// The other way the resolver can cut a section name, and the one that
+    /// costs the most. `עין זוכר מערכת א` comes back as **three** levels —
+    /// `מערכת`, `1`, `1` — because `מערכת` is an ordinary level word and `א` is
+    /// an ordinary number, so pairing them is the right reading of that
+    /// sentence everywhere except in a sefer whose schema calls a section
+    /// `מערכת א`. `front` is given `מערכת`, which names nothing, and the
+    /// address stops being translated at its first level.
+    ///
+    /// So a level that names nothing is offered one more chance with the number
+    /// after it, and with the ones after that — see [`Sections::joined`].
     pub fn slugged(&self, address: &Address) -> Address {
         if self.titles.is_empty() {
             return address.clone();
         }
+        let levels = address.levels();
         let mut out: Vec<Level> = Vec::with_capacity(address.depth());
         let mut naming = true;
-        for level in address.levels() {
-            let sections = naming
-                .then(|| {
-                    self.front(level.as_str()).or_else(|| {
-                        // Only at the very front, where a chelek stands.
-                        out.is_empty()
-                            .then(|| self.read_as_a_number(level.as_str()))
-                            .flatten()
-                            .map(|slug| vec![slug.to_string()])
-                    })
-                })
-                .flatten();
+        let mut at = 0;
+        while at < levels.len() {
+            let level = &levels[at];
+            let mut took = 1;
+            let sections = if !naming {
+                None
+            } else if let Some(slugs) = self.front(level.as_str()) {
+                Some(slugs)
+            } else if let Some((slugs, across)) = self.joined(&levels[at..]) {
+                took = across;
+                Some(slugs)
+            } else if out.is_empty() {
+                // Only at the very front, where a chelek stands.
+                self.read_as_a_number(level.as_str())
+                    .map(|slug| vec![slug.to_string()])
+            } else {
+                None
+            };
             match sections {
                 Some(slugs) => out.extend(slugs.into_iter().map(Level::canonical)),
                 None => {
@@ -422,8 +459,78 @@ impl Sections {
                     out.push(level.clone());
                 }
             }
+            at += took;
         }
         Address::new(out)
+    }
+
+    /// The sections a **run** of levels names between them, and how many of
+    /// them it took.
+    ///
+    /// # Why a name arrives in pieces
+    ///
+    /// The resolver has no schema. It reads a Hebrew word it does not know as a
+    /// name and a Hebrew word that is a numeral as a number, which is the right
+    /// reading of nearly every sentence and the wrong one inside a section's
+    /// title. Measured on the shelf, three shapes of the same thing:
+    ///
+    /// | typed | arrives as | is really |
+    /// |---|---|---|
+    /// | `עין זוכר מערכת א א` | `מערכת:1:1` | `מערכת א`, se'if א |
+    /// | `אהבת יהונתן הפטרת נח א` | `הפטרת:58:1` | `הפטרת נח` — נח is 58 |
+    /// | `אהבת יהונתן הפטרת אחרון של פסח א` | `הפטרת אחרון:330:פסח:1` | `של` is 330 |
+    ///
+    /// So each number in the run is spelled back out with
+    /// [`girsa_ref::numerals::to_hebrew`] — the exact inverse of what read it —
+    /// the run is joined with spaces, and [`Sections::front`] is asked whether
+    /// that names sections. **Longest first**, so a name is not cut short by a
+    /// shorter one that also matches, and never fewer than two levels, because
+    /// one level is what `front` was already asked.
+    ///
+    /// `None` when no run names anything, which leaves the address exactly as
+    /// it was written — the same answer as before this existed.
+    ///
+    /// # The cap
+    ///
+    /// [`SPREAD`] levels. A section title of more than that many words exists
+    /// (`ימים ראשונים של סוכות`) and is covered; the cap is there so that a
+    /// deep address does not try every suffix of itself against every title,
+    /// and because a run long enough to swallow the segment number at the end
+    /// of an address is a run that has stopped being a name.
+    fn joined(&self, levels: &[Level]) -> Option<(Vec<String>, usize)> {
+        let most = levels.len().min(SPREAD);
+        (2..=most).rev().find_map(|take| {
+            let said = levels[..take]
+                .iter()
+                .map(|level| spelled_out(level.as_str()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            self.front(&said).map(|slugs| (slugs, take))
+        })
+    }
+
+    /// Whether this schema calls more than one section `said`.
+    ///
+    /// [`Sections::section_of`] answers `None` for a name it does not know and
+    /// for a name it knows twice, which is right for a caller that has to
+    /// decide and wrong for one that has to **report**: those are a gap in the
+    /// schema and a refusal this repository makes on purpose, and counting them
+    /// together makes a measurement say a working guard is a defect.
+    ///
+    /// `examples/measure-branch-citations.rs` is the caller. The Chafetz
+    /// Chaim's schema names two different sections `הקדמה`, so
+    /// `חפץ חיים הקדמה א` is an address that names two places and Girsa opens
+    /// neither — BUILDER rule 6, working.
+    #[must_use]
+    pub fn ambiguous(&self, said: &str) -> bool {
+        let wanted = spelling(said);
+        !wanted.is_empty()
+            && self
+                .titles
+                .values()
+                .filter(|title| spelling(title) == wanted)
+                .count()
+                > 1
     }
 
     /// The section a number at the front of an address is really the name
@@ -759,6 +866,111 @@ mod tests {
             three.slugged(&Address::parse("2:5").unwrap()).to_string(),
             "part_two:5"
         );
+    }
+
+    /// A schema in the shape the `מערכת` seforim are written in: a section
+    /// whose name is a word the resolver has never heard of, and a number.
+    fn maarachot() -> Sections {
+        Sections::of(
+            &serde_json::json!({
+                "schema": {
+                    "title": "Ayin Zokher", "heTitle": "עין זוכר",
+                    "nodes": [
+                        {"title": "Maarechet Alef", "heTitle": "מערכת א", "heSectionNames": ["סעיף"]},
+                        {"title": "Maarechet Bet", "heTitle": "מערכת ב", "heSectionNames": ["סעיף"]},
+                    ],
+                }
+            })
+            .to_string(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_name_and_the_number_after_it_are_one_section() {
+        // `עין זוכר מערכת א א` arrives as three levels, not two: `מערכת` is a
+        // word the resolver does not know, so it survives as a name — and then
+        // `א` after it is read as the number it also is.
+        let sections = maarachot();
+        let slugged = |a: &str| sections.slugged(&Address::parse(a).unwrap()).to_string();
+        assert_eq!(slugged("מערכת:1:1"), "maarechet_alef:1");
+        assert_eq!(slugged("מערכת:2:5"), "maarechet_bet:5");
+        // The run consumes both levels and the rest of the address is
+        // untouched — a section, then the se'if in it.
+        assert_eq!(slugged("מערכת:2"), "maarechet_bet");
+        // A number the schema does not have stays exactly as it was written,
+        // and so does the word: half a translation is worse than none.
+        assert_eq!(slugged("מערכת:9:1"), "מערכת:9:1");
+        assert_eq!(slugged("שער:1:1"), "שער:1:1");
+    }
+
+    #[test]
+    fn a_name_cut_into_four_levels_is_put_back_together() {
+        // `אהבת יהונתן הפטרת אחרון של פסח א` arrives as
+        // `הפטרת אחרון:330:פסח:1`, because **`של` is 330** — ש is 300 and ל is
+        // 30, and the resolver has no way to know it is reading the middle of
+        // a name. Two words of the title were on one level, a third had become
+        // a number, and the fourth was a level of its own.
+        //
+        // This is the shape that says the guard has to work on a *run* of
+        // levels rather than on a pair: nothing about `הפטרת אחרון` and nothing
+        // about `330` is enough on its own.
+        let sections = Sections::of(
+            &serde_json::json!({
+                "schema": {
+                    "title": "Ahavat Yehonatan", "heTitle": "אהבת יהונתן",
+                    "nodes": [
+                        {"title": "Haftarah of the Last Day of Pesach",
+                         "heTitle": "הפטרת אחרון של פסח", "heSectionNames": ["פסקה"]},
+                        {"title": "Haftarah of Noach",
+                         "heTitle": "הפטרת נח", "heSectionNames": ["פסקה"]},
+                    ],
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let slugged = |a: &str| sections.slugged(&Address::parse(a).unwrap()).to_string();
+        assert_eq!(
+            slugged("הפטרת אחרון:330:פסח:1"),
+            "haftarah_of_the_last_day_of_pesach:1"
+        );
+        // And the two-level case of the same sefer: `נח` is how 58 is written,
+        // so the parsha's name arrives as a number and is spelled back.
+        assert_eq!(slugged("הפטרת:58:1"), "haftarah_of_noach:1");
+        // The longest run wins. Stopping at `הפטרת נח` would leave `של פסח`
+        // as an address into a section that has no such place.
+        assert_eq!(
+            slugged("הפטרת אחרון:330:פסח"),
+            "haftarah_of_the_last_day_of_pesach"
+        );
+    }
+
+    #[test]
+    fn a_name_two_sections_share_is_ambiguous_rather_than_absent() {
+        // The Chafetz Chaim's schema really does call two different sections
+        // `הקדמה`. `section_of` refuses it — rule 6 — and a measurement that
+        // could not tell that refusal apart from a name nobody knows would
+        // report a working guard as 192 defects.
+        let both = Sections::of(
+            &serde_json::json!({
+                "schema": {
+                    "title": "Chafetz Chaim", "heTitle": "חפץ חיים",
+                    "nodes": [
+                        {"title": "Preface", "heTitle": "הקדמה", "heSectionNames": ["פסקה"]},
+                        {"title": "Opening Comments", "heTitle": "הקדמה", "heSectionNames": ["פסקה"]},
+                    ],
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(both.ambiguous("הקדמה"));
+        assert_eq!(both.section_of("הקדמה"), None);
+        // Not ambiguous: a name nobody has, and a name exactly one section has.
+        assert!(!both.ambiguous("שער"));
+        assert!(!maarachot().ambiguous("מערכת א"));
+        assert_eq!(maarachot().section_of("מערכת א"), Some("maarechet_alef"));
     }
 
     #[test]

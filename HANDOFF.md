@@ -115,7 +115,7 @@ second pair of eyes**, because they moved a word rather than a number:
 `{steps} צעדים מכאן`, which says `1 צעדים` at one), and `chainTally` is now two
 labelled counts rather than a sentence.
 
-#### 2 · 1,166 chalakim still miss — *and the remainder is a different family*
+#### 2 · 672 chalakim still miss, and the 1,166 have been taken apart
 
 Two rules have landed, and the second came from arguing with this page rather
 than from working it.
@@ -135,16 +135,43 @@ Measure before theorising about the rest:
 cargo run --release -p girsa-search --example measure-branch-citations -- corpus
 ```
 
-The 1,166 that remain are visibly *not* the old family. Skimming them, they are
-parsha and haftarah names and a `שער` / `מערכת` group — `אדרת אליהו כי תצא`,
-`אהבת יהונתן הפטרת יום א' של פסח`, `עין זוכר מערכת א`, `עטרת זקנים שער`. `כי תצא`
-never was a numeral: כ, י, ת ascends. Something else is eating these, and
-nobody has measured what.
+**Somebody measured what.** 21 August: the 1,166 were four different things
+wearing one number, and one of the four was worth **494 chalakim** — *6,461 →
+6,955*, done entirely in this repository with no lexicon and no change to the
+resolver.
 
-**The one case that genuinely needs a lexicon is now narrow and is written
-down:** `נח` is 50, 8, which is exactly how 58 is written. A word spelled the way
-its own number is spelled cannot be told from the number by any rule about
-spelling. That — and not the whole long tail — is what a lexicon would buy.
+**A section's name arrives cut into pieces, because the resolver has no schema.**
+It reads a Hebrew word it does not know as a name and a Hebrew word that is a
+numeral as a number, which is right everywhere except inside a title:
+
+| typed | arrives as | is really |
+|---|---|---|
+| `עין זוכר מערכת א א` | `מערכת:1:1` | `מערכת א`, se'if א |
+| `אהבת יהונתן הפטרת נח א` | `הפטרת:58:1` | `הפטרת נח` — נח *is* 58 |
+| `אהבת יהונתן הפטרת אחרון של פסח א` | `הפטרת אחרון:330:פסח:1` | **`של` is 330** |
+
+So `Sections::joined` spells each number in a run of levels back out with
+`to_hebrew` — the exact inverse of what read it — joins the run, and asks whether
+that names a section. Longest run first, up to five levels. The third row is the
+one that settles the shape: nothing about `הפטרת אחרון` and nothing about `330`
+is enough on its own.
+
+`measure-branch-citations` now says **why** each miss missed, because one of the
+four causes is a refusal this repository makes on purpose and printing one number
+made a working guard read as 192 defects:
+
+| | |
+|---|---|
+| **437** | the name is not one the schema carries in a form this can match — titles with a `:` in them (`חלק א': בית נתיבות`), nested sections, `דרוש`-shaped labels. The residue, and the next place to dig |
+| **166** | a word of the name was read as a **level label** and its number taken: `עטרת זקנים שער א` comes back as `1` with `שער` gone. **This one is not fixable here** — the word is not in the address by the time `Sections` sees it, so it needs `girsa-ref`, which is `sefer-crates` and a coordinated release |
+| **56** | the resolver read no reference at all — every one of them a work whose *title* has a `;` in it (`שיג ושיח; מהדורה עברית`). A lexicon question, not a sections one |
+| **13** | **refused on purpose**: the schema calls two sections the same name. The Chafetz Chaim really does have two `הקדמה`. Rule 6, working |
+
+**The one case that genuinely needs a lexicon is still narrow and still true:**
+`נח` is 50, 8, which is exactly how 58 is written. It costs nothing here now —
+`הפטרת נח` lands, because the *name* around it is what identifies it — but a bare
+`נח` with no name around it cannot be told from the number by any rule about
+spelling.
 
 #### 3 · Nobody has dragged a sefer with a mouse — *and only the drag is left*
 
@@ -268,7 +295,9 @@ instead of opening the wrong chelek.
 
 **The guard stays, measured rather than argued:** with `read_as_a_number` 6,461
 chalakim land, without it 6,235. It is worth 226 — cases like `נח`, which really
-is spelled the way its own number is spelled.
+is spelled the way its own number is spelled. (Both halves of that pair were
+measured against the 6,461 baseline, before `Sections::joined` moved it to
+6,955. The 226 is what the guard was worth then, and it has not been re-taken.)
 
 *Where:* `crates/girsa-corpus/src/sections.rs`
 
