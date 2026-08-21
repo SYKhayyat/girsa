@@ -41,7 +41,7 @@ takes `[corpus] [personal]`, both default and you can usually leave them off.
 node tools/build-a-shelf.mjs <corpus> --download-otzaria [--otzarlib] [--dry-run]
 ```
 
-It runs the five below in order, fetches what they need, skips any step whose
+It runs the six below in order, fetches what they need, skips any step whose
 output already exists, and stops the whole run on the first failure rather than
 leaving a shelf with a hole in it. `--help` for the options.
 
@@ -55,8 +55,16 @@ cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the s
 cargo run -p girsa-corpus --bin girsa-import      corpus <library>...    # onto permanent ids
 cargo run -p girsa-link   --bin girsa-link-import corpus <library>...    # the links between them
 cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards
+cargo run --release -p girsa-app --bin girsa-companions corpus           # which seforim open beside which
 cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index
 ```
+
+`girsa-companions` walks the whole edge graph once and writes
+`corpus/links/companions.jsonl` — *which seforim are worth opening beside
+which*. Skip it and the shelf offers only the commentaries a **schema**
+declares, which for a `.txt` library is none of them, because nothing in a
+`.txt` declares a base text. Nothing refuses without it; the מפרשים list is
+simply short.
 
 `<library>` is a `.txt` tree with an `אוצריא/` directory in it — the Otzaria
 copy you downloaded yourself, which is step 2 of the seven in the README and the
@@ -102,18 +110,26 @@ Otzaria's own library is recognised without one, by the `metadata.json` beside
 its `אוצריא/`. Omit `license` when you do not know it; a wrong licence on a
 sefer is worse than a blank.
 
-Two more that are worth running and that nothing refuses without:
+One more, and it is a **retrofit rather than a step**:
 
 ```sh
-cargo run --release -p girsa-app --bin girsa-companions corpus
 cargo run -p girsa-link --bin girsa-link-orient corpus
 ```
 
-`girsa-companions` walks the 4.1-million-edge graph once and writes
-`corpus/links/companions.jsonl` — *which seforim are worth opening beside
-which*. Without it the shelf offers the declared commentaries only, and the
-links panel says so rather than pretending the list is complete.
-`girsa-link-orient` turns the `comments-on` edges the right way round.
+`girsa-link-orient` turns the `comments-on` edges already on disk the right way
+round. `girsa-link-import` has oriented as it writes for some time now, so a
+shelf built by the list above does not need it — it exists for a store written
+before that, where re-reading 672 MB of CSV to fix a resolved field would take
+an hour to arrive at the same place. Rebuild `girsa-link-types` afterwards if
+you do run it.
+
+**`girsa-companions` used to be listed here beside it, and that was the
+mistake.** These two are not the same kind of thing: one is a retrofit for an
+old store, the other decides *which seforim are worth opening beside which* and
+is needed on every shelf. Filed as optional, it last ran five days before the
+seforim it was supposed to pair — and because nothing refuses without it, the
+only symptom was a מפרשים list that was quietly short. It is step 6 of the list
+above now.
 
 It also writes, per pair, **how many of one sefer's simanim are joined to the
 siman of the same number in the other** — which is what makes the Tur a
