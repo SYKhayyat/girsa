@@ -231,7 +231,7 @@ The same pattern appears twice more, and it is worth recognising:
 |---|---|---|
 | `docs/shortcuts.md` | `girsa-card` | `tools/check-card.sh` |
 | the fixture Ksav asserts on | `--example fixture-packet` | `tools/check-ksav-fixture.sh` |
-| the marked numbers in `README.md` | `tools/readme-numbers.sh` | a test, on every push |
+| the marked numbers in `README.md` and `docs/tools.md` | `tools/readme-numbers.sh` | a test, on every push |
 
 The tree is the source, the file is the copy, and a copy nothing regenerates is a
 copy that rots.
@@ -254,6 +254,11 @@ If a step fails, fix it and pick up where it stopped:
 ```sh
 node tools/verify.mjs --from 6
 ```
+
+A resume prints what it skipped, and there is one case where skipping is wrong:
+the usual fix for the `fmt` step is `cargo fmt`, which rewrites source files, and
+two of those files' line counts are numbers the README states and **step 2**
+re-measures. After a `cargo fmt`, run the whole gate.
 
 There is no `--skip`, deliberately. The reason is on the record: this gate lived
 in prose for months and quietly shrank from nine commands to seven, because the
@@ -328,3 +333,4 @@ all still hold.
 | Everything a change is expected to carry | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | Why any particular thing is the way it is | [`the-record.md`](the-record.md) |
 | Every command in the repository | [`tools.md`](tools.md) |
+| Any of the above not working | [`troubleshooting.md`](troubleshooting.md) |

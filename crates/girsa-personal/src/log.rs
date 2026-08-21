@@ -105,7 +105,7 @@ pub struct Since {
 /// on `girsa-fix` — they are siblings, and neither may name the other. So it
 /// did this:
 ///
-/// ```ignore
+/// ```text
 /// if !body.contains("\"when\"") { … }
 /// line.split("\"when\"").nth(1)?.trim_start_matches([':', ' ', '"'])
 /// ```

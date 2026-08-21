@@ -104,15 +104,28 @@
         ];
 
         tools = with pkgs; [
-          # Rust from nixpkgs rather than a pinned toolchain: the workspace
-          # states no channel, and a reader who wants one has rustup.
+          # Rust and Node from nixpkgs, and **not** the versions the tree pins.
+          #
+          # That sentence used to read "the workspace states no channel", which
+          # stopped being true the day `rust-toolchain.toml` arrived: the tree
+          # pins 1.97.1, and `.nvmrc` pins Node 26.4.0. Neither reaches in here,
+          # and for Rust it cannot — `nix develop` puts real `cargo` and `rustc`
+          # binaries on the path rather than rustup's proxies, and a toolchain
+          # file is a thing only rustup reads.
+          #
+          # Which makes this a **second toolchain on purpose**, and it is the
+          # one thing the `nixos` job is uniquely good for: `tools/nixos-ci.sh`
+          # runs `npm test` and two `cargo build`s in here, so a green run says
+          # the tree compiles and its window opens on something that is not the
+          # pin. Pinning both here would need an overlay and a flake input, and
+          # would buy a third copy of a number that is already written down
+          # twice. A reader who wants the exact pin has rustup and `nvm`.
           cargo
           rustc
           rustfmt
           clippy
           rust-analyzer
 
-          # The window. `tools/verify.mjs` and every `npm` script want 22.
           nodejs_22
 
           pkg-config

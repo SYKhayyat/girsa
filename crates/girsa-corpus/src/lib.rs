@@ -30,7 +30,7 @@
 /// identifier and `as_str` does not, and a corrections file written by one
 /// build stops reading in the next with nothing anywhere saying so.
 ///
-/// ```ignore
+/// ```
 /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// pub enum Kind { Ocr, Girsa }
 ///

@@ -245,7 +245,7 @@ pub trait Store: Sized {
 /// The caller builds the empty store — with its `Log` already in place, because
 /// where the file lives is the store's own business — and this fills it.
 ///
-/// ```ignore
+/// ```text
 /// pub fn open(personal: &Path) -> (Self, Vec<String>) {
 ///     girsa_personal::open(Self { log: Log::at(path_in(personal)), by_segment: BTreeMap::new() })
 /// }

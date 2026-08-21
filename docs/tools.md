@@ -1,15 +1,25 @@
 # Every command this repository can be told to run
 
-Girsa is a window, and behind it are **sixteen binaries and fifteen examples**:
-the ones that build the corpus, the ones that read the same data on a terminal
-so a feature can be checked without a window, and the ones that measure a claim
-somebody made in prose.
+Girsa is a window, and behind it are **16**<!--=bins--> binaries and
+**17**<!--=examples--> examples: the ones that build the corpus, the ones that
+read the same data on a terminal so a feature can be checked without a window,
+and the ones that measure a claim somebody made in prose.
 
 Two numbers rather than one, and neither of them the word *thirty* this sentence
 used to open with. Thirty was wrong by one and unfalsifiable — a number spelled
 as a word cannot be marked, which is the argument `README.md` already makes
-about *"a window and fifty commands"*. Split in two it is checkable: the README
-carries both halves as marked numbers and re-measures them on every push.
+about *"a window and fifty commands"*.
+
+**And then this page wrote them as words anyway, and was wrong for three
+weeks.** *Sixteen and fifteen* replaced *thirty*, which is two unfalsifiable
+numbers in place of one; the README marked `bins` and nothing anywhere counted
+the examples. Two arrived — `measure-branch-citations` and `mishnah-table` —
+each in a commit that edited this very page to give the new one a runnable
+line, and neither touched the sentence above. They are digits with markers on
+them now, re-measured on every push by
+`the_numbers_in_the_readme_are_measurements`, and
+[`tools/readme-numbers.sh`](../tools/readme-numbers.sh) is what writes them
+back.
 
 This page exists because they were not written down. Fifteen of them had never
 been named in a runnable line in any document — including `girsa-companions`,
@@ -37,7 +47,7 @@ cargo run -p girsa-search --bin girsa-index build index corpus personal  # the s
 ```
 
 `<otzaria>` is a copy of the Otzaria tree you downloaded yourself — step 2 of
-the four in the README, and the one nothing here fetches for you. The two that
+the six in the README, and the one nothing here fetches for you. The two that
 take it refuse without it.
 
 Two more that are worth running and that nothing refuses without:
@@ -127,7 +137,7 @@ of that section's first segment the way a person writes it — `טור אורח 
 א` — and reports whether it lands back on that segment. It landed on none of
 them before `girsa_corpus::sections` learned the way back from a name to a slug.
 
-Seven of the nine take their roots from where you are standing and the other two
+Eight of the ten take their roots from where you are standing and the other two
 do not, which is not a style this page can tidy away: `measure-resolver` scores
 the resolver against Sefaria's own link CSVs and has to be told where they are,
 and the lane's `measure` needs a **slug to measure and a model to measure it

@@ -9,6 +9,7 @@ about the shape of the code without having seen the thing it is shaped for.
 | | |
 |---|---|
 | **Just want to make one change?** | [`docs/your-first-change.md`](docs/your-first-change.md) walks one through, end to end |
+| **Something not working?** | [`docs/troubleshooting.md`](docs/troubleshooting.md) — the build, the gate, the browser build, and every refusal by name |
 | **Want to know how it fits together?** | [`docs/architecture.md`](docs/architecture.md) |
 | **Want to know why something is like that?** | [`docs/the-record.md`](docs/the-record.md) |
 
@@ -39,11 +40,17 @@ It is the one thing standing between this codebase and the state it was in.
 
 ### What you need
 
-| | |
-|---|---|
-| **Rust** | stable, with `clippy` and `rustfmt` |
-| **Node** | 22 or later — required, the gate runs on it |
-| **Linux only** | `libwebkit2gtk-4.1-dev librsvg2-dev patchelf libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev` |
+| | | Named in |
+|---|---|---|
+| **Rust** | 1.97.1, with `clippy` and `rustfmt` | [`rust-toolchain.toml`](rust-toolchain.toml) |
+| **Node** | 26.4.0 — required, the gate runs on it | [`.nvmrc`](.nvmrc) |
+| **Linux only** | `libwebkit2gtk-4.1-dev librsvg2-dev patchelf libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev` | |
+
+Neither is a version to go and install by hand: `rustup` installs the pinned
+toolchain, with both components, the first time you run `cargo` in this
+directory, and `nvm use` reads `.nvmrc`. If your `cargo --version` disagrees with
+the file, something is overriding it — `RUSTUP_TOOLCHAIN` in the environment, or
+a `+stable` on the command line.
 
 Not `libappindicator3-dev`. It and the ayatana package conflict, apt exits 100,
 and you never reach a compiler.
@@ -66,7 +73,7 @@ through the real importer, in about two seconds. Twenty-eight works, a link
 graph, both caches, a tantivy index. That is `girsa-fixture`, and it is a
 dev-dependency only.
 
-Nineteen checks genuinely need the 11 GB download — *Orach Chayim is 697 simanim
+Nineteen checks genuinely need the 13 GB download — *Orach Chayim is 697 simanim
 of 4,171 se'ifim* is a fact about a Sefaria release and no fixture can stand in
 for it. They are `#[ignore]`d, so a run without the corpus reads as `ignored`
 rather than as green ticks:
@@ -78,8 +85,17 @@ cargo test -- --ignored            # on a machine that has run girsa-import
 
 `--list` first, because the count above is the sort of number that goes stale
 quietly and the command does not — it had said *ten* for long enough to be wrong
-by nine. A full run reports **22** ignored; the other three are doc-tests that
-illustrate rather than assert, and they are ignored for their own reason.
+by nine. A full run reports **19** ignored, and all nineteen are these.
+
+It reported 22 until recently, and the extra three were doc-tests in ` ```ignore `
+fences — which does not mean *this is prose*, it means *this is Rust and do not
+run it*, and `--ignored` is precisely the flag that runs it. Two of them were
+illustrative fragments that cannot compile, so the second command on this page
+ended in a compiler error for anybody who had a corpus and did what it said.
+They are ` ```text ` now. The third compiled perfectly well and had been marked
+`ignore` for no reason at all, so it is a live doc-test and checks the macro it
+illustrates. **Three fences, three different right answers, and `ignore` was
+none of them.**
 
 If you do want a corpus, [`docs/tools.md`](docs/tools.md) has the order to build
 it in.
@@ -312,14 +328,25 @@ and it is the one the workspace build does not see.
 
 ## 7 · Continuous integration
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml), four jobs:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml), five jobs:
 
 | Job | Runs on | What it holds |
 |---|---|---|
 | `rust` | ubuntu | build, test, clippy, fmt — plus two generate-and-diff checks: the shortcut card, and the packet Ksav's own test asserts against |
 | `shell` | ubuntu | the window: `npm test`, `npm run eyes` with a browser **required**, then the frontend build and the Tauri crate's own clippy and fmt |
+| `nixos` | ubuntu | the flake, entered inside a container with no FHS: `nix develop`, the shell built with `tauri/custom-protocol`, and the window opened on `xvfb-run` and **photographed**. The picture is an artifact of the run, whichever way it went |
 | `macos` | macos | the library half again, and `cargo check` on the shell against macOS's own webview bindings — what it catches is platform-conditional code that does not exist on Linux |
-| `bundle` | windows | on a `v*` tag or manual dispatch: the real Windows installer, attached to the release |
+| `bundle` | windows, macos, ubuntu | on a `v*` tag or manual dispatch: the installers and the five corpus tools, attached to the release |
+
+The table said *four jobs* and listed four for as long as `nixos` has existed,
+which is the ordinary way a hand-maintained list goes wrong — nothing here counts
+jobs. It is worth knowing about because it is the job that produced the first
+evidence any of this works on a machine without an FHS, and because the first
+person to look at its photograph found a defect in the picture.
+
+`bundle` is a matrix rather than a Windows job: three runners, three archives,
+and a `fail-fast: false` so that a `.dmg` nobody can sign does not throw away a
+Windows installer somebody is waiting for.
 
 The `macos` job is a second **operating system**, not a second rendering engine,
 and [`docs/not-yet.md`](docs/not-yet.md) says so where it matters: the eyes tool
@@ -374,9 +401,11 @@ a reader can find them. Strike the line in the record first and then in the copy
 Nothing regenerates that page, which makes it the one file here most likely to
 start lying.
 
-**Numbers in `README.md` are marked and re-counted.** A count is followed by an
-invisible HTML comment naming the measurement, and a test re-measures it on every
-push. If you change something a marked number counts:
+**Marked numbers are re-counted.** A count is followed by an invisible HTML
+comment naming the measurement, and a test re-measures it on every push. Two
+pages carry them — `README.md`, and `docs/tools.md`, which joined it after
+opening with *"sixteen binaries and fifteen examples"* while there were
+seventeen examples. If you change something a marked number counts:
 
 ```sh
 tools/readme-numbers.sh
@@ -392,7 +421,7 @@ wrong by 50 for weeks.
 |---|---|---|
 | `docs/shortcuts.md` | `girsa-card`, from the key table the window resolves against | `tools/check-card.sh` |
 | the Ksav test fixture | `--example fixture-packet` | `tools/check-ksav-fixture.sh` |
-| `README.md`'s marked numbers | `tools/readme-numbers.sh` | a test, on every push |
+| the marked numbers in `README.md` and `docs/tools.md` | `tools/readme-numbers.sh` | a test, on every push |
 
 The pattern is the same in all three: the tree is the source, the file is the
 copy, and a copy nothing regenerates is a copy that rots.
@@ -406,9 +435,13 @@ instead.
 
 ## 9 · Where to ask
 
-Open an issue. If it is a bug, the shape that helps most is the one this project
-uses on itself: what you did, what happened, what you expected, and the evidence
-— the exact output, not a paraphrase of it.
+[`docs/troubleshooting.md`](docs/troubleshooting.md) first, if it is a symptom
+rather than a question: the build, the gate, the browser build, the corpus and
+every refusal the application can make, each with what to do about it.
+
+Otherwise open an issue. If it is a bug, the shape that helps most is the one
+this project uses on itself: what you did, what happened, what you expected, and
+the evidence — the exact output, not a paraphrase of it.
 
 If you are unsure whether something is in the *stop and ask* table, ask. Asking
 is free.

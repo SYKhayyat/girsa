@@ -1,9 +1,23 @@
-# Handoff — 18 August 2026
+# Handoff — 18 August 2026, plus a pass on the 21st
 
-**`main` at `123ab41` plus the third sitting, and `sefer-crates` at `779225d`
-(0.5.5). Working tree clean, in sync with both remotes, and
-`node tools/verify.mjs` was green 9 of 9 before every commit.** Nothing is at
-risk and nothing is half-finished on disk.
+**`main` at `b658e01` plus one pass, and `sefer-crates` at `826ec5a` (0.5.6).
+Working tree clean, in sync with both remotes, and `node tools/verify.mjs` was
+green 9 of 9 before every commit.** Nothing is at risk and nothing is
+half-finished on disk.
+
+> **21 August, a last pass over the whole tree.** Six things were wrong and none
+> of them was in the library: a release archive that shipped three of the five
+> corpus tools, so a reader who installed one could not build the link graph;
+> `tools/readme-numbers.sh` — the one command both onboarding pages name for
+> repairing a stale number — writing `3` where the tree has 138, because it and
+> its test had disagreed about a `#[tauri::command]` attribute since the day
+> those became `(async)`; `cargo test -- --ignored` red on two doc comments
+> fenced ` ```ignore `, which is *this is Rust, do not run it*, given to prose;
+> `verify.mjs --from 99` printing **`✓ the gate is green — -89 of 9`**; and CI
+> installing `stable` and Node `22` beside a tree that had just pinned 1.97.1 and
+> 26.4.0. Every one of them is the same shape — two lists, and the drift is at
+> whichever one nobody edits. [`docs/troubleshooting.md`](docs/troubleshooting.md)
+> is new and is where the symptoms now live.
 
 > **A reader sat with the shipped window on 18 August and wrote down
 > twenty-four things.** All twenty-four are closed at the root and re-measured in
@@ -364,8 +378,11 @@ substitutes for it.
 
 ```sh
 node tools/verify.mjs          # the whole gate, from the repository root. Nine
-                               # steps. Never --from: a resume skips the README
-                               # measurement that cargo fmt then invalidates.
+                               # steps. A resume now prints what it skipped and
+                               # names the one case that matters — cargo fmt
+                               # moves the README's counts and step 2 is what
+                               # re-measures them — so --from is safe to use
+                               # and unsafe to use after a cargo fmt.
 bash tools/check-card.sh       # docs/shortcuts.md against girsa-card
 bash tools/check-ksav-fixture.sh
 ```

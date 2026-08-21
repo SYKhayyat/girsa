@@ -1,5 +1,5 @@
-//! Numbers the README states about this repository are numbers this repository
-//! has.
+//! Numbers the documentation states about this repository are numbers this
+//! repository has.
 //!
 //! # Why
 //!
@@ -46,9 +46,29 @@
 //! Numbers about the *past*, either. *"27m48s against 2m44s"* is a measurement
 //! taken once, on a cold CI cache, and it is history rather than a property of
 //! this tree. Only what can be recounted here is marked.
+//!
+//! # Which pages
+//!
+//! `PAGES`, and it grew from one. `docs/tools.md` opened with **"sixteen
+//! binaries and fifteen examples"** while there were seventeen examples: two
+//! were added, each in a commit that edited *that page* to give the new one a
+//! runnable line, and neither touched the sentence counting them. Wrong twice
+//! in three weeks, in the page whose own second paragraph argues that a number
+//! spelled as a word is unfalsifiable and that this repository marks them
+//! instead. It had made the argument and not taken its own advice.
+//!
+//! The file and `tools/readme-numbers.sh` keep their names. The README is
+//! still where all but two of the markers live, `docs/the-record.md` and
+//! `docs/the-third-sitting.md` quote the old name as history, and a rename
+//! that rewrites the record to match today is the one edit those pages must
+//! never take.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// The pages whose marked numbers are checked, and the list
+/// `tools/readme-numbers.sh` writes back to. Both halves read this order.
+const PAGES: &[&str] = &["README.md", "docs/tools.md"];
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -122,6 +142,11 @@ fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
             .count(),
     );
     out.insert("bins", under_crates(root, "src/bin", "rs"));
+    // The other half of what `docs/tools.md` opens by counting. Same shape as
+    // `bins` one directory over, and the reason it is here is that the word
+    // *fifteen* on that page had been wrong since the fifteenth example was
+    // joined by a sixteenth.
+    out.insert("examples", under_crates(root, "examples", "rs"));
     // The checks that read this repository's own source. Counted rather than
     // typed, because a file whose whole subject is *the rule was written down
     // and nothing enforced it* should not carry a number nothing enforces.
@@ -178,37 +203,44 @@ fn claims(text: &str) -> Vec<(String, usize, String)> {
 }
 
 #[test]
-fn every_marked_number_in_the_readme_is_what_the_tree_measures() {
+fn every_marked_number_in_the_documentation_is_what_the_tree_measures() {
     let root = repo();
     let known = measurements(&root);
-    let readme = read(&root.join("README.md"));
-
-    let marked = claims(&readme);
-    assert!(
-        !marked.is_empty(),
-        "no marked numbers at all — the markers were removed and this test went quiet, \
-         which is the failure it exists to prevent"
-    );
 
     let mut wrong = Vec::new();
-    for (name, claimed, line) in &marked {
-        let Some(measured) = known.get(name.as_str()) else {
-            wrong.push(format!(
-                "`{name}` is marked in the README and nothing measures it — add it to \
-                 `measurements`, or take the marker off\n      at: {line}"
-            ));
-            continue;
-        };
-        if claimed != measured {
-            wrong.push(format!(
-                "`{name}`: the README says {claimed}, the tree has {measured}\n      at: {line}"
-            ));
+    let mut seen = 0;
+    for page in PAGES {
+        let marked = claims(&read(&root.join(page)));
+        // Per page, not over the whole set: a page that loses its markers goes
+        // quiet on its own, and the two that carry them are checked for that
+        // separately rather than covering for each other.
+        assert!(
+            !marked.is_empty(),
+            "no marked numbers in {page} at all — the markers were removed and this test \
+             went quiet about that page, which is the failure it exists to prevent"
+        );
+        seen += marked.len();
+        for (name, claimed, line) in &marked {
+            let Some(measured) = known.get(name.as_str()) else {
+                wrong.push(format!(
+                    "`{name}` is marked in {page} and nothing measures it — add it to \
+                     `measurements`, or take the marker off\n      at: {line}"
+                ));
+                continue;
+            };
+            if claimed != measured {
+                wrong.push(format!(
+                    "`{name}`: {page} says {claimed}, the tree has {measured}\n      at: {line}"
+                ));
+            }
         }
     }
+    assert!(seen > 0, "no marked numbers anywhere");
     assert!(
         wrong.is_empty(),
-        "the README states numbers this repository does not have:\n  - {}\n\nEvery one of \
-         these is one `sed` away. The point is that nothing used to say so.",
+        "the documentation states numbers this repository does not have:\n  - {}\n\nEvery one \
+         of these is one `tools/readme-numbers.sh` away. The point is that nothing used to \
+         say so.",
         wrong.join("\n  - ")
     );
 }
@@ -216,12 +248,12 @@ fn every_marked_number_in_the_readme_is_what_the_tree_measures() {
 #[test]
 fn every_measurement_is_claimed_somewhere() {
     // The other direction, and it is the one that rots quietly: a measurement
-    // nobody cites is a check that runs, passes, and guards nothing. Either the
-    // README says it or this test should not know how to count it.
+    // nobody cites is a check that runs, passes, and guards nothing. Either a
+    // page says it or this test should not know how to count it.
     let root = repo();
-    let readme = read(&root.join("README.md"));
-    let marked: Vec<String> = claims(&readme)
-        .into_iter()
+    let marked: Vec<String> = PAGES
+        .iter()
+        .flat_map(|page| claims(&read(&root.join(page))))
         .map(|(name, _, _)| name)
         .collect();
     let unclaimed: Vec<&str> = measurements(&root)
@@ -231,7 +263,7 @@ fn every_measurement_is_claimed_somewhere() {
         .collect();
     assert!(
         unclaimed.is_empty(),
-        "measured and never cited: {unclaimed:?} — either mark them in the README or \
+        "measured and never cited: {unclaimed:?} — either mark them in one of {PAGES:?} or \
          stop counting them"
     );
 }

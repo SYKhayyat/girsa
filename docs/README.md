@@ -27,6 +27,7 @@ for pages that are not:
 | [`start-here.md`](start-here.md) | **read this first.** The five minutes that are the whole idea, end to end |
 | [`from-otzar.md`](from-otzar.md) | you use Otzar HaChochma — what is worse here, and what you can do that you could not |
 | [`from-bar-ilan.md`](from-bar-ilan.md) | you use Bar Ilan — including where Girsa is genuinely behind |
+| [`troubleshooting.md`](troubleshooting.md) | when it will not do what these pages say it does — by symptom, with the command that fixes it |
 | [`shortcuts.md`](shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
 | [`tools.md`](tools.md) | every command this repository can be told to run, and what each is for |
 | [`images/`](images/) | screenshots — four of them, and what they are and are not evidence for |

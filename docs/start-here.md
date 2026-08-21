@@ -16,17 +16,18 @@ sense.
 ## Before you start
 
 You need the corpus on disk. It is not in the repository — it is a download, and
-it is about 4 GB of text plus the link graph. **One step in the middle is yours
-to do by hand**: Sefaria's half is fetched for you and Otzaria's is not, so
-`<otzaria>` below is a path to a copy you downloaded yourself.
+by the end of the five commands below it is **about 13 GB**, of which roughly a
+third is the search index. **One step in the middle is yours to do by hand**:
+Sefaria's half is fetched for you and Otzaria's is not, so `<otzaria>` below is a
+path to a copy you downloaded yourself.
 
 ```sh
-cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim, ~2.2 GB
+cargo run -p girsa-corpus --bin girsa-fetch       corpus/sefaria         # the seforim, 3.4 GB
 #                            download Otzaria yourself — nothing here fetches it
 cargo run -p girsa-corpus --bin girsa-import      corpus <otzaria>       # onto permanent ids
 cargo run -p girsa-link   --bin girsa-link-import corpus <otzaria>       # the links between them
 cargo run -p girsa-link   --bin girsa-link-types  corpus personal        # the caches that read them backwards
-cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index, ~3.6 GB
+cargo run -p girsa-search --bin girsa-index build index corpus personal  # the search index, 4.2 GB
 ```
 
 Every one of those takes its roots as words on the line, and every one answers
@@ -161,6 +162,7 @@ anything could read.
 | Bar Ilan / the Responsa Project | [`from-bar-ilan.md`](from-bar-ilan.md) |
 | Word, for writing | `Ksav/docs/from-word.md`, in the pen's own repository |
 | Nothing in particular | [`shortcuts.md`](shortcuts.md), and press things |
+| Something on this page not working | [`troubleshooting.md`](troubleshooting.md) |
 
 ## What this does not do
 

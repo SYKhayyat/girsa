@@ -57,8 +57,24 @@ jobs:
           repository: SYKhayyat/ksav
           path: Ksav
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain `rust-toolchain.toml` names, read out of the file.
+      #
+      # These four steps said `@stable`, which is a second answer to a question
+      # the tree already answers: `rust-toolchain.toml` pins `1.97.1` and says
+      # in its own first line that an exact version is what makes this build
+      # years from now. `dtolnay/rust-toolchain` exports `RUSTUP_TOOLCHAIN`, and
+      # that outranks a toolchain file — so the pin was a file nobody read, and
+      # every job compiled against whatever `stable` meant that morning.
+      #
+      # Reading the channel here keeps one list. Change the pin in one place and
+      # four jobs follow; get the file wrong and the next step fails by name,
+      # rather than quietly building something else.
+      - id: pin
+        run: sed -n 's/^channel = "\(.*\)"/channel=\1/p' rust-toolchain.toml >> "$GITHUB_OUTPUT"
+        working-directory: Girsa
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.pin.outputs.channel }}
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
@@ -79,7 +95,7 @@ jobs:
       # `links0.csv` through the real importer in about a second, and they all
       # run on it now. What genuinely needs the download — *697 simanim of 4,171
       # se'ifim*, the named mefarshim of a Sefaria release — is `#[ignore]`d
-      # rather than skipped, so it reads as `10 ignored` here instead of ten
+      # rather than skipped, so it reads as `19 ignored` here instead of nineteen
       # green ticks. On a machine with a corpus: `cargo test -- --ignored`.
       - run: cargo test
         working-directory: Girsa
@@ -146,9 +162,17 @@ jobs:
             libwebkit2gtk-4.1-dev librsvg2-dev patchelf \
             libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev
 
+      # `.nvmrc`, not a number written here.
+      #
+      # The version was `22` in three jobs while `.nvmrc` said `26.4.0`, which
+      # is a pin nothing read: the file was added to make the JavaScript
+      # toolchain reproducible and CI went on installing whatever `22` meant
+      # that week. Two lists, and the one nobody edits is the one that drifts —
+      # the same argument `Cargo.toml` makes about the sefer-crates rev, and the
+      # same one `rust-toolchain.toml` makes below.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: Girsa/.nvmrc
           cache: npm
           cache-dependency-path: Girsa/app/package-lock.json
       - run: npm ci
@@ -193,8 +217,13 @@ jobs:
       - run: npm run build
         working-directory: Girsa/app
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The pin, read out of the file — see the `rust` job for why.
+      - id: pin
+        run: sed -n 's/^channel = "\(.*\)"/channel=\1/p' rust-toolchain.toml >> "$GITHUB_OUTPUT"
+        working-directory: Girsa
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.pin.outputs.channel }}
           components: clippy, rustfmt
       # One workspace now, so one cache — the same key the library job saves
       # under. This job used to key on `Girsa/app/src-tauri` and rebuild
@@ -334,7 +363,14 @@ jobs:
         with:
           path: Girsa
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The pin, read out of the file — see the `rust` job for why. `sed` and
+      # `$GITHUB_OUTPUT` both behave the same on the macOS runner's shell.
+      - id: pin
+        run: sed -n 's/^channel = "\(.*\)"/channel=\1/p' rust-toolchain.toml >> "$GITHUB_OUTPUT"
+        working-directory: Girsa
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.pin.outputs.channel }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: Girsa
@@ -344,9 +380,10 @@ jobs:
       - run: cargo test
         working-directory: Girsa
 
+      # `.nvmrc`, for the reason the `shell` job gives above it.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: Girsa/.nvmrc
           cache: npm
           cache-dependency-path: Girsa/app/package-lock.json
       - run: npm ci
@@ -463,15 +500,27 @@ jobs:
             libwebkit2gtk-4.1-dev librsvg2-dev patchelf \
             libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev
 
+      # `.nvmrc`, for the reason the `shell` job gives. This is the job whose
+      # output a reader downloads, so the version that builds the installer
+      # being the version the tree names matters here most of all.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: app/package-lock.json
       - run: npm ci
         working-directory: app
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The pin, read out of the file — see the `rust` job for why. `shell:
+      # bash` because this matrix includes a Windows runner, where a `run:`
+      # block is PowerShell by default and neither `sed` nor `$GITHUB_OUTPUT`
+      # means anything.
+      - id: pin
+        shell: bash
+        run: sed -n 's/^channel = "\(.*\)"/channel=\1/p' rust-toolchain.toml >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.pin.outputs.channel }}
       - uses: Swatinem/rust-cache@v2
 
       # The only build that embeds the frontend. `beforeBuildCommand` runs
@@ -485,17 +534,30 @@ jobs:
       # deliberately does not carry.
       #
       # They are not Tauri `resources`: that list is validated when the shell
-      # **compiles**, so declaring three release binaries there breaks
-      # `cargo check` for anyone who has not built them first — CI's own shell
-      # job included. A separate asset costs one download and couples nothing.
+      # **compiles**, so declaring release binaries there breaks `cargo check`
+      # for anyone who has not built them first — CI's own shell job included. A
+      # separate asset costs one download and couples nothing.
+      #
+      # **Five of them, and it was three.** Filling a shelf is five commands and
+      # this step shipped the first, third and last of them: `girsa-link-import`
+      # and `girsa-link-types` were missing from every release archive ever
+      # built. A reader who installed Girsa and followed the README got two
+      # steps in, found no binary of that name anywhere on their machine, and
+      # had no way to build the link graph — which is *the mefarshim on every
+      # daf*. The README learned that those two steps exist in `658c11b`; this
+      # step never did, and nothing compares the two lists. So the fix belongs
+      # here rather than in the page: the page was already right.
       - name: The corpus tools
         shell: bash
         run: |
           cargo build --release -p girsa-corpus --bin girsa-fetch --bin girsa-import
+          cargo build --release -p girsa-link --bin girsa-link-import --bin girsa-link-types
           cargo build --release -p girsa-search --bin girsa-index
           mkdir -p tools-out
           cp target/release/girsa-fetch${{ matrix.ext }} \
              target/release/girsa-import${{ matrix.ext }} \
+             target/release/girsa-link-import${{ matrix.ext }} \
+             target/release/girsa-link-types${{ matrix.ext }} \
              target/release/girsa-index${{ matrix.ext }} tools-out/
           cp README.md tools-out/
 

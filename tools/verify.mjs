@@ -35,6 +35,10 @@
 // step failed, you fixed it, and rebuilding the world to get back there is three
 // minutes you do not have to spend. There is deliberately no `--skip`.
 //
+// A resume says what it skipped, and names the one case where skipping is
+// wrong: `cargo fmt` rewrites source, source line counts are numbers the README
+// states, and step 2 is what re-measures them. See `whatAResumeSkips`.
+//
 // # Two lanes
 //
 // Steps 1–6 all invoke `cargo` against one workspace, one lockfile and one
@@ -104,7 +108,25 @@ const GATE = [
   },
   { lane: "cargo", at: "app/src-tauri", say: "shell fmt", run: ["cargo", "fmt", "--", "--check"] },
   // The window.
-  { lane: "window", at: "app", say: "types", run: ["npx", "tsc", "--noEmit"] },
+  // `node <tsc>` rather than `npx tsc`, which is not a preference.
+  //
+  // `npx` on Windows is `npx.cmd`, and a `.cmd` cannot be spawned without a
+  // shell — `spawn("npx.cmd", …)` is `EINVAL`. So this step ran under
+  // `shell: true`, and on the pinned Node that prints **DEP0190** on every run
+  // of the gate: a deprecation warning about passing arguments to a shell,
+  // eight lines above the first thing a person is here to read. A gate whose
+  // output has noise in it is a gate whose output stops being read, which is
+  // the argument this whole file was written for.
+  //
+  // `typescript` ships its entry point as JavaScript, so the interpreter this
+  // runner is already running under can be told to run it. No shell, on any
+  // platform, and nothing left for `shell: true` to be needed for.
+  {
+    lane: "window",
+    at: "app",
+    say: "types",
+    run: ["node", "node_modules/typescript/bin/tsc", "--noEmit"],
+  },
   { lane: "window", at: "app", say: "window tests", run: ["node", "test/run.mjs"] },
   // And the one thing in here that has ever seen a pixel. It exits 0 with no
   // browser installed and says so, which is why it can be in the gate at all.
@@ -134,10 +156,9 @@ function step(one, i, live) {
     const child = spawn(command, args, {
       cwd: path.join(ROOT, one.at),
       stdio: live ? "inherit" : ["ignore", "pipe", "pipe"],
-      // `npx` is `npx.cmd` on Windows and `spawn` will not find it otherwise.
-      // Every argument in `GATE` is a literal written above, so there is
-      // nothing here for a shell to interpolate.
-      shell: process.platform === "win32",
+      // No `shell`, on any platform. It was here for one step — see the note on
+      // `types` in `GATE` — and every command in that list is now an executable
+      // `spawn` can find on its own.
     });
     let said = "";
     child.stdout?.on("data", (chunk) => {
@@ -170,14 +191,69 @@ async function lane(which, from, live) {
   return null;
 }
 
+/**
+ * What `--from` was given, checked.
+ *
+ * `Number(argv[indexOf + 1]) || 1` was one expression and had two ways of
+ * being quietly wrong. `--from nine` is `NaN`, falls to 1, and runs the whole
+ * gate for somebody who asked for a resume — slow, and it lies about what it
+ * did. `--from 99` selects no step at all, and the runner then printed
+ * **`✓ the gate is green — -89 of 9`**: a pass with nothing run, which is the
+ * one shape this repository refuses by name in BUILDER.md rule 7. A gate is
+ * the last place to allow it.
+ *
+ * Returns the step number, or `null` when the reader has to be told.
+ */
+function resumeAt(argv) {
+  const at = argv.indexOf("--from");
+  if (at < 0) return 1;
+  const n = Number(argv[at + 1]);
+  if (!Number.isInteger(n) || n < 1 || n > GATE.length) {
+    console.log(
+      `\n✗ --from takes a step number from 1 to ${GATE.length}` +
+        `\n  it was given: ${argv[at + 1] ?? "nothing"}` +
+        `\n  what the steps are: node tools/verify.mjs --list\n`,
+    );
+    return null;
+  }
+  return n;
+}
+
+/**
+ * What a resume does not re-run, said out loud.
+ *
+ * The honest use of `--from` is *step 4 failed, you fixed it, and rebuilding
+ * the world to get back there is three minutes you do not have.* The trap is
+ * that the commonest fix for step 4 is `cargo fmt`, which **rewrites source
+ * files** — and the line counts of two of them are numbers `README.md` states
+ * and step 2 re-measures. So the sequence that feels most like diligence
+ * (`fmt` red → `cargo fmt` → `--from 4`) is exactly the one that skips the
+ * check the fix just invalidated, and the README goes wrong in a green run.
+ *
+ * It has happened. It is a sentence in a handoff and in a session's notes,
+ * which is prose, which is where this repository has learned not to keep
+ * things. Printed by the runner it reaches the person who is about to do it.
+ */
+function whatAResumeSkips(from) {
+  const skipped = GATE.slice(0, from - 1).map((one) => one.say);
+  return (
+    `\n── resuming at ${from}/${GATE.length}, so these did not run: ${skipped.join(", ")}\n` +
+    `   if you ran \`cargo fmt\` to get here, run the whole gate instead — it moved\n` +
+    `   line counts that README.md states and step 2 re-measures.\n`
+  );
+}
+
 async function main(argv) {
-  const from = Number(argv[argv.indexOf("--from") + 1]) || 1;
+  const from = resumeAt(argv);
+  if (from === null) return 1;
   if (argv.includes("--list")) {
     GATE.forEach((one, i) =>
       console.log(`${i + 1}. [${one.lane}] ${one.say} — ${one.run.join(" ")}`),
     );
     return 0;
   }
+
+  if (from > 1) process.stdout.write(whatAResumeSkips(from));
 
   const began = Date.now();
   // Started together, joined here. The window lane is captured rather than

@@ -31,6 +31,7 @@ pictures are and are not evidence for.</sub>
 | **make your first change** | [`docs/your-first-change.md`](docs/your-first-change.md) — one contribution, walked through |
 | **understand the design** | [`docs/architecture.md`](docs/architecture.md) — how the pieces fit and why they are split that way |
 | **know why something is the way it is** | [`docs/the-record.md`](docs/the-record.md) — every decision beside the defect that caused it |
+| **fix something that is not working** | [`docs/troubleshooting.md`](docs/troubleshooting.md) — the symptom, what it means, and the command |
 | **build it from the spec** | [`spec.md`](spec.md), then [`BUILDER.md`](BUILDER.md) |
 
 Full index of every page: [Documentation](#documentation), below.
@@ -91,7 +92,7 @@ Said here rather than discovered later:
   most important line in any of them, and it is still true.
 - **No sync, no account.** Your notes and corrections are files on your machine.
   A second machine is a copy, not a login.
-- **The corpus is a download, not a repository.** About 11 GB once search is
+- **The corpus is a download, not a repository.** About 13 GB once search is
   built. The installer is 7 MB and carries no seforim.
 - **The link graph is incomplete**, visibly: a sefer with no links says *nothing
   links here* when the cache exists and *I have not been told* when it does not.
@@ -108,14 +109,21 @@ Windows build and uploads the NSIS `.exe` and the MSI.
 library.** A fresh install is a window with no seforim. Filling it is six steps,
 and the first screen says so too:
 
-| | Step | Command | Size |
+| | Step | Command | On disk after it |
 |---|---|---|---|
-| 1 | Fetch Sefaria | `girsa-fetch corpus\sefaria` | ~2.2 GB |
+| 1 | Fetch Sefaria | `girsa-fetch corpus\sefaria` | 3.4 GB |
 | 2 | Get Otzaria | **you download this yourself** — nothing here fetches it | |
-| 3 | Build the shelf | `girsa-import corpus <otzaria>` | |
-| 4 | The links between them | `girsa-link-import corpus <otzaria>` | |
+| 3 | Build the shelf | `girsa-import corpus <otzaria>` | 4.4 GB |
+| 4 | The links between them | `girsa-link-import corpus <otzaria>` | 1.4 GB |
 | 5 | The caches that read them backwards | `girsa-link-types corpus personal` | |
-| 6 | Build search | `girsa-index build index corpus personal` | ~3.6 GB |
+| 6 | Build search | `girsa-index build index corpus personal` | 4.2 GB |
+
+Those are `du` on one machine with Sefaria and a 7,189-sefer Otzaria shelf —
+`corpus/sefaria`, `corpus/works`, `corpus/links` and `index/` — and the column
+says *on disk after it* rather than *download*, because the two are not the same
+number and the one you have to have room for is this one. Step 3 is the one that
+moves with what you brought: it is Otzaria's half, and a smaller shelf is a
+smaller number.
 
 **Four of these used to be the whole list, and steps 4 and 5 were the missing
 two.** A reader who did the other four had a shelf with no link graph: no
@@ -125,10 +133,18 @@ said *I have not been told*, which is the honest sentence for a missing cache
 and reads, to somebody nobody told to build one, exactly like a sefer nobody
 wrote on.
 
-Those tools are `girsa-tools-windows.zip` on the same release page, a separate
-download on purpose: Tauri validates bundled resources when the shell
-*compiles*, so naming release binaries there would break `cargo check` for
-anybody who had not built them first.
+Those tools are `girsa-tools-windows-x86_64.zip` on the same release page — one
+archive per platform, named for it — and they are a separate download on
+purpose: Tauri validates bundled resources when the shell *compiles*, so naming
+release binaries there would break `cargo check` for anybody who had not built
+them first.
+
+**Five binaries, and until now it shipped three.** The archive carried
+`girsa-fetch`, `girsa-import` and `girsa-index` and not the two link tools, so a
+reader who installed a release and followed this table got to step 4 and found
+no such command on their machine. The table above learned about steps 4 and 5 in
+`658c11b`; the job that builds the archive did not, and nothing compares the two
+lists.
 
 Step 2 is manual, and steps 3 and 4 both refuse without it. Two more are worth
 running and nothing refuses without them —
@@ -145,11 +161,22 @@ looks beside its session file in the app's data directory.
 
 ### What you need
 
-| | |
-|---|---|
-| **Rust** | stable, with `clippy` and `rustfmt` |
-| **Node** | 22 or later, for the window and for the gate |
-| **Linux only** | `libwebkit2gtk-4.1-dev librsvg2-dev patchelf libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev` |
+| | | Named in |
+|---|---|---|
+| **Rust** | 1.97.1, with `clippy` and `rustfmt` | [`rust-toolchain.toml`](rust-toolchain.toml) |
+| **Node** | 26.4.0, for the window and for the gate | [`.nvmrc`](.nvmrc) |
+| **Linux only** | `libwebkit2gtk-4.1-dev librsvg2-dev patchelf libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev` | |
+
+**Both are exact, and neither is a version you have to go and get.** `rustup`
+reads `rust-toolchain.toml` and installs 1.97.1 with both components the first
+time you run `cargo` in this directory; `nvm use` reads `.nvmrc`. CI installs
+what those two files say rather than a second opinion of its own — it said
+`stable` and `22` for a while, next to a tree that pinned neither, which is two
+lists and the pin was the one nobody read.
+
+The workspace's `rust-version` is 1.85, and that is a different claim: the
+lowest compiler the crates are *written* against. The pin is what this is built
+and gated with.
 
 Not `libappindicator3-dev` — it conflicts with the ayatana package, apt exits
 100, and the job never reaches a compiler.
@@ -177,13 +204,20 @@ cargo test
 **Cloning Girsa alone builds, and no corpus is needed to work on it.** The
 shared crates are pinned by git rev in [`Cargo.toml`](Cargo.toml); the test suite
 builds its own synthetic shelf through the real importer in about two seconds,
-so `cargo test` needs none of the 11 GB. The handful of checks that genuinely
-need the download are `#[ignore]`d rather than skipped — on a machine that has
-run `girsa-import`:
+so `cargo test` needs none of the 13 GB. The nineteen checks that genuinely need
+the download are `#[ignore]`d rather than skipped — on a machine that has run
+`girsa-import`:
 
 ```sh
 cargo test -- --ignored
 ```
+
+All nineteen, and it is green. It was not: two doc comments held illustrative
+snippets in ` ```ignore ` fences — *this is Rust, do not run it* — and `--ignored`
+is the flag that says run it, so the one command both this page and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) hand a reader ended in a compiler error
+about a fragment nobody meant as code. They are ` ```text ` now, which is what
+prose in a fence is.
 
 ### Run the window
 
@@ -232,6 +266,13 @@ It compiles, tests, lints and formats the workspace; then the Tauri shell, which
 `default-members` excludes from the first four because it cannot build before
 `app/dist` exists; then the window's types and tests; then `eyes`, the one check
 in this repository that has ever seen a pixel.
+
+A resume says what it skipped, because there is one case where skipping is
+wrong: the usual fix for the `fmt` step is `cargo fmt`, which rewrites source
+files, and two of those files' line counts are numbers this README states and
+**step 2** re-measures. `--from 4` after a `cargo fmt` skips the check the fix
+just invalidated. Out of range, it now refuses rather than reporting a green
+gate that ran nothing.
 
 This used to be a list in prose, in two documents, and what happens to a
 nine-command gate written in prose is what happened here: on 13 August the
@@ -397,6 +438,7 @@ why that is the load-bearing decision.
 | [`docs/start-here.md`](docs/start-here.md) | **read this first.** The five minutes that are the whole idea |
 | [`docs/from-otzar.md`](docs/from-otzar.md) | you use Otzar HaChochma — what is worse here, and what you can do that you could not |
 | [`docs/from-bar-ilan.md`](docs/from-bar-ilan.md) | you use Bar Ilan — including where Girsa is genuinely behind |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | it is not doing what this page says it does. The symptom, what it means, and what to run |
 | [`docs/not-yet.md`](docs/not-yet.md) | everything this does not do yet, in one place, each with the argument behind it |
 | [`docs/shortcuts.md`](docs/shortcuts.md) | every keyboard shortcut, both languages. Generated from the source |
 | [`docs/tools.md`](docs/tools.md) | every command this repository can be told to run |
