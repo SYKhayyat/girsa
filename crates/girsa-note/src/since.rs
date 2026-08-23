@@ -484,9 +484,19 @@ fn fixes_since(personal: &Path, built: Option<SystemTime>) -> Written {
     if !newer_than(&path, built) {
         return Written::Since(0);
     }
-    let Ok(body) = std::fs::read_to_string(&path) else {
-        return Written::Since(0);
+    // Bytes and lossy, and never `read_to_string`: a torn tail can split a
+    // multi-byte character, and refusing the whole count over it would answer
+    // "nothing new" — the silence this module exists to close. Lossy keeps the
+    // line structure (a `\n` byte is never part of a multi-byte sequence), so
+    // every intact line still counts and the torn one fails its parse and
+    // counts as undated — which is the new direction, the safe one.
+    let Ok(bytes) = std::fs::read(&path) else {
+        // There is an index stamp and a file newer than it that cannot be
+        // read. "0 new" would be under-reporting; there being nothing to
+        // compare against is what is actually true.
+        return Written::NoIndex;
     };
+    let body = String::from_utf8_lossy(&bytes);
     let Ok(built) = built
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())

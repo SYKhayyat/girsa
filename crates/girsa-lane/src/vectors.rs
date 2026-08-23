@@ -36,6 +36,15 @@
 //! reported**, never silently dropped: a sefer that lost its last four vectors
 //! must come back round the queue, and a sefer that lost them silently would be
 //! reported as covered.
+//!
+//! And the tail itself is then **cut off**, at the open that found it — which
+//! it has to be, because the file is append-only and an append lands at
+//! end-of-file, *after* the garbage. A tail left in place would put every
+//! vector written from then on behind bytes no read can reach: invisible to
+//! `has`, invisible to `nearest`, re-embedded by the job that cannot see its
+//! own work, at full model cost, for ever. [`Vectors::open`] truncates to the
+//! last good record and says so; if the cut cannot be made the store refuses
+//! further appends rather than write into that hole ([`VectorError::TornTail`]).
 
 use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
@@ -98,6 +107,16 @@ pub enum VectorError {
     OtherModel { made_by: String, configured: String },
     #[error("a {dims}-dimension store was given a vector of {given}")]
     WrongWidth { dims: usize, given: usize },
+    /// Refused rather than appended. A torn tail that could not be cut off
+    /// sits between every record this file has and every record it would be
+    /// given: appending would put the new vectors *after* the garbage, where
+    /// no index can ever reach them, at full embedding cost. Refusing costs the
+    /// batch; writing costs everything after it.
+    #[error(
+        "{path}: the last {bytes} byte(s) are a torn tail that could not be cut off — \
+         refusing to append what would land behind them"
+    )]
+    TornTail { path: String, bytes: u64 },
 }
 
 impl VectorError {
@@ -213,6 +232,27 @@ impl Vectors {
         if let Err(e) = store.read(&path) {
             trouble.push(e.to_string());
         }
+        // The tail `read` could not make sense of is garbage from a crash
+        // mid-append: no record in memory claims it, no signature covers it,
+        // and the file is append-only — so leaving it in place would put every
+        // vector written from here on *after* it, invisible to this index for
+        // ever while the file grows each session. Cut it off now; a repair
+        // nobody is told about is its own kind of silence, so say what was cut.
+        if store.torn > 0 {
+            match store.cut_torn_tail(&path) {
+                Ok(()) => trouble.push(format!(
+                    "{}: cut {} torn byte(s) left by an interrupted write",
+                    path.display(),
+                    store.torn
+                )),
+                Err(e) => trouble.push(format!(
+                    "{}: could not cut the {} torn byte(s): {e} — nothing will be appended \
+                     to this store until they are gone",
+                    path.display(),
+                    store.torn
+                )),
+            }
+        }
         // After `read`, because it needs the offsets `read` found and the
         // length it stopped at. Trouble here is never fatal: an index that will
         // not build costs a slow query, not an answer, and `nearest` says which
@@ -223,13 +263,33 @@ impl Vectors {
         if store.torn > 0 {
             trouble.push(format!(
                 "{}: the last {} byte{} are not a whole record and were ignored — those segments \
-                 will be embedded again",
+                 will be embedded again once the file can be repaired",
                 path.display(),
                 store.torn,
                 if store.torn == 1 { "" } else { "s" }
             ));
         }
         (store, trouble)
+    }
+
+    /// Cut the torn tail off: everything after the last whole record.
+    ///
+    /// The bytes are garbage by construction — [`Vectors::open`] got here only
+    /// because `read` stopped unable to make sense of them — and the segments
+    /// they belonged to are not held anywhere, so the embedding job offers them
+    /// again on its own. On success `torn` drops to zero and the file ends at
+    /// its last good record.
+    ///
+    /// The truncation is metadata, not data, and is not fsynced: a power loss
+    /// that undoes it just means the next open finds the same tail and cuts it
+    /// again. What must never happen is an append while it stands, which is
+    /// [`Self::append`]'s refusal, not a hope.
+    fn cut_torn_tail(&mut self, path: &Path) -> Result<(), std::io::Error> {
+        let good = std::fs::metadata(path)?.len().saturating_sub(self.torn);
+        let file = std::fs::OpenOptions::new().write(true).open(path)?;
+        file.set_len(good)?;
+        self.torn = 0;
+        Ok(())
     }
 
     /// A store that is not backed by a file, for a caller with no personal
@@ -539,7 +599,8 @@ impl Vectors {
             return Ok(());
         };
         // The torn tail is not a record and must not be signed or counted as
-        // covered — it will be overwritten by the next append.
+        // covered — and it does not stand for long: `open` cuts it off before
+        // this runs, so this is the belt for the case where the cut failed.
         let whole = meta.len().saturating_sub(self.torn);
         let side = Self::sidecar(path);
 
@@ -810,7 +871,20 @@ impl Vectors {
     }
 
     /// Append one record, and say where it landed.
+    ///
+    /// # Errors
+    ///
+    /// Refuses outright while a torn tail stands: an append-only file would put
+    /// this record — paid for at embedding cost — behind bytes no read can
+    /// reach, which is the one failure this module's contract says cannot
+    /// happen. See [`Self::cut_torn_tail`].
     fn append(&self, path: &Path, id: &SegmentId, vector: &[f32]) -> Result<u64, VectorError> {
+        if self.torn > 0 {
+            return Err(VectorError::TornTail {
+                path: path.display().to_string(),
+                bytes: self.torn,
+            });
+        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(VectorError::io(dir))?;
         }
@@ -1007,10 +1081,12 @@ mod tests {
     }
 
     #[test]
-    fn a_torn_tail_costs_its_own_segments_and_says_how_many_bytes() {
+    fn a_torn_tail_is_cut_off_and_costs_its_own_segments() {
         // A crash mid-append. The segments in the tail have to come back round
         // the queue — a sefer that lost four vectors silently would be counted
-        // as covered.
+        // as covered — and then they have to be writable again, which is the
+        // part this test used not to check: with the tail left in place, every
+        // vector appended afterwards sat behind it, invisible for ever.
         let dir = scratch("torn");
         let (mut store, _) = Vectors::open(&dir, "x", "abc", 2);
         store.record(&id(1), &unit(1.0, 0.0)).expect("writes");
@@ -1018,18 +1094,37 @@ mod tests {
 
         let path = Vectors::path_in(&dir, "x");
         let mut bytes = std::fs::read(&path).expect("reads");
-        bytes.truncate(bytes.len() - 5);
+        // A third record that died mid-write: its tag byte and part of its
+        // id made it out, the rest never will.
+        let before_the_crash = bytes.len() as u64;
+        bytes.push(RECORD);
+        bytes.extend_from_slice(&[0x00, 0x10]);
+        bytes.extend_from_slice(b"half-an-id-was-h");
         std::fs::write(&path, &bytes).expect("writes");
 
-        let (again, trouble) = Vectors::open(&dir, "x", "abc", 2);
+        let (mut again, trouble) = Vectors::open(&dir, "x", "abc", 2);
         assert_eq!(
             again.len(),
-            1,
-            "the whole record survives, the torn one does not"
+            2,
+            "the whole records survive, the torn one does not"
         );
-        assert!(again.has(&id(1)) && !again.has(&id(2)));
+        assert!(again.has(&id(1)) && again.has(&id(2)));
         assert_eq!(trouble.len(), 1, "{trouble:?}");
-        assert!(trouble[0].contains("ignored"), "{trouble:?}");
+        assert!(trouble[0].contains("cut"), "{trouble:?}");
+        assert_eq!(
+            std::fs::metadata(&path).expect("stats").len(),
+            before_the_crash,
+            "the garbage is gone from the file, not only from the index"
+        );
+
+        // The finding itself: what is embedded after the crash must be
+        // reachable. Under the old order this record landed after the tail and
+        // `has` never saw it again.
+        again.record(&id(3), &unit(0.7, 0.7)).expect("writes");
+        let (third, trouble) = Vectors::open(&dir, "x", "abc", 2);
+        assert!(trouble.is_empty(), "{trouble:?}");
+        assert_eq!(third.len(), 3);
+        assert!(third.has(&id(3)));
     }
 
     #[test]

@@ -547,7 +547,9 @@ impl Layer {
     ///
     /// If the file cannot be read, or ours cannot be written afterwards.
     pub fn merge(&mut self, file: &Path) -> Result<Merged, FixError> {
-        let body = std::fs::read_to_string(file).map_err(|source| FixError::Unreadable {
+        // Bytes: a torn line in their file is theirs to lose and is refused
+        // below as trouble — it is not a reason the merge cannot happen.
+        let body = std::fs::read(file).map_err(|source| FixError::Unreadable {
             path: file.display().to_string(),
             source,
         })?;

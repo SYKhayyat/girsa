@@ -23,7 +23,10 @@
 //! so a machine that stopped halfway had the corrections it started with. This
 //! appends, so a machine that stops halfway has a torn last line — which
 //! [`Log::live`] reports and skips, costing that record and possibly the one
-//! written after it.
+//! written after it. The tear can fall inside a multi-byte character, leaving
+//! bytes that are not valid UTF-8 at all; the replay is byte-wise for exactly
+//! that reason, so such a line costs itself and is reported like any other bad
+//! line rather than taking the whole layer down with it.
 //!
 //! That is the same order of loss for a smaller window: the old scheme had the
 //! **entire layer** in flight on every single mutation, and this has one line.
@@ -222,6 +225,16 @@ pub struct Live<T> {
 
 /// Replay a log that is already in hand.
 ///
+/// Takes **bytes** and not a string, on purpose. A log is replayed from two
+/// places — your own layer, and somebody else's file offered to a merge — and
+/// both can be torn: an append that died halfway through a multi-byte Hebrew
+/// character leaves bytes no `read_to_string` will accept, and refusing the
+/// *whole file* over one torn line is the exact failure this module's shape
+/// exists to prevent. So the walk is byte-wise: a line that is not valid UTF-8
+/// costs itself and is reported, the way a line that is valid UTF-8 but not
+/// JSON already was. Splitting on the `\n` byte is safe for this even mid-tear,
+/// because `\n` can never appear inside a multi-byte sequence.
+///
 /// Split out from [`Log::live`] for the one caller that has the bytes and not
 /// the file: taking somebody else's corrections (spec.md §7.1) means reading
 /// *their* layer, and their layer has the same repeats and the same tombstones
@@ -231,7 +244,7 @@ pub struct Live<T> {
 ///
 /// `named` is how the file is spoken of in the trouble report.
 pub fn replay<T: DeserializeOwned>(
-    body: &str,
+    body: &[u8],
     named: &str,
     what: &str,
     key: impl Fn(&T) -> String,
@@ -243,7 +256,15 @@ pub fn replay<T: DeserializeOwned>(
         trouble: Vec::new(),
     };
     let mut held: BTreeMap<String, T> = BTreeMap::new();
-    for (n, line) in body.lines().enumerate() {
+    for (n, raw) in body.split(|b| *b == b'\n').enumerate() {
+        let Ok(line) = std::str::from_utf8(raw) else {
+            live.lines += 1;
+            live.trouble.push(format!(
+                "{named}: line {} is not valid UTF-8 — a crash tore this line; it is skipped",
+                n + 1
+            ));
+            continue;
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -314,16 +335,46 @@ impl Log {
     /// `key` is what names a record. Two records with the same key are the same
     /// record said twice and the later one stands; it is also the string a
     /// tombstone carries, so the two have to agree.
+    ///
+    /// # A file that will not read is trouble, not an empty layer
+    ///
+    /// This used to `read_to_string` and treat every failure as "the file does
+    /// not exist yet": one torn multi-byte character from a crash mid-append,
+    /// or any permission or lock error, made the whole layer replay as empty
+    /// with nothing reported — and the next compaction would then rewrite the
+    /// file *from that empty index*, which is destruction, not tidying. It
+    /// reads bytes now: a missing file is still the quiet first open it always
+    /// was; anything else costs at most its bad lines and says so in
+    /// [`Live::trouble`].
     pub fn live<T: DeserializeOwned>(&self, what: &str, key: impl Fn(&T) -> String) -> Live<T> {
-        let Ok(body) = std::fs::read_to_string(&self.path) else {
+        if self.is_nowhere() {
             return Live {
                 records: Vec::new(),
                 lines: 0,
                 bytes: 0,
                 trouble: Vec::new(),
             };
+        }
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Live {
+                    records: Vec::new(),
+                    lines: 0,
+                    bytes: 0,
+                    trouble: Vec::new(),
+                };
+            }
+            Err(e) => {
+                return Live {
+                    records: Vec::new(),
+                    lines: 0,
+                    bytes: 0,
+                    trouble: vec![format!("{}: could not be read: {e}", self.path.display())],
+                };
+            }
         };
-        replay(&body, &self.path.display().to_string(), what, key)
+        replay(&bytes, &self.path.display().to_string(), what, key)
     }
 
     /// Whether the file has grown far enough past what it holds to be worth
@@ -656,6 +707,56 @@ mod tests {
         let live = log.live("a thing", |t: &Thing| t.id.clone());
         assert_eq!(live.records, vec![thing("a", "one")]);
         assert_eq!(live.trouble.len(), 1);
+    }
+
+    #[test]
+    fn a_tear_inside_a_multibyte_character_costs_its_line_and_nothing_else() {
+        // The finding itself: a crash that splits a two-byte Hebrew character
+        // leaves bytes `read_to_string` rejects outright, which used to make
+        // the whole layer replay as empty — silently — and the next compaction
+        // rewrote it from that empty index. The line is isolated now.
+        let path = scratch("torn-utf8");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut body = Vec::new();
+        body.extend_from_slice(b"{\"id\":\"a\",\"says\":\"one\"}\n");
+        // A record whose text is torn mid-character: `ב` is D7 91, and only
+        // its first byte survives.
+        body.extend_from_slice(b"{\"id\":\"b\",\"says\":\"\xd7");
+        body.extend_from_slice(b"\n{\"id\":\"c\",\"says\":\"three\"}\n");
+        std::fs::write(&path, &body).unwrap();
+        let log = Log::at(path);
+        let live = log.live("a thing", |t: &Thing| t.id.clone());
+        assert_eq!(live.records, vec![thing("a", "one"), thing("c", "three")]);
+        assert_eq!(live.trouble.len(), 1);
+        assert!(live.trouble[0].contains("line 2"), "{:?}", live.trouble);
+        assert!(live.trouble[0].contains("UTF-8"), "{:?}", live.trouble);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_trouble_and_not_an_empty_layer() {
+        // A directory where the log should be is not "nothing written yet".
+        // Reading it as an empty layer used to be silent; and silence here is
+        // what a compaction one step later turns into lost work.
+        let dir = std::env::temp_dir().join("girsa-log-unreadable");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = Log::at(dir.join("things.jsonl"));
+        log.append(&thing("a", "one")).unwrap();
+        // Now put a directory in the log's place.
+        std::fs::remove_file(dir.join("things.jsonl")).unwrap();
+        std::fs::create_dir_all(dir.join("things.jsonl")).unwrap();
+        let live = log.live("a thing", |t: &Thing| t.id.clone());
+        assert_eq!(
+            live.trouble.len(),
+            1,
+            "the unreadable file is reported: {:?}",
+            live.trouble
+        );
+        assert!(
+            live.trouble[0].contains("could not be read"),
+            "{:?}",
+            live.trouble
+        );
     }
 
     #[test]

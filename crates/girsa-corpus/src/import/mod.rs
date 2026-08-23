@@ -973,6 +973,16 @@ fn sanitize_component(part: &str) -> String {
 /// Write a work: its metadata, its segments one per line, and where the names
 /// that are no longer live went.
 ///
+/// # Why every file here goes beside-and-renames
+///
+/// These three files *are* the promise the importer exists to keep. A torn
+/// `segments.jsonl` reads back as nothing or as a prefix; [`Previous`] believes
+/// what it reads; and a next import that cannot see the old names mints its
+/// ordinals from enumeration position again — which is T1, the exact defect §1
+/// exists to prevent, arrived through the write that was supposed to be the
+/// safe one. So all three go through [`crate::beside::write`], and the file at
+/// each path is always either the old work or the new one.
+///
 /// # Why the third file is deleted rather than written empty
 ///
 /// A work with nothing redirected has no `redirects.jsonl`, and one that stops
@@ -992,7 +1002,7 @@ pub fn write(root: &Path, imported: &ImportedWork) -> Result<(), ImportError> {
     let meta_path = dir.join("work.json");
     let meta = serde_json::to_vec_pretty(&imported.work)
         .map_err(|e| ImportError::malformed(&meta_path, e.to_string()))?;
-    fs::write(&meta_path, meta).map_err(ImportError::io(&meta_path))?;
+    crate::beside::write(&meta_path, meta).map_err(ImportError::io(&meta_path))?;
 
     let segments_path = dir.join("segments.jsonl");
     let mut body = String::new();
@@ -1002,7 +1012,7 @@ pub fn write(root: &Path, imported: &ImportedWork) -> Result<(), ImportError> {
         body.push_str(&line);
         body.push('\n');
     }
-    fs::write(&segments_path, body).map_err(ImportError::io(&segments_path))?;
+    crate::beside::write(&segments_path, body).map_err(ImportError::io(&segments_path))?;
 
     let redirects_path = dir.join(REDIRECTS);
     if imported.redirects.is_empty() {
@@ -1018,7 +1028,7 @@ pub fn write(root: &Path, imported: &ImportedWork) -> Result<(), ImportError> {
         body.push_str(&line);
         body.push('\n');
     }
-    fs::write(&redirects_path, body).map_err(ImportError::io(&redirects_path))
+    crate::beside::write(&redirects_path, body).map_err(ImportError::io(&redirects_path))
 }
 
 /// Where the names that are no longer live say they went.
@@ -1033,6 +1043,10 @@ pub const REDIRECTS: &str = "redirects.jsonl";
 /// that opened its shards in append mode and doubled the graph on a second run;
 /// the same mistake here would put a sefer on the shelf twice.
 ///
+/// The rewrite goes beside-and-renames: this file is what tells the next
+/// import which works it has already named, and a torn one reading back short
+/// is how a re-import turns into a first import with new ordinals.
+///
 /// Two callers: a file you dropped on the window ([`mine::add`]) and a note you
 /// wrote (`girsa-note`, W27). One implementation, because the second copy of
 /// this is the one that appends.
@@ -1042,9 +1056,6 @@ pub const REDIRECTS: &str = "redirects.jsonl";
 /// If the personal layer cannot be written.
 pub fn catalogue(personal: &Path, work: &Work) -> Result<(), ImportError> {
     let path = personal.join("works/index.jsonl");
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(ImportError::io(dir))?;
-    }
     let existing = fs::read_to_string(&path).unwrap_or_default();
     let mut body = String::new();
     for line in existing.lines().filter(|l| !l.trim().is_empty()) {
@@ -1058,7 +1069,7 @@ pub fn catalogue(personal: &Path, work: &Work) -> Result<(), ImportError> {
         serde_json::to_string(work).map_err(|e| ImportError::malformed(&path, e.to_string()))?;
     body.push_str(&line);
     body.push('\n');
-    fs::write(&path, body).map_err(ImportError::io(&path))
+    crate::beside::write(&path, body).map_err(ImportError::io(&path))
 }
 
 /// Take one back out of your catalogue. `false` if it was not in it.
@@ -1082,7 +1093,7 @@ pub fn uncatalogue(personal: &Path, slug: &str) -> Result<bool, ImportError> {
         body.push('\n');
     }
     if gone {
-        fs::write(&path, body).map_err(ImportError::io(&path))?;
+        crate::beside::write(&path, body).map_err(ImportError::io(&path))?;
     }
     Ok(gone)
 }

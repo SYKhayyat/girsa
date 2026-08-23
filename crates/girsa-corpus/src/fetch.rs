@@ -447,10 +447,7 @@ fn already_complete(root: &Path, target: &Target) -> bool {
 
 fn fetch_one(root: &Path, target: &Target) -> Result<usize, FetchError> {
     let final_path = root.join(disk_path(&target.rel_path));
-    if let Some(parent) = final_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let part_path = final_path.with_extension("part");
+    let part_path = crate::beside::temp_path(&final_path);
 
     let mut body = get_bytes(&target.url)?;
     if let Some(want) = target.size {
@@ -465,13 +462,10 @@ fn fetch_one(root: &Path, target: &Target) -> Result<usize, FetchError> {
 
     // Write, flush, close, *then* rename. The rename is the only moment the
     // file becomes visible under its real name, so a reader never sees a
-    // partial sefer.
-    {
-        let mut f = fs::File::create(&part_path)?;
-        f.write_all(&body)?;
-        f.flush()?;
-    }
-    fs::rename(&part_path, &final_path)?;
+    // partial sefer. `beside::write` does the three steps; its temp name
+    // appends `.part` rather than replacing the extension, so two files whose
+    // names differ only by extension cannot share one.
+    crate::beside::write(&final_path, &body)?;
 
     let n = body.len();
     body.clear();

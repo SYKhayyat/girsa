@@ -90,6 +90,9 @@ macro_rules! spelled {
 }
 
 pub mod anchors;
+// One whole-file write, beside and renamed, in the three places that rewrite
+// a reader's shelf: the importer's own output, the catalogue, and the fetch.
+pub mod beside;
 // Sixteen binaries, five conventions for reading a command line, and three
 // parsers that could not tell a switch from a value flag.
 pub mod csv;

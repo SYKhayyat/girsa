@@ -184,7 +184,10 @@ pub trait Store: Sized {
     /// If their file cannot be read, or yours cannot be appended to.
     fn merge(&mut self, file: &Path) -> Result<Merged, LogError> {
         let named = file.display().to_string();
-        let body = std::fs::read_to_string(file).map_err(|source| LogError {
+        // Bytes, and not `read_to_string`: their file is a log like ours, with
+        // the same torn-tail exposure, and one bad line is theirs to lose —
+        // not a reason to refuse the merge outright.
+        let body = std::fs::read(file).map_err(|source| LogError {
             path: named.clone(),
             source,
         })?;
