@@ -25,9 +25,25 @@
 // not built, and `girsa-link-types` in particular fails *silently useful*: skip
 // it and every daf simply has no mefarshim, which reads exactly like a sefer
 // nobody wrote on.
+//
+// "Already there" is a claim this file has to be able to keep. For the
+// downloads that means **bytes verified against content-length**, with a
+// sidecar marker written only once the count agrees — a truncated archive is
+// deleted, never cached. For the long steps that call the binaries, whose
+// outputs are megabytes of derived files nobody wants to stat one by one, it
+// means a `.done` marker under `<corpus>/.shelf-build/`, written after the
+// step exits zero. Delete a marker (or the folder) to make a step run again.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -157,38 +173,91 @@ function unzip(archive, into) {
   );
 }
 
-/** Download to a file, saying how far along it is. */
+/**
+ * Download to a file, saying how far along it is — and **meaning it**.
+ *
+ * Three things a dropped connection used to defeat at once: the stream error
+ * was swallowed by the loop ending early, `content-length` was read for the
+ * progress bar and never checked against what arrived, and the truncated file
+ * was left in place to be "resumed" from for ever. Now the count is compared
+ * when the stream ends, the write is awaited before anything is claimed, and
+ * any failure takes the partial file with it. There is no published checksum
+ * for these archives to check against; length is the one fact on offer, and
+ * not checking it is how 1.28 GB of truncation looked like success.
+ */
 async function download(url, to) {
   console.log(`   GET ${url}`);
   if (dryRun) return;
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok) throw new Error(`${url} — ${response.status} ${response.statusText}`);
   const total = Number(response.headers.get("content-length") ?? 0);
-  const { createWriteStream } = await import("node:fs");
   const out = createWriteStream(to);
   let seen = 0;
   let printed = 0;
-  for await (const chunk of response.body) {
-    seen += chunk.length;
-    out.write(chunk);
-    const percent = total ? Math.floor((seen / total) * 100) : 0;
-    if (percent >= printed + 5) {
-      printed = percent;
-      process.stdout.write(`\r   ${percent}%  ${(seen / 1048576).toFixed(0)} MB`);
+  try {
+    for await (const chunk of response.body) {
+      seen += chunk.length;
+      if (!out.write(chunk)) {
+        // Backpressure: wait for the drain rather than buffering the whole
+        // archive in memory while the disk catches up.
+        await new Promise((resume) => out.once("drain", resume));
+      }
+      const percent = total ? Math.floor((seen / total) * 100) : 0;
+      if (percent >= printed + 5) {
+        printed = percent;
+        process.stdout.write(`\r   ${percent}%  ${(seen / 1048576).toFixed(0)} MB`);
+      }
     }
+    await new Promise((settled, failed) => {
+      out.end((error) => (error ? failed(error) : settled()));
+    });
+    if (total > 0 && seen !== total) {
+      throw new Error(
+        `${url} — the connection ended at ${(seen / 1048576).toFixed(0)} MB of ` +
+          `${(total / 1048576).toFixed(0)} MB; the partial file was deleted`,
+      );
+    }
+  } catch (error) {
+    out.destroy();
+    rmSync(to, { force: true });
+    throw error;
   }
-  out.end();
   process.stdout.write("\n");
 }
 
 /** Is this path a directory with anything in it? */
 const built = (path) => {
   try {
-    return statSync(path).isDirectory();
+    return statSync(path).isDirectory() && readdirSync(path).length > 0;
   } catch {
     return false;
   }
 };
+
+/**
+ * The marker that says a long step finished.
+ *
+ * The header promises that every step skips when it is done; steps whose
+ * output is "the corpus now contains an import" have no single file to stat,
+ * so they write one. Under the corpus, dot-named, so it is invisible to the
+ * shelf and obvious to anybody who goes looking.
+ */
+const markers = join(corpus, ".shelf-build");
+const alreadyDone = (marker) => existsSync(join(markers, `${marker}.done`));
+const markDone = (marker) => {
+  mkdirSync(markers, { recursive: true });
+  writeFileSync(join(markers, `${marker}.done`), `${new Date().toISOString()}\n`);
+};
+
+/** Run a step's command unless its marker is down, then mark it. */
+function runStep(marker, command, args) {
+  if (!dryRun && alreadyDone(marker)) {
+    console.log("   already done, skipping");
+    return;
+  }
+  run(command, args);
+  if (!dryRun) markDone(marker);
+}
 
 async function main() {
   console.log(`Building a shelf in ${corpus}`);
@@ -219,8 +288,21 @@ async function main() {
       console.log(`   ${otzaria} is already unpacked, skipping`);
     } else {
       const zip = join(librariesDir, "otzaria_latest.zip");
+      // The marker, not mere existence: a zip that exists may be a truncated
+      // one a previous run left behind, and resuming from that died in
+      // `unzip` every time with no way out but the hand. Only a verified
+      // download writes `.done`; anything else is fetched again.
+      const settled = `${zip}.done`;
       mkdirSync(librariesDir, { recursive: true });
-      if (!existsSync(zip)) await download(OTZARIA_ZIP, zip);
+      if (!existsSync(settled)) {
+        rmSync(zip, { force: true });
+        await download(OTZARIA_ZIP, zip);
+        // Written only after `download` verified what it got; and never
+        // during --dry-run, where there is no archive to measure.
+        if (!dryRun) writeFileSync(settled, `${statSync(zip).size}\n`);
+      } else {
+        console.log("   the archive is already downloaded and verified, skipping");
+      }
       unzip(zip, otzaria);
       // Some builds of the archive nest one level. Point at whichever holds it.
       if (!built(join(otzaria, "אוצריא"))) {
@@ -252,19 +334,19 @@ async function main() {
     libraries.push(shelf);
   }
 
-  // 3 · Onto permanent ids.
+  // Onto permanent ids.
   say("the shelf — permanent segment ids");
-  run(tool("girsa-import"), [corpus, ...libraries]);
+  runStep("import", tool("girsa-import"), [corpus, ...libraries]);
 
-  // 4 · The links.
+  // The links.
   say("the links between them");
-  run(tool("girsa-link-import"), [corpus, ...libraries]);
+  runStep("links", tool("girsa-link-import"), [corpus, ...libraries]);
 
-  // 5 · The caches. Skipping this is why a daf has no mefarshim.
+  // The caches. Skipping this is why a daf has no mefarshim.
   say("the caches that read the links backwards");
-  run(tool("girsa-link-types"), [corpus, personal]);
+  runStep("types", tool("girsa-link-types"), [corpus, personal]);
 
-  // 6 · Which seforim are worth opening beside which.
+  // Which seforim are worth opening beside which.
   //
   // **This was not in the six steps, and leaving it out is invisible.** The
   // shelf still opens, every daf still has its links, and the מפרשים list
@@ -276,15 +358,15 @@ async function main() {
   // `docs/tools.md` calls this one "worth running, and nothing refuses without
   // it", which is exactly the shape of a step that stops being run.
   say("which seforim are worth opening beside which");
-  run(tool("girsa-companions"), [corpus]);
+  runStep("companions", tool("girsa-companions"), [corpus]);
 
-  // 6 · Search.
+  // Search.
   if (has("--skip-search")) {
     say("search — skipped");
     console.log("   --skip-search: nothing is searchable until girsa-index runs");
   } else {
     say("search — about 4 GB, the long one");
-    run(tool("girsa-index"), ["build", index, corpus, personal]);
+    runStep("index", tool("girsa-index"), ["build", index, corpus, personal]);
   }
 
   console.log(`
