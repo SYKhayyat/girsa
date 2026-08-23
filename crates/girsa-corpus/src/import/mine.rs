@@ -525,8 +525,19 @@ fn said(blocks: usize, notes: usize, rows: usize) -> String {
 /// of Hebrew plain text arrives — every line is its own paragraph instead. A
 /// sefer whose every word is in segment 1 is not addressable, and addressable
 /// is the whole point.
+///
+/// Line endings are normalized first, and that is not a convenience. This
+/// library's sources are Windows text files, so a blank line arrives as
+/// `\r\n\r\n` — which `"\n\n"` cannot match, because the `\r` sits between the
+/// newlines — and every such file took the fallback branch below: one segment
+/// per *line*, permanent ids minted differently than they would have been from
+/// the identical file saved with Unix endings. Nothing here survives into a
+/// segment either way — every piece is trimmed and re-joined — so normalizing
+/// at the door costs nothing and keeps the promise that *the same text imports
+/// the same way twice*.
 #[must_use]
 pub fn paragraphs(text: &str) -> Vec<RawSegment> {
+    let text = text.replace("\r\n", "\n");
     let by_blank: Vec<&str> = text
         .split("\n\n")
         .map(str::trim)
@@ -603,6 +614,11 @@ fn from_1255(bytes: &[u8]) -> String {
             0x00..=0x7F => char::from(*byte),
             // The nikud block, U+05B0 sheva through U+05C3 sof pasuq.
             0xC0..=0xC9 => point(0x05B0 + u32::from(byte - 0xC0)),
+            // U+05BA holam haser for vav, which sits between them in the code
+            // page with no neighbour to inherit a range from. Missed, it was a
+            // visible U+FFFD in the middle of a word — from the function whose
+            // comment promises this exact corruption cannot happen.
+            0xCA => point(0x05BA),
             0xCB..=0xD3 => point(0x05BB + u32::from(byte - 0xCB)),
             // The ligatures and the geresh/gershayim, U+05F0..U+05F4.
             0xD4..=0xD8 => point(0x05F0 + u32::from(byte - 0xD4)),
@@ -747,9 +763,37 @@ mod tests {
         assert_eq!(girsa_hebrew::normalize(&text), "בראשית");
 
         // A byte the code page does not define is not quietly turned into a
-        // letter.
-        let (odd, _) = decode(&[0xE0, 0xCA, 0xE1]);
+        // letter. (0xCA used to stand in for "undefined" here, which is how
+        // its being holam haser for vav went unnoticed: the test asserted the
+        // defect.)
+        let (odd, _) = decode(&[0xE0, 0x81, 0xE1]);
         assert!(odd.contains(char::REPLACEMENT_CHARACTER), "{odd}");
+
+        // And 0xCA is holam haser for vav, U+05BA — a point on ו, which this
+        // table skipped on its way from sheva to qubuts.
+        let (holam, _) = decode(&[0xE5, 0xCA]);
+        assert_eq!(holam, "\u{05D5}\u{05BA}");
+    }
+
+    #[test]
+    fn the_same_text_with_windows_or_unix_endings_imports_the_same_way() {
+        // A blank line between paragraphs arrives as `\r\n\r\n` from every
+        // Windows editor, and `"\n\n"` could not match it — so the identical
+        // file took one-segment-per-line instead of paragraph-per-blank-line,
+        // with different permanent ids than its LF twin.
+        let unix = "ראשון\nהמשך\n\nשני\n";
+        let windows = "ראשון\r\nהמשך\r\n\r\nשני\r\n";
+        let lf = paragraphs(unix);
+        let crlf = paragraphs(windows);
+        assert_eq!(lf.len(), 2);
+        assert_eq!(
+            lf.iter().map(|s| &s.text).collect::<Vec<_>>(),
+            crlf.iter().map(|s| &s.text).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            lf.iter().map(|s| &s.path).collect::<Vec<_>>(),
+            crlf.iter().map(|s| &s.path).collect::<Vec<_>>()
+        );
     }
 
     #[test]

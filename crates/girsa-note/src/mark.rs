@@ -224,12 +224,16 @@ impl Mark {
     #[must_use]
     pub fn called(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        // The name was minted by the constructor; the label is part of what it
+        // names now.
+        self.id = self.name();
         self
     }
 
     #[must_use]
     pub fn coloured(mut self, colour: impl Into<String>) -> Self {
         self.colour = Some(colour.into());
+        self.id = self.name();
         self
     }
 
@@ -268,6 +272,12 @@ impl Mark {
                 )
             })
             .collect();
+        // The label and the colour too, and for the same reason the ink is in:
+        // *עיין בזה* and *להתחיל כאן* are two bookmarks on one daf, not one
+        // said twice — and the second used to be swallowed whole, because the
+        // name was minted before either field existed on the mark and neither
+        // was in the fingerprint. An absent field hashes as the empty string,
+        // so a plain mark keeps the shape it always had.
         MarkId(girsa_personal::fingerprint(&[
             &self.at.to_string(),
             &self.from_char.unwrap_or_default().to_string(),
@@ -275,6 +285,8 @@ impl Mark {
             &self.was,
             self.kind.as_str(),
             &where_on_it,
+            self.label.as_deref().unwrap_or(""),
+            self.colour.as_deref().unwrap_or(""),
         ]))
     }
 
@@ -620,6 +632,42 @@ mod tests {
             1,
             "named by what it marks, not by who or when"
         );
+    }
+
+    #[test]
+    fn two_bookmarks_on_one_place_are_two_marks_when_they_say_different_things() {
+        // The finding: a bookmark's name was minted before `called` and
+        // `coloured` ran and neither field was in the fingerprint, so the
+        // second bookmark on a daf was silently swallowed — *עיין בזה* after
+        // *להתחיל כאן* succeeded invisibly and stored nothing.
+        let mut marks = Marks::nowhere();
+        marks
+            .add(Mark::bookmark(at(), "me").called("להתחיל כאן"))
+            .expect("takes");
+        marks
+            .add(Mark::bookmark(at(), "me").called("עיין בזה"))
+            .expect("takes");
+        assert_eq!(marks.count(), 2, "{:#?}", marks.all().collect::<Vec<_>>());
+        assert_eq!(marks.bookmarks().len(), 2);
+
+        // And two highlights differing only in colour are two as well —
+        // which is the whole point of offering colours.
+        marks
+            .add(Mark::highlight(at(), 6..10, "כארי", "me").coloured("amber"))
+            .expect("takes");
+        marks
+            .add(Mark::highlight(at(), 6..10, "כארי", "me").coloured("blue"))
+            .expect("takes");
+        assert_eq!(
+            marks.by_segment.get(&at()).map(Vec::len),
+            Some(4),
+            "two bookmarks and two colours"
+        );
+
+        // The same bookmark said twice is still one; identity has not become
+        // "whatever happened to be in memory".
+        marks.add(Mark::bookmark(at(), "me").called("עיין בזה")).expect("takes");
+        assert_eq!(marks.bookmarks().len(), 2);
     }
 
     #[test]
