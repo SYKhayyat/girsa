@@ -153,9 +153,12 @@ export class ScanView {
     this.pageBox.inputMode = "numeric";
     this.pageBox.title = say("scanPageInFile");
     this.pageBox.addEventListener("change", () => {
-      const wanted = Number(this.pageBox.value);
-      if (Number.isFinite(wanted)) void this.goTo(wanted);
-      else this.paint();
+      const asked = this.pageBox.value.trim();
+      const wanted = Number(asked);
+      // An empty box is a reader who changed their mind, not a reader asking
+      // for page 1 — which is where `Number("") === 0` was sending them.
+      if (asked === "" || !Number.isFinite(wanted)) this.paint();
+      else void this.goTo(wanted);
     });
 
     this.goBox = field(say("scanGoToDaf"), {
@@ -327,16 +330,25 @@ export class ScanView {
       this.body.scrollTop = 0;
     });
     this.drawing = mine.catch(() => undefined);
+    // The page this draw is *for*. The render is serialized through
+    // `this.drawing`, but these three fetches are not — and a page turn that
+    // happens while they are in flight owns the screen: the older answer must
+    // neither paint its rectangles over the newer photograph nor report its
+    // segment id to the panes following this one, which is how followers used
+    // to be dragged backwards. The page number is the ticket; `goTo` moves it
+    // before any stale answer can come back.
+    const forPage = this.page;
     // The header is asked for in parallel: it is one small call, and a reader
     // turning pages should not wait for the render to find out where they are.
     const [said, words, yours] = await Promise.all([
-      api.scanAt(this.slug, this.page),
-      api.scanWords(this.slug, this.page).catch(() => null),
+      api.scanAt(this.slug, forPage),
+      api.scanWords(this.slug, forPage).catch(() => null),
       // Your own layer, which a browser build does not have — an empty list
       // rather than a failure, the answer every other own-layer call gives.
-      api.scanMarks(this.slug, this.page).catch((): ScanMark[] => []),
+      api.scanMarks(this.slug, forPage).catch((): ScanMark[] => []),
       mine,
     ]);
+    if (forPage !== this.page) return;
     this.said = said;
     this.words = words;
     this.yours = yours;
@@ -439,6 +451,12 @@ export class ScanView {
     this.words.words.forEach((word, index) => {
       if (wanted && !wanted.has(bare(word.text))) return;
       const box = el("div", "scan-mark");
+      // Which word this box is, named rather than implied. The highlight boxes
+      // above share this overlay, so "the nth child" was never the nth word the
+      // moment a page had any of yours on it — and `correctWord` used to index
+      // children anyway, showing the reader the wrong rectangle while prefilling
+      // the right text.
+      box.dataset.word = String(index);
       box.style.insetInlineStart = "";
       box.style.left = `${word.left * 100}%`;
       box.style.top = `${word.top * 100}%`;
@@ -496,8 +514,10 @@ export class ScanView {
     await this.goTo(page);
     this.correcting = true;
     this.drawMarks();
-    // Correcting draws every word in order, so the nth box is the nth word.
-    const box = this.overlay.children[index];
+    // The box is found by the word's own ordinal, named on it at draw time —
+    // not by its position among the overlay's children, which the highlight
+    // boxes ahead of it had already made a lie.
+    const box = this.overlay.querySelector<HTMLElement>(`[data-word="${index}"]`);
     const word = this.words?.words[index];
     if (!(box instanceof HTMLElement) || !word) {
       // The page has been read again since the queue was built and there is no

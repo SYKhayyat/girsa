@@ -882,9 +882,16 @@ export class PaneView {
       return;
     }
     // Not loaded. Draw the window there and let the fetch fill it in — the same
-    // path `goToId` takes, without an id to ask about.
+    // path `goToId` takes, without an id to ask about. And like `goToId`, the
+    // fetch is not the end of the work: `render` drew a window of holes, and a
+    // pane that stopped there stayed blank for good, because nothing ever drew
+    // over them. When the lines arrive, scroll to the one the fraction asked
+    // for — which repaints and sets the address line in the same step.
     this.render(at);
-    void this.load(Math.max(0, at - WINDOW / 2), WINDOW);
+    void this.load(Math.max(0, at - WINDOW / 2), WINDOW).then(() => {
+      const line = this.lines[at];
+      if (line) this.scrollTo([line.id], false);
+    });
   }
 
   /** Move this pane because the pane it follows moved. */

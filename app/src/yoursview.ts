@@ -20,6 +20,7 @@ import {
 } from "./api.ts";
 import { sayTrouble } from "./trouble.ts";
 import { area, glyph, shut } from "./controls.ts";
+import { Latest, type Ticket } from "./latest.ts";
 import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
 
@@ -60,6 +61,18 @@ export class YoursView {
    * the folder you put `ברכות` on are the answer together.
    */
   private tag: string | null = null;
+  /**
+   * The draw that owns the drawer right now.
+   *
+   * Notes read slowly (a row can open an editor), marks read instantly, and
+   * two rapid tab clicks used to interleave them: marks replaced the children
+   * and drew, then notes' rows landed underneath them under the marks tab. A
+   * row is appended and a count is written only while its draw still holds the
+   * newest ticket — and closing the drawer burns the ticket, so an answer that
+   * arrives after the reader walked away lands nowhere.
+   */
+  private readonly draws = new Latest();
+  private live: Ticket | null = null;
 
   get isOpen(): boolean {
     return this.element.classList.contains("is-open");
@@ -143,7 +156,19 @@ export class YoursView {
   close(): void {
     this.element.classList.remove("is-open");
     this.editing = null;
+    // Whatever is in flight belongs to a drawer that is shut now.
+    this.live = null;
     undock("yours");
+  }
+
+  /** Append a row, unless a newer draw has taken the drawer over. */
+  private put(row: HTMLElement): void {
+    if (this.live?.current()) this.put(row);
+  }
+
+  /** Say the count line, under the same rule as [`YoursView.put`]. */
+  private tell(text: string): void {
+    if (this.live?.current()) this.note.textContent = text;
   }
 
   /** Redraw, because something of yours changed elsewhere in the window. */
@@ -152,6 +177,7 @@ export class YoursView {
   }
 
   private async draw(): Promise<void> {
+    this.live = this.draws.take();
     for (const button of this.tabs.querySelectorAll<HTMLElement>(".lens")) {
       button.classList.toggle("is-on", button.dataset.panel === this.panel);
     }
@@ -180,9 +206,9 @@ export class YoursView {
 
   private async drawNotes(): Promise<void> {
     const notes = await api.notes();
-    this.note.textContent = notes.length === 0 ? say("yoursNothingWritten") : `${notes.length} ${say("countNotes")}`;
+    this.tell(notes.length === 0 ? say("yoursNothingWritten") : `${notes.length} ${say("countNotes")}`);
     for (const note of notes) {
-      this.list.append(await this.noteRow(note));
+      this.put(await this.noteRow(note));
     }
   }
 
@@ -309,9 +335,10 @@ export class YoursView {
 
   private async drawMarks(): Promise<void> {
     const marks = await api.bookmarks();
-    this.note.textContent =
-      marks.length === 0 ? say("yoursNoMarks") : `${marks.length} ${say("countMarks")}`;
-    for (const mark of marks) this.list.append(this.markRow(mark));
+    this.tell(
+      marks.length === 0 ? say("yoursNoMarks") : `${marks.length} ${say("countMarks")}`,
+    );
+    for (const mark of marks) this.put(this.markRow(mark));
   }
 
   private markRow(mark: MarkRow): HTMLElement {
@@ -354,9 +381,10 @@ export class YoursView {
 
   private async drawQueries(): Promise<void> {
     const queries = await api.queries();
-    this.note.textContent =
-      queries.length === 0 ? say("yoursNoQueries") : `${queries.length} ${say("countQueries")}`;
-    for (const query of queries) this.list.append(this.queryRow(query));
+    this.tell(
+      queries.length === 0 ? say("yoursNoQueries") : `${queries.length} ${say("countQueries")}`,
+    );
+    for (const query of queries) this.put(this.queryRow(query));
   }
 
   private queryRow(query: QueryRow): HTMLElement {
@@ -397,8 +425,8 @@ export class YoursView {
 
   private async drawFolders(): Promise<void> {
     const folders = await api.folders();
-    this.note.textContent = folders.length === 0 ? say("yoursNoFolders") : `${folders.length} ${say("countFolders")}`;
-    for (const folder of folders) this.list.append(this.folderRow(folder));
+    this.tell(folders.length === 0 ? say("yoursNoFolders") : `${folders.length} ${say("countFolders")}`);
+    for (const folder of folders) this.put(this.folderRow(folder));
   }
 
   private folderRow(folder: FolderRow): HTMLElement {
@@ -459,8 +487,8 @@ export class YoursView {
 
   private async drawTags(): Promise<void> {
     const tags = await api.tags();
-    this.note.textContent = tags.length === 0 ? say("yoursNoTags") : `${tags.length} ${say("countTags")}`;
-    for (const tag of tags) this.list.append(this.tagRow(tag));
+    this.tell(tags.length === 0 ? say("yoursNoTags") : `${tags.length} ${say("countTags")}`);
+    for (const tag of tags) this.put(this.tagRow(tag));
   }
 
   /**
@@ -486,7 +514,7 @@ export class YoursView {
     ]);
     const carries = (tags: string[]) => tags.includes(tag);
 
-    this.list.append(this.tagHead(tag));
+    this.put(this.tagHead(tag));
     const mine = {
       notes: notes.filter((row) => carries(row.tags)),
       marks: marks.filter((row) => carries(row.tags)),
@@ -495,7 +523,7 @@ export class YoursView {
     };
     const found =
       mine.notes.length + mine.marks.length + mine.queries.length + mine.folders.length;
-    this.note.textContent = fill("yoursTagged", { tag });
+    this.tell(fill("yoursTagged", { tag }));
 
     // A tag the tally still counts and nothing carries is a layer that changed
     // under an open drawer — said out loud, because an empty list under a tag
@@ -504,15 +532,15 @@ export class YoursView {
       const none = document.createElement("p");
       none.className = "yours-note";
       none.textContent = say("yoursTagNothing");
-      this.list.append(none);
+      this.put(none);
       return;
     }
     // In the order the tabs are in, so a reader who knows the drawer knows
     // where to look inside the answer.
-    for (const note of mine.notes) this.list.append(await this.noteRow(note));
-    for (const mark of mine.marks) this.list.append(this.markRow(mark));
-    for (const query of mine.queries) this.list.append(this.queryRow(query));
-    for (const folder of mine.folders) this.list.append(this.folderRow(folder));
+    for (const note of mine.notes) this.put(await this.noteRow(note));
+    for (const mark of mine.marks) this.put(this.markRow(mark));
+    for (const query of mine.queries) this.put(this.queryRow(query));
+    for (const folder of mine.folders) this.put(this.folderRow(folder));
   }
 
   /** The tag you are standing in, and the way out of it. */
@@ -575,9 +603,10 @@ export class YoursView {
    */
   private async drawFixes(): Promise<void> {
     const fixes = await api.fixes();
-    this.note.textContent =
-      fixes.length === 0 ? say("yoursNoFixes") : `${fixes.length} ${say("countFixes")}`;
-    for (const fix of fixes) this.list.append(this.fixRow(fix));
+    this.tell(
+      fixes.length === 0 ? say("yoursNoFixes") : `${fixes.length} ${say("countFixes")}`,
+    );
+    for (const fix of fixes) this.put(this.fixRow(fix));
   }
 
   private fixRow(fix: PatchRow): HTMLElement {
@@ -625,7 +654,7 @@ export class YoursView {
 
   private async exportLayer(): Promise<void> {
     try {
-      this.note.textContent = await api.exportLayer();
+      this.tell(await api.exportLayer());
     } catch (e) {
       sayTrouble(this.note, e, "write_note");
     }

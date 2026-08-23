@@ -67,6 +67,7 @@ import {
 import { doorLabel, doorTitle, nothingHere } from "./mefarshim.ts";
 import { route, type Caret, type Held, type Panel } from "./panel.ts";
 import { presenceSaid } from "./presence.ts";
+import { Latest } from "./latest.ts";
 import { codeOf, sayTrouble, trouble } from "./trouble.ts";
 import { whatKey, type Pressed } from "./keys.ts";
 import { announces, ask, button, choice, glyph, region } from "./controls.ts";
@@ -102,6 +103,16 @@ const scans = new Map<PaneId, ScanView>();
 let state: AppState | null = null;
 /** The last position each pane reported, so a repeat scroll is not re-asked. */
 const reported = new Map<PaneId, string>();
+/**
+ * One answer sequence per leader pane: only the newest `moved` answer draws.
+ *
+ * Two quick scrolls put two IPC calls in flight, and nothing about a promise
+ * queue orders their *answers* — an older one resolving later would drag every
+ * follower (and fraction-follower, and scan page turn) back to where the reader
+ * had already left. `reported` dedupes identical positions but cannot order
+ * different ones; this is the same `Latest` the other panels take.
+ */
+const movers = new Map<PaneId, Latest>();
 /**
  * Slug → **both** of a sefer's titles, so a tab is labelled `ברכות` and not
  * `bavli/berakhot`. Filled in as seforim are opened.
@@ -553,6 +564,12 @@ async function draw(): Promise<void> {
   for (const id of [...scans.keys()]) {
     if (!open.panes.some((p) => p.id === id)) scans.delete(id);
   }
+  for (const id of [...reported.keys()]) {
+    if (!open.panes.some((p) => p.id === id)) {
+      reported.delete(id);
+      movers.delete(id);
+    }
+  }
 
   // **Every fresh pane's reads, started together.**
   //
@@ -616,8 +633,19 @@ async function draw(): Promise<void> {
       slot.replaceChildren(scan.element);
       scan.setFocused(open.focused === pane.id);
       scan.setFollowing(followLabel(pane.follows));
-      const opened = await api.scan(pane.slug);
-      await scan.show(opened, opened.at);
+      // The same resolve-not-reject rule the sefer branch above keeps, which
+      // this branch was the one place without: a PDF that has moved, or an
+      // asset protocol that refuses, threw out of the middle of this loop —
+      // and every pane after it went undrawn behind an unhandled rejection,
+      // which is the black-rectangle incident wearing a different file.
+      try {
+        const opened = await api.scan(pane.slug);
+        await scan.show(opened, opened.at);
+      } catch (e) {
+        scans.delete(pane.id);
+        sayTrouble(slot, e, "read_page");
+        slot.classList.add("pane-broken");
+      }
       continue;
     }
 
@@ -1035,20 +1063,27 @@ async function whenMoved(pane: PaneId, at: string): Promise<void> {
   // the focused pane: a window holding four seforim would otherwise have the
   // links flicker between them as a follower pane is scrolled to keep up.
   if (here?.focused === pane) void linksview.follow(at);
-  const moves = await api.moved(pane, at);
-  // How far through the leader's sefer the reader is, for the followers nothing
-  // joins to it. See `PaneView.goToFraction`: the window decides to keep two
-  // unrelated columns in step, because that is a fact about two columns and not
-  // about two seforim — which is exactly why Rust refuses to answer it.
-  const through = views.get(pane)?.fraction() ?? 0;
-  for (const move of moves) {
-    views.get(move.pane)?.goTo(move.place, move.relation);
-    if (move.place.kind === "unrelated") views.get(move.pane)?.goToFraction(through);
-    // A scan has no lines to scroll to: where it goes is a page, counted in
-    // Rust. `undefined` is *the pane stays where it is*, which is what a daf
-    // this scan does not carry has to do (W9's `NoPlace`, in a photograph).
-    scans.get(move.pane)?.turnTo(move.page ?? null, move.place.kind);
+  let latest = movers.get(pane);
+  if (!latest) {
+    latest = new Latest();
+    movers.set(pane, latest);
   }
+  await latest.run(() => api.moved(pane, at), (moves) => {
+    // How far through the leader's sefer the reader is, for the followers
+    // nothing joins to it. See `PaneView.goToFraction`: the window decides to
+    // keep two unrelated columns in step, because that is a fact about two
+    // columns and not about two seforim — which is exactly why Rust refuses to
+    // answer it.
+    const through = views.get(pane)?.fraction() ?? 0;
+    for (const move of moves) {
+      views.get(move.pane)?.goTo(move.place, move.relation);
+      if (move.place.kind === "unrelated") views.get(move.pane)?.goToFraction(through);
+      // A scan has no lines to scroll to: where it goes is a page, counted in
+      // Rust. `undefined` is *the pane stays where it is*, which is what a daf
+      // this scan does not carry has to do (W9's `NoPlace`, in a photograph).
+      scans.get(move.pane)?.turnTo(move.page ?? null, move.place.kind);
+    }
+  });
 }
 
 async function whenFocused(pane: PaneId): Promise<void> {

@@ -32,6 +32,7 @@ import {
   type LaneState,
 } from "./api.ts";
 import { field, shut } from "./controls.ts";
+import { Latest } from "./latest.ts";
 import { clearTrouble, sayTrouble, trouble } from "./trouble.ts";
 import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
@@ -53,6 +54,14 @@ function megabytes(bytes: number): string {
 export class LaneColumn {
   readonly element: HTMLElement;
   private opened: Opened = () => {};
+  /**
+   * The one claim on this column. The lane's own header names it as the
+   * motivating case: a model answer takes seconds, a literal search takes
+   * milliseconds, and search A's slow lane answer resolving under search B's
+   * hits is the stale-draw bug in its purest form — the reader asked B and is
+   * being shown A. Nothing draws without a current ticket.
+   */
+  private readonly draws = new Latest();
 
   constructor() {
     this.element = document.createElement("div");
@@ -64,10 +73,16 @@ export class LaneColumn {
    *
    * Called after the literal search has already drawn: the lane is slower —
    * it runs a model over the query — and the literal results must never wait
-   * on it. If the lane is off, this draws nothing and takes no time. */
+   * on it. If the lane is off, this draws nothing and takes no time.
+   *
+   * Ticketed end to end: both round trips (the state check and the ask) are
+   * checked against the newest `show`, so an older question can neither spin
+   * nor land here after a newer one was typed. */
   async show(typed: string, opened: Opened): Promise<void> {
     this.opened = opened;
+    const ticket = this.draws.take();
     const state = await api.laneState().catch(() => null);
+    if (!ticket.current()) return;
     if (!state || state.state === "off") {
       this.element.hidden = true;
       return;
@@ -75,6 +90,7 @@ export class LaneColumn {
     this.element.hidden = false;
     this.element.replaceChildren(spinner());
     const answer = await api.laneAsk(typed).catch(() => null);
+    if (!ticket.current()) return;
     if (!answer) {
       this.element.hidden = true;
       return;
