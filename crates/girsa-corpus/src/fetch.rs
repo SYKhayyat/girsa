@@ -34,7 +34,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -447,7 +447,6 @@ fn already_complete(root: &Path, target: &Target) -> bool {
 
 fn fetch_one(root: &Path, target: &Target) -> Result<usize, FetchError> {
     let final_path = root.join(disk_path(&target.rel_path));
-    let part_path = crate::beside::temp_path(&final_path);
 
     let mut body = get_bytes(&target.url)?;
     if let Some(want) = target.size {

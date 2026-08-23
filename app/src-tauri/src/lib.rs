@@ -475,29 +475,6 @@ impl State {
         refuse(Code::Poisoned, "state is poisoned")
     }
 
-    /// Put a sefer of your own into the search index, now (W11, spec.md §11).
-    ///
-    /// A note is a sefer and *your notes are searchable* — and until this they
-    /// were searchable as of the last build, so the honest sentence in the
-    /// results header was **"1 note since the index was built"** and the only
-    /// way to make it stop saying that was four minutes over five million
-    /// segments. A note is one segment. See `girsa_search::building`.
-    ///
-    /// **Nothing here fails a write.** The note is on disk before this is
-    /// called; if the index will not take it the reader has still written their
-    /// note, and what they lose is that it is findable until the next build —
-    /// which is exactly the state everything was in before, and which the
-    /// results header already knows how to say. Refusing the write because a
-    /// cache would not update would be the tail wagging the dog.
-    fn searchable(&mut self, slug: &str) {
-        let (Some(bar), Ok(shelf)) = (self.bar.as_ref(), self.shelf()) else {
-            return;
-        };
-        let personal = shelf.personal().to_path_buf();
-        drop(shelf);
-        make_searchable(bar, &personal, slug);
-    }
-
     /// And take one out, because it is not on the shelf any more.
     ///
     /// The asymmetry is real: a work that has been deleted has no
@@ -512,6 +489,34 @@ impl State {
             eprintln!("{slug} is gone and is still in the index: {e}");
         }
     }
+}
+
+/// Put a work of your own into the search index, **with no state lock held**.
+///
+/// The two things it needs — the index handle and where the reader's layer is —
+/// are taken under a lock held for two clones, and the tantivy commit itself
+/// runs with the guard down. [`State::searchable`] used to be a method called
+/// under the caller's existing guard by `note_write` and `note_edit`, which are
+/// the whole of its callers: every saved keystroke-batch in a note stalled the
+/// entire window for a commit, which is precisely what `make_searchable`'s
+/// split exists to prevent and what `add_mine` already obeyed.
+///
+/// **Nothing here fails a write.** The note is on disk before this is called;
+/// if the index will not take it the reader has still written their note, and
+/// what they lose is that it is findable until the next build — which is
+/// exactly the state everything was in before, and which the results header
+/// already knows how to say.
+fn searchable(shared: &tauri::State<'_, Shared>, slug: &str) {
+    let (bar, personal) = {
+        let Ok(state) = shared.lock() else {
+            return;
+        };
+        let (Some(bar), Ok(shelf)) = (state.bar.clone(), state.shelf()) else {
+            return;
+        };
+        (bar, shelf.personal().to_path_buf())
+    };
+    make_searchable(&bar, &personal, slug);
 }
 
 /// The body of [`State::searchable`], with the two things it needs handed to it
@@ -821,9 +826,17 @@ fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), S
             format!("{path} has no {} in it", girsa_corpus::roots::MARKER),
         ));
     }
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let personal = state.personal.clone();
-    let opened = open_corpus(Ok(at.clone()), &personal, state.session.showing);
+    // The two facts the open needs, taken and released; the open itself runs
+    // with **no state lock held**. It reads the catalogue, opens the index,
+    // opens the notes, builds the lexicon and — when the lane is on — loads
+    // the neural model, every one of which is thread-worthy work that used to
+    // sit under the one lock every command in this file waits on. Switching
+    // corpora froze the window for the whole pile.
+    let (personal, showing) = {
+        let state = shared.lock().map_err(|_| State::poisoned())?;
+        (state.personal.clone(), state.session.showing)
+    };
+    let opened = open_corpus(Ok(at.clone()), &personal, showing);
     // A directory can hold the marker file and still refuse to open — an
     // unreadable catalogue, a half-written import. Remembering that one would
     // put the reader in front of it again on every launch, with the folder they
@@ -831,6 +844,7 @@ fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), S
     let Some(shelf) = opened.shelf else {
         return Err(refuse(Code::NotACorpus, opened.trouble.unwrap_or(path)));
     };
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.session.corpus = Some(at);
     state.shelf = Some(Arc::new(std::sync::RwLock::new(shelf)));
     state.trouble = opened.trouble;
@@ -5716,41 +5730,56 @@ fn lane_stop(shared: tauri::State<'_, Shared>) -> Result<(), String> {
 /// [`Place`], which is three-valued on purpose: somewhere, *nowhere on this
 /// line*, or *nothing relates these two seforim*. The window shows the second
 /// and third rather than moving the column to something near.
+///
+/// The seforim are read **before** the state lock is taken for the placement —
+/// [`hold`], the same doctrine as `open_sefer`, which this command is the
+/// tenth instance of needing: every scroll event lands here, a cache miss is a
+/// tens-of-megabytes read, and holding the guard across them queued every other
+/// command in the window behind a mouse wheel.
 #[tauri::command(async)]
 fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<Vec<Move>, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
 
-    state.session.remember(at.clone());
-    let followers = state.session.workspace.moved(pane, at.clone());
-    if followers.is_empty() {
-        // `save_scroll`, not `save`: this is a scroll position, and
-        // `Session::save` writes the whole workspace plus the remembered place
-        // of every sefer ever opened.
-        state.save_scroll();
-        return Ok(Vec::new());
-    }
-
-    let leader_slug = at.work().to_string();
-    let root = {
-        let shelf = state.shelf()?;
-        shelf.root().to_path_buf()
+    // One: under the lock — record the move and work out who cares.
+    let (leader_slug, root, wanted) = {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        state.session.remember(at.clone());
+        let followers = state.session.workspace.moved(pane, at.clone());
+        if followers.is_empty() {
+            // `save_scroll`, not `save`: this is a scroll position, and
+            // `Session::save` writes the whole workspace plus the remembered
+            // place of every sefer ever opened.
+            state.save_scroll();
+            return Ok(Vec::new());
+        }
+        let leader_slug = at.work().to_string();
+        let root = {
+            let shelf = state.shelf()?;
+            shelf.root().to_path_buf()
+        };
+        let wanted: Vec<(PaneId, String)> = followers
+            .iter()
+            .filter_map(|id| {
+                state
+                    .session
+                    .workspace
+                    .pane(*id)
+                    .map(|p| (*id, p.slug.clone()))
+            })
+            .collect();
+        (leader_slug, root, wanted)
     };
 
-    let wanted: Vec<(PaneId, String)> = followers
-        .iter()
-        .filter_map(|id| {
-            state
-                .session
-                .workspace
-                .pane(*id)
-                .map(|p| (*id, p.slug.clone()))
-        })
-        .collect();
+    // Two: no state lock — the leader and every follower are read into memory,
+    // each paying only a read lock on the shelf.
+    hold(&shared, &leader_slug)?;
+    for (_, slug) in &wanted {
+        hold(&shared, slug)?;
+    }
 
-    // Every sefer involved is read before any of them is placed: `sefer`
-    // borrows the map mutably, and the leader has to stay borrowed while the
-    // follower is looked at.
+    // Three: under the lock again — every `sefer` below is now a cache hit,
+    // and nothing here touches the disk.
+    let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.sefer(&leader_slug)?;
     for (_, slug) in &wanted {
         state.sefer(slug)?;
@@ -6211,15 +6240,15 @@ fn note_write(
     text: String,
 ) -> Result<NoteRow, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let who = girsa_app::who();
     let note = {
+        let mut state = shared.lock().map_err(|_| State::poisoned())?;
+        let who = girsa_app::who();
         let mut shelf = state.shelf_mut()?;
         girsa_app::note_here(&mut shelf, &at, title.as_deref(), &text, &who)
             .map_err(|e| e.to_string())?
     };
-    let slug = note.slug.clone();
-    state.searchable(&slug);
+    // The guard is down; the commit below no longer holds the window's turn.
+    searchable(&shared, &note.slug);
     Ok(NoteRow::of(&note))
 }
 
@@ -6336,11 +6365,12 @@ fn note_edit(
             text: para.text.clone(),
         })
         .collect();
-    let slug = written.slug.clone();
     // An edit is a rewrite of the note, so the index gets the whole note back.
     // A work is the unit of replacement, which makes *changed* and *new* the
-    // same operation here.
-    state.searchable(&slug);
+    // same operation here. And the guard for the write above is already down:
+    // this used to commit the index under the state lock.
+    drop(state);
+    searchable(&shared, &written.slug);
     Ok(rows)
 }
 
