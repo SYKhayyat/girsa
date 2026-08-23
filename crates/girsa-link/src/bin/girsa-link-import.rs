@@ -155,6 +155,37 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
 
+    // The shards are new; every cache derived from what they used to say is
+    // now a lie with a fingerprint that does not know it. Take them down here,
+    // at the boundary, so a reader who skips `girsa-link-types` is told the
+    // incoming half is unknown rather than handed last year's graph.
+    match girsa_link::invalidate_derived(&corpus_root) {
+        Ok(gone) => {
+            if gone.inbound + gone.landings + gone.masks > 0 || gone.marker || gone.companions {
+                eprintln!(
+                    "removed stale caches from the previous import: {} inbound files, \
+                     {} landing indexes, {} mask files{},{} run girsa-link-types to rebuild them",
+                    gone.inbound,
+                    gone.landings,
+                    gone.masks,
+                    if gone.marker { " the built marker," } else { "" },
+                    if gone.companions {
+                        " companions.jsonl,"
+                    } else {
+                        ""
+                    }
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "could not remove the stale derived caches: {e} — \
+                 run girsa-link-types before trusting the incoming half"
+            );
+            return std::process::ExitCode::FAILURE;
+        }
+    }
+
     let unsettled = match write_unsettled(&corpus_root, &resolver) {
         Ok(n) => n,
         Err(e) => {

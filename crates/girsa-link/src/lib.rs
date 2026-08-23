@@ -31,8 +31,106 @@ pub(crate) mod shards;
 pub mod store;
 pub mod touching;
 
+use std::path::Path;
+
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::standing::Standing;
+
+/// What a re-import took down with it.
+///
+/// Counts rather than booleans, so the importer's report can say what it
+/// removed without a reader having to guess whether "invalidated" meant one
+/// file or six thousand.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Invalidated {
+    /// `inbound.jsonl` files — the incoming half of the graph, one per work.
+    pub inbound: usize,
+    /// `inbound.landing` indexes beside them.
+    pub landings: usize,
+    /// `touching.bits` masks — per-segment link-type facets.
+    pub masks: usize,
+    /// Whether the tree-level `links/inbound.built` marker went too.
+    pub marker: bool,
+    /// Whether `links/companions.jsonl` — the beside-suggestion table, built
+    /// from the edges by `girsa-companions` — went too.
+    pub companions: bool,
+}
+
+/// Take every derived link cache down, because the graph they describe is gone.
+///
+/// An import rewrites `edges.jsonl`. Three caches are derived **from** those
+/// shards and carry no fingerprint of the graph itself:
+///
+/// * `inbound.jsonl` + its landing index + the tree's `inbound.built` marker —
+///   a second copy of the incoming half, walked out of the *old* shards. After
+///   a re-import that skips `girsa-link-types`, chains and panels read the old
+///   graph's incoming half against the new graph's outgoing half: two graphs,
+///   mixed silently, everywhere.
+/// * `touching.bits` — its header fingerprints only the **segmentation** the
+///   masks were laid over, which a re-import usually does not change. The masks
+///   stay "Known" while counting edges that no longer exist.
+/// * `companions.jsonl` — counts over the old edges, with nothing at all to
+///   say when they were counted.
+///
+/// Every reader of these three already knows how to be told they are absent —
+/// [`touching::Touching::Unbuilt`] prints the command to fix it, an unbuilt
+/// marker makes the incoming half *unknown* rather than empty, and a missing
+/// companions file degrades to the taxonomy. That is the honest state after an
+/// import; leaving stale files in place is the one state the machinery was
+/// built never to reach. So this walks the links tree and removes them, before
+/// anything can read a shard that no longer agrees with what it describes.
+///
+/// # Errors
+///
+/// If the walk fails or a file cannot be removed. An import whose cleanup
+/// failed has left caches it cannot vouch for, and says so.
+pub fn invalidate_derived(root: &Path) -> std::io::Result<Invalidated> {
+    const INBOUND: &str = "inbound.jsonl";
+    const LANDING: &str = "inbound.landing";
+    const MASKS: &str = "touching.bits";
+
+    let mut said = Invalidated::default();
+    let links = root.join("links");
+    let mut stack = vec![links.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry?.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            match path.file_name().and_then(|n| n.to_str()) {
+                Some(INBOUND) => {
+                    std::fs::remove_file(&path)?;
+                    said.inbound += 1;
+                }
+                Some(LANDING) => {
+                    std::fs::remove_file(&path)?;
+                    said.landings += 1;
+                }
+                Some(MASKS) => {
+                    std::fs::remove_file(&path)?;
+                    said.masks += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    let marker = links.join("inbound.built");
+    if marker.is_file() {
+        std::fs::remove_file(&marker)?;
+        said.marker = true;
+    }
+    let companions = links.join("companions.jsonl");
+    if companions.is_file() {
+        std::fs::remove_file(&companions)?;
+        said.companions = true;
+    }
+    Ok(said)
+}
 
 /// Edge types (spec.md §8.2). Directed; the inverse is derived, never stored
 /// twice.
@@ -449,5 +547,67 @@ mod tests {
     #[test]
     fn a_citation_addressed_edge_is_believed_more_than_a_line_indexed_one() {
         assert!(Method::SefariaSeed.confidence() > Method::OtzariaSeed.confidence());
+    }
+
+    #[test]
+    fn an_import_takes_its_derived_caches_down_with_it_and_nothing_else() {
+        // The finding: a re-import rewrote the shards and left everything
+        // derived from the *old* ones in place — inbound with a built marker,
+        // masks whose fingerprint only knows about segmentation, companions
+        // with no fingerprint at all. A reader who skipped girsa-link-types
+        // mixed two graphs everywhere, silently. What survives is the truth
+        // (edges.jsonl) and what is not derived from it (unsettled.jsonl).
+        let dir = std::env::temp_dir().join("girsa-link-invalidate");
+        let _ = std::fs::remove_dir_all(&dir);
+        let links = dir.join("links");
+        let work = links.join("bavli").join("berakhot");
+        std::fs::create_dir_all(&work).unwrap();
+        for name in [
+            "edges.jsonl",
+            "inbound.jsonl",
+            "inbound.landing",
+            "touching.bits",
+        ] {
+            std::fs::write(work.join(name), "x\n").unwrap();
+        }
+        let other = links.join("mishnah-berurah");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("touching.bits"), "x\n").unwrap();
+        std::fs::write(links.join("inbound.built"), "GENERATED\n").unwrap();
+        std::fs::write(links.join("companions.jsonl"), "# table\n").unwrap();
+        std::fs::write(links.join("unsettled.jsonl"), "{\"q\":1}\n").unwrap();
+
+        let gone = invalidate_derived(&dir).expect("invalidates");
+        assert_eq!(gone.inbound, 1);
+        assert_eq!(gone.landings, 1);
+        assert_eq!(gone.masks, 2);
+        assert!(gone.marker);
+        assert!(gone.companions);
+
+        assert!(work.join("edges.jsonl").is_file(), "the truth stays");
+        assert!(
+            links.join("unsettled.jsonl").is_file(),
+            "not derived from the edges, so not a lie"
+        );
+        assert!(!work.join("inbound.jsonl").exists());
+        assert!(!work.join("inbound.landing").exists());
+        assert!(!other.join("touching.bits").exists());
+        assert!(!links.join("inbound.built").exists());
+        assert!(!links.join("companions.jsonl").exists());
+
+        // And a tree with nothing derived in it invalidates to nothing rather
+        // than failing — which is every first import.
+        let again = invalidate_derived(&dir).expect("idempotent");
+        assert_eq!(
+            again,
+            Invalidated {
+                inbound: 0,
+                landings: 0,
+                masks: 0,
+                marker: false,
+                companions: false,
+            }
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

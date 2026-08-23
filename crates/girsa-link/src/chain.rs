@@ -426,18 +426,126 @@ impl Held {
     ///
     /// A superset, deliberately: `far_end` is still the only thing that decides,
     /// and this only says which rows are worth asking it about.
+    ///
+    /// # Why "superset" has to reach across granularities
+    ///
+    /// What `far_end` applies is [`Anchor::overlaps`], and a **point anchor
+    /// covers its descendants** ([`girsa_corpus::segment::Ordinal::covers`] is
+    /// prefix logic): an edge whose end names `#7.1` overlaps a reader standing
+    /// at `#7`, and one naming `#7` overlaps a reader standing at `#7.1`. Both
+    /// spellings legitimately coexist in one shard after any cut or inserted
+    /// se'if. An index keyed by the exact range `[from..=last]` sorted both
+    /// kinds outside the slice — `#7.1` sorts after `#7`, `#7` before `#7.1` —
+    /// and every hop through such a segment missed those edges while looking
+    /// complete, which is precisely the failure [`Refused`] exists to prevent.
+    ///
+    /// So the candidate set for a point query is the segment's whole **block**
+    /// (itself and everything cut out of it — one contiguous run in reading
+    /// order, ending just before its next sibling), plus an exact look-up for
+    /// each **ancestor** it descends from. A span query keeps its stretch and
+    /// adds the ancestors of both ends. Still two binary searches and at most a
+    /// handful of exact ones per hop; still far under the full scan.
     fn near(&self, at: &Anchor) -> Vec<usize> {
-        let last = at.to.as_ref().unwrap_or(&at.from);
-        let lower = self.points.partition_point(|(id, _)| id < &at.from);
-        let upper = self.points.partition_point(|(id, _)| id <= last);
-        let mut out: Vec<usize> = self.points[lower..upper]
-            .iter()
-            .map(|(_, at)| *at)
-            .chain(self.spans.iter().copied())
-            .collect();
+        let work = at.from.work();
+        let mut out: Vec<usize> = Vec::new();
+
+        match &at.to {
+            None => {
+                let from = &at.from;
+                // The block: everything whose ordinal begins with this one.
+                let lower = self.points.partition_point(|(id, _)| id < from);
+                let upper = match Self::block_end(from.ordinal()) {
+                    Some(end) => {
+                        let edge_of_block =
+                            SegmentId::new(work, Vec::new(), end);
+                        self.points.partition_point(|(id, _)| id < &edge_of_block)
+                    }
+                    // A component at `u32::MAX` cannot step over; take the rest
+                    // of this work rather than guess.
+                    None => self.points.partition_point(|(id, _)| id.work() <= work),
+                };
+                out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
+                // The ancestors: edges stored at a coarser granularity than
+                // the reader stands at, which cover this place by name.
+                for elder in Self::ancestors(from.ordinal()) {
+                    let key = SegmentId::new(work, Vec::new(), elder);
+                    let lower = self.points.partition_point(|(id, _)| id < &key);
+                    let upper = self.points.partition_point(|(id, _)| id <= &key);
+                    out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
+                }
+            }
+            Some(to) => {
+                // The stretch, normalized: `overlaps` asks `from <= p <= to`
+                // of every candidate, and an anchor is not obliged to hand
+                // those two in order. Same work only — `covers` refuses a
+                // cross-work stretch outright, so a slice across two works
+                // would be an answer to nothing.
+                let (lo, hi) = if to.work() == work {
+                    if at.from.ordinal() <= to.ordinal() {
+                        (&at.from, to)
+                    } else {
+                        (to, &at.from)
+                    }
+                } else {
+                    // No stretch to offer; the per-boundary look-ups below
+                    // still stand, which is all `overlaps` could grant.
+                    (&at.from, to)
+                };
+                let lower = self.points.partition_point(|(id, _)| id < lo);
+                let upper = self.points.partition_point(|(id, _)| id > hi);
+                out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
+                // Plus each boundary and its coarser spellings, which cover it.
+                for boundary in [&at.from, to] {
+                    if boundary.work() != work {
+                        continue;
+                    }
+                    let mut keys = Self::ancestors(boundary.ordinal());
+                    keys.push(boundary.ordinal().clone());
+                    for elder in keys {
+                        let key = SegmentId::new(work, Vec::new(), elder);
+                        let lower = self.points.partition_point(|(id, _)| id < &key);
+                        let upper = self.points.partition_point(|(id, _)| id <= &key);
+                        out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
+                    }
+                }
+            }
+        }
+
+        out.extend(self.spans.iter().copied());
         out.sort_unstable();
         out.dedup();
         out
+    }
+
+    /// The first ordinal that does not begin with `key`: its last component
+    /// stepped over. `None` when it cannot be.
+    fn block_end(key: &girsa_corpus::segment::Ordinal) -> Option<girsa_corpus::segment::Ordinal> {
+        let depth = key.depth();
+        let last = key.at(depth.checked_sub(1)?)?;
+        if last == u32::MAX {
+            return None;
+        }
+        let mut over = Self::prefix(key, depth - 1)?;
+        Some(over.child(last + 1))
+    }
+
+    /// Every ordinal `key` descends from, outermost first, excluding itself.
+    fn ancestors(
+        key: &girsa_corpus::segment::Ordinal,
+    ) -> Vec<girsa_corpus::segment::Ordinal> {
+        (1..key.depth()).filter_map(|levels| Self::prefix(key, levels)).collect()
+    }
+
+    /// The ordinal made of `key`'s first `levels` components.
+    fn prefix(
+        key: &girsa_corpus::segment::Ordinal,
+        levels: usize,
+    ) -> Option<girsa_corpus::segment::Ordinal> {
+        let mut out = girsa_corpus::segment::Ordinal::root(key.at(0)?);
+        for level in 1..levels {
+            out = out.child(key.at(level)?);
+        }
+        Some(out)
     }
 }
 
@@ -1559,7 +1667,12 @@ mod tests {
         //
         // The old scan was 156,076 rows of Orach Chayim per hop, re-walked up
         // to 73 times by a depth-3/width-8 trace.
-        let ids: Vec<SegmentId> = (1..=8)
+        //
+        // The ids deliberately mix granularities — roots and, among them, a
+        // cut's children — because that is the normal state of a shard after
+        // any re-segmentation, and a sweep over root ordinals alone cannot see
+        // a hop lost to it.
+        let mut ids: Vec<SegmentId> = (1..=8)
             .map(|n| {
                 SegmentId::new(
                     "bavli/berakhot",
@@ -1568,6 +1681,13 @@ mod tests {
                 )
             })
             .collect();
+        for child in [1u32, 2] {
+            ids.push(SegmentId::new(
+                "bavli/berakhot",
+                vec!["2a".into(), "3".into(), child.to_string()],
+                girsa_corpus::segment::Ordinal::root(3).child(child),
+            ));
+        }
         let far = SegmentId::new(
             "bavli/rashi-on-berakhot",
             vec!["2a".into()],
@@ -1622,5 +1742,71 @@ mod tests {
             }
         }
         assert!(asked > 30, "{asked} anchors is not a sweep");
+    }
+
+    #[test]
+    fn a_hop_stored_at_another_granularity_is_reached_from_either_spelling() {
+        // The finding, spelled out. After any cut or inserted se'if one shard
+        // legitimately holds both `#7` and `#7.1`; `far_end` treats a point as
+        // covering its descendants; and an index keyed by the exact range
+        // `[from..=last]` sorted each spelling outside the other's slice. A
+        // chain that hopped through such a segment came up short and looked
+        // complete.
+        let coarse = SegmentId::new(
+            "bavli/berakhot",
+            vec!["2a".into(), "7".into()],
+            girsa_corpus::segment::Ordinal::root(7),
+        );
+        let fine = SegmentId::new(
+            "bavli/berakhot",
+            vec!["2a".into(), "7".into(), "1".into()],
+            girsa_corpus::segment::Ordinal::root(7).child(1),
+        );
+        let neighbour = SegmentId::new(
+            "bavli/berakhot",
+            vec!["2a".into(), "8".into()],
+            girsa_corpus::segment::Ordinal::root(8),
+        );
+        let far = |n: u32| {
+            SegmentId::new(
+                "bavli/rashi-on-berakhot",
+                vec!["2a".into()],
+                girsa_corpus::segment::Ordinal::root(n),
+            )
+        };
+        let mut mk = |near_end: &SegmentId, n: u32| {
+            Repaired::of(crate::Edge {
+                from: Anchor::point(near_end.clone()),
+                to: Anchor::point(far(n)),
+                edge_type: EdgeType::CommentsOn,
+                method: crate::Method::SefariaSeed,
+                direction: crate::Direction::NotRecorded,
+                source_label: "commentary".into(),
+            })
+        };
+        // 0 · stored at the child, asked about at the parent.
+        // 1 · the neighbour after it, which must stay out.
+        let held = Held::of(vec![mk(&fine, 1), mk(&neighbour, 2)]);
+
+        let from_the_parent = held.near(&Anchor::point(coarse.clone()));
+        assert!(
+            from_the_parent.contains(&0),
+            "the edge stored at the child is reachable standing at {coarse}"
+        );
+        assert!(
+            !from_the_parent.contains(&1),
+            "and the next segment's edges are not dragged in"
+        );
+
+        // And the other direction: stored at the parent, asked at the child,
+        // which sorts *before* the query in reading order and used to fall
+        // below the slice entirely.
+        let held = Held::of(vec![mk(&coarse, 3), mk(&neighbour, 4)]);
+        let from_the_child = held.near(&Anchor::point(fine.clone()));
+        assert!(
+            from_the_child.contains(&0),
+            "the edge stored at {coarse} is reachable standing at {fine}"
+        );
+        assert!(!from_the_child.contains(&1), "{neighbour} stays out");
     }
 }
