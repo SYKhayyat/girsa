@@ -1336,6 +1336,16 @@ function runElement(run: Run): Node {
  * Walked over the text nodes, because a line is runs and `<br>`s rather than
  * one string — the same reason `offsetIn` asks the document rather than adding
  * up lengths.
+ *
+ * # Two currencies, converted at this one door
+ *
+ * `from` and `to` count **characters** — Rust's coordinate, what `Shown`
+ * produced and what a copy counts. A DOM boundary counts **UTF-16 units**, and
+ * the two are equal only while every character fits in one unit. One astral
+ * character anywhere before it shifted every later highlight, correction
+ * offset and copied range by one. Node lengths are converted to characters for
+ * the accounting, and each boundary's within-node offset goes back through
+ * [`utf16Offset`], which is what `setStart`/`setEnd` actually take.
  */
 function charRange(words: HTMLElement, from: number, to: number): Range | null {
   const walker = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
@@ -1344,19 +1354,33 @@ function charRange(words: HTMLElement, from: number, to: number): Range | null {
   let started = false;
   let node = walker.nextNode();
   while (node) {
-    const length = node.textContent?.length ?? 0;
-    if (!started && seen + length >= from) {
-      range.setStart(node, from - seen);
+    const text = node.textContent ?? "";
+    const characters = [...text].length;
+    if (!started && seen + characters >= from) {
+      range.setStart(node, utf16Offset(text, from - seen));
       started = true;
     }
-    if (started && seen + length >= to) {
-      range.setEnd(node, to - seen);
+    if (started && seen + characters >= to) {
+      range.setEnd(node, utf16Offset(text, to - seen));
       return range;
     }
-    seen += length;
+    seen += characters;
     node = walker.nextNode();
   }
   return started ? range : null;
+}
+
+/** The UTF-16 offset of the `characters`th character of `text`. */
+function utf16Offset(text: string, characters: number): number {
+  if (characters <= 0) return 0;
+  let units = 0;
+  let seen = 0;
+  for (const ch of text) {
+    if (seen >= characters) break;
+    seen += 1;
+    units += ch.length;
+  }
+  return units;
 }
 
 function addressOf(line: HTMLElement): string {
@@ -1384,12 +1408,15 @@ function offsetIn(line: HTMLElement, container: Node, offset: number): number | 
     // The boundary is in the margin label, or on the line element itself —
     // which is what a triple-click gives. Either way it means *this end of the
     // line*, and which end is told by where the other one is.
-    return container === line && offset > 0 ? (words.textContent?.length ?? 0) : 0;
+    return container === line && offset > 0 ? [...(words.textContent ?? "")].length : 0;
   }
   const upTo = document.createRange();
   upTo.setStart(words, 0);
   upTo.setEnd(container, offset);
-  return upTo.toString().length;
+  // Characters, not UTF-16 units — this number goes to Rust, whose spans,
+  // corrections and copy counts are all in characters. Equal until one astral
+  // character shifts every offset after it by one.
+  return [...upTo.toString()].length;
 }
 
 function el(tag: string, className: string): HTMLElement {
