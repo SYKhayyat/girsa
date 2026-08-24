@@ -102,6 +102,14 @@ pub struct Server {
     /// corpus at all**, which is the same wall the window and the tools are
     /// behind.
     writable: bool,
+    /// What graph walks have already read off the disk.
+    ///
+    /// `trace`, `path` and `fork` each walk the link graph, and each used to
+    /// build a fresh [`girsa_link::chain::Graph`] — so an agent exploring a
+    /// chain paid for the same shards again on every hop's tool call.
+    /// [`girsa_link::chain::Graph::resuming`] exists to carry them; this is
+    /// where they are carried between calls.
+    walked: girsa_link::chain::Cache,
 }
 
 impl Server {
@@ -141,6 +149,7 @@ impl Server {
             unindexed,
             ready: false,
             writable: false,
+            walked: girsa_link::chain::Cache::default(),
         })
     }
 

@@ -857,8 +857,16 @@ fn trace(server: &mut Server, args: &Value) -> Result<Value, String> {
     };
     let limits = limits_of(args);
     let repairs = server.shelf.repairs().clone();
-    let mut graph = Graph::new(&server.root, &server.timeline, &repairs);
+    // Resuming, not fresh: the shards this walk reads stay on the server for
+    // the next one. A graph per call re-read them every time.
+    let mut graph = Graph::resuming(
+        &server.root,
+        &server.timeline,
+        &repairs,
+        std::mem::take(&mut server.walked),
+    );
     let walked = chain::trace(&mut graph, &id, direction, limits);
+    server.walked = graph.into_cache();
 
     let chains: Vec<Value> = walked
         .ends()
@@ -896,8 +904,14 @@ fn path(server: &mut Server, args: &Value) -> Result<Value, String> {
     let from = id_arg(args, "from")?;
     let to = id_arg(args, "to")?;
     let repairs = server.shelf.repairs().clone();
-    let mut graph = Graph::new(&server.root, &server.timeline, &repairs);
+    let mut graph = Graph::resuming(
+        &server.root,
+        &server.timeline,
+        &repairs,
+        std::mem::take(&mut server.walked),
+    );
     let found = chain::path(&mut graph, &from, &to, limits_of(args));
+    server.walked = graph.into_cache();
     Ok(match found {
         Found::Path(links) => {
             let asserted = links.iter().filter(|l| l.edge_type.is_asserted()).count();
@@ -930,8 +944,14 @@ fn path(server: &mut Server, args: &Value) -> Result<Value, String> {
 fn fork(server: &mut Server, args: &Value) -> Result<Value, String> {
     let id = id_arg(args, "id")?;
     let repairs = server.shelf.repairs().clone();
-    let mut graph = Graph::new(&server.root, &server.timeline, &repairs);
+    let mut graph = Graph::resuming(
+        &server.root,
+        &server.timeline,
+        &repairs,
+        std::mem::take(&mut server.walked),
+    );
     let (forks, left_out) = chain::forks(&mut graph, &id, limits_of(args));
+    server.walked = graph.into_cache();
     Ok(json!({
         "at": named(server, &id),
         "note": "nothing here says these disagree — the corpus has no `disputes` edge anywhere in it",

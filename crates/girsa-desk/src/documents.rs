@@ -211,15 +211,24 @@ impl Documents {
     /// If the registry will not take the write.
     pub fn remember(&mut self, path: &Path, name: Option<&str>) -> Result<&Document, LogError> {
         let key = path.display().to_string();
-        let row = match self.by_path.remove(&key) {
+        let previous = self.by_path.remove(&key);
+        let row = match &previous {
             Some(known) => Document {
-                name: name.map_or(known.name, ToString::to_string),
+                name: name.map_or_else(|| known.name.clone(), ToString::to_string),
                 when: now_seconds(),
-                ..known
+                ..known.clone()
             },
             None => Document::at(path, name),
         };
-        self.log.append(&row)?;
+        if let Err(e) = self.log.append(&row) {
+            // The row went in only once it is down. This used to remove
+            // before appending, so a failed write took the held row with it
+            // while the disk — untouched — still had the old one.
+            if let Some(kept) = previous {
+                self.by_path.insert(key, kept);
+            }
+            return Err(e);
+        }
         Ok(self.by_path.entry(key).or_insert(row))
     }
 
