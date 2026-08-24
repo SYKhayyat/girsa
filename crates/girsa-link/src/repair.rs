@@ -588,6 +588,15 @@ impl Repairs {
             return Repaired::of(shipped);
         }
         let mut repaired = Repaired::of(shipped.clone());
+        // In **time** order, not whatever order the index holds them in.
+        // Within a session the records sit in the order they were made, but a
+        // replay rebuilds the index through a key-sorted map, so the kinds
+        // arrive sorted by name — and `who`/`when` below take the *last*
+        // record processed, which made your repair attribute to whichever
+        // kind happened to sort last after a restart. The state each record
+        // sets is per-kind and idempotent; the attribution was the drift.
+        let mut records = self.about(&shipped).to_vec();
+        records.sort_by_key(|record| record.when);
         for record in records {
             match &record.repair {
                 Repair::Judged { verdict } => match verdict {

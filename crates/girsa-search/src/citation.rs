@@ -292,11 +292,23 @@ impl Citations {
         limit: usize,
     ) -> Result<Vec<Segment>, import::ImportError> {
         let work = import::read_back(&self.root, place.reference.work_slug().as_str())?;
+        // A name that resolves but does not sit in the work is a refusal, not
+        // an invitation to print the sefer's opening: the resolver said *this
+        // place* and defaulting to segment 1 answered with a confident wrong
+        // mareh makom.
         let first = work
             .segments
             .iter()
             .position(|s| s.id == place.run.first)
-            .unwrap_or_default();
+            .ok_or_else(|| {
+                import::ImportError::Malformed {
+                    path: format!("girsa:{}", place.reference.work_slug()),
+                    message: format!(
+                        "{} is not in this work on the shelf",
+                        place.run.first
+                    ),
+                }
+            })?;
         let last = place
             .run
             .last
@@ -465,16 +477,32 @@ impl Citations {
         if head.chars().count() < 2 {
             return (Vec::new(), 0);
         }
-        let mut hits: Vec<&(String, String, String)> = self
+        let hits: Vec<&(String, String, String)> = self
             .spellings
             .iter()
             .filter(|(_, _, normal)| normal.starts_with(head) || head.starts_with(normal))
             .collect();
-        hits.sort_by_key(|(spelling, _, _)| (spelling.chars().count(), spelling.clone()));
-        hits.dedup_by(|a, b| a.1 == b.1);
-        let cut = hits.len().saturating_sub(MOST_SUGGESTIONS);
+        // One spelling per work, keeping the closest. `dedup_by` only ever
+        // compares *neighbours*, and the sort below is by length — so two
+        // spellings of one sefer whose lengths differed were never neighbours,
+        // both survived, and the suggestion list offered the same sefer twice.
+        let mut closest: std::collections::HashMap<&str, &(String, String, String)> =
+            std::collections::HashMap::new();
+        for hit in hits {
+            match closest.get(hit.1.as_str()) {
+                Some(held)
+                    if (held.0.chars().count(), held.0.as_str())
+                        <= (hit.0.chars().count(), hit.0.as_str()) => {}
+                _ => {
+                    closest.insert(hit.1.as_str(), hit);
+                }
+            }
+        }
+        let mut kept: Vec<&&(String, String, String)> = closest.values().collect();
+        kept.sort_by_key(|(spelling, _, _)| (spelling.chars().count(), spelling.clone()));
+        let cut = kept.len().saturating_sub(MOST_SUGGESTIONS);
         (
-            hits.into_iter()
+            kept.into_iter()
                 .take(MOST_SUGGESTIONS)
                 .map(|(spelling, slug, _)| NearMiss::OtherTitle {
                     spelling: spelling.clone(),

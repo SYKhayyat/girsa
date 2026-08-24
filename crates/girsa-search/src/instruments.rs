@@ -145,6 +145,15 @@ pub enum InstrumentError {
     /// A skip so large that no sefer is long enough for it to find anything.
     #[error("a skip of {0} is longer than any sefer on the shelf")]
     SkipTooLong(usize),
+    /// A skip of zero never moves: the letters would have to sit on top of
+    /// each other. It was reported as *too long*, which sent a reader who had
+    /// typed 0 off to shorten something that was already at the floor.
+    #[error("a skip of 0 does not move through the text — the smallest skip is 1")]
+    SkipZero,
+    /// `50..10` names no skips at all, and scanning it found nothing without
+    /// saying why. Refused rather than answered.
+    #[error("the skip range runs backwards — {0} comes after {1}")]
+    InvertedRange(usize, usize),
 }
 
 /// One instrument, ready to be used.
@@ -246,7 +255,20 @@ impl Instrument {
         if letters.is_empty() {
             return Err(InstrumentError::Empty);
         }
-        if *skips.start() == 0 || *skips.end() > MOST_SKIP {
+        // Three separate refusals, each named: zero does not move, an inverted
+        // range scans nothing at all, and only a genuinely huge skip is *too
+        // long*. All three used to come back as SkipTooLong — or, for the
+        // inverted range, as a silent empty answer.
+        if skips.is_empty() {
+            return Err(InstrumentError::InvertedRange(
+                *skips.start(),
+                *skips.end(),
+            ));
+        }
+        if *skips.start() == 0 {
+            return Err(InstrumentError::SkipZero);
+        }
+        if *skips.end() > MOST_SKIP {
             return Err(InstrumentError::SkipTooLong(*skips.end()));
         }
         Ok(Self::Dilug { letters, skips })
@@ -553,9 +575,23 @@ mod tests {
             Instrument::dilug("תורה", 1..=MOST_SKIP + 1).expect_err("refused"),
             InstrumentError::SkipTooLong(_)
         ));
+    }
+
+    #[test]
+    fn a_skip_that_does_not_move_and_one_that_runs_backwards_are_named_for_what_they_are() {
+        // Zero was reported as *too long* — telling a reader who typed 0 to go
+        // and shorten it. An inverted range scanned nothing at all, silently,
+        // which is the one answer this crate does not give.
+        assert!(
+            matches!(
+                Instrument::dilug("תורה", 0..=5).expect_err("refused"),
+                InstrumentError::SkipZero
+            ),
+            "zero is not a length problem"
+        );
         assert!(matches!(
-            Instrument::dilug("תורה", 0..=5).expect_err("refused"),
-            InstrumentError::SkipTooLong(_)
+            Instrument::dilug("תורה", 50..=10).expect_err("refused"),
+            InstrumentError::InvertedRange(50, 10)
         ));
     }
 
