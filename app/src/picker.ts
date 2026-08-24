@@ -6,15 +6,16 @@
 // seforim the link graph joins it to — rather than 7,189 titles in alphabetical
 // order, which is a list and not a choice.
 
-import { api, type Card, type Mefarshim, type OpenSefer, type Related } from "./api.ts";
+import { api, type Card, type Mefarshim, type MefarshimChoice, type OpenSefer, type Related } from "./api.ts";
 import { field, glyph } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { sameSeferTwice, sefer } from "./names.ts";
 import { say } from "./say.ts";
+import { trouble } from "./trouble.ts";
 import { cssEscape } from "./pane.ts";
 import { ticked } from "./mefarshim.ts";
 import type { Where } from "./shelf.ts";
-import type { Choice, Listed, Source } from "./api.ts";
+import type { Listed, Source } from "./api.ts";
 
 type Chosen = (slugs: string[]) => void;
 
@@ -295,6 +296,18 @@ export class Picker {
   }
 
   private async refresh(): Promise<void> {
+    // The one catch for every ask below. A filter whose round trip failed
+    // used to reject out of a `void`-ed promise: an unhandled rejection in
+    // the console nobody reads, and a list frozen on the previous query with
+    // no word anywhere.
+    try {
+      await this.redraw();
+    } catch (e) {
+      this.fill([], trouble(e, "general").said);
+    }
+  }
+
+  private async redraw(): Promise<void> {
     const query = this.input.value.trim();
     if (query.length === 0 && this.beside) {
       // The list arrives woven. `choices`, `following` and `listed` did it here
@@ -607,7 +620,6 @@ function listedRow(entry: Listed, twice: Set<string>): Row {
 function headingRow(title: string, count: number): Row {
   return { slug: "", title, aside: "", heading: { depth: 0, count } };
 }
-
 /** One sefer that is already open. */
 function openRow(sefer: OpenSefer): Row {
   return {
@@ -642,7 +654,7 @@ function cardRow(card: Card): Row {
  * for each of the three are Rust's, beside the enum — `said` and `why` arrive on
  * the row. A count of links is not a relationship and still says so.
  */
-function companionRow(companion: Choice, twice = false): Row {
+function companionRow(companion: MefarshimChoice, twice = false): Row {
   // Where two rows would read as the same sefer, both say which corpus they
   // came from. Not a merge — see `sameSeferTwice` — a label, so that a
   // duplicate reads as two copies rather than as a bug.
@@ -686,14 +698,14 @@ function sourceSaid(source: Source): string {
  * `פירוש` — two words a reader takes for synonyms, carrying the one
  * distinction in the list they cannot see. It says what the claim rests on.
  */
-function relatedSaid(companion: Choice): string {
+function relatedSaid(companion: MefarshimChoice): string {
   if (companion.stands === "on") return say("relatedOn");
   if (companion.stands === "base") return say("relatedBase");
   if (companion.stands === "alongside") return say("relatedAlongside");
   return companion.links > 0 ? say("onlyLinked") : say("onlyLinked");
 }
 
-function relatedWhy(companion: Choice): string {
+function relatedWhy(companion: MefarshimChoice): string {
   if (companion.stands === "on") return say("relatedOnWhy");
   if (companion.stands === "base") return say("relatedBaseWhy");
   if (companion.stands === "alongside") return say("relatedAlongsideWhy");

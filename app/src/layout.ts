@@ -171,14 +171,20 @@ function drag(
   divider.addEventListener("pointerdown", (event) => {
     divider.setPointerCapture(event.pointerId);
     divider.classList.add("is-dragging");
+    // Both ends are removed by name. With `{ once }` the listener that did
+    // *not* fire stayed attached for the life of the element — one more drag,
+    // one more stale `stop`, and a genuine pointercancel eventually fired N of
+    // them, each reporting a ratio.
     const stop = () => {
       divider.classList.remove("is-dragging");
       divider.removeEventListener("pointermove", move);
+      divider.removeEventListener("pointerup", stop);
+      divider.removeEventListener("pointercancel", stop);
       hands.onRatio(which, Number(divider.dataset.share ?? layout.ratio));
     };
     divider.addEventListener("pointermove", move);
-    divider.addEventListener("pointerup", stop, { once: true });
-    divider.addEventListener("pointercancel", stop, { once: true });
+    divider.addEventListener("pointerup", stop);
+    divider.addEventListener("pointercancel", stop);
   });
 
   // **The keyboard, on a control that has had `tabIndex = 0` and no handler.**

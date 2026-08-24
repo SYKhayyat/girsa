@@ -500,8 +500,16 @@ export interface Mefarshim {
   unbuilt: string | null;
 }
 
-/** One row of the mefarshim list: a sefer you can open, tick, or both. */
-export interface Choice {
+/**
+ * One row of the mefarshim list: a sefer you can open, tick, or both.
+ *
+ * Not `Choice` — that name was already taken by the chip-option interface
+ * below, and TypeScript merges two interfaces with one name into a single
+ * type with **every** field of both. Nothing errored; `tickable` and `sigil`
+ * quietly became optional lies about two different wire shapes, and the wire
+ * test, which keys by name and keeps the last declaration, could not see it.
+ */
+export interface MefarshimChoice {
   slug: string;
   he_title: string;
   en_title: string;
@@ -536,7 +544,7 @@ export interface Choice {
 /** A heading, or a sefer — one row of the list behind the door. */
 export type Listed =
   | { kind: "folder"; title: string; depth: number; count: number }
-  | { kind: "sefer"; choice: Choice };
+  | { kind: "sefer"; choice: MefarshimChoice };
 
 /** One mefaresh's words on one line. */
 export interface Said {
@@ -780,8 +788,13 @@ export interface Sheet {
   lines: Line[];
 }
 
-/** One place in a sefer that a find found — `girsa_app::inside::Found`. */
-export interface Found {
+/**
+ * One place in a sefer that a find found — `girsa_app::inside::Found`.
+ *
+ * Not `Found` — the search results below had that name, and two interfaces
+ * with one name merge silently in TypeScript.
+ */
+export interface FoundHere {
   id: string;
   /** Which line of the sefer, so the pane can go there without asking again. */
   at: number;
@@ -794,7 +807,7 @@ export interface Found {
 
 /** What a find inside one sefer found, with the row of options it ran under. */
 export interface Inside {
-  places: Found[];
+  places: FoundHere[];
   /** How many there are, which is not `places.length` once the list was cut. */
   total: number;
   /** The chip row, so the bar draws what the engine will do rather than what it
@@ -2420,10 +2433,16 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
         },
       } as T;
     case "lane_ask":
+      // Every field the interface declares, because `as T` hides an omission
+      // from tsc and the browser preview then drew *undefined* paragraphs
+      // where the measured and shortlisted sentences belong.
       return {
         label: "adjacent — found by meaning rather than by these words",
+        measured:
+          "works on a line you half remember, poorly on a question, and it does not pasken",
         near: [],
         coverage: NOTHING_YET,
+        shortlisted: null,
         refused: say("browserLane"),
       } as T;
     default:

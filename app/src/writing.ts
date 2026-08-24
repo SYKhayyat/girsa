@@ -116,7 +116,15 @@ export class WritingView {
       const existing = await api.buffers().catch(() => []);
       this.name = existing[0] ?? today();
     }
-    await this.load(this.name);
+    try {
+      await this.load(this.name);
+    } catch (e) {
+      // The one drawer whose job is *don't lose my words*, failing silently:
+      // the read rejected, nothing opened, and the reader was left to conclude
+      // the button was broken. Said, and the drawer still opens — empty is
+      // better than absent when the alternative is typing somewhere invisible.
+      sayTrouble(this.note, e, "general");
+    }
     this.element.classList.add("is-open");
     this.box.focus();
   }

@@ -16,6 +16,41 @@
 import type { Chip, Choice } from "./api.ts";
 import { say, type Word } from "./say.ts";
 
+/**
+ * The menus standing open, and the one listener that closes them.
+ *
+ * Registered once at module load, in the capture phase, so it hears a
+ * pointerdown before any button's click: a menu closes when a pointer goes
+ * down anywhere outside its own chip — which is what every other transient in
+ * this window already does, and what chips never did. N menus could stand open
+ * at once, each waiting for a click on its own face to go away.
+ */
+const openMenus = new Set<HTMLElement>();
+let outsideArmed = false;
+function armOutsideClose(): void {
+  if (outsideArmed) return;
+  outsideArmed = true;
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (openMenus.size === 0) return;
+      for (const menu of [...openMenus]) {
+        const wrap = menu.parentElement;
+        if (
+          wrap &&
+          event.target instanceof Node &&
+          wrap.contains(event.target)
+        ) {
+          continue;
+        }
+        menu.hidden = true;
+        openMenus.delete(menu);
+      }
+    },
+    true,
+  );
+}
+
 /** What a chip row does when a reader picks something. */
 export interface Picking {
   /** A choice was made. The caller sends it and re-runs whatever it runs. */
@@ -106,6 +141,7 @@ function chipOf(chip: Chip, picking: Picking): HTMLElement {
     } else {
       item.addEventListener("click", () => {
         menu.hidden = true;
+        openMenus.delete(menu);
         void picking.chosen(chip.key, choice.key);
       });
     }
@@ -114,6 +150,11 @@ function chipOf(chip: Chip, picking: Picking): HTMLElement {
 
   face.addEventListener("click", () => {
     menu.hidden = !menu.hidden;
+    if (menu.hidden) openMenus.delete(menu);
+    else {
+      armOutsideClose();
+      openMenus.add(menu);
+    }
   });
   wrap.append(face, menu);
   return wrap;

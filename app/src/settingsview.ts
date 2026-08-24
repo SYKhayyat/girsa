@@ -77,8 +77,7 @@ const SHEMOS: { value: Shemos; label: () => string }[] = [
  * place the window crosses between them, so a row selects on `stored` and
  * sends `takes`.
  */
-const CITES: { stored: CiteStyle; takes: CiteStyleName; label: () => string }[] = [
-  { stored: "hebrew_full", takes: "hebrew-full", label: () => say("citeHebrewFull") },
+const CITES: { stored: CiteStyle; takes: CiteStyleName; label: () => string }[] = [  { stored: "hebrew_full", takes: "hebrew-full", label: () => say("citeHebrewFull") },
   { stored: "hebrew_short", takes: "hebrew-short", label: () => say("citeHebrewShort") },
   { stored: "english", takes: "english", label: () => say("citeEnglish") },
 ];
@@ -90,6 +89,9 @@ function languages(): { value: string; label: string }[] {
     { value: "english", label: say("english") },
   ];
 }
+
+/** How many font lists this window has drawn, so each has an `id` of its own. */
+let fontLists = 0;
 
 export class SettingsView {
   readonly element: HTMLElement;
@@ -505,10 +507,14 @@ export class SettingsView {
     const input = field(label, { type: "text", className: "settings-text", dir: "auto" });
     input.value = value;
     input.placeholder = say("fontDefault");
-    input.setAttribute("list", `fonts-${label}`);
+    // The id is generated, not derived from the label: an `id` cannot contain
+    // a space, and this label is a sentence in whichever language the window
+    // is in — `fonts-גופן הכתיבה` associated the list with nothing at all.
+    const id = `font-list-${(fontLists += 1)}`;
+    input.setAttribute("list", id);
     input.addEventListener("change", () => set(input.value));
     const list = document.createElement("datalist");
-    list.id = `fonts-${label}`;
+    list.id = id;
     for (const family of known) {
       if (!family) continue;
       const option = document.createElement("option");

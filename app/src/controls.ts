@@ -346,6 +346,27 @@ function sheet(
         done(false);
         return;
       }
+      if (event.key === "Tab") {
+        // Trapped. A modal that lets Tab walk into the occluded window behind
+        // it claimed modality and did not keep it.
+        event.preventDefault();
+        const focusable = [
+          ...card.querySelectorAll<HTMLElement>(
+            "button, input, textarea, select, [tabindex]:not([tabindex='-1'])",
+          ),
+        ].filter((el) => !(el instanceof HTMLButtonElement && el.disabled));
+        if (focusable.length === 0) return;
+        const now = focusable.indexOf(document.activeElement as HTMLElement);
+        const next = event.shiftKey
+          ? now <= 0
+            ? focusable.length - 1
+            : now - 1
+          : now < 0 || now === focusable.length - 1
+            ? 0
+            : now + 1;
+        focusable[next].focus();
+        return;
+      }
       if (event.key !== "Enter") return;
       // In prose, Enter is a new line and Ctrl+Enter answers. Anywhere else,
       // Enter answers — a shelf's title is one line and always will be.

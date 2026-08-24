@@ -402,19 +402,26 @@ async function whenDropped(paths: string[]): Promise<void> {
   if (paths.length === 0) return;
   if (!shelf.isOpen) await shelf.show(openSeferAt);
   shelf.say(`${say("readingFiles")} ${paths.length} ${say("files")}…`, false);
-  const dropped = await api.addMine(paths);
-  await shelf.refresh();
+  try {
+    const dropped = await api.addMine(paths);
+    await shelf.refresh();
 
-  const added = dropped.added.map(sefer).join(", ");
-  // Both halves, always. A drop that half-worked and said nothing leaves a
-  // reader believing a sefer is on the shelf when it is not.
-  const refused = dropped.refused.map((r) => r.why).join(" · ");
-  if (dropped.added.length > 0 && dropped.refused.length === 0) {
-    shelf.say(`${say("addedSeforim")}: ${added}`, false);
-  } else if (dropped.added.length > 0) {
-    shelf.say(`${say("addedSeforim")}: ${added} — ${say("refusedSeforim")}: ${refused}`, true);
-  } else {
-    shelf.say(refused || say("nothingAdded"), true);
+    const added = dropped.added.map(sefer).join(", ");
+    // Both halves, always. A drop that half-worked and said nothing leaves a
+    // reader believing a sefer is on the shelf when it is not.
+    const refused = dropped.refused.map((r) => r.why).join(" · ");
+    if (dropped.added.length > 0 && dropped.refused.length === 0) {
+      shelf.say(`${say("addedSeforim")}: ${added}`, false);
+    } else if (dropped.added.length > 0) {
+      shelf.say(`${say("addedSeforim")}: ${added} — ${say("refusedSeforim")}: ${refused}`, true);
+    } else {
+      shelf.say(refused || say("nothingAdded"), true);
+    }
+  } catch (e) {
+    // The drop failed outright — the personal layer would not take it, the
+    // command refused — and *reading N files…* used to sit on the shelf for
+    // ever, a promise nothing ever kept.
+    shelf.say(trouble(e).said, true);
   }
 }
 

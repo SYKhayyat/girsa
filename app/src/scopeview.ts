@@ -315,7 +315,15 @@ export class ScopePanel {
     this.openShelves.add(branch.key);
     this.drawTree();
     if (this.seforim.has(branch.key)) return;
-    const works = await api.shelfWorks(branch.key).catch(() => [] as Card[]);
+    const works = await api.shelfWorks(branch.key).catch(() => null);
+    if (!works) {
+      // A failed read is **not** a shelf with nothing on it, and caching the
+      // empty list made this one twist permanently broken: closed-looking,
+      // unopenable, saying nothing. Left uncached, the next twist reads again.
+      this.openShelves.delete(branch.key);
+      this.drawTree();
+      return;
+    }
     this.seforim.set(branch.key, works);
     // Still open? A reader who twisted it shut while the shelf was being read
     // has said what they want, and redrawing would not change what is on screen

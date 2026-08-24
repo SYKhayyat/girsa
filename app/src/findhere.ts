@@ -21,7 +21,7 @@
 // which is also where the engine's byte marks become offsets the pane can
 // highlight, and why those are two different things.
 
-import { api, type Chip, type Found } from "./api.ts";
+import { api, type Chip, type FoundHere } from "./api.ts";
 import { chipRow } from "./chips.ts";
 import { field, glyph } from "./controls.ts";
 import { Latest } from "./latest.ts";
@@ -96,7 +96,7 @@ export class FindHere {
   private readonly note: HTMLElement;
   private chips: HTMLElement;
   private pane: PaneView | null = null;
-  private places: Found[] = [];
+  private places: FoundHere[] = [];
   private total = 0;
   private at = 0;
   private open = false;
