@@ -32,7 +32,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use girsa_fix::{Layer, Showing};
+use girsa_fix::{Layer, PatchId, Showing};
 
 use girsa_app::display;
 use girsa_app::shelf::Open;
@@ -128,11 +128,28 @@ pub fn export(
             done.noted += corrected.noted.len();
         }
     }
-    // A patch on a segment this sefer no longer has at all — an upstream
-    // re-segmentation — never reaches `Open`, so it is counted from the layer.
-    let anchored: usize = sefer.segments.iter().map(|s| fixes.on(&s.id).len()).sum();
-    let all = fixes.in_work(sefer.slug()).count();
-    done.stale += all.saturating_sub(anchored);
+    // What the sefer's own reading did not account for. The per-segment counts
+    // above are the truth of what landed — `Open` re-finds patches stored
+    // under older names, so a patch that *is* in the exported words can sit
+    // there under a spelling `fixes.on(&id)` would never match. Reconciling by
+    // exact id therefore counted the same landing patch as stale, and a
+    // genuinely dead one twice: the header claimed הוחל and שלא חל about one
+    // correction at the same time. So: collect every patch id the reading
+    // accounted for — applied, noted, moved, stale alike — and only what it
+    // never saw at all is stale here.
+    let mut accounted: std::collections::HashSet<PatchId> = std::collections::HashSet::new();
+    for segment in &sefer.segments {
+        if let Some(corrected) = sefer.correction(&segment.id) {
+            accounted.extend(corrected.applied.iter().map(|a| a.id.clone()));
+            accounted.extend(corrected.noted.iter().map(|a| a.id.clone()));
+            accounted.extend(corrected.moved.iter().cloned());
+            accounted.extend(corrected.stale.iter().cloned());
+        }
+    }
+    done.stale += fixes
+        .in_work(sefer.slug())
+        .filter(|patch| !accounted.contains(&patch.id))
+        .count();
 
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir).map_err(io(dir))?;
@@ -191,37 +208,57 @@ fn header(sefer: &Open, done: &Exported) -> Vec<String> {
 ///
 /// Counted in words rather than digits for the small numbers, because this is a
 /// line a person reads at the top of a sefer and `1 תיקונים` is not Hebrew.
+///
+/// It leads with what was applied **only when something was**. A sefer whose
+/// corrections all failed to land used to open with `הוחלו 0 תיקונים` before
+/// going on to say what had not — announcing an application of nothing.
 fn what_was_done(done: &Exported) -> String {
-    let mut said = format!(
-        "{} {}",
-        if done.corrections == 1 {
-            "הוחל"
-        } else {
-            "הוחלו"
-        },
-        how_many(done.corrections, "תיקון", "תיקונים", Gender::Masculine),
-    );
-    if done.noted > 0 {
-        said.push_str(&format!(
-            " · {} {}",
-            how_many(done.noted, "גרסה", "גרסאות", Gender::Feminine),
-            if done.noted == 1 {
-                "שנרשמה ולא הוחלה"
+    let mut said = if done.corrections > 0 {
+        format!(
+            "{} {}",
+            if done.corrections == 1 {
+                "הוחל"
             } else {
-                "שנרשמו ולא הוחלו"
+                "הוחלו"
             },
-        ));
+            how_many(done.corrections, "תיקון", "תיקונים", Gender::Masculine),
+        )
+    } else {
+        String::new()
+    };
+    let mut add = |said: &mut String, clause: String| {
+        if !said.is_empty() {
+            said.push_str(" · ");
+        }
+        said.push_str(&clause);
+    };
+    if done.noted > 0 {
+        add(
+            &mut said,
+            format!(
+                "{} {}",
+                how_many(done.noted, "גרסה", "גרסאות", Gender::Feminine),
+                if done.noted == 1 {
+                    "שנרשמה ולא הוחלה"
+                } else {
+                    "שנרשמו ולא הוחלו"
+                },
+            ),
+        );
     }
     if done.stale > 0 {
-        said.push_str(&format!(
-            " · {} {}, משום שהטקסט שתוקן אינו שם עוד",
-            how_many(done.stale, "תיקון", "תיקונים", Gender::Masculine),
-            if done.stale == 1 {
-                "שלא חל"
-            } else {
-                "שלא חלו"
-            },
-        ));
+        add(
+            &mut said,
+            format!(
+                "{} {}, משום שהטקסט שתוקן אינו שם עוד",
+                how_many(done.stale, "תיקון", "תיקונים", Gender::Masculine),
+                if done.stale == 1 {
+                    "שלא חל"
+                } else {
+                    "שלא חלו"
+                },
+            ),
+        );
     }
     said
 }
@@ -419,6 +456,30 @@ mod tests {
         // was being handed `אחד` and `שני`.
         assert!(what_was_done(&done(1, 0, 1)).contains("גרסה אחת שנרשמה ולא הוחלה"));
         assert!(what_was_done(&done(1, 0, 2)).contains("שתי גרסאות שנרשמו ולא הוחלו"));
+    }
+
+    #[test]
+    fn a_sefer_whose_corrections_all_missed_does_not_announce_applying_zero() {
+        // The smaller sibling: `corrections == 0` with `noted > 0` opened the
+        // header with `הוחלו 0 תיקונים` — an announcement of applying nothing —
+        // before getting to what had actually happened.
+        let done = |corrections, stale, noted| Exported {
+            path: PathBuf::new(),
+            segments: 0,
+            corrections,
+            stale,
+            noted,
+        };
+        let said = what_was_done(&done(0, 1, 0));
+        assert!(!said.contains("הוחל"), "{said}");
+        assert!(said.starts_with("תיקון אחד שלא חל"), "{said}");
+
+        let said = what_was_done(&done(0, 2, 3));
+        // No applied clause, so nothing announces an application of nothing;
+        // both facts are still said, in the order they always were.
+        assert!(!said.contains("0 "), "{said}");
+        assert!(said.starts_with("3 גרסאות שנרשמו ולא הוחלו"), "{said}");
+        assert!(said.contains("שני תיקונים שלא חלו"), "{said}");
     }
 
     #[test]
