@@ -142,9 +142,11 @@ fn every_tool_the_list_names_is_a_tool_that_answers() {
     assert!(tools.len() >= 9);
     for entry in &tools {
         let name = entry["name"].as_str().expect("a name");
-        // Called with no arguments at all: what comes back must be a refusal
-        // naming the missing argument, never a transport error and never a
-        // panic.
+        let required = entry["inputSchema"]["required"].as_array();
+        // Called with no arguments at all: what comes back must be coherent.
+        // A tool that names required arguments refuses naming the missing one;
+        // a tool whose schema requires nothing (`marks`, `folders`, `queries`)
+        // answers with its whole answer, which is not a failure.
         let answered = ask(
             &mut server,
             3,
@@ -155,11 +157,18 @@ fn every_tool_the_list_names_is_a_tool_that_answers() {
             answered.get("error").is_none(),
             "{name} answered the transport instead of the caller"
         );
-        assert_eq!(
-            answered["result"]["isError"],
-            json!(true),
-            "{name} with no arguments should refuse"
-        );
+        match required {
+            Some(required) if !required.is_empty() => assert_eq!(
+                answered["result"]["isError"],
+                json!(true),
+                "{name} with no arguments should refuse"
+            ),
+            _ => assert_eq!(
+                answered["result"]["isError"],
+                json!(false),
+                "{name} requires nothing and should answer"
+            ),
+        }
     }
 }
 
