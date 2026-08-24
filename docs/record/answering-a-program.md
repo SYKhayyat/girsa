@@ -7,8 +7,10 @@
 ### The same engine, refusals included
 
 `spec.md` §12 and W28 ask for **MCP on both ends**. Girsa's end is `girsa-mcp`:
-ten tools over stdio — `search`, `read`, `resolve`, `where_from`, `links`,
-`trace`, `path`, `fork`, `adjacent`, `seforim`. (`adjacent` — the semantic lane —
+fourteen read tools over stdio — the original ten (`search`, `read`, `resolve`,
+`where_from`, `links`, `trace`, `path`, `fork`, `adjacent`, `seforim`) and, since
+the 23 August audit's missing-features findings, `marks`, `folders`, `queries`
+and `who_cites`. (`adjacent` — the semantic lane —
 was added and this sentence said nine for a while, which is D-1's third row.)
 
 Every one of them is a thin call onto the engine the window calls. That
@@ -28,6 +30,11 @@ and it would stop holding where nobody is watching:
 - **Every answer says what it cut** — `not_shown`, `not_followed`,
   `incoming_half_unknown`. A list that silently stopped at ten reads to an agent,
   and to whatever the agent is writing, as *these are all of them*.
+- **And says what it resolved against.** `resolve` carries `resolved_against`:
+  the sefer you passed, or null — because this surface has no reader standing
+  anywhere, a partial mareh makom was completed against nothing, and `settled`
+  alone would never say so. `search` passes its declared scope as citation
+  context for the same reason.
 
 The `initialize` reply says the first two out loud, because an agent that has to
 discover a refusal by hitting it will work around it instead:
@@ -73,6 +80,17 @@ because §11 says a note is a sefer and one written by a program is not a
 second-class one. A link is an **override**, so the shipped graph is unchanged
 and yours is marked as yours wherever it is drawn. A correction is an
 **overlay**, so the corpus text on disk does not move and re-importing keeps it.
+
+The audit then asked why an agent standing in a chaburah's library could write
+a note and yet not see the rest of its own layer, and the answer was no answer.
+Four reads close that — `marks` (highlights and bookmarks, by place, by sefer,
+by tag), `folders`, `queries`, and `who_cites`, which asks your own drawer and
+document registry which of your writing covers a line — and four writes join
+the originals behind the same wall: `bookmark`, `forget_mark`,
+`save_query`, `forget_query`. The deletions keep this section's rule about what
+a screenless end can ask: `forget_mark` takes the id `marks` gave you, and
+`forget_query` takes the query's own words now, each unfillable without having
+looked.
 
 The permission is the part worth arguing, and it has four pieces:
 

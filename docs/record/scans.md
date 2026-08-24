@@ -60,6 +60,15 @@ sefer, so the page is a *span* — which is what a ref has been since W3), or on
 this way, and nothing here pretends otherwise: interpolating to the siman that
 starts nearest is how a mekor names a place the reader was not looking at.
 
+And since the 23 August audit, a declaration that names a sefer is **checked
+against it**: `Paging::declare_checked` asks whether each anchor's daf exists in
+the work — counted by the same arithmetic as everything else in the module —
+and refuses by name (`NotInTheSefer`) when it does not. Declaring page 45 as a
+daf the masechta ends before used to succeed, and every mekor off those pages
+then cited cleanly and resolved nowhere; the shell passes the named work's own
+leaves in, so the reader is told at the moment of declaring rather than at the
+moment of following.
+
 ### What a page cites as, and what it never invents
 
 A scan of Berakhot cites as **ברכות** — the mekor everybody else writes,

@@ -58,6 +58,36 @@ link and rejecting another while believing it did both to one. Every repair is
 keyed to the edge's **shipped name** — its two segment ids — which is also why a
 reanchored edge is still found by the record that moved it.
 
+### Which way the arrow points, said where it is shown
+
+The importer orients every edge — `comments-on` edges point from the commentary
+to its base, flipped where the CSV had it backwards — and prices the cases where
+nobody declared anything into confidence as a 0.15 dent. The 23 August audit's
+finding was that the fact itself was then dropped at every surface: chain hops,
+path links and link rows carried type, label and confidence but not direction,
+so an arrow that was the **order of two CSV columns** drew exactly like a
+declared one. It now travels with the edge everywhere it goes — `Step` and path
+`Link` carry it, the MCP `links`/`trace`/`path` replies name it, the window's
+rows say *direction declared* or *direction undeclared* in both languages —
+because a reader deciding whether to follow a link is entitled to know whether
+anybody ever said which way it points.
+
+And when a corpus update drops an edge your layer has said something about,
+that record stays — it is a thing you said — and `girsa-link-types` now reports
+it by name at the cache build, the one moment both halves of the question are
+in hand. The promise in `Repairs::orphans` finally has a keeper.
+
+### Deleting what a folder holds
+
+Deleting a note used to orphan its seat in every chaburah folder — bare slugs
+for works that no longer existed, drawn each time the folder opened. The delete
+now takes the member out (`Collections::without_work`, and `without_query` for
+saved queries) and says which folders changed; the MCP `forget_note` reply names
+them as `folders_tidied`. Members naming **places** inside the deleted work stay:
+a place survives re-segmentation by its name. Link repairs naming the work stay
+too, deliberately — they are statements you made, and the report above covers
+them.
+
 ### Which words a link is about, when anything says
 
 spec.md §8.4: *links attach to specific words, not whole segments — selecting a

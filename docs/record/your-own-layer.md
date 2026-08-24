@@ -582,6 +582,17 @@ A citation is a `<span class="run-cite">` in the flow of the sentence and not a
 `<button>`: a button there breaks the line box, takes tab focus out of the
 reading pane, and stops a reader dragging a selection across it to quote the
 line. The click resolves through `post::landing`, the same function a `girsa://`
+
+> **Wired, 24 August.** The audit's missing-features pass found `who_cites`,
+> `linkify` and `what_key` registered with no frontend caller. All three now
+> have one: the links panel has a folded *who cites this, of your own*
+> section (the drawer-and-registry answer, each ref a jump); the note editor
+> has *references in your text* (linkify over your own words, certain
+> citations only, each a jump); and the settings shortcut capture asks
+> `what_key` before taking keys another action holds, so the row says what
+> those keys did first. The keydown path keeps its synchronous local
+> resolution — that file's header explains why it must — which is exactly why
+> the command was the right tool there and nowhere else.
 link from another application takes — one answer to *which segment does this
 address name*, because two of them would eventually disagree. A citation of a
 sefer that is not on this shelf says so out loud; you can write *עיין קצות סימן
