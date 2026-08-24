@@ -219,7 +219,7 @@ fn a_quotation_that_is_not_letter_for_letter_says_it_was_widened() {
     let found = where_from(&shelf.bar(), "וכשהכהנים נכנסים", None, 10).expect("looks it up");
 
     match &found.how {
-        How::Widened { rung } => assert!(!rung.is_empty()),
+        How::Widened { rungs } => assert!(!rungs.is_empty()),
         How::Exactly => assert_eq!(
             found.total, 0,
             "an exact answer must really have been exact"

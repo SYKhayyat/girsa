@@ -542,6 +542,12 @@ pub fn queue_in(personal: &Path) -> PathBuf {
 }
 
 impl Queue {
+    /// The most one page may ask for, whatever was sent.
+    ///
+    /// A drawer that asked for the whole queue at 28,124 rows would be asking
+    /// the window to hold them; past this many, the reader pages.
+    pub const PAGE_LARGEST: usize = 500;
+
     /// Read the queue. A line that will not parse costs that candidate and is
     /// reported.
     #[must_use]
@@ -562,6 +568,19 @@ impl Queue {
         self.entries.len()
     }
 
+    /// The next `asked` to review, best first, bounded to what one page of the
+    /// queue may hold.
+    ///
+    /// The bound is a decision about the queue and lives beside it: the window
+    /// used to clamp to its own private 500, which was policy with no test in
+    /// the one place policy is not allowed to live. `0` asks for the smallest
+    /// honest page rather than an empty one, because a drawer that opens to
+    /// nothing reads as *the queue is done*.
+    #[must_use]
+    pub fn page(&self, asked: usize) -> Vec<&Suspect> {
+        self.ranked(asked.clamp(1, Self::PAGE_LARGEST))
+    }
+
     /// How many are still to look at.
     #[must_use]
     pub fn waiting(&self) -> usize {
@@ -569,6 +588,11 @@ impl Queue {
     }
 
     /// The next `limit` to review, best first.
+    ///
+    /// Selection, not a full sort: the queue holds tens of thousands of
+    /// waiting entries and every caller wants single-digit `limit`s, so
+    /// partitioning once and sorting only the top slice turns an O(all)
+    /// sort per window call into O(one pass) plus O(`limit`).
     #[must_use]
     pub fn ranked(&self, limit: usize) -> Vec<&Suspect> {
         let mut waiting: Vec<&Suspect> = self
@@ -576,8 +600,14 @@ impl Queue {
             .iter()
             .filter(|s| s.decided.is_none())
             .collect();
-        waiting.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.rare.cmp(&b.rare)));
-        waiting.into_iter().take(limit).collect()
+        let best_first =
+            |a: &&Suspect, b: &&Suspect| b.score.cmp(&a.score).then_with(|| a.rare.cmp(&b.rare));
+        if limit < waiting.len() {
+            waiting.select_nth_unstable_by(limit, best_first);
+            waiting.truncate(limit);
+        }
+        waiting.sort_by(best_first);
+        waiting
     }
 
     #[must_use]
@@ -898,5 +928,23 @@ mod tests {
             said(&original),
             "the two sides of the join disagree"
         );
+    }
+
+    #[test]
+    fn a_page_is_bounded_whatever_was_asked() {
+        // The clamp used to live in the window (`limit.clamp(1, 500)`), which
+        // is a decision with no test in the one place decisions are not
+        // allowed to live. Here it is, where it can be watched.
+        let mut queue = Queue::open(std::env::temp_dir().join("girsa-queue-page-unused")).0;
+        queue.entries = (0..Queue::PAGE_LARGEST * 2)
+            .map(|n| Suspect::new(&format!("קורין{n}"), "קורים", 1, 12_000, Edit::Letter))
+            .collect();
+
+        assert_eq!(queue.page(10).len(), 10);
+        // Zero asks for the smallest honest page, not an empty one: an open
+        // drawer that shows nothing reads as *the queue is done*.
+        assert_eq!(queue.page(0).len(), 1);
+        // …and however large the ask, the page holds at most `PAGE_LARGEST`.
+        assert_eq!(queue.page(usize::MAX).len(), Queue::PAGE_LARGEST);
     }
 }

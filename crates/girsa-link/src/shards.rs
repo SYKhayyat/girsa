@@ -45,8 +45,20 @@ pub(crate) struct Shards {
 
 impl Shards {
     /// Hold one line against `slug`. The trailing newline is this function's.
+    ///
+    /// The lookup comes before [`std::collections::BTreeMap::entry`] on
+    /// purpose: `entry` needs an owned key, which would allocate the slug on
+    /// every push — millions per import against thousands of works. A hit is
+    /// the common case by three orders of magnitude, so the owned key is paid
+    /// once per work and never per edge.
     pub(crate) fn add(&mut self, slug: &str, line: &str) {
-        let body = self.by_work.entry(slug.to_string()).or_default();
+        if let Some(body) = self.by_work.get_mut(slug) {
+            body.push_str(line.trim_end());
+            body.push('\n');
+            self.written += 1;
+            return;
+        }
+        let body = self.by_work.entry(slug.to_owned()).or_default();
         body.push_str(line.trim_end());
         body.push('\n');
         self.written += 1;

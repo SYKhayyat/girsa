@@ -112,6 +112,48 @@ impl Default for Limits {
     }
 }
 
+impl Limits {
+    /// How deep any walk may go, however deep it was asked for.
+    ///
+    /// A ceiling is a decision about the shelf, not about the window asking,
+    /// so it lives beside the defaults it bounds rather than in one caller —
+    /// the shell used to clamp to its own private 12 and the terminal tool
+    /// did not clamp at all, which was two answers to one question. Twelve
+    /// hops is already a walk that reads dozens of shards; past that, a
+    /// reader asked for a depth, not for the library.
+    pub const DEEPEST: usize = 12;
+
+    /// The default walk, with `asked`'s depth if one was named — clamped to
+    /// what a walk may be, in either direction: a window sending 0 has a
+    /// wiring bug, and a walk of 400 reads the shelf.
+    #[must_use]
+    pub fn with_depth(asked: Option<usize>) -> Self {
+        Self {
+            depth: asked.map_or(Self::default().depth, |n| n.clamp(1, Self::DEEPEST)),
+            ..Self::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+
+    // The ceiling is crate policy now; these are the tests its old home in the
+    // shell never had.
+    #[test]
+    fn an_asked_depth_is_clamped_into_what_a_walk_may_be() {
+        assert_eq!(Limits::with_depth(Some(0)).depth, 1);
+        assert_eq!(Limits::with_depth(Some(5)).depth, 5);
+        assert_eq!(Limits::with_depth(Some(400)).depth, Limits::DEEPEST);
+    }
+
+    #[test]
+    fn no_answer_is_the_default_walk() {
+        assert_eq!(Limits::with_depth(None), Limits::default());
+    }
+}
+
 /// What a walk did not follow, and why.
 ///
 /// Not diagnostics — part of the answer. *Nine of the eleven seforim that read

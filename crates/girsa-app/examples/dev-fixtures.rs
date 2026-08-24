@@ -85,7 +85,6 @@ fn main() -> std::process::ExitCode {
         interface: girsa_app::session::Language::Hebrew,
         text_size: 100,
         mefarshim_size: 100,
-        positions: session.positions.clone(),
         works: shelf.works().len(),
         trouble: None,
         cite: session.cite,

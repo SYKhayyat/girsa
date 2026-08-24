@@ -931,6 +931,15 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
         paging = pages(paging, page);
     }
 
+    // Before anything is searched for, and **before the index is even opened**:
+    // a refusal that arrives after `0 in 5000847 segments` is a refusal nobody
+    // reads. It sat below three loads — index, works, notes — for exactly that
+    // reason, its own comment describing where it should be while the code said
+    // otherwise.
+    if let Err(code) = refuse_a_root_among_the_query_words(&words) {
+        return code;
+    }
+
     let index = match SearchIndex::open(index_dir) {
         Ok(index) => index,
         Err(e) => {
@@ -969,12 +978,6 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
             girsa_search::facets::exclude(&chips.scope, bar.catalogue(), dimension, &row(&key));
     }
 
-    // Before anything is searched for, and before the index is even opened: a
-    // refusal that arrives after `0 in 5000847 segments` is a refusal nobody reads.
-    if let Err(code) = refuse_a_root_among_the_query_words(&words) {
-        return code;
-    }
-
     let typed = words.join(" ");
     // `--rung` is the click on an offer, and it is the literal mode's only way
     // of widening. It is applied here rather than inside the bar because the
@@ -990,6 +993,7 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
             results,
             offers,
             note,
+            rungs: _,
             landing,
         } => {
             println!("searched for: {}", results.header);

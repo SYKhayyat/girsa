@@ -1756,8 +1756,21 @@ impl SearchIndex {
                 hits.push(hit);
             }
         }
-        // Score first, then the permanent name — so a tie is broken by
-        // something that does not depend on which thread indexed what.
+        // Score first, then the permanent name. What this buys is honest and
+        // smaller than it looks, so it is said exactly: **within one page**, a
+        // tie is ordered by the permanent name rather than by which thread
+        // indexed what. It cannot promise more. Which hits land on which page
+        // was decided before this line ran — tantivy's top-K heap keeps the
+        // best `from + size` documents and breaks score ties by `DocAddress`,
+        // which follows the index's merge history — so a tie group spanning a
+        // page boundary is split by `DocAddress`, not by name, and each half
+        // sorts among itself. Rebuilding the index can move a tied hit from
+        // page 3 to page 4 while its equal-scored twin stays put.
+        //
+        // A global promise needs a total order inside the collector, which
+        // means collecting every hit of every query to sort what paging exists
+        // to avoid collecting. Within-page determinism is the part of that
+        // contract that is free, and it is the part claimed here.
         hits.sort_by(|a, b| {
             b.score
                 .total_cmp(&a.score)

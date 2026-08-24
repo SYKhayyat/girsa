@@ -193,6 +193,10 @@ pub fn find(
         let said = crate::shemos::written(&segment.text, shemos);
         let shown = Shown::of(&said, pointing);
         let folded = fold(shown.text());
+        // One fact about the segment, not about a hit in it — computed on the
+        // first hit that needs it and shared by the rest, which is what
+        // [`where_marked`] does outright.
+        let mut address = None;
         for hit in folded.every(&wanted) {
             total += 1;
             if places.len() >= MOST {
@@ -203,15 +207,18 @@ pub fn find(
             else {
                 continue;
             };
-            places.push(Found {
-                id: segment.id.to_string(),
-                at,
-                address: crate::sending::printed_address_in(
+            let printed = address.get_or_insert_with(|| {
+                crate::sending::printed_address_in(
                     &sefer.work,
                     Some(sefer.sections()),
                     &segment.id,
                     style,
-                ),
+                )
+            });
+            places.push(Found {
+                id: segment.id.to_string(),
+                at,
+                address: printed.clone(),
                 from,
                 to: last + 1,
             });

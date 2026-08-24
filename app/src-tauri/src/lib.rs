@@ -787,7 +787,6 @@ fn state(shared: tauri::State<'_, Shared>) -> Result<girsa_app::view::Opening, S
         shemos: state.session.shemos,
         text_size: state.session.text_size,
         mefarshim_size: state.session.mefarshim_size,
-        positions: state.session.positions.clone(),
         works: shelf.as_ref().map_or(0, |s| s.works().len()),
         trouble: state.said_trouble(),
         cite: state.session.cite,
@@ -1118,6 +1117,7 @@ fn find(shared: tauri::State<'_, Shared>, query: String, page: usize) -> Result<
             results,
             offers,
             note,
+            rungs: _,
             landing,
         } => {
             let pages = results.total.div_ceil(size.max(1));
@@ -2193,14 +2193,10 @@ fn mefarshim_at(
 /// W2) and a second one written in TypeScript would drift from it — and the
 /// place it would show is a reader turning nikud off and finding one word in
 /// forty still pointed.
-/// How many segments a pane is handed at a time.
 ///
-/// `pane.ts` draws a window of 400 and grows it by 300 at an edge; this is that
-/// window, plus a little either side so the first scroll does not immediately
-/// ask for more. It is here rather than in the window because it is what the
-/// **wire** carries — see [`Text`], and `examples/measure-opening.rs` for what
-/// carrying the whole sefer instead was costing.
-const A_WINDOW: usize = 600;
+/// The window size is `girsa_app::view::WINDOW`, beside the `Text` it sizes —
+/// it used to live here, a policy number in the bridge with no test and no
+/// neighbour.
 
 #[tauri::command(async)]
 fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, String> {
@@ -2242,8 +2238,8 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         .get(at)
         .map(|s| s.id.to_string())
         .unwrap_or_default();
-    let from = at.saturating_sub(A_WINDOW / 2).min(total.saturating_sub(1));
-    let to = (from + A_WINDOW).min(total);
+    let from = at.saturating_sub(girsa_app::view::WINDOW / 2).min(total.saturating_sub(1));
+    let to = (from + girsa_app::view::WINDOW).min(total);
     let mut lines: Vec<Line> = sefer.segments[from..to]
         .iter()
         .map(|s| Line::of(sefer, s, pointing, shemos, style, lexicon))
@@ -3461,13 +3457,6 @@ fn export_sefer(
 
 // ── The transmission chain (spec.md §8, BUILDER.md W28) ─────────────────────
 
-/// How far a walk goes, unless the reader says otherwise.
-///
-/// Clamped rather than trusted: the window sends this, and a depth of 400 is a
-/// walk that reads the shelf. The library's own default is what an unclamped
-/// caller gets.
-const CHAIN_DEEPEST: usize = 12;
-
 /// Which way the walk is not able to go without dates.
 fn no_timeline() -> String {
     girsa_app::trouble::refuse(
@@ -3566,12 +3555,9 @@ fn chain_walk(
     // carried through so the reader's two clicks from one place are still one
     // reading of the shards; see `ForAWalk`.
     let taken = ForAWalk::taken(&shared)?;
-    let limits = girsa_link::chain::Limits {
-        depth: depth.map_or(girsa_link::chain::Limits::default().depth, |asked| {
-            asked.clamp(1, CHAIN_DEEPEST)
-        }),
-        ..girsa_link::chain::Limits::default()
-    };
+    // The ceiling is `chain`'s (`Limits::DEEPEST`) and not this file's — it
+    // used to be a private 12 here while the terminal tool clamped to nothing.
+    let limits = girsa_link::chain::Limits::with_depth(depth);
     let (chain, kept) = {
         let shelf = taken.shelf.read().map_err(|_| State::poisoned())?;
         let names =
@@ -3643,7 +3629,7 @@ fn suspects(shared: tauri::State<'_, Shared>, limit: usize) -> Result<Vec<Suspec
         let shelf = state.shelf()?;
         let names = state.names(&shelf);
         queue
-            .ranked(limit.clamp(1, 500))
+            .page(limit)
             .into_iter()
             .map(|suspect| {
                 let at = suspect.places.first();
@@ -4823,7 +4809,7 @@ struct Words {
 /// written the way they asked — so what prints is what is on the screen, and
 /// nothing has a second idea of what the sefer says.
 #[tauri::command]
-fn sefer_sheet(shared: tauri::State<'_, Shared>, at: String, whole: bool) -> Result<Sheet, String> {
+fn sefer_sheet(shared: tauri::State<'_, Shared>, at: String) -> Result<Sheet, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     // Held first, for the reason `copy` gives at length: this command is
     // deliberately synchronous, and a cache miss inside it is a whole work read
@@ -4834,12 +4820,10 @@ fn sefer_sheet(shared: tauri::State<'_, Shared>, at: String, whole: bool) -> Res
     let shemos = state.session.shemos;
     let style = state.session.cite;
     let (sefer, lexicon) = state.reading(at.work())?;
-    let how = if whole {
-        girsa_app::printing::Sheet::Chosen
-    } else {
-        girsa_app::printing::Sheet::Section
-    };
-    let (from, to) = girsa_app::printing::run_of(sefer, &at, how)
+    // A sheet is the section, and there is no second answer to confuse it with:
+    // the `whole:` flag used to name one here, but its only caller passed
+    // `false` and its `true` printed *less* than `false` did.
+    let (from, to) = girsa_app::printing::run_of(sefer, &at)
         .ok_or_else(|| refuse(Code::NoSuch, format!("{at} is not in this sefer")))?;
     let mut lines: Vec<Line> = sefer.segments[from..to]
         .iter()
@@ -5410,6 +5394,7 @@ fn lane_ask(
         refused: answer.refused,
         asking: answer.asking,
         shortlisted: answer.shortlisted,
+        unresolved: answer.unresolved,
     })
 }
 

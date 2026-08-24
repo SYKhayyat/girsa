@@ -73,7 +73,7 @@ function surface(): HTMLElement {
  * somewhere with a name nobody chose.
  */
 export async function printSection(at: string): Promise<string> {
-  const found: Sheet = await api.seferSheet(at, false);
+  const found: Sheet = await api.seferSheet(at);
   const page = surface();
   page.replaceChildren();
 

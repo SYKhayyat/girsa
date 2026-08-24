@@ -125,6 +125,15 @@ pub struct Answer {
     /// answers to *what does this list not tell you*, and this is the same
     /// question about the retrieval rather than about the corpus.
     pub shortlisted: Option<&'static str>,
+    /// Said when some of the lane's hits named a place this shelf could not
+    /// open or resolve, and those rows were dropped: *how many, and what the
+    /// list therefore is not*. The fifth admission, and the one that used to
+    /// be silent — `filter_map` swallowed an unresolvable vector whole, so a
+    /// lane asked for ten could answer with six and look complete. Composed
+    /// here, where the count is known, like every other sentence on this
+    /// struct; `None` when nothing was dropped, because a disclaimer nobody
+    /// needs is noise.
+    pub unresolved: Option<String>,
 }
 
 /// The lane, joined to the shelf.
@@ -283,6 +292,7 @@ impl Adjacency {
             asking,
             // Nothing was ranked, so there is no ranking to disclaim.
             shortlisted: None,
+            unresolved: None,
         };
 
         match self.lane.state() {
@@ -309,23 +319,35 @@ impl Adjacency {
             Err(e) => return refuse(say(&e)),
         };
         let shortlisted = (!asked.whole).then_some(SHORTLISTED);
-        let near = asked
-            .adjacent
-            .into_iter()
-            .filter_map(|adjacent| {
-                // The text comes off the shelf, through the same reader every
-                // other consumer of a segment id uses — corrections applied,
-                // because the lane must show what the reader can see.
-                let open = shelf.read(adjacent.id.work()).ok()?;
+        // Count what will not resolve *before* dropping it. The lane names
+        // places by vector; a sefer that will not read, or an id with no
+        // position, is a row the reader will never see — and `filter_map`
+        // used to make that loss invisible, so "showing 6" looked like the
+        // whole answer to a request for ten.
+        let mut unresolved: usize = 0;
+        let mut near = Vec::with_capacity(asked.adjacent.len());
+        for adjacent in asked.adjacent {
+            // The text comes off the shelf, through the same reader every
+            // other consumer of a segment id uses — corrections applied,
+            // because the lane must show what the reader can see.
+            let opened = shelf.read(adjacent.id.work()).ok().and_then(|open| {
                 let at = open.position_of(&adjacent.id)?;
-                let segment = open.segments.get(at)?;
-                Some(Near {
+                Some(open.segments.get(at)?.text.clone())
+            });
+            match opened {
+                Some(text) => near.push(Near {
                     at: names.of(&adjacent.id),
-                    text: segment.text.clone(),
+                    text,
                     nearness: adjacent.nearness,
-                })
-            })
-            .collect();
+                }),
+                None => unresolved += 1,
+            }
+        }
+        let unresolved = (unresolved > 0).then(|| {
+            format!(
+                "{unresolved} of the lane's hits name a place this shelf could not open, and are not shown"
+            )
+        });
 
         Answer {
             label: ADJACENT,
@@ -335,6 +357,7 @@ impl Adjacency {
             refused: None,
             asking,
             shortlisted,
+            unresolved,
         }
     }
 
@@ -452,6 +475,7 @@ mod tests {
             refused: Some("the semantic lane is off".to_string()),
             asking: None,
             shortlisted: None,
+            unresolved: None,
         };
         assert!(answer.near.is_empty());
         assert!(answer.refused.is_some());

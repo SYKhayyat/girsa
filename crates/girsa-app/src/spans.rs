@@ -123,28 +123,32 @@ pub fn dibur_span(
     pointing: Pointing,
 ) -> Option<std::ops::Range<usize>> {
     let drawn = Shown::of(base, pointing);
+    // The line is tokenized **once for every candidate**, not once per
+    // candidate: a comment offers several (`diburim`), the candidates are what
+    // vary, and the line they are looked for in does not.
+    let line = girsa_hebrew::tokenize(drawn.text());
     // The candidates in order, and the first one that is **in this line exactly
     // once** wins. A candidate that is not there is not evidence of anything,
     // so it costs a lookup and nothing else.
     diburim(commentary)
         .into_iter()
-        .find_map(|words| span_of(&drawn, &words))
+        .find_map(|words| span_of(&drawn, &line, &words))
 }
 
-/// The one place a phrase sits in a drawn line, or nowhere.
+/// The one place a phrase sits in an already-tokenized line, or nowhere.
 ///
 /// Matched word by word through [`girsa_hebrew::tokenize`], because the two
 /// texts do not agree about nikud and may not agree about spacing either.
-fn span_of(drawn: &Shown, phrase: &str) -> Option<std::ops::Range<usize>> {
+fn span_of(
+    drawn: &Shown,
+    line: &[girsa_hebrew::Token],
+    phrase: &str,
+) -> Option<std::ops::Range<usize>> {
     let wanted: Vec<String> = girsa_hebrew::tokenize(phrase)
         .into_iter()
         .map(|token| token.text)
         .collect();
-    if wanted.is_empty() {
-        return None;
-    }
-    let line = girsa_hebrew::tokenize(drawn.text());
-    if line.len() < wanted.len() {
+    if wanted.is_empty() || line.len() < wanted.len() {
         return None;
     }
 

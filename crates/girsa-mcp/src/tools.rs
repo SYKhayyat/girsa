@@ -594,6 +594,7 @@ fn search(server: &Server, args: &Value) -> Result<Value, String> {
             results,
             offers,
             note,
+            rungs: _,
             // The place these words also name. An agent asking this tool is
             // asking for hits; the offer is the window's affordance and there
             // is nothing here to click.
@@ -1040,6 +1041,10 @@ fn adjacent(server: &Server, args: &Value) -> Result<Value, String> {
         // plausible rows as an answer.
         "reads_as_a_question": answer.asking,
         "ranked_from_a_shortlist": answer.shortlisted,
+        // Null when every hit resolved. An agent that reports "showing 6" as
+        // the answer to a request for ten is making the same mistake the
+        // silent drop invited.
+        "could_not_open": answer.unresolved,
         "showing": found.len(),
         "adjacent": found,
         "not_the_places_these_words_appear": "for that, call `search` — it is literal",

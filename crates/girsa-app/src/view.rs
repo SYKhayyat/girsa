@@ -407,6 +407,15 @@ impl FixMark {
     }
 }
 
+/// How many segments a pane is handed at a time.
+///
+/// `pane.ts` draws a window of 400 and grows it by 300 at an edge; this is that
+/// window, plus a little either side so the first scroll does not immediately
+/// ask for more. It lives beside [`Text`] rather than in the shell because it
+/// is what the **wire** carries — see `examples/measure-opening.rs` for what
+/// carrying the whole sefer instead was costing.
+pub const WINDOW: usize = 600;
+
 /// A sefer opened into a pane — **a window of it**, and how big the sefer is.
 ///
 /// # Why this is not the whole sefer any more
@@ -1292,6 +1301,11 @@ pub struct LaneAnswer {
     /// Set when the ranking came off a signature shortlist rather than from
     /// reading every vector — `girsa_lane::SHORTLISTED`, worded once.
     pub shortlisted: Option<&'static str>,
+    /// Set when some of the lane's hits named a place the shelf could not
+    /// open and were dropped — the sentence composed where the count is
+    /// known, so *showing six* can no longer pass for the whole answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unresolved: Option<String>,
 }
 
 /// How far a background job has got. One shape for both jobs.
@@ -1409,8 +1423,6 @@ pub struct Opening {
     pub text_size: u16,
     /// The mefarshim, sized on their own — see `Session::mefarshim_size`.
     pub mefarshim_size: u16,
-    /// Where you were in each sefer.
-    pub positions: std::collections::BTreeMap<String, girsa_corpus::segment::SegmentId>,
     /// How many seforim are on the shelf.
     pub works: usize,
     /// Something wrong the reader should be told about, or nothing.

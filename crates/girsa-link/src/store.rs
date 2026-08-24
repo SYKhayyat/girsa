@@ -159,11 +159,10 @@ pub struct Writer {
 
 impl Writer {
     pub fn push(&mut self, edge: &Edge) {
-        let slug = edge.from.from.work().to_string();
         let Ok(line) = serde_json::to_string(&Row::of(edge)) else {
             return;
         };
-        self.shards.add(&slug, &line);
+        self.shards.add(edge.from.from.work(), &line);
     }
 
     #[must_use]

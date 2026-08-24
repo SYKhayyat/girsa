@@ -392,7 +392,9 @@ fn where_from(handle: &tauri::AppHandle, body: &str) -> Reply {
         &bar,
         &asked.phrase,
         asked.except.as_deref(),
-        asked.limit.unwrap_or(8),
+        // The default is `mekoros::SUGGESTED`, beside the question — not a
+        // private 8 here.
+        asked.limit.unwrap_or(girsa_search::mekoros::SUGGESTED),
     ) {
         Ok(found) => found,
         Err(why) => return Reply::refused(400, why),

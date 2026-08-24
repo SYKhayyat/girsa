@@ -34,25 +34,21 @@ use girsa_corpus::segment::SegmentId;
 
 use crate::Open;
 
-/// How much of a sefer a sheet covers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sheet {
-    /// The section the reader is standing in — the siman, the amud, the perek.
-    Section,
-    /// Only the lines named, which is what a highlight prints.
-    Chosen,
-}
-
-/// The half-open run of segments a sheet covers.
+/// The half-open run of segments a sheet covers: **the section the reader is
+/// standing in**.
+///
+/// There used to be a second answer here — a `Sheet::Chosen` that printed the
+/// one line named — behind a `whole:` flag on the shell's command whose name
+/// meant the opposite of what it did, and whose only caller passed `false`.
+/// Both lies and the branch they guarded are gone rather than renamed: nothing
+/// reached the one-line path, and a real print-a-highlight will want an
+/// explicit span, which a flag naming one segment never carried.
 ///
 /// `None` when the sefer does not have that place, which is a caller asking
 /// about a line that is not here — never the nearest thing.
 #[must_use]
-pub fn run_of(sefer: &Open, at: &SegmentId, sheet: Sheet) -> Option<(usize, usize)> {
+pub fn run_of(sefer: &Open, at: &SegmentId) -> Option<(usize, usize)> {
     let here = sefer.position_of(at)?;
-    if sheet == Sheet::Chosen {
-        return Some((here, here + 1));
-    }
     // The address one level up. A line at the top level of its sefer — a work
     // addressed `1`, `2`, `3` with nothing above it — is its own section, which
     // is the honest answer rather than *the whole sefer*.
@@ -146,11 +142,11 @@ mod tests {
             &["31b", "1"],
         ]);
         let at = sefer.segments[2].id.clone();
-        assert_eq!(run_of(&sefer, &at, Sheet::Section), Some((1, 4)));
+        assert_eq!(run_of(&sefer, &at), Some((1, 4)));
         // Standing on the first line of the amud gives the same amud, not the
         // one before it.
         let first = sefer.segments[1].id.clone();
-        assert_eq!(run_of(&sefer, &first, Sheet::Section), Some((1, 4)));
+        assert_eq!(run_of(&sefer, &first), Some((1, 4)));
     }
 
     #[test]
@@ -164,14 +160,7 @@ mod tests {
             &["orach_chayim", "2", "1"],
         ]);
         let at = sefer.segments[0].id.clone();
-        assert_eq!(run_of(&sefer, &at, Sheet::Section), Some((0, 2)));
-    }
-
-    #[test]
-    fn one_line_is_one_line_when_that_is_what_was_asked_for() {
-        let sefer = sefer(&[&["31a", "1"], &["31a", "2"]]);
-        let at = sefer.segments[0].id.clone();
-        assert_eq!(run_of(&sefer, &at, Sheet::Chosen), Some((0, 1)));
+        assert_eq!(run_of(&sefer, &at), Some((0, 2)));
     }
 
     #[test]
@@ -181,7 +170,7 @@ mod tests {
         // somebody pressed the print key is not an answer — so it is the line.
         let sefer = sefer(&[&["1"], &["2"], &["3"]]);
         let at = sefer.segments[1].id.clone();
-        assert_eq!(run_of(&sefer, &at, Sheet::Section), Some((1, 2)));
+        assert_eq!(run_of(&sefer, &at), Some((1, 2)));
     }
 
     #[test]
@@ -192,7 +181,7 @@ mod tests {
         // the ordinal — so an id with the same `#1` on a different daf is a
         // fair question and this is not asking it.
         let elsewhere = SegmentId::new("s", vec!["99a".into(), "1".into()], Ordinal::root(99));
-        assert_eq!(run_of(&sefer, &elsewhere, Sheet::Section), None);
+        assert_eq!(run_of(&sefer, &elsewhere), None);
     }
 
     #[test]

@@ -109,6 +109,11 @@ pub enum Answer {
         /// What the mode did, where it did something worth announcing: Smart's
         /// widening, or the words a gematria added up.
         note: Option<String>,
+        /// Which ladder rungs a Smart search actually applied, by the same
+        /// names an offer carries — **data, not a sentence**. The announcement
+        /// below is one renderer's English; every surface that says *widened*
+        /// composes its own words around these names.
+        rungs: Vec<crate::ladder::Rung>,
         /// A place the words also read as, **offered and not taken**.
         ///
         /// # The best thing in this engine was behind a sigil
@@ -286,11 +291,13 @@ impl Bar {
                 results,
                 offers,
                 note,
+                rungs,
                 landing: _,
             }) => Answer::Segments {
                 results,
                 offers,
                 note,
+                rungs,
                 // The words were searched for and the count is honest. If they
                 // also read as a place, that is put in front of the reader as
                 // an **offer** — see the field's note. `Regex` is left out
@@ -346,6 +353,7 @@ impl Bar {
             results: Box::new(results),
             offers,
             note: None,
+            rungs: Vec::new(),
             landing: None,
         })
     }
@@ -368,10 +376,20 @@ impl Bar {
             .as_ref()
             .map_or_else(|| answered.found.asked.describe(), Widening::describe);
         let results = self.results(header, &answered.found, Some(prepared))?;
+        // The rungs go through as themselves. The announcement is for a
+        // terminal line; `How::Widened` used to be fed the whole sentence and
+        // then rendered it inside a Hebrew clause — counts twice, English
+        // mid-sentence.
+        let rungs = answered
+            .found
+            .widening
+            .as_ref()
+            .map_or_else(Vec::new, |w| w.applied.clone());
         Ok(Answer::Segments {
             results: Box::new(results),
             offers: Offers::default(),
             note: Some(answered.announcement()),
+            rungs,
             landing: None,
         })
     }
@@ -394,6 +412,7 @@ impl Bar {
             )?),
             offers: Offers::default(),
             note: None,
+            rungs: Vec::new(),
             landing: None,
         })
     }
@@ -495,6 +514,7 @@ impl Bar {
             )?),
             offers: Offers::default(),
             note,
+            rungs: Vec::new(),
             landing: None,
         })
     }
@@ -564,6 +584,7 @@ impl Bar {
                 seforim.len(),
                 if seforim.len() == 1 { "" } else { "im" }
             )),
+            rungs: Vec::new(),
             landing: None,
         })
     }

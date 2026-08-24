@@ -154,6 +154,17 @@ export class LaneColumn {
       box.append(shortlisted);
     }
 
+    // Hits the lane named that this shelf could not open. Drawn when it
+    // happened and never otherwise: *showing six* used to pass for the whole
+    // answer to a request for ten, because the dropped rows were dropped
+    // silently. Worded once in Rust, where the count is known.
+    if (answer.unresolved) {
+      const unresolved = document.createElement("p");
+      unresolved.className = "lane-unresolved";
+      unresolved.textContent = answer.unresolved;
+      box.append(unresolved);
+    }
+
     if (state.state === "adrift" && state.said) {
       const adrift = document.createElement("p");
       adrift.className = "lane-adrift";

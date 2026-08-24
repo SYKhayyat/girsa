@@ -40,6 +40,16 @@ use crate::Mode;
 /// it may never do.
 pub const TOO_COMMON: usize = 200;
 
+/// How many candidates `where_from` answers with when the asker did not name a
+/// number.
+///
+/// A default is a decision about the question, so it lives beside the question
+/// rather than in whichever caller got there first — the desk used to unwrap
+/// its own private 8, with no test and nothing tying it to [`TOO_COMMON`]'s
+/// idea of how many hits a quotation has. Ksav cycles what comes back; eight is
+/// enough to cycle and small enough to answer.
+pub const SUGGESTED: usize = 8;
+
 /// One place the phrase turns up.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Candidate {
@@ -67,10 +77,29 @@ pub struct Candidate {
 pub enum How {
     /// Letter for letter, with nikud off — which is off in every mode.
     Exactly,
-    /// Nothing matched literally, so the ladder was climbed. The description
-    /// is the engine's own, so what is shown is what ran.
-    Widened { rung: String },
+    /// Nothing matched literally, so the ladder was climbed. The rungs are
+    /// carried **by name** (`Rung::name()`, the same names an offer travels
+    /// under), because a name is data and a sentence is one renderer's
+    /// English. This used to hold the engine's whole announcement — counts and
+    /// all — and [`Found::describe`] then printed it inside a Hebrew clause:
+    /// the count twice, and mid-sentence English.
+    Widened { rungs: Vec<String> },
 }
+
+/// The rungs, in the language this crate's own sentences are written in.
+///
+/// The window has its own words for these (`search.ts`'s table); a wire name
+/// on the left, a Hebrew clause on the right, and nothing here composing a
+/// second English sentence to translate back.
+const RUNG_SPOKEN: [(&str, &str); 7] = [
+    ("nikud", "ניקוד"),
+    ("prefixes", "תחיליות"),
+    ("spellings", "כתיב מלא וחסר"),
+    ("gershayim", "גרשיים"),
+    ("abbreviations", "ראשי תיבות"),
+    ("root", "השורש"),
+    ("proximity", "רחבה לפסוק"),
+];
 
 /// What the corpus has to say about a phrase.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -125,7 +154,18 @@ impl Found {
         match &self.how {
             How::Exactly if self.is_a_quotation() => where_,
             How::Exactly => format!("{where_} — ביטוי, לא ציטוט"),
-            How::Widened { rung } => format!("{where_} (בהרחבה: {rung})"),
+            How::Widened { rungs } => {
+                let said: Vec<&str> = rungs
+                    .iter()
+                    .map(|rung| {
+                        RUNG_SPOKEN
+                            .iter()
+                            .find(|(name, _)| name == rung)
+                            .map_or(rung.as_str(), |(_, spoken)| spoken)
+                    })
+                    .collect();
+                format!("{where_} (בהרחבה: {})", said.join(", "))
+            }
         }
     }
 
@@ -211,16 +251,16 @@ fn gather(
         paging,
         &girsa_ref::resolve::Context::default(),
     ) {
-        Answer::Segments { results, note, .. } => Ok(Found {
+        Answer::Segments {
+            results, rungs, ..
+        } => Ok(Found {
             phrase: phrase.to_string(),
-            how: match note {
-                // Smart announces what it did; that announcement *is* the
-                // rung, so nothing here has to name it a second time.
-                Some(announcement) if chips.mode == Mode::Smart => {
-                    How::Widened { rung: announcement }
-                }
-                _ => how,
-            },
+            // The names of what actually ran — not the announcement sentence,
+            // which is one renderer's English and used to be printed as
+            // though it were the rung.
+            how: (!rungs.is_empty()).then(|| How::Widened {
+                rungs: rungs.iter().map(|rung| rung.name().to_string()).collect(),
+            }).unwrap_or(how),
             total: results.total,
             candidates: results
                 .hits

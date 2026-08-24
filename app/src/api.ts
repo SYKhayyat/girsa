@@ -886,7 +886,6 @@ export interface AppState {
    * so what a drag allowed and what a session file could hold were two answers.
    */
   share_bounds: [number, number];
-  positions: Record<string, string>;
   works: number;
   trouble: string | null;
   /** How a mekor is printed when you copy one (spec.md §5). */
@@ -1148,6 +1147,12 @@ export interface LaneAnswer {
    * vector per query was the fifteen gigabytes the 9 August report is about.
    */
   shortlisted: string | null;
+  /**
+   * Set when some of the lane's hits named a place the shelf could not open
+   * and were dropped — how many, and what the list therefore is not. Worded
+   * once in Rust, where the count is known. Null when nothing was dropped.
+   */
+  unresolved: string | null;
 }
 
 /** How far a background job has got — bringing a model, or embedding. */
@@ -1383,7 +1388,7 @@ export const api = {
     call<void>("find_here_chip", { chip, key }),
   /** The section a line is in, ready to print. `whole: false` is the section;
    * `true` is the one line, which is what a highlight prints. */
-  seferSheet: (at: string, whole: boolean) => call<Sheet>("sefer_sheet", { at, whole }),
+  seferSheet: (at: string) => call<Sheet>("sefer_sheet", { at }),
   /** What one sefer says at each of these places — the links panel, once a
    * group is opened. One sefer read, not sixty-one. */
   linkWords: (work: string, ats: string[]) => call<Words[]>("link_words", { work, ats }),
@@ -1962,7 +1967,6 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
       interface: "hebrew",
       keys: {},
       look: { theme: "system", hebrew_font: "", latin_font: "", line_height: 195, column_ch: 0 },
-      positions: {},
       works: 0,
       cite: "hebrew_full",
       pairing: say("browserWriting"),

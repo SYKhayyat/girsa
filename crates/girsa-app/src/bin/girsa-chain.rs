@@ -182,8 +182,11 @@ fn main() -> std::process::ExitCode {
 /// had asked it not to.
 fn limits_of(args: &Argv) -> Result<Limits, girsa_plain::argv::ArgvError> {
     let fallback = Limits::default();
+    // The depth goes through `with_depth`, so the terminal walk is bounded by
+    // the same `DEEPEST` the window is — it used to trust any number here,
+    // which made the ceiling a decision one caller made and the other didn't.
     Ok(Limits {
-        depth: args.number("--depth")?.unwrap_or(fallback.depth),
+        depth: Limits::with_depth(args.number("--depth")?).depth,
         width: args.number("--width")?.unwrap_or(fallback.width),
         budget: args.number("--budget")?.unwrap_or(fallback.budget),
     })
