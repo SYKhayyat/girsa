@@ -118,7 +118,23 @@ fn a_read_only_server_does_not_advertise_the_writes() {
     let names = tool_names(&mut server);
 
     assert!(names.contains(&"search".to_string()), "the reads are there");
-    for write in ["write_note", "draw_link", "correct"] {
+    // The layer reads are always there — seeing the layer you stand in is not
+    // a permission question. The writes are not.
+    for read in ["marks", "folders", "queries", "who_cites"] {
+        assert!(names.contains(&read.to_string()), "{read} is listed");
+    }
+    for write in [
+        "write_note",
+        "draw_link",
+        "correct",
+        "forget_note",
+        "undraw_link",
+        "uncorrect",
+        "bookmark",
+        "forget_mark",
+        "save_query",
+        "forget_query",
+    ] {
         assert!(
             !names.contains(&write.to_string()),
             "{write} is not in a read-only server's catalogue"
@@ -133,7 +149,15 @@ fn a_writable_server_advertises_them_and_says_they_write() {
 
     let tools = ask(&mut server, "tools/list", json!({}))["result"]["tools"].clone();
     let listed = tools.as_array().expect("a list");
-    for write in ["write_note", "draw_link", "correct"] {
+    for write in [
+        "write_note",
+        "draw_link",
+        "correct",
+        "bookmark",
+        "forget_mark",
+        "save_query",
+        "forget_query",
+    ] {
         let tool = listed
             .iter()
             .find(|tool| tool["name"] == json!(write))
@@ -153,23 +177,45 @@ fn a_writable_server_advertises_them_and_says_they_write() {
 fn a_write_against_a_read_only_server_is_refused_at_the_door() {
     // Not merely absent from the list. A client that remembered the tools from
     // a writable session will call them, and *no such tool* would be a lie
-    // about why.
+    // about why. Every write is tried, whatever arguments it would have taken:
+    // the door is checked before anything else about the call.
     let (mut server, personal) = server("refused", false);
     handshake(&mut server);
 
-    let answered = call(
-        &mut server,
-        "write_note",
-        json!({"at": at(MISHNAH, &["1", "1"]), "text": "לא ייכתב"}),
-    );
-    assert_eq!(answered["isError"], json!(true));
-    let said = answered["structuredContent"]["refused"]
-        .as_str()
-        .expect("a reason");
-    assert!(
-        said.contains("--writable"),
-        "the refusal names what would let it through: {said}"
-    );
+    for (write, arguments) in [
+        (
+            "write_note",
+            json!({"at": at(MISHNAH, &["1", "1"]), "text": "לא ייכתב"}),
+        ),
+        (
+            "draw_link",
+            json!({"from": "x", "to": "y", "type": "quotes"}),
+        ),
+        (
+            "correct",
+            json!({"at": "x", "from_char": 0, "to_char": 1, "says": "א"}),
+        ),
+        ("forget_note", json!({"note": "n", "saying": "s"})),
+        (
+            "undraw_link",
+            json!({"from": "x", "to": "y", "type": "quotes"}),
+        ),
+        ("uncorrect", json!({"at": "x", "says": "א"})),
+        ("bookmark", json!({"at": at(MISHNAH, &["1", "1"])})),
+        ("forget_mark", json!({"id": "m"})),
+        ("save_query", json!({"name": "q", "typed": "t"})),
+        ("forget_query", json!({"name": "q", "typed": "t"})),
+    ] {
+        let answered = call(&mut server, write, arguments);
+        assert_eq!(answered["isError"], json!(true), "{write}");
+        let said = answered["structuredContent"]["refused"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{write}: a reason"));
+        assert!(
+            said.contains("--writable"),
+            "{write} names what would let it through: {said}"
+        );
+    }
     assert!(!personal.join("notes").exists(), "and nothing was written");
 }
 
@@ -672,4 +718,195 @@ fn the_offsets_a_correction_takes_are_the_ones_read_hands_back() {
         json!(meant),
         "the four characters corrected are the first four of `counting`"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The rest of the layer (the audit's F4): an agent that could write a note but
+// not see marks, folders, saved queries, or which of your documents cite a
+// place was standing in a library it could change and never read.
+// ---------------------------------------------------------------------------
+
+/// The answer body of a call that succeeded.
+fn answered(server: &mut Server, name: &str, arguments: Value) -> Value {
+    let result = call(server, name, arguments);
+    assert_ne!(
+        result["isError"],
+        json!(true),
+        "{name} refused: {:?}",
+        result["structuredContent"]
+    );
+    result["structuredContent"].clone()
+}
+
+#[test]
+fn a_bookmark_written_over_the_wire_is_read_back_and_taken_back() {
+    let (mut server, personal) = server("a-bookmark", true);
+    handshake(&mut server);
+    let place = at(MISHNAH, &["1", "1"]);
+
+    // Nothing there yet — and empty is an answer, not an error.
+    let marks = answered(&mut server, "marks", json!({}));
+    assert_eq!(marks["total"], json!(0));
+
+    let marked = answered(
+        &mut server,
+        "bookmark",
+        json!({"at": place, "label": "להתחיל כאן", "tag": "חבורה"}),
+    );
+    let id = marked["marked"]
+        .as_str()
+        .expect("the mark has an id")
+        .to_string();
+    assert!(!id.is_empty());
+
+    let marks = answered(&mut server, "marks", json!({"bookmarks": true}));
+    assert_eq!(marks["total"], json!(1));
+    let row = &marks["marks"][0];
+    assert_eq!(row["id"], json!(id));
+    assert_eq!(row["kind"], json!("bookmark"));
+    assert_eq!(row["label"], json!("להתחיל כאן"));
+    assert_eq!(row["tags"], json!(["חבורה"]));
+    assert_eq!(row["at"]["id"], json!(place), "and it names the place");
+
+    // Back by the id `marks` gave — the proof of having looked.
+    let forgot = answered(&mut server, "forget_mark", json!({"id": id}));
+    assert!(forgot["forgot"].is_string());
+    let marks = answered(&mut server, "marks", json!({}));
+    assert_eq!(marks["total"], json!(0));
+
+    // And twice is refused rather than a silent success.
+    let again = call(&mut server, "forget_mark", json!({"id": marked["marked"]}));
+    assert_eq!(again["isError"], json!(true));
+    assert!(girsa_note::Marks::open(&personal).0.all().next().is_none());
+}
+
+#[test]
+fn a_saved_query_round_trips_and_cannot_die_unread() {
+    let (mut server, personal) = server("a-query", true);
+    handshake(&mut server);
+
+    let saved = answered(
+        &mut server,
+        "save_query",
+        json!({"name": "מאימתי", "typed": "\"זמן צאת הכוכבים\""}),
+    );
+    assert!(saved["said"].is_string(), "the query says what it says");
+
+    let queries = answered(&mut server, "queries", json!({}));
+    assert_eq!(queries["total"], json!(1));
+    assert_eq!(queries["queries"][0]["name"], json!("מאימתי"));
+    assert_eq!(queries["queries"][0]["typed"], json!("\"זמן צאת הכוכבים\""));
+
+    // The same proof `forget_note` asks for: what it says now, which cannot be
+    // filled in without having looked. A mismatch is refused, the query stays.
+    let wrong = call(
+        &mut server,
+        "forget_query",
+        json!({"name": "מאימתי", "typed": "אחרת לגמרי"}),
+    );
+    assert_eq!(wrong["isError"], json!(true));
+    assert_eq!(
+        answered(&mut server, "queries", json!({}))["total"],
+        json!(1)
+    );
+
+    let right = answered(
+        &mut server,
+        "forget_query",
+        json!({"name": "מאימתי", "typed": "\"זמן צאת הכוכבים\""}),
+    );
+    assert_eq!(right["forgot"], json!("מאימתי"));
+    assert_eq!(
+        answered(&mut server, "queries", json!({}))["total"],
+        json!(0)
+    );
+    assert!(girsa_note::Queries::open(&personal)
+        .0
+        .all()
+        .next()
+        .is_none());
+}
+
+#[test]
+fn folders_are_read_with_their_members_in_order() {
+    let personal = layer("folders");
+    // Seeded before the server opens — the layer is held open in memory, and
+    // that is true of the window too: a second writer behind the server's back
+    // is not a shape this surface answers. Seeding here is the test standing in
+    // for the reader's own history.
+    let mut folder = girsa_note::Collection::new("thursday", "חבורה יום ה");
+    let place = at(MISHNAH, &["1", "1"]);
+    folder.put(girsa_note::Member::Place(
+        place.parse().expect("the place reads as a segment id"),
+    ));
+    folder.put(girsa_note::Member::Query("מאימתי".to_string()));
+    girsa_note::Collections::open(&personal)
+        .0
+        .save(folder)
+        .expect("saves");
+
+    let shelf = shelf();
+    let mut server = Server::open(shelf.root(), &personal, shelf.index())
+        .expect("opens")
+        .writable();
+    handshake(&mut server);
+
+    // Folder *writing* is deliberately not on this surface: reordering
+    // somebody's shiur is not an agent's call to make.
+    let listed = answered(&mut server, "folders", json!({}));
+    assert_eq!(listed["total"], json!(1));
+    let row = &listed["folders"][0];
+    assert_eq!(row["name"], json!("thursday"));
+    assert_eq!(row["title"], json!("חבורה יום ה"));
+    assert_eq!(row["members"][0]["member"], json!("place"));
+    assert_eq!(
+        row["members"][0]["id"],
+        json!(place),
+        "members named, not bare slugs"
+    );
+    assert_eq!(row["members"][1]["member"], json!("query"));
+
+    // And the one filter the panel answers: does this line sit in any of them?
+    let holding = answered(&mut server, "folders", json!({"holding": place}));
+    assert_eq!(holding["total"], json!(1));
+
+    let elsewhere = first_of("rambam-on-mishnah-berakhot");
+    let holding = answered(&mut server, "folders", json!({"holding": elsewhere}));
+    assert_eq!(holding["total"], json!(0));
+}
+
+#[test]
+fn who_cites_names_your_own_writing_and_only_it() {
+    let (mut server, personal) = server("who-cites", true);
+    handshake(&mut server);
+    let place = at(MISHNAH, &["1", "2"]);
+
+    // A document in your own layer citing the place — real Ksav markup, built
+    // by the same `#מראה_מקום[…]` composer the editor writes with.
+    let mut buffer = girsa_desk::Buffer::new("chesbon");
+    buffer.text = format!(
+        "{}\nודו\"ק.\n",
+        girsa_ksav::mekor("ברכות ב.", Some(&place), None)
+    );
+    buffer.save(&personal).expect("saves");
+
+    let cited = answered(&mut server, "who_cites", json!({"id": place}));
+    assert_eq!(cited["total"], json!(1));
+    assert_eq!(cited["cited_by"][0]["name"], json!("chesbon"));
+    assert!(
+        !cited["cited_by"][0]["refs"]
+            .as_array()
+            .expect("refs")
+            .is_empty(),
+        "the refs that answer come back"
+    );
+    assert_eq!(cited["cited_by"][0]["cached_only"], json!(false));
+
+    // And somewhere nobody's writing touches says so, rather than inventing.
+    let quiet = answered(
+        &mut server,
+        "who_cites",
+        json!({"id": first_of("rambam-on-mishnah-berakhot")}),
+    );
+    assert_eq!(quiet["total"], json!(0));
 }

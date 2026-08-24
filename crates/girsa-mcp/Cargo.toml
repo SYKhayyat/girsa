@@ -51,6 +51,9 @@ thiserror.workspace = true
 # eight tests in `tests/` needed all three present and printed `ok` in 0.00s
 # whenever they were not, which on a fresh clone is always.
 girsa-fixture = { workspace = true, features = ["index"] }
+# Real Ksav citation markup, for a `who_cites` test that writes what the editor
+# writes rather than a guess at its shape.
+girsa-ksav.workspace = true
 
 [lints]
 workspace = true

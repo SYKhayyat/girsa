@@ -475,4 +475,70 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn taking_a_work_out_names_the_folders_it_changed_and_persists() {
+        // The reconciliation half of `Notes::remove` (the audit's F6): a note
+        // deleted out from under a folder used to leave `Member::Work` rows
+        // naming a sefer that no longer existed, drawn every time the folder
+        // opened.
+        let dir = crate::note::tests::scratch("collections-without-work");
+        let (mut collections, _) = Collections::open(&dir);
+        let mut holding = Collection::new("thursday", "חבורה יום ה").made_at(1);
+        holding.put(Member::Place(place(1)));
+        holding.put(Member::Work("note/מאימתי".to_string()));
+        collections.save(holding).expect("saves");
+        let mut other = Collection::new("sunday", "חבורה יום א").made_at(2);
+        other.put(Member::Work("note/אחרת".to_string()));
+        collections.save(other).expect("saves");
+
+        let changed = collections.without_work("note/מאימתי").expect("writes");
+        assert_eq!(changed, vec!["thursday".to_string()]);
+        let held = collections.get("thursday").expect("still there");
+        assert!(
+            !held.members.iter().any(|m| matches!(m, Member::Work(_))),
+            "the dead work is out: {:?}",
+            held.members
+        );
+        assert!(holds_place(held), "and the place member was not touched");
+        assert!(
+            collections
+                .get("sunday")
+                .is_some_and(|f| !f.members.is_empty()),
+            "a folder that did not hold it is untouched"
+        );
+
+        let (back, trouble) = Collections::open(&dir);
+        assert!(trouble.is_empty(), "{trouble:?}");
+        let held = back.get("thursday").expect("it persisted");
+        assert!(!held.members.iter().any(|m| matches!(m, Member::Work(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn taking_a_query_out_is_the_same_reconciliation() {
+        let dir = crate::note::tests::scratch("collections-without-query");
+        let (mut collections, _) = Collections::open(&dir);
+        let mut folder = Collection::new("thursday", "חבורה יום ה").made_at(1);
+        folder.put(Member::Place(place(1)));
+        folder.put(Member::Query("מאימתי".to_string()));
+        collections.save(folder).expect("saves");
+
+        let changed = collections.without_query("שאילתא אחרת").expect("writes");
+        assert!(changed.is_empty(), "nothing held it, so nothing changed");
+        let changed = collections.without_query("מאימתי").expect("writes");
+        assert_eq!(changed, vec!["thursday".to_string()]);
+        let held = collections.get("thursday").expect("still there");
+        assert!(!held.members.iter().any(|m| matches!(m, Member::Query(_))));
+
+        let (back, trouble) = Collections::open(&dir);
+        assert!(trouble.is_empty(), "{trouble:?}");
+        let held = back.get("thursday").expect("it persisted");
+        assert!(!held.members.iter().any(|m| matches!(m, Member::Query(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn holds_place(folder: &Collection) -> bool {
+        folder.members.iter().any(|m| matches!(m, Member::Place(_)))
+    }
 }

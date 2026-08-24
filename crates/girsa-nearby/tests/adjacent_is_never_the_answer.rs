@@ -492,3 +492,47 @@ fn vectors_from_another_model_are_not_read_and_are_not_silent() {
     let restored = Adjacency::with(&root, back, &shelf);
     assert_eq!(restored.coverage().embedded(), 7);
 }
+
+// ---------------------------------------------------------------------------
+// 6 · A hit whose place will not open is counted, not dropped
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hits_that_name_a_place_the_shelf_cannot_open_are_said() {
+    // The audit's C7, in its exact shape: the lane's answer was built through
+    // `filter_map`, so a vector whose segment no longer resolved simply
+    // vanished — *showing 5* looked like the whole of a request for seven.
+    // The count of what was dropped now travels with the answer.
+    let dir = scratch("unresolved");
+    let (shelf, root, personal) = shelf(&dir);
+    let mut lane = lane_over(&root, &personal, &shelf, Chosen::everything());
+    lane.embed(&shelf, &mut |_, _, _| true).expect("it embeds");
+
+    // One whole sefer leaves the disk. The catalogue still names it and the
+    // vectors are still there; only the text is gone — which is what a
+    // half-finished re-import looks like from inside an answer.
+    let gone = girsa_corpus::import::work_dir(&root, "rishon-beis");
+    std::fs::remove_dir_all(&gone).expect("the sefer leaves");
+
+    let answer = lane.ask(&Names::on(&shelf), "לולב סוכה", &[], 7);
+    assert!(answer.refused.is_none(), "{:?}", answer.refused);
+
+    // Both of that sefer's lines were embedded and both are gone from what is
+    // shown — said as a count, not swallowed.
+    let said = answer
+        .unresolved
+        .as_deref()
+        .expect("the drops are named rather than silent");
+    assert!(said.contains("2 of the lane's hits"), "{said}");
+    assert_eq!(answer.near.len(), 5, "seven found, two unresolvable");
+
+    // And the two lines of the sefer that left are nowhere in what is shown,
+    // because they are exactly the rows that cannot resolve.
+    for near in &answer.near {
+        assert!(
+            !near.text.contains("לולב") && !near.text.contains("צאת הכוכבים"),
+            "a row from the sefer that left came back anyway: {:?}",
+            near.text
+        );
+    }
+}

@@ -2113,6 +2113,7 @@ dependencies = [
  "girsa-fix",
  "girsa-fixture",
  "girsa-hebrew",
+ "girsa-ksav",
  "girsa-lane",
  "girsa-link",
  "girsa-nearby",

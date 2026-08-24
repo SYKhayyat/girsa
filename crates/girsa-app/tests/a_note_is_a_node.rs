@@ -319,6 +319,72 @@ fn the_whole_of_your_layer_is_plain_files_you_can_take_with_you() {
     let _ = std::fs::remove_dir_all(&into);
 }
 
+#[test]
+fn deleting_a_note_or_query_takes_its_seat_in_the_folder_with_it() {
+    // The audit's F6: a note deleted out from under a chaburah folder used to
+    // leave its `Member::Work` row there — a bare slug for a sefer that no
+    // longer existed, drawn every time the folder opened. The delete now takes
+    // the seat with it and names the folder it touched.
+    let root = corpus();
+    let personal = scratch("reconcile");
+    let mut shelf = Shelf::open(root, &personal).expect("the shelf opens");
+    let at = first_mishnah(&shelf);
+
+    let note = girsa_app::note_here(
+        &mut shelf,
+        &at,
+        Some("על הסוגיא"),
+        "כאן שייך עיון.",
+        "the test",
+    )
+    .expect("writes");
+    shelf
+        .queries_mut()
+        .save(SavedQuery::new("שאילתא", "\"מאימתי קורין\""))
+        .expect("saves");
+    let mut folder = Collection::new("thursday", "חבורה יום ה");
+    folder.put(Member::Place(at.clone()));
+    folder.put(Member::Work(note.slug.clone()));
+    folder.put(Member::Query("שאילתא".to_string()));
+    shelf.collections_mut().save(folder).expect("saves");
+
+    // The note half. `None` would have meant there was no such note; the
+    // answer is the folders that changed.
+    let tidied = shelf
+        .forget_note(note.name())
+        .expect("forgets")
+        .expect("the note was there");
+    assert_eq!(tidied, vec!["thursday".to_string()]);
+
+    let held = shelf
+        .collections()
+        .get("thursday")
+        .expect("the folder itself survives");
+    assert!(
+        !held.members.iter().any(|m| matches!(m, Member::Work(_))),
+        "the dead work's seat is gone: {:?}",
+        held.members
+    );
+    assert!(
+        held.holds(&standing(&shelf, &at)),
+        "and the place member stays — a place survives by its name"
+    );
+    // Twice is not a silent success here either.
+    assert!(shelf.forget_note(note.name()).expect("forgets").is_none());
+
+    // And the query half, by the same argument.
+    let tidied = shelf
+        .forget_query("שאילתא")
+        .expect("forgets")
+        .expect("the query was there");
+    assert_eq!(tidied, vec!["thursday".to_string()]);
+    let held = shelf.collections().get("thursday").expect("still there");
+    assert!(!held.members.iter().any(|m| matches!(m, Member::Query(_))));
+    assert!(shelf.forget_query("שאילתא").expect("forgets").is_none());
+
+    let _ = std::fs::remove_dir_all(&personal);
+}
+
 fn first_four(shelf: &Shelf, at: &SegmentId) -> String {
     let sefer = shelf.read(at.work()).expect("the sefer opens");
     let text = sefer.as_printed(at);

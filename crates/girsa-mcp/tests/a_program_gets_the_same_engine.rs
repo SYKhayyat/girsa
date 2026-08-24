@@ -245,6 +245,28 @@ fn a_citation_that_names_a_place_settles_and_one_that_does_not_is_not_guessed() 
         vague["near_misses"].as_u64().unwrap_or(0) > 0,
         "and something is offered instead, rather than silence"
     );
+
+    // And every reply says what the citation was resolved **against** (the
+    // audit's C6). Null: no standing — a relative mareh makom was completed
+    // against nothing, and an agent reading `settled` alone would never know.
+    for citation in ["ברכות ב.", "ברכות ב"] {
+        let answered = tool(&mut server, "resolve", json!({"citation": citation}));
+        assert_eq!(
+            answered["resolved_against"],
+            json!(null),
+            "{citation}: nothing was asked for"
+        );
+    }
+    let scoped = tool(
+        &mut server,
+        "resolve",
+        json!({"citation": "ברכות ב.", "sefer": "bavli/berakhot"}),
+    );
+    assert_eq!(
+        scoped["resolved_against"],
+        json!("bavli/berakhot"),
+        "the sefer it was completed against is named"
+    );
 }
 
 #[test]
@@ -274,6 +296,26 @@ fn a_program_can_follow_a_ruling_back_to_the_code_it_is_written_on() {
     // The refusals are part of the answer, not a debug aid.
     assert!(traced["not_followed"]["no_date_and_no_era"].is_number());
     assert!(traced["not_followed"]["other_way_in_time"].is_number());
+    // And every hop says whether the corpus declared which way it points (the
+    // audit's F1) — a coin-flip arrow is a different fact from a declared one,
+    // and an agent ranking these is owed the difference. On this fixture the
+    // commentary edges are declared: the Rambam names its base.
+    let mut declared = false;
+    for chain in traced["chains"].as_array().expect("chains") {
+        for hop in chain["hops"].as_array().expect("hops") {
+            match hop["direction"].as_str() {
+                Some("declared") => declared = true,
+                other => assert!(
+                    other.is_none(),
+                    "an undeclared hop says so explicitly, not with a missing field"
+                ),
+            }
+        }
+    }
+    assert!(
+        declared,
+        "at least one hop back was oriented by declaration"
+    );
 }
 
 #[test]
@@ -287,12 +329,27 @@ fn a_link_that_only_says_connected_somehow_says_so_on_the_row() {
     );
     let links = touching["links"].as_array().expect("links");
     assert!(!links.is_empty());
+    let mut declared = false;
     for link in links {
         // Every row carries both, so a caller writing a mareh makom can tell a
         // commentary from a corpus shrug without asking a second question.
         assert!(link["type"].is_string());
         assert!(link["asserts_something"].is_boolean());
+        // And which way it points, said rather than priced into a number the
+        // caller cannot read (F1). The fixture's commentary edges were
+        // oriented by declaration; at least one row here says so.
+        match link["direction"].as_str() {
+            Some("declared") => declared = true,
+            other => assert!(
+                other.is_none(),
+                "an undeclared link says so explicitly, not with a missing field"
+            ),
+        }
     }
+    assert!(
+        declared,
+        "the Rambam's edge on this mishnah was oriented by declaration"
+    );
     assert_eq!(
         touching["incoming_half_unknown"],
         json!(false),
