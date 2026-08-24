@@ -2839,10 +2839,39 @@ fn scan_map(
         })
         .collect();
     let of = of.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    // The mapping is checked before it is stored, so a `Paging` that exists is
-    // one that has been checked — and the reader is told which anchor was
-    // refused rather than finding out from a mekor that lands elsewhere.
-    let paging = girsa_scan::Paging::declare(of, scheme, anchors?).map_err(|e| e.to_string())?;
+
+    // What the named sefer actually carries, counted by the same arithmetic
+    // the scheme uses — so a daf the masechta ends before is refused here,
+    // with the anchor named, instead of shipping as a mekor that cites
+    // cleanly and resolves nowhere. Unchecked when nothing is named or the
+    // work is not on this shelf: there is nothing to ask.
+    let units = of.as_ref().and_then(|named| {
+        let state = shared.lock().ok()?;
+        let shelf = state.shelf().ok()?;
+        let open = shelf.read(named).ok()?;
+        let scheme_units: std::collections::HashSet<u32> = open
+            .segments
+            .iter()
+            .filter_map(|segment| segment.id.path().first())
+            .filter_map(|leaf| scheme.unit_of_written(leaf))
+            .collect();
+        Some(scheme_units)
+    });
+
+    let paging = match &units {
+        Some(units) => {
+            let ask = |address: &girsa_ref::Address| {
+                address
+                    .levels()
+                    .first()
+                    .and_then(|level| scheme.unit_of_written(&level.to_string()))
+                    .is_some_and(|unit| units.contains(&unit))
+            };
+            girsa_scan::Paging::declare_checked(of.clone(), scheme, anchors?, &ask)
+        }
+        None => girsa_scan::Paging::declare(of, scheme, anchors?),
+    }
+    .map_err(|e| e.to_string())?;
 
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     {

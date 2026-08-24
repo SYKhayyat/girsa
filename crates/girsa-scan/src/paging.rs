@@ -144,6 +144,18 @@ impl Scheme {
             Self::Numbered => "a number",
         }
     }
+
+    /// The unit a leaf name as written counts to — `"2a"` is 4 under `Amud`.
+    ///
+    /// For the caller of [`Paging::declare_checked`], which builds its set of
+    /// *places this sefer has* out of leaf names exactly as they are spelled
+    /// on disk, and needs them counted by the same arithmetic everything else
+    /// in this module uses.
+    #[must_use]
+    pub fn unit_of_written(self, level: &str) -> Option<u32> {
+        let level = Level::parse(level)?;
+        self.unit_of(&Address::new(vec![level]))
+    }
 }
 
 /// The first daf of any masechta.
@@ -171,6 +183,8 @@ pub enum Refused {
         behind: usize,
         was: String,
     },
+    #[error("`{written}` is not a place in this sefer — the masechta ends before it, and a mekor to nowhere is worse than none")]
+    NotInTheSefer { written: String },
 }
 
 /// One thing the reader can see: *this page is that place*.
@@ -277,7 +291,30 @@ impl Paging {
     pub fn declare(
         of: Option<String>,
         scheme: Scheme,
+        anchors: Vec<Anchor>,
+    ) -> Result<Self, Refused> {
+        // No sefer named, or a caller with no way to ask one: the checks below
+        // that need the text are skipped, exactly as they always were.
+        Self::declare_checked(of, scheme, anchors, &|_| true)
+    }
+
+    /// Declare, and check each anchor against the sefer it names.
+    ///
+    /// `known` answers *does this address exist in the work* — the caller has
+    /// the shelf; this crate never did. The audit's finding was that nothing
+    /// asked: declaring page 45 as a daf the masechta ends before produced
+    /// mareh mekomos that cite cleanly and resolve nowhere, which is the
+    /// failure mode this module exists to prevent, one step later.
+    ///
+    /// # Errors
+    ///
+    /// As [`Paging::declare`], plus [`Refused::NotInTheSefer`] naming the
+    /// first anchor the sefer does not carry.
+    pub fn declare_checked(
+        of: Option<String>,
+        scheme: Scheme,
         mut anchors: Vec<Anchor>,
+        known: &dyn Fn(&Address) -> bool,
     ) -> Result<Self, Refused> {
         anchors.sort_by_key(|a| a.page);
         for anchor in &anchors {
@@ -291,6 +328,12 @@ impl Paging {
                 return Err(Refused::NotThisScheme {
                     written: at.to_string(),
                     wants: scheme.wants(),
+                });
+            }
+            // Only worth asking where the sefer could say yes or no.
+            if !known(at) {
+                return Err(Refused::NotInTheSefer {
+                    written: at.to_string(),
                 });
             }
         }
@@ -486,5 +529,38 @@ mod tests {
                 "page {page}"
             );
         }
+    }
+
+    #[test]
+    fn an_anchor_the_sefer_does_not_carry_is_refused_by_name() {
+        // The audit's F7: a daf the masechta ends before used to declare
+        // cleanly, and every mekor the scan then produced cited cleanly and
+        // resolved nowhere. The sefer here carries up to daf כ (40).
+        let known = |address: &Address| {
+            address
+                .levels()
+                .first()
+                .and_then(|level| Scheme::Daf.unit_of_written(&level.to_string()))
+                .is_some_and(|unit| (2..=40).contains(&unit))
+        };
+        let ok = Paging::declare_checked(
+            Some("bavli/berakhot".to_string()),
+            Scheme::Daf,
+            vec![Anchor::written(1, "ב").expect("an anchor")],
+            &known,
+        );
+        assert!(ok.is_ok(), "a daf the sefer has declares");
+
+        let gone = Paging::declare_checked(
+            Some("bavli/berakhot".to_string()),
+            Scheme::Daf,
+            vec![Anchor::written(45, "קה.").expect("an anchor")],
+            &known,
+        )
+        .expect_err("refused");
+        assert!(
+            matches!(gone, Refused::NotInTheSefer { .. }),
+            "{gone}: the refusal names the anchor"
+        );
     }
 }
