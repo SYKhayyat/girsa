@@ -120,10 +120,24 @@ impl Scans {
     /// # Errors
     ///
     /// If the personal layer will not take it. The mapping itself was checked
-    /// when it was declared.
+    /// when it was declared — **and a declaration that will not save is not
+    /// held in memory either**, which is the rule every other store in the
+    /// layer keeps (`girsa_note::Marks::add` says it in so many words). This
+    /// was the one that mutated first and saved second.
     pub fn declare(&mut self, slug: &str, paging: Paging) -> Result<(), StoreError> {
-        self.by_slug.insert(slug.to_string(), paging);
-        self.save()
+        let previous = self.by_slug.insert(slug.to_string(), paging);
+        if let Err(e) = self.save() {
+            match previous {
+                Some(kept) => {
+                    self.by_slug.insert(slug.to_string(), kept);
+                }
+                None => {
+                    self.by_slug.remove(slug);
+                }
+            }
+            return Err(e);
+        }
+        Ok(())
     }
 
     /// Take one back — the reader got the anchor wrong and would rather have no
@@ -131,13 +145,18 @@ impl Scans {
     ///
     /// # Errors
     ///
-    /// If the personal layer will not write.
+    /// If the personal layer will not write. The same rule as [`Scans::declare`]
+    /// from the other end: a forgetting that will not save leaves the mapping
+    /// held, because the disk still has it.
     pub fn forget(&mut self, slug: &str) -> Result<bool, StoreError> {
-        let had = self.by_slug.remove(slug).is_some();
-        if had {
-            self.save()?;
+        let Some(paging) = self.by_slug.remove(slug) else {
+            return Ok(false);
+        };
+        if let Err(e) = self.save() {
+            self.by_slug.insert(slug.to_string(), paging);
+            return Err(e);
         }
-        Ok(had)
+        Ok(true)
     }
 
     fn save(&self) -> Result<(), StoreError> {

@@ -511,6 +511,10 @@ pub struct Refreshed {
     /// Findings on the file this run did not produce, because the corpus
     /// changed under them. Kept if they were decided and dropped if they were
     /// not: a question about a word that is no longer there has no answer.
+    ///
+    /// **Both halves are counted.** The un-decided half used to be dropped in
+    /// silence, which is the one thing this crate does not do with an entry —
+    /// every other drop it makes is named.
     pub gone: usize,
 }
 
@@ -621,8 +625,15 @@ impl Queue {
         }
 
         // A decided finding the corpus no longer produces is kept, so that a
-        // word you dismissed does not come back the day it is re-scanned.
+        // word you dismissed does not come back the day it is re-scanned. An
+        // un-decided one goes — and is counted going, because "the queue got
+        // shorter and nothing says why" is the silence this crate exists to
+        // close.
         for old in &self.entries {
+            if !seen.contains(&old.id) && old.decided.is_none() {
+                report.gone += 1;
+                continue;
+            }
             if old.decided.is_some() && !seen.contains(&old.id) {
                 entries.push(old.clone());
                 report.gone += 1;

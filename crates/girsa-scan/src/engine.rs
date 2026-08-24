@@ -193,8 +193,19 @@ impl Tesseract {
         std::iter::once(PathBuf::from("tesseract"))
             .chain(USUAL_PLACES.iter().map(PathBuf::from))
             .find_map(|binary| {
-                let version = Command::new(&binary).arg("--version").output().ok()?;
-                if !version.status.success() {
+                // Both probes are bounded. They are plain synchronous spawns
+                // into whatever that path turns out to hold, and a binary
+                // that hangs — a dead mount, a broken install — used to hang
+                // the caller with it, once per candidate.
+                let said = run_bounded(
+                    {
+                        let mut version = Command::new(&binary);
+                        version.arg("--version");
+                        version
+                    },
+                    PROBE_TIMEOUT,
+                )?;
+                if !said.status.success() {
                     return None;
                 }
                 let mut listing = Command::new(&binary);
@@ -202,14 +213,14 @@ impl Tesseract {
                 if let Some(dir) = &models {
                     listing.arg("--tessdata-dir").arg(dir);
                 }
-                let langs = listing.output().ok()?;
+                let langs = run_bounded(listing, PROBE_TIMEOUT)?;
                 if !String::from_utf8_lossy(&langs.stdout)
                     .lines()
                     .any(|line| line.trim() == HEBREW)
                 {
                     return None;
                 }
-                let version = String::from_utf8_lossy(&version.stdout)
+                let version = String::from_utf8_lossy(&said.stdout)
                     .lines()
                     .next()
                     .unwrap_or("tesseract")
@@ -234,14 +245,71 @@ impl Tesseract {
 /// installed is a build that cannot do this at all.
 const HEBREW: &str = "heb";
 
+/// How long a candidate binary gets to answer `--version` or `--list-langs`.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Run a probe, and give up if it does not come back in time.
+///
+/// The outputs are a version line and a language list — far under one pipe
+/// buffer — so draining after exit cannot deadlock, and the bounded wait costs
+/// one thread sleeping in 10 ms steps for the life of the probe.
+fn run_bounded(
+    mut command: std::process::Command,
+    within: std::time::Duration,
+) -> Option<std::process::Output> {
+    use std::io::Read;
+    let started = std::time::Instant::now();
+    let mut child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+                if let Some(pipe) = child.stdout.as_mut() {
+                    let _ = pipe.read_to_end(&mut stdout);
+                }
+                if let Some(pipe) = child.stderr.as_mut() {
+                    let _ = pipe.read_to_end(&mut stderr);
+                }
+                return Some(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
+            }
+            // Still running, still inside its budget.
+            Ok(None) if started.elapsed() < within => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            _ => {
+                // Would not answer in time, or would not be waited on.
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
 impl Engine for Tesseract {
     fn name(&self) -> String {
         self.version.clone()
     }
 
     fn read(&self, page: usize, image: &Image) -> Result<Read, EngineError> {
-        let scratch =
-            std::env::temp_dir().join(format!("girsa-ocr-{page}-{}.png", std::process::id()));
+        // Unique per read, not per page: two reads of one page in flight —
+        // the window's job and a batch job, say — used to share one name and
+        // each write the other's image.
+        static READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let scratch = std::env::temp_dir().join(format!(
+            "girsa-ocr-{page}-{}-{}.png",
+            std::process::id(),
+            READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         std::fs::write(&scratch, &image.png).map_err(|source| EngineError::WouldNotRun {
             engine: self.version.clone(),
             source,
