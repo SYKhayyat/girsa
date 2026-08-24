@@ -1008,7 +1008,10 @@ mod hit_tests {
         for word in ["א", "<", "ב", "אומר", "רשב\"י", "דבר אחר"] {
             assert!(shown.contains(word), "{word} missing from {shown:?}");
         }
-        assert!(!shown.contains("b>"), "the real tag is still stripped: {shown:?}");
+        assert!(
+            !shown.contains("b>"),
+            "the real tag is still stripped: {shown:?}"
+        );
         assert!(!shown.contains("<b"), "{shown:?}");
 
         // And an unclosed `<` is a `<`.

@@ -260,10 +260,7 @@ impl Instrument {
         // long*. All three used to come back as SkipTooLong — or, for the
         // inverted range, as a silent empty answer.
         if skips.is_empty() {
-            return Err(InstrumentError::InvertedRange(
-                *skips.start(),
-                *skips.end(),
-            ));
+            return Err(InstrumentError::InvertedRange(*skips.start(), *skips.end()));
         }
         if *skips.start() == 0 {
             return Err(InstrumentError::SkipZero);

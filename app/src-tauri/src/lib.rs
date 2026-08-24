@@ -2238,7 +2238,9 @@ fn open_sefer(shared: tauri::State<'_, Shared>, slug: String) -> Result<Text, St
         .get(at)
         .map(|s| s.id.to_string())
         .unwrap_or_default();
-    let from = at.saturating_sub(girsa_app::view::WINDOW / 2).min(total.saturating_sub(1));
+    let from = at
+        .saturating_sub(girsa_app::view::WINDOW / 2)
+        .min(total.saturating_sub(1));
     let to = (from + girsa_app::view::WINDOW).min(total);
     let mut lines: Vec<Line> = sefer.segments[from..to]
         .iter()
@@ -2525,13 +2527,12 @@ fn scan_ocr_page(
         let personal = shelf.personal().to_path_buf();
         personal
     };
-    let engine = girsa_scan::Tesseract::found(Some(&personal))
-        .ok_or_else(|| {
-            girsa_app::trouble::refuse(
-                Code::NoEngine,
-                girsa_scan::EngineError::NoEngine.to_string(),
-            )
-        })?;
+    let engine = girsa_scan::Tesseract::found(Some(&personal)).ok_or_else(|| {
+        girsa_app::trouble::refuse(
+            Code::NoEngine,
+            girsa_scan::EngineError::NoEngine.to_string(),
+        )
+    })?;
     let read = girsa_scan::Engine::read(&engine, page, &girsa_scan::Image { png, width, height })
         .map_err(|e| e.to_string())?;
     {
@@ -3994,10 +3995,7 @@ fn buffer_rename(
         // Not a rename. Ordinary save, ordinary rules.
         return buffer_save(shared, to, text);
     }
-    if !over
-        && girsa_desk::Buffer::taken(&personal, named)
-            .map_err(|e| e.to_string())?
-    {
+    if !over && girsa_desk::Buffer::taken(&personal, named).map_err(|e| e.to_string())? {
         return Err(girsa_app::trouble::refuse(
             girsa_app::trouble::Code::AlreadyThere,
             format!("you are already writing something called {named}"),
@@ -6793,14 +6791,11 @@ fn folder_edit(
         }
     }
     let held = folder.members.len();
-    shelf
-        .collections_mut()
-        .save(folder)
-        .map_err(|e| {
-            // A write the personal layer refused, named: this used to forward
-            // the crate's English Display to a Hebrew window.
-            girsa_app::trouble::refuse(Code::ReadOnly, e.to_string())
-        })?;
+    shelf.collections_mut().save(folder).map_err(|e| {
+        // A write the personal layer refused, named: this used to forward
+        // the crate's English Display to a Hebrew window.
+        girsa_app::trouble::refuse(Code::ReadOnly, e.to_string())
+    })?;
     Ok(held)
 }
 

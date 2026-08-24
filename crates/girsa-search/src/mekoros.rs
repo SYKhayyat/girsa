@@ -251,9 +251,7 @@ fn gather(
         paging,
         &girsa_ref::resolve::Context::default(),
     ) {
-        Answer::Segments {
-            results, rungs, ..
-        } => Ok(Found {
+        Answer::Segments { results, rungs, .. } => Ok(Found {
             phrase: phrase.to_string(),
             // The names of what actually ran — not the announcement sentence,
             // which is one renderer's English and used to be printed as

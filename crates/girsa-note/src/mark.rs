@@ -666,7 +666,9 @@ mod tests {
 
         // The same bookmark said twice is still one; identity has not become
         // "whatever happened to be in memory".
-        marks.add(Mark::bookmark(at(), "me").called("עיין בזה")).expect("takes");
+        marks
+            .add(Mark::bookmark(at(), "me").called("עיין בזה"))
+            .expect("takes");
         assert_eq!(marks.bookmarks().len(), 2);
     }
 

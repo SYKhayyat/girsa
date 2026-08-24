@@ -410,7 +410,10 @@ pub fn read_file(
     // reordering of columns would otherwise be read into the wrong fields,
     // resolve strangely, and look exactly like a corpus problem.
     let mut lines = body.lines();
-    let head = lines.next().unwrap_or_default().trim_start_matches('\u{FEFF}');
+    let head = lines
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches('\u{FEFF}');
     if head != link_columns::HEADER {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,

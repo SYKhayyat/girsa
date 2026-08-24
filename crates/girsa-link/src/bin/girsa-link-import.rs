@@ -168,7 +168,11 @@ fn main() -> std::process::ExitCode {
                     gone.inbound,
                     gone.landings,
                     gone.masks,
-                    if gone.marker { " the built marker," } else { "" },
+                    if gone.marker {
+                        " the built marker,"
+                    } else {
+                        ""
+                    },
                     if gone.companions {
                         " companions.jsonl,"
                     } else {

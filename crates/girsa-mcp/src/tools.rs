@@ -879,7 +879,10 @@ fn resolve(server: &Server, args: &Value) -> Result<Value, String> {
     // refuses, and a partial span fills its missing sections against nothing
     // — which is exactly what a window does when the pane it was typed in
     // has no place yet, except there the reader can see where it landed.
-    let scoped: Option<String> = args.get("sefer").and_then(Value::as_str).map(str::to_string);
+    let scoped: Option<String> = args
+        .get("sefer")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let context = girsa_ref::resolve::Context {
         work: scoped.clone().map(|slug| vec![slug]),
         address: None,

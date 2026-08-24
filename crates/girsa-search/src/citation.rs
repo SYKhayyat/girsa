@@ -300,14 +300,9 @@ impl Citations {
             .segments
             .iter()
             .position(|s| s.id == place.run.first)
-            .ok_or_else(|| {
-                import::ImportError::Malformed {
-                    path: format!("girsa:{}", place.reference.work_slug()),
-                    message: format!(
-                        "{} is not in this work on the shelf",
-                        place.run.first
-                    ),
-                }
+            .ok_or_else(|| import::ImportError::Malformed {
+                path: format!("girsa:{}", place.reference.work_slug()),
+                message: format!("{} is not in this work on the shelf", place.run.first),
             })?;
         let last = place
             .run

@@ -717,8 +717,23 @@ async function main() {
     complained += String(chunk);
   });
 
+  // **The browser that answers is not always the browser that was spawned.**
+  //
+  // From an elevated shell on Windows, Chrome and Edge re-exec themselves
+  // unelevated (`RunDeElevated` in their own logs): the process this file
+  // spawned exits code 0 with nothing on stderr, and its replacement — same
+  // flags, same port — comes up half a second later. Watching only the child's
+  // liveness called that handoff *the browser started and then exited* and gave
+  // up while the real browser was warming up. The port poll below can tell a
+  // handoff from a death, so it gets the deciding vote: an exit is fatal when
+  // the browser said something, or exited non-zero; a silent clean exit stays
+  // suspense until the port answers or the budget runs out.
+  const alive = () => {
+    if (child.exitCode === null && child.signalCode === null) return true;
+    return child.exitCode === 0 && !child.signalCode && complained.trim() === "";
+  };
+
   try {
-    const alive = () => child.exitCode === null && child.signalCode === null;
     const wanted = pathToFileURL(page).href;
     const target = await pageOf(port, wanted, () => complained, alive);
     const socket = new WebSocket(target.webSocketDebuggerUrl);
@@ -1425,6 +1440,34 @@ async function main() {
     );
     await eye.send("Emulation.setEmulatedMedia", { media: "" });
   } finally {
+    // **Close the browser that is actually listening**, not only the process
+    // this file spawned. After a de-elevated handoff (see `alive` above) the
+    // spawned pid is long gone and its replacement holds the profile lock;
+    // killing a corpse and then removing the directory under a living browser
+    // fails the run on the tidying-up. The version endpoint answers from the
+    // same port either way, and its browser-level socket takes `Browser.close`.
+    try {
+      const version = await fetch(`http://127.0.0.1:${port}/json/version`)
+        .then((r) => r.json())
+        .catch(() => null);
+      const url = version?.webSocketDebuggerUrl;
+      if (url) {
+        const closer = new WebSocket(url);
+        const said = await new Promise((resolve, reject) => {
+          closer.addEventListener("open", () => {
+            closer.send(JSON.stringify({ id: 1, method: "Browser.close" }));
+            closer.addEventListener("message", function read(event) {
+              if (JSON.parse(event.data).id === 1) resolve(true);
+            });
+          });
+          closer.addEventListener("error", reject);
+          setTimeout(() => resolve(false), 3000);
+        }).catch(() => false);
+        void said;
+      }
+    } catch {
+      // Whatever is still listening dies with the room removal below at worst.
+    }
     // Wait for it to actually go: on Windows the profile keeps a lockfile open
     // until the process is gone, and removing the directory under it throws
     // EBUSY — which would be the whole run failing on the tidying-up.

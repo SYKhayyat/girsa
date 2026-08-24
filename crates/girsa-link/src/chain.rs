@@ -504,8 +504,7 @@ impl Held {
                 let lower = self.points.partition_point(|(id, _)| id < from);
                 let upper = match Self::block_end(from.ordinal()) {
                     Some(end) => {
-                        let edge_of_block =
-                            SegmentId::new(work, Vec::new(), end);
+                        let edge_of_block = SegmentId::new(work, Vec::new(), end);
                         self.points.partition_point(|(id, _)| id < &edge_of_block)
                     }
                     // A component at `u32::MAX` cannot step over; take the rest
@@ -578,10 +577,10 @@ impl Held {
     }
 
     /// Every ordinal `key` descends from, outermost first, excluding itself.
-    fn ancestors(
-        key: &girsa_corpus::segment::Ordinal,
-    ) -> Vec<girsa_corpus::segment::Ordinal> {
-        (1..key.depth()).filter_map(|levels| Self::prefix(key, levels)).collect()
+    fn ancestors(key: &girsa_corpus::segment::Ordinal) -> Vec<girsa_corpus::segment::Ordinal> {
+        (1..key.depth())
+            .filter_map(|levels| Self::prefix(key, levels))
+            .collect()
     }
 
     /// The ordinal made of `key`'s first `levels` components.
@@ -778,7 +777,6 @@ pub fn trace(graph: &mut Graph<'_>, at: &SegmentId, direction: Direction, limits
                 direction: repaired.edge.direction,
             });
             frontier.push_back((Some(index), other, depth + 1));
-
         }
     }
 

@@ -281,7 +281,8 @@ impl SegmentIndex {
     }
 
     pub fn insert(&mut self, slug: impl Into<String>, segments: WorkSegments) {
-        self.works.insert(slug.into(), segments);    }
+        self.works.insert(slug.into(), segments);
+    }
 
     /// The segments a resolved citation names, or nothing.
     ///
