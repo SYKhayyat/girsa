@@ -935,7 +935,8 @@ mod tests {
         // The clamp used to live in the window (`limit.clamp(1, 500)`), which
         // is a decision with no test in the one place decisions are not
         // allowed to live. Here it is, where it can be watched.
-        let mut queue = Queue::open(std::env::temp_dir().join("girsa-queue-page-unused")).0;
+        let mut queue =
+            Queue::open(&std::env::temp_dir().join("girsa-queue-page-unused")).0;
         queue.entries = (0..Queue::PAGE_LARGEST * 2)
             .map(|n| Suspect::new(&format!("קורין{n}"), "קורים", 1, 12_000, Edit::Letter))
             .collect();
