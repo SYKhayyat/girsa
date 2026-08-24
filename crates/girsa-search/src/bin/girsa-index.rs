@@ -915,9 +915,9 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
                 .map(|value| (dimension, value.to_string())),
         );
     }
-    if let Some(page) = args.value("--page") {
-        paging = pages(paging, page);
-    }
+    // The size first, then the page against it: the two used to be applied in
+    // flag order, so `--size 20 --page 3` and `--page 3 --size 20` computed
+    // different offsets from the same request.
     if let Some(size) = args.value("--size") {
         match size.parse() {
             Ok(size) => paging = Paging { size, ..paging },
@@ -926,6 +926,9 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
                 return std::process::ExitCode::from(2);
             }
         }
+    }
+    if let Some(page) = args.value("--page") {
+        paging = pages(paging, page);
     }
 
     let index = match SearchIndex::open(index_dir) {
@@ -1026,7 +1029,10 @@ fn clicked(
     rungs: &[Rung],
     paging: Paging,
 ) -> std::process::ExitCode {
-    let query = Query::new(typed)
+    // The sigil reader, like every other path into the engine. Without it the
+    // marks that flip chips everywhere else were searched as characters here.
+    let (chips, text) = chips.read(typed);
+    let query = Query::new(&text)
         .matching(chips.matching)
         .together(chips.together);
     let widened = Widened::new(query, rungs.to_vec());
@@ -1269,11 +1275,29 @@ fn stamp(index_dir: &Path) -> std::process::ExitCode {
 
 fn load_works(root: &Path) -> Result<Vec<Work>, std::io::Error> {
     let body = std::fs::read_to_string(root.join("works/index.jsonl"))?;
-    Ok(body
+    // Counted, not dropped: a corrupt row means the rebuilt index is quietly
+    // missing that sefer — every hit in it gone, with nothing said. The count
+    // goes to stderr, where a build run already looks.
+    let mut unreadable = 0usize;
+    let works: Vec<Work> = body
         .lines()
         .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str::<Work>(l).ok())
-        .collect())
+        .filter_map(|l| match serde_json::from_str::<Work>(l) {
+            Ok(work) => Some(work),
+            Err(_) => {
+                unreadable += 1;
+                None
+            }
+        })
+        .collect();
+    if unreadable > 0 {
+        eprintln!(
+            "{}: {} corrupt row(s) in the catalogue — those seforim are not in what was built",
+            root.join("works/index.jsonl").display(),
+            unreadable
+        );
+    }
+    Ok(works)
 }
 
 fn size_on_disk(dir: &Path) -> String {

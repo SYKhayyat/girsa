@@ -241,7 +241,12 @@ impl SegmentIndex {
         let mut works = HashMap::new();
         let mut failed = Vec::new();
         for line in body.lines().filter(|l| !l.trim().is_empty()) {
+            // Named in the same list as a work whose text will not load: both
+            // are a sefer the caller is about to build against without, and
+            // "the catalogue had a row that was not a work" is a fact worth
+            // one line.
             let Ok(work) = serde_json::from_str::<crate::work::Work>(line) else {
+                failed.push(format!("<unreadable row: {}>", truncate(line)));
                 continue;
             };
             match WorkSegments::load(root, &work.slug) {
@@ -276,8 +281,7 @@ impl SegmentIndex {
     }
 
     pub fn insert(&mut self, slug: impl Into<String>, segments: WorkSegments) {
-        self.works.insert(slug.into(), segments);
-    }
+        self.works.insert(slug.into(), segments);    }
 
     /// The segments a resolved citation names, or nothing.
     ///
@@ -503,4 +507,15 @@ mod tests {
             "girsa:shulchan-arukh/orach-chayim/10:3#30"
         );
     }
+}
+
+/// A catalogue row, short enough to name in a report.
+fn truncate(line: &str) -> String {
+    const ROOM: usize = 60;
+    if line.chars().count() <= ROOM {
+        return line.to_string();
+    }
+    let mut out: String = line.chars().take(ROOM).collect();
+    out.push('…');
+    out
 }
