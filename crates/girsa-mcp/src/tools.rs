@@ -137,10 +137,15 @@ pub fn catalogue(writable: bool) -> Value {
             "description": "\
     Turn a mareh makom as a person writes it — שו\"ע או\"ח נח:א, ברכות ב., Berakhot 2a \
     — into segment ids. A citation with more than one plausible target comes back \
-    as every candidate, never as a pick.",
+    as every candidate, never as a pick. There is no reader standing here: pass \
+    `sefer` when the citation is relative to a work you are already in, and read \
+    `resolved_against` on the reply.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"citation": {"type": "string"}},
+                "properties": {
+                    "citation": {"type": "string"},
+                    "sefer": {"type": "string", "description": "A work slug to complete the citation against."}
+                },
                 "required": ["citation"]
             }
         },
@@ -221,7 +226,8 @@ pub fn catalogue(writable: bool) -> Value {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
-                    "width": {"type": "integer", "minimum": 2, "maximum": 40}
+                    "width": {"type": "integer", "minimum": 2, "maximum": 40},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
                 },
                 "required": ["id"]
             }
@@ -584,12 +590,15 @@ fn search(server: &Server, args: &Value) -> Result<Value, String> {
         from: 0,
         size: limit,
     };
-    match server.bar.ask(
-        &query,
-        &chips,
-        paging,
-        &girsa_ref::resolve::Context::default(),
-    ) {
+    // The declared scope is the citation context, because it is the only one
+    // this surface has. No address travels with it — an agent is standing
+    // nowhere — so partial spans complete against nothing, exactly as they do
+    // for a window reader with no pane open; `resolve` says so on its reply.
+    let context = girsa_ref::resolve::Context {
+        work: Some(chips.scope.works().into_iter().collect::<Vec<String>>()),
+        address: None,
+    };
+    match server.bar.ask(&query, &chips, paging, &context) {
         Answer::Segments {
             results,
             offers,
@@ -736,6 +745,16 @@ fn corrections_on(open: &girsa_app::shelf::Open, id: &SegmentId) -> Vec<Value> {
 
 fn resolve(server: &Server, args: &Value) -> Result<Value, String> {
     let citation = text_arg(args, "citation")?;
+    // An optional sefer gives the citation something to complete against.
+    // Without one there is no standing at all: a bare address ("הלכה ה")
+    // refuses, and a partial span fills its missing sections against nothing
+    // — which is exactly what a window does when the pane it was typed in
+    // has no place yet, except there the reader can see where it landed.
+    let scoped: Option<String> = args.get("sefer").and_then(Value::as_str).map(str::to_string);
+    let context = girsa_ref::resolve::Context {
+        work: scoped.clone().map(|slug| vec![slug]),
+        address: None,
+    };
     // Through the bar's citation mode, which is the path the query bar takes —
     // rather than the resolver underneath it, which would be a second way of
     // reading a mareh makom and a second place for it to disagree.
@@ -743,12 +762,7 @@ fn resolve(server: &Server, args: &Value) -> Result<Value, String> {
         mode: Mode::Citation,
         ..Chips::default()
     };
-    let landing = match server.bar.ask(
-        &citation,
-        &chips,
-        Paging::first(),
-        &girsa_ref::resolve::Context::default(),
-    ) {
+    let landing = match server.bar.ask(&citation, &chips, Paging::first(), &context) {
         Answer::Cited(landing) => landing,
         Answer::Refused(why) => return Err(why),
         Answer::Segments { .. } => return Err("that did not read as a citation".to_string()),
@@ -771,6 +785,11 @@ fn resolve(server: &Server, args: &Value) -> Result<Value, String> {
         // server does not make it (BUILDER.md rule 6).
         "settled": places.len() == 1,
         "places": places,
+        // What the citation was completed against. Null means no standing —
+        // this surface has no reader standing anywhere, so a relative or
+        // partial mareh makom was resolved against nothing, and an agent
+        // reading `settled` alone would never know.
+        "resolved_against": scoped,
         "near_misses": landing.near.len(),
         "spellings_not_shown": landing.more_spellings,
     }))
@@ -953,10 +972,11 @@ fn fork(server: &mut Server, args: &Value) -> Result<Value, String> {
     );
     let (forks, left_out) = chain::forks(&mut graph, &id, limits_of(args));
     server.walked = graph.into_cache();
+    let shown = forks.iter().take(limit_of(args));
     Ok(json!({
         "at": named(server, &id),
         "note": "nothing here says these disagree — the corpus has no `disputes` edge anywhere in it",
-        "pairs": forks.iter().take(limit_of(args)).map(|pair| json!({
+        "pairs": shown.map(|pair| json!({
             "a": named(server, &pair.a.from),
             "b": named(server, &pair.b.from),
             // Nearest first, and each says how far it is: a witness that
@@ -971,6 +991,9 @@ fn fork(server: &mut Server, args: &Value) -> Result<Value, String> {
             "nearest_witness_steps": pair.witnesses.first().map(|w| w.steps),
             "a_link_joins_them_directly": pair.joined,
         })).collect::<Vec<Value>>(),
+        // The schema takes `limit` now, so a longer list is askable rather
+        // than something `total` quietly admits to.
+        "showing": forks.len().min(limit_of(args)),
         "total": forks.len(),
         "not_followed": refused(&left_out),
     }))

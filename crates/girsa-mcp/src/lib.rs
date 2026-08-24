@@ -74,14 +74,16 @@ pub struct Server {
     /// could get adjacent-by-meaning results out of `search` would have no way
     /// to tell its own caller which kind of answer it had.
     lane: girsa_nearby::Adjacency,
-    /// What your own layer holds that the index has not seen (B7, B24).
+    /// The index root, kept so the honesty sentence can be computed **now**.
     ///
-    /// Read once at open, like the catalogue: a program asking `search` is entitled
-    /// to the same sentence the window's results header shows, and a caller that
-    /// cannot complain is exactly who needs it most — a `total` of zero over an
-    /// index that has never seen your notes reads to an agent as *this is not in the
-    /// library*.
-    unindexed: girsa_note::since::Unindexed,
+    /// It used to be a snapshot taken once at open, like the catalogue — and
+    /// this server can write (`write_note`, `correct`), so the snapshot went
+    /// stale on its very first write and every `did_not_search` after it
+    /// described a layer the server itself had already changed. A mtime
+    /// comparison is cheap; a sentence that lies is not.
+    index: PathBuf,
+    /// Your own layer's root, for the same reason.
+    personal: PathBuf,
     /// Set once the client has sent `initialize`. A tool call before that is
     /// refused rather than served, because a client that has not handshaken has
     /// not agreed a protocol version and cannot be assumed to read the answer.
@@ -132,7 +134,6 @@ impl Server {
         // `narrow_by: "tag"` has somewhere to narrow to (B18).
         let (notes, _) = girsa_note::note::Notes::open(personal);
         let catalogue = Catalogue::of(shelf.works()).tagged(&notes);
-        let unindexed = girsa_note::since::Unindexed::of(Some(index), personal);
         // Loads a side-loaded model when the lane is on, which is why it is done
         // once here and not per call. With the lane off — the default — this
         // costs nothing at all.
@@ -146,7 +147,8 @@ impl Server {
             shelf,
             timeline,
             lane,
-            unindexed,
+            index: index.to_path_buf(),
+            personal: personal.to_path_buf(),
             ready: false,
             writable: false,
             walked: girsa_link::chain::Cache::default(),
@@ -168,10 +170,17 @@ impl Server {
         self.writable
     }
 
-    /// What your own layer holds that the index has not seen (B7).
+    /// What your own layer holds that the index has not seen (B7, B24).
+    ///
+    /// Computed on every ask, not cached: this server can write into the very
+    /// layer the sentence describes, so a snapshot went stale on its first
+    /// write. A program asking `search` is entitled to the same sentence the
+    /// window's results header shows, and a caller that cannot complain is
+    /// exactly who needs it most — a `total` of zero over an index that has
+    /// never seen your notes reads to an agent as *this is not in the library*.
     #[must_use]
     pub fn unindexed(&self) -> girsa_note::since::Unindexed {
-        self.unindexed
+        girsa_note::since::Unindexed::of(Some(&self.index), &self.personal)
     }
 
     /// What it takes to name a place: the shelf, the dates, and a language.
