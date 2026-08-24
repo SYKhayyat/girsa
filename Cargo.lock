@@ -2226,6 +2226,7 @@ dependencies = [
 name = "girsa-shell"
 version = "0.1.2"
 dependencies = [
+ "base64 0.22.1",
  "clipboard-rs",
  "girsa-app",
  "girsa-cite",

@@ -2506,6 +2506,10 @@ fn scan_read_page(
 }
 
 /// Look at the picture instead, for a page that carries no text of its own.
+///
+/// `png` arrives **base64**. As `Vec<u8>` it was a JSON array of numbers: a
+/// multi-MB page render became millions of boxed values inside the exact
+/// serialization this job promised never to make the reader wait for.
 #[tauri::command(async)]
 fn scan_ocr_page(
     shared: tauri::State<'_, Shared>,
@@ -2513,8 +2517,12 @@ fn scan_ocr_page(
     page: usize,
     width: u32,
     height: u32,
-    png: Vec<u8>,
+    png: String,
 ) -> Result<ReadingRow, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    let png = B64
+        .decode(png.as_bytes())
+        .map_err(|e| format!("the picture of page {page} did not decode: {e}"))?;
     let personal = {
         let state = shared.lock().map_err(|_| State::poisoned())?;
         let shelf = state.shelf()?;

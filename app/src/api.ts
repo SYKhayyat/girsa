@@ -1462,8 +1462,11 @@ export const api = {
     height: number,
     glyphs: Glyph[],
   ) => call<Reading>("scan_read_page", { slug, page, width, height, glyphs }),
-  /** Hand over a picture of one page, for a page that carries no text. */
-  scanOcrPage: (slug: string, page: number, width: number, height: number, png: number[]) =>
+  /** Hand over a picture of one page, for a page that carries no text.
+   * Base64, and not a number array: three million boxed values per
+   * multi-megabyte render was the IPC cost landing on the one background job
+   * that promises never to block reading. */
+  scanOcrPage: (slug: string, page: number, width: number, height: number, png: string) =>
     call<Reading>("scan_ocr_page", { slug, page, width, height, png }),
   /** What is on a page, for drawing a highlight over the photograph. */
   scanWords: (slug: string, page: number) =>

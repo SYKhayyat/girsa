@@ -82,6 +82,11 @@ girsa-source = { workspace = true }
 # The loopback: token-gated, localhost only, and the `girsa://` links.
 girsa-post = { workspace = true }
 girsa-ksav = { workspace = true }
+# OCR pages cross the IPC as base64 rather than a JSON array of numbers —
+# a multi-megabyte PNG as three million boxed floats was the serialization
+# cost landing on the exact job that promises never to block reading.
+# Already in the tree transitively; this only names it.
+base64 = "0.22"
 clipboard-rs = { version = "0.3.5", default-features = false }
 tauri-plugin-deep-link = "2.4.9"
 

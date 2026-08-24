@@ -699,14 +699,18 @@ export class ScanView {
     }
     const png = await this.rasterize(page);
     if (!png) return false;
-    await api.scanOcrPage(this.slug, page, png.width, png.height, png.bytes);
+    await api.scanOcrPage(this.slug, page, png.width, png.height, png.base64);
     return true;
   }
 
-  /** A picture of a page, for an engine to look at. */
+  /** A picture of a page, for an engine to look at.
+   *
+   * The bytes leave as **base64**, not as an array of numbers: spreading a
+   * multi-megabyte PNG into JS numbers serialized millions of boxed values
+   * over the IPC inside the job that promises never to block reading. */
   private async rasterize(
     page: number,
-  ): Promise<{ bytes: number[]; width: number; height: number } | null> {
+  ): Promise<{ base64: string; width: number; height: number } | null> {
     if (!this.doc) return null;
     const it = await this.doc.getPage(page);
     // 300 dpi against a 72-dpi page, which is what the evaluation in
@@ -722,8 +726,15 @@ export class ScanView {
     await it.render({ canvas, canvasContext: context, viewport }).promise;
     const blob = await new Promise<Blob | null>((give) => canvas.toBlob(give, "image/png"));
     if (!blob) return null;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    // In chunks: `String.fromCharCode(...bytes)` has an argument-count ceiling
+    // and this is exactly where a whole archive-sized page hits it.
+    for (let at = 0; at < bytes.length; at += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+    }
     return {
-      bytes: [...new Uint8Array(await blob.arrayBuffer())],
+      base64: btoa(binary),
       width: canvas.width,
       height: canvas.height,
     };
