@@ -270,16 +270,23 @@ impl SegmentStore {
     ///
     /// The earlier ID stays live and carries the combined text; the later one
     /// redirects at it. Nothing after them moves.
-    pub fn merge_with_next(&mut self, id: &SegmentId) -> Option<SegmentId> {
+    ///
+    /// The id is **resolved first**. This is a public API, and an id can be
+    /// dead: a range seek from a dead key lands wherever the map happens to
+    /// sort its neighbours, and the old order then removed that innocent
+    /// neighbour's next segment and redirected it at an id with no text —
+    /// two segments merged into nothing, on a call whose answer was `None`.
+    pub fn merge_with_next(&mut self, requested: &SegmentId) -> Option<SegmentId> {
+        let id = self.resolve(requested).into_iter().next()?;
         let next = self
             .live
             .range(id.clone()..)
             .nth(1)
             .map(|(id, _)| id.clone())?;
         let tail = self.live.remove(&next)?;
-        self.live.get_mut(id)?.push_str(&tail);
+        self.live.get_mut(&id)?.push_str(&tail);
         self.redirects.insert(next, vec![id.clone()]);
-        Some(id.clone())
+        Some(id)
     }
 }
 

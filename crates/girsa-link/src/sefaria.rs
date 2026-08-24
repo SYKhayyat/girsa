@@ -404,7 +404,26 @@ pub fn read_file(
     let body = fs::read_to_string(path)?;
     let mut tally = Tally::default();
 
-    for line in body.lines().skip(1) {
+    // The header is **validated**, not skipped. The column positions above are
+    // only as true as that first row, and the constant naming it existed for a
+    // fixture to *write* — nothing ever compared against it. An upstream
+    // reordering of columns would otherwise be read into the wrong fields,
+    // resolve strangely, and look exactly like a corpus problem.
+    let mut lines = body.lines();
+    let head = lines.next().unwrap_or_default().trim_start_matches('\u{FEFF}');
+    if head != link_columns::HEADER {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "{}: its header reads `{head}` and this importer reads `{}` — \
+                 refusing rather than reading rows into the wrong columns",
+                path.display(),
+                link_columns::HEADER
+            ),
+        ));
+    }
+
+    for line in lines {
         if line.trim().is_empty() {
             continue;
         }
@@ -745,5 +764,33 @@ mod tests {
             resolver.resolve_citation("או\"ח א'", "Tur, Orach Chayim", &index),
             Resolved::Exact(_)
         ));
+    }
+
+    #[test]
+    fn a_links_file_whose_header_does_not_agree_is_refused_rather_than_misread() {
+        // The header constant existed for a fixture to *write*; nothing read
+        // it. A reordered upstream column set would have been skipped unread
+        // and every row resolved from the wrong fields.
+        let dir = std::env::temp_dir().join("girsa-sefaria-header");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("links0.csv");
+        fs::write(
+            &path,
+            "Citation 2,Citation 1,Conection Type,Text 1,Text 2,Category 1,Category 2\n\
+             \"a\",\"b\",\"quotation\",\"c\",\"d\",\"e\",\"f\"\n",
+        )
+        .unwrap();
+        let lexicon = lexicon();
+        let index = both_on_the_shelf();
+        let mut resolver = Resolver::new(&lexicon);
+        let error = read_file(&path, &mut resolver, &index, |_| {}).expect_err("refused");
+        assert!(error.to_string().contains("wrong columns"), "{error}");
+
+        // And a BOM in front of the header is not a different header.
+        fs::write(&path, format!("\u{FEFF}{}\n", link_columns::HEADER)).unwrap();
+        let tally = read_file(&path, &mut resolver, &index, |_| {}).expect("reads");
+        assert_eq!(tally.rows, 0);
+        let _ = fs::remove_dir_all(&dir);
     }
 }
