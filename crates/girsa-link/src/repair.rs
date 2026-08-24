@@ -696,7 +696,15 @@ impl Repairs {
     /// that quietly applies to nothing is a repair you think you made.
     #[must_use]
     pub fn orphans(&self, edges: &[Edge]) -> Vec<&Record> {
-        let live: std::collections::HashSet<String> = edges.iter().map(name_of).collect();
+        self.orphans_among(&edges.iter().map(name_of).collect())
+    }
+
+    /// The same, for a caller that already has the live names — the cache
+    /// builder walks every edge as text and never needs them as `Edge`s.
+    /// This is the caller `orphans` was waiting for: without it the promise
+    /// above (*and reported*) had no keeper outside the tests.
+    #[must_use]
+    pub fn orphans_among(&self, live: &std::collections::HashSet<String>) -> Vec<&Record> {
         self.by_edge
             .iter()
             .filter(|(name, _)| !live.contains(*name))

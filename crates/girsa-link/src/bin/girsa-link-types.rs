@@ -131,6 +131,10 @@ fn main() -> std::process::ExitCode {
     let mut unreadable = 0usize;
     let mut unparsed = 0usize;
     let mut done = 0usize;
+    // Every edge name that exists, as `Repairs` names them. The repairs are
+    // opened below; the orphan report needs this set finished first, which is
+    // why it is printed after the walk and not beside the retyped count.
+    let mut live = std::collections::HashSet::new();
 
     for path in &shards {
         let Ok(body) = std::fs::read_to_string(path) else {
@@ -142,6 +146,7 @@ fn main() -> std::process::ExitCode {
                 unparsed += 1;
                 continue;
             };
+            live.insert(format!("{} → {}", row.from, row.to));
             row.forget_implied_type();
             let (Some(from), Some(to)) = (work_of(&row.from), work_of(&row.to)) else {
                 unparsed += 1;
@@ -216,6 +221,27 @@ fn main() -> std::process::ExitCode {
                 eprintln!("{line}");
             }
             eprintln!("  your layer: {} edges retyped", repairs.retyped_count());
+            // The promise `orphans` makes, kept: a repair naming an edge the
+            // corpus no longer has is said here, at the one moment both
+            // halves of the question are in hand. Said as a count and the
+            // names — a repair that quietly applies to nothing is a repair
+            // you think you made.
+            let orphans = repairs.orphans_among(&live);
+            if !orphans.is_empty() {
+                eprintln!(
+                    "  your layer: {} repair{} apply to nothing — the corpus no longer has these edges:",
+                    orphans.len(),
+                    if orphans.len() == 1 { "" } else { "s" }
+                );
+                for record in &orphans {
+                    eprintln!(
+                        "    {} ({}, by {})",
+                        record.edge,
+                        record.repair.as_str(),
+                        record.who
+                    );
+                }
+            }
             Some(repairs)
         }
         None => {
