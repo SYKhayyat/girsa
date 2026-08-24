@@ -6399,7 +6399,8 @@ fn note_edit(
     Ok(rows)
 }
 
-/// Throw a note away — the file, the sefer and the catalogue line.
+/// Throw a note away — the file, the sefer, the catalogue line, and its seat
+/// in any folder that held it. `false` when there was no such note.
 #[tauri::command(async)]
 fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
@@ -6409,7 +6410,7 @@ fn note_forget(shared: tauri::State<'_, Shared>, note: String) -> Result<bool, S
         // pane holding text nothing on the shelf accounts for.
         let slug = shelf.notes().get(&note).map(|held| held.slug.clone());
         let gone = shelf.forget_note(&note).map_err(|e| e.to_string())?;
-        (slug, gone)
+        (slug, gone.is_some())
     };
     if let Some(slug) = slug {
         state.open.forget(&slug);
@@ -6674,12 +6675,15 @@ fn query_recall(shared: tauri::State<'_, Shared>, name: String) -> Result<String
     Ok(held.typed)
 }
 
-/// Forget a saved query.
+/// Forget a saved query — and its seat in any folder that held it.
 #[tauri::command(async)]
 fn query_forget(shared: tauri::State<'_, Shared>, name: String) -> Result<bool, String> {
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     let mut shelf = state.shelf_mut()?;
-    shelf.queries_mut().remove(&name).map_err(|e| e.to_string())
+    Ok(shelf
+        .forget_query(&name)
+        .map_err(|e| e.to_string())?
+        .is_some())
 }
 
 /// Your chaburah folders.

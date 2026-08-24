@@ -316,6 +316,73 @@ impl Collections {
         self.log.took(&[name])?;
         Ok(self.by_name.remove(name).is_some())
     }
+
+    /// Take every member naming `slug` as its work — a whole sefer of yours
+    /// that is going away — out of every folder.
+    ///
+    /// This is the reconciliation side of [`crate::Notes::remove`]: the note's
+    /// folder rows used to survive it as bare slugs for works that no longer
+    /// exist, drawn every time the folder opened. The folders that changed are
+    /// named back, so the delete can say what it touched rather than doing it
+    /// quietly. Members naming **places** in that work stay: a place survives
+    /// re-segmentation by its name (spec.md §3), and whether one still resolves
+    /// is not something this file can know.
+    ///
+    /// # Errors
+    ///
+    /// If your layer will not write.
+    pub fn without_work(&mut self, slug: &str) -> Result<Vec<String>, CollectionError> {
+        let mut changed = Vec::new();
+        let names: Vec<String> = self.by_name.keys().cloned().collect();
+        for name in names {
+            let Some(folder) = self.by_name.get_mut(&name) else {
+                continue;
+            };
+            let before = folder.members.len();
+            folder.members.retain(|member| match member {
+                Member::Work(wanted) => wanted != slug,
+                _ => true,
+            });
+            if folder.members.len() != before {
+                changed.push(name);
+                let trimmed = folder.clone();
+                // Written through the same append the reader's own edits use,
+                // so a member taken here and one taken by hand are the same
+                // kind of row on disk.
+                let saved = self.save(trimmed)?;
+                let _ = saved;
+            }
+        }
+        Ok(changed)
+    }
+
+    /// Take every `Member::Query(name)` out of every folder — the other half
+    /// of [`crate::Queries::remove`], by the same argument.
+    ///
+    /// # Errors
+    ///
+    /// If your layer will not write.
+    pub fn without_query(&mut self, name: &str) -> Result<Vec<String>, CollectionError> {
+        let mut changed = Vec::new();
+        let names: Vec<String> = self.by_name.keys().cloned().collect();
+        for holder in names {
+            let Some(folder) = self.by_name.get_mut(&holder) else {
+                continue;
+            };
+            let before = folder.members.len();
+            folder.members.retain(|member| match member {
+                Member::Query(wanted) => wanted != name,
+                _ => true,
+            });
+            if folder.members.len() != before {
+                changed.push(holder);
+                let trimmed = folder.clone();
+                let saved = self.save(trimmed)?;
+                let _ = saved;
+            }
+        }
+        Ok(changed)
+    }
 }
 
 #[cfg(test)]

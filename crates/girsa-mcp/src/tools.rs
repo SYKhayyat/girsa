@@ -1600,18 +1600,21 @@ fn forget_note(server: &mut Server, args: &Value) -> Result<Value, String> {
             "that is not what {name} says — read it first, and pass its words as `saying`"
         ));
     }
-    let gone = server
+    let forgotten = server
         .shelf_mut()
         .forget_note(&name)
         .map_err(|e| e.to_string())?;
-    if !gone {
-        return Err(format!("{name} could not be thrown away"));
-    }
+    let Some(folders_tidied) = forgotten else {
+        return Err(format!("no note called {name}"));
+    };
     Ok(json!({
         "forgot": name,
         "sefer": slug,
         "title": title,
         "was_about": on,
+        // The folders that had a member for this work taken out. Said rather
+        // than done quietly: a folder the reader arranged changed shape here.
+        "folders_tidied": folders_tidied,
         "into": "personal",
         "note": "the file, the sefer and its edges are gone — the corpus is untouched, \
                  and nothing here can put it back",
@@ -1820,17 +1823,19 @@ fn forget_query(server: &mut Server, args: &Value) -> Result<Value, String> {
             "{name} says something else now — `queries` returns its `typed`; a mismatch is refused"
         ));
     }
-    let gone = server
+    let forgotten = server
         .shelf_mut()
-        .queries_mut()
-        .remove(&name)
+        .forget_query(&name)
         .map_err(|e| e.to_string())?;
-    if !gone {
-        return Err(format!("{name} could not be removed"));
-    }
+    let Some(folders_tidied) = forgotten else {
+        return Err(format!("no saved query named {name}"));
+    };
     Ok(json!({
         "forgot": name,
         "said": says,
+        // Folders that held this query as a member, tidied. Same reason
+        // `forget_note` says its own.
+        "folders_tidied": folders_tidied,
         "into": "personal",
     }))
 }

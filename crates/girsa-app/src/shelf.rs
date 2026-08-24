@@ -539,14 +539,25 @@ impl Shelf {
         Ok(written)
     }
 
-    /// Throw a note away — the file, the sefer and the catalogue line.
+    /// Throw a note away: the file, the sefer, the catalogue line, and its
+    /// seat in any folder that held it.
+    ///
+    /// Returns `None` when there is no such note; `Some(folders)` names the
+    /// folders that had a member for this work taken out of them, so a caller
+    /// with somewhere to say it can. The reconciliation used to not happen:
+    /// deleting a note left every folder holding it as a bare slug for a work
+    /// that no longer existed (the audit's F6).
+    ///
+    /// The link repairs and drawn edges naming this work are **deliberately
+    /// not** touched — they are statements you made, and `Repairs::orphans`
+    /// reports what they now name nothing.
     ///
     /// # Errors
     ///
     /// If your layer will not write.
-    pub fn forget_note(&mut self, name: &str) -> Result<bool, ShelfError> {
+    pub fn forget_note(&mut self, name: &str) -> Result<Option<Vec<String>>, ShelfError> {
         let Some(slug) = self.notes.get(name).map(|note| note.slug.clone()) else {
-            return Ok(false);
+            return Ok(None);
         };
         let gone = self
             .notes
@@ -574,7 +585,36 @@ impl Shelf {
                 }
             }
         }
-        Ok(gone)
+        // After the catalogue work, so a folder prune that fails does not leave
+        // the shelf half-said about whether the note is gone.
+        let tidied = self
+            .collections_mut()
+            .without_work(&slug)
+            .map_err(|e| ShelfError::Refused(e.to_string()))?;
+        Ok(Some(if gone { tidied } else { Vec::new() }))
+    }
+
+    /// Forget one saved query, and its seat in any folder that held it.
+    ///
+    /// Same shape as [`Shelf::forget_note`]: `None` when there is no such
+    /// query, otherwise the folders a dangling member was taken out of.
+    ///
+    /// # Errors
+    ///
+    /// If your layer will not write.
+    pub fn forget_query(&mut self, name: &str) -> Result<Option<Vec<String>>, ShelfError> {
+        if self.queries().get(name).is_none() {
+            return Ok(None);
+        }
+        let gone = self
+            .queries_mut()
+            .remove(name)
+            .map_err(|e| ShelfError::Refused(e.to_string()))?;
+        let tidied = self
+            .collections_mut()
+            .without_query(name)
+            .map_err(|e| ShelfError::Refused(e.to_string()))?;
+        Ok(Some(if gone { tidied } else { Vec::new() }))
     }
 
     /// Say what a scan's pages are, and write it down.

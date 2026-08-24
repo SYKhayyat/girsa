@@ -371,10 +371,14 @@ fn anchor(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
 
 fn forget(shelf: &mut Shelf, rest: &[String]) -> Result<(), String> {
     let name = rest.first().ok_or("forget <note>")?;
-    if shelf.forget_note(name).map_err(|e| e.to_string())? {
-        println!("{name} is gone");
-    } else {
-        println!("there was no note called {name}");
+    match shelf.forget_note(name).map_err(|e| e.to_string())? {
+        Some(folders) => {
+            println!("{name} is gone");
+            for folder in folders {
+                println!("  took it out of {folder}");
+            }
+        }
+        None => println!("there was no note called {name}"),
     }
     Ok(())
 }
