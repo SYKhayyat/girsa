@@ -84,6 +84,12 @@ pub enum Code {
     NoDesk,
     /// A scan has no page there.
     NoPage,
+    /// A scan has no OCR engine to read it with.
+    ///
+    /// Its own refusal — the engine's name, where it was looked for, and
+    /// *which* page was being read — used to arrive as bare English prose,
+    /// which a Hebrew window showed as the machine's words and nothing else.
+    NoEngine,
     /// There is no clipboard to write to — no window server, no session.
     NoClipboard,
     /// The clipboard was there and would not take it.
@@ -142,6 +148,7 @@ girsa_corpus::spelled!(Code {
     NoLane => "no-lane",
     NoDesk => "no-desk",
     NoPage => "no-page",
+    NoEngine => "no-engine",
     NoClipboard => "no-clipboard",
     ClipboardRefused => "clipboard-refused",
     WillNotSerialize => "will-not-serialize",

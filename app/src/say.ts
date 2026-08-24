@@ -1416,6 +1416,10 @@ const WORDS = {
   codeShelfLoop: ["לא ניתן להכניס מדף לתוך עצמו", "a shelf cannot go inside itself"] as Both,
   codeLaneOff: ["הלשון הסמוכה כבויה — אפשר להדליק אותה בהגדרות", "the adjacent lane is off — you can turn it on in the settings"] as Both,
   codeNoSuchPage: ["אין עמוד כזה בסריקה", "there is no such page in the scan"] as Both,
+  codeNoEngine: [
+    "אין מנוע קריאת-תמונות — התקן את tesseract ואת המודל העברי",
+    "no OCR engine is installed — install tesseract and the Hebrew model",
+  ] as Both,
   yoursNotes: ["הערות", "Notes"] as Both,
   yoursMarks: ["סימונים", "Marks"] as Both,
   yoursQueries: ["שאילתות", "Questions"] as Both,

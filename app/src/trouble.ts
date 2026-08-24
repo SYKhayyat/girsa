@@ -157,6 +157,7 @@ const CODED: Record<string, (doing: string) => string> = {
   "no-lane": () => say("codeLaneOff"),
   "no-desk": () => fill("codeNoDesk", { ksav: KSAV }),
   "no-page": () => say("codeNoSuchPage"),
+  "no-engine": () => say("codeNoEngine"),
 
   // The three the shell used to compose itself, in English, in Rust. One of
   // them reached a Hebrew right-to-left toast as `the clipboard refused it:

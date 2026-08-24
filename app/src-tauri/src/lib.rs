@@ -546,8 +546,7 @@ fn personal_of(shared: &tauri::State<'_, Shared>) -> Result<PathBuf, String> {
     Ok(personal)
 }
 
-/// Have this sefer in memory **before** the caller takes the state lock.
-///
+/// Have this sefer in memory **before** the caller takes the state lock.///
 /// [`State::load`] can only read the shelf while the state guard is held,
 /// because it is a method on the state — and that read is a whole work off
 /// disk, 11 ms in the published table, on the path of every pane that opens.
@@ -610,6 +609,28 @@ fn hold_marks(shared: &tauri::State<'_, Shared>, slug: &str) -> Result<(), Strin
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
     state.marks.entry(slug.to_string()).or_insert(read);
     Ok(())
+}
+
+/// A lane-settings write that failed, named for the window.
+///
+/// [`girsa_nearby::Adjacency::set`] and `::choose` save into the personal
+/// layer, so their one failure is a refused write — which used to arrive as
+/// the operating system's English sentence in a Hebrew window.
+fn lane_said(e: std::io::Error) -> String {
+    girsa_app::trouble::refuse(Code::ReadOnly, e.to_string())
+}
+
+/// A [`girsa_desk::BufferError`], likewise: a bad name is this codebase's own
+/// refusal and carries a code; an operating-system error keeps its words, which
+/// is how *permission denied* becomes a sentence about permission.
+fn buffer_said(e: girsa_desk::BufferError) -> String {
+    match e {
+        girsa_desk::BufferError::BadName(name) => girsa_app::trouble::refuse(
+            Code::NoSuch,
+            format!("`{name}` is not a name for a document"),
+        ),
+        other => other.to_string(),
+    }
 }
 
 fn make_searchable(bar: &Bar, personal: &std::path::Path, slug: &str) {
@@ -2501,7 +2522,12 @@ fn scan_ocr_page(
         personal
     };
     let engine = girsa_scan::Tesseract::found(Some(&personal))
-        .ok_or_else(|| girsa_scan::EngineError::NoEngine.to_string())?;
+        .ok_or_else(|| {
+            girsa_app::trouble::refuse(
+                Code::NoEngine,
+                girsa_scan::EngineError::NoEngine.to_string(),
+            )
+        })?;
     let read = girsa_scan::Engine::read(&engine, page, &girsa_scan::Image { png, width, height })
         .map_err(|e| e.to_string())?;
     {
@@ -3881,8 +3907,8 @@ fn buffers(shared: tauri::State<'_, Shared>) -> Result<Vec<String>, String> {
 #[tauri::command(async)]
 fn buffer_open(shared: tauri::State<'_, Shared>, name: String) -> Result<Writing, String> {
     let personal = personal_of(&shared)?;
-    let buffer = girsa_desk::Buffer::open(&personal, &name).map_err(|e| e.to_string())?;
-    let path = girsa_desk::Buffer::path(&personal, &name).map_err(|e| e.to_string())?;
+    let buffer = girsa_desk::Buffer::open(&personal, &name).map_err(buffer_said)?;
+    let path = girsa_desk::Buffer::path(&personal, &name).map_err(buffer_said)?;
     Ok(Writing {
         name: buffer.name,
         text: buffer.text,
@@ -3901,7 +3927,7 @@ fn buffer_save(
     buffer.text = text;
     Ok(buffer
         .save(&personal)
-        .map_err(|e| e.to_string())?
+        .map_err(buffer_said)?
         .display()
         .to_string())
 }
@@ -3945,7 +3971,10 @@ fn buffer_rename(
         // Not a rename. Ordinary save, ordinary rules.
         return buffer_save(shared, to, text);
     }
-    if !over && girsa_desk::Buffer::taken(&personal, named).map_err(|e| e.to_string())? {
+    if !over
+        && girsa_desk::Buffer::taken(&personal, named)
+            .map_err(|e| e.to_string())?
+    {
         return Err(girsa_app::trouble::refuse(
             girsa_app::trouble::Code::AlreadyThere,
             format!("you are already writing something called {named}"),
@@ -3955,7 +3984,7 @@ fn buffer_rename(
     buffer.text = text;
     Ok(buffer
         .save(&personal)
-        .map_err(|e| e.to_string())?
+        .map_err(buffer_said)?
         .display()
         .to_string())
 }
@@ -5410,7 +5439,7 @@ fn lane_set(
         model: model.map(PathBuf::from).or(was.model),
         may_fetch: was.may_fetch,
     };
-    let done = lane.set(settings, &shelf).map_err(|e| e.to_string());
+    let done = lane.set(settings, &shelf).map_err(lane_said);
     // Both guards, in the reverse of the order they were taken. `lane_row`
     // reads the state and would otherwise be borrowing it while these are alive.
     drop(lane);
@@ -5446,7 +5475,7 @@ fn lane_allow_fetch(shared: tauri::State<'_, Shared>, allow: bool) -> Result<Lan
         may_fetch: allow,
         ..lane.lane().settings().clone()
     };
-    let done = lane.set(settings, &shelf).map_err(|e| e.to_string());
+    let done = lane.set(settings, &shelf).map_err(lane_said);
     // Both guards, in the reverse of the order they were taken. `lane_row`
     // reads the state and would otherwise be borrowing it while these are alive.
     drop(lane);
@@ -5587,7 +5616,7 @@ fn lane_choose(
             ));
         }
     }
-    let done = lane.choose(chosen, &shelf).map_err(|e| e.to_string());
+    let done = lane.choose(chosen, &shelf).map_err(lane_said);
     drop(lane);
     drop(shelf);
     done?;
@@ -5613,7 +5642,10 @@ fn lane_embed(app: tauri::AppHandle, shared: tauri::State<'_, Shared>) -> Result
             .read()
             .map_err(|_| State::poisoned())?;
         if !held.state().is_on() {
-            return Err(girsa_lane::LaneError::Off.to_string());
+            return Err(girsa_app::trouble::refuse(
+                Code::NoLane,
+                "the semantic lane is off",
+            ));
         }
         let slugs = girsa_nearby::adjacent::in_the_lane(&shelf, held.lane().chosen());
         let titles: HashMap<String, String> = slugs
@@ -6738,7 +6770,11 @@ fn folder_edit(
     shelf
         .collections_mut()
         .save(folder)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            // A write the personal layer refused, named: this used to forward
+            // the crate's English Display to a Hebrew window.
+            girsa_app::trouble::refuse(Code::ReadOnly, e.to_string())
+        })?;
     Ok(held)
 }
 

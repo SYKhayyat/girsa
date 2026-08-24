@@ -226,7 +226,7 @@ fn what_was_done(done: &Exported) -> String {
     } else {
         String::new()
     };
-    let mut add = |said: &mut String, clause: String| {
+    let add = |said: &mut String, clause: String| {
         if !said.is_empty() {
             said.push_str(" · ");
         }
