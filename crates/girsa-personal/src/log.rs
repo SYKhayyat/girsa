@@ -484,10 +484,8 @@ impl Log {
     /// Gone, with no error on either side, in the one place an append-only log
     /// stops being append-only.
     ///
-    /// Two things close it and both are needed:
+    /// Two things close almost all of it:
     ///
-    /// * the [`crate::lock`] file, so an append cannot be *in progress* while
-    ///   the rename happens;
     /// * this offset, so an append that already completed is not thrown away.
     ///   `read_from` is where the caller's own reading of the file stopped;
     ///   everything past it is copied through verbatim, after the compacted
@@ -495,6 +493,14 @@ impl Log {
     ///   is what makes that correct rather than merely lossless: a record
     ///   carried forward is a *later* line than the compacted version of the
     ///   same key, so it still wins, exactly as it did before the compaction.
+    /// * the [`crate::lock`] file — held against the other **compactors**, so
+    ///   two of them cannot interleave two renames. Appends do not take it
+    ///   ([`Log::push`], and why): they are line-safe on their own, and what
+    ///   remains uncovered is one append physically mid-`write_all` at the
+    ///   instant the rename replaces the entry — nanoseconds against a
+    ///   tidy-up that runs a handful of times in a layer's life, traded
+    ///   against a lock file created and deleted around every record every
+    ///   store writes.
     ///
     /// `None` means carry nothing forward. See [`Log::rewrite`].
     ///
@@ -522,18 +528,25 @@ impl Log {
         // module note in `lock`.
         let _held = crate::lock::hold(&self.path);
         if let Some(from) = read_from {
-            let since = std::fs::read_to_string(&self.path).unwrap_or_default();
-            let from = usize::try_from(from).unwrap_or(usize::MAX);
-            // `get` and not a slice: the file may have *shrunk* — another
-            // process compacted it first — and a panic here would take the
-            // window down over a tidy-up nobody asked for.
-            if let Some(tail) = since.get(from..) {
-                if !tail.trim().is_empty() {
-                    if !body.is_empty() && !body.ends_with('\n') {
-                        body.push('\n');
-                    }
-                    body.push_str(tail);
+            // Seek and stream, not read-the-whole-file-and-slice. The offset
+            // is where the caller's own replay stopped; everything from there
+            // to EOF is the tail, and reading a whole layer to reach its last
+            // kilobytes was O(file) memory for O(tail) work.
+            let mut raw = Vec::new();
+            let _ = std::fs::File::open(&self.path).and_then(|mut file| {
+                use std::io::{Read, Seek, SeekFrom};
+                // A shrunk file — another process compacted first — seeks
+                // past its end and reads nothing, which is exactly what the
+                // slice this replaces said for the same case.
+                file.seek(SeekFrom::Start(from))?;
+                file.read_to_end(&mut raw)
+            });
+            let since = String::from_utf8_lossy(&raw);
+            if !since.trim().is_empty() {
+                if !body.is_empty() && !body.ends_with('\n') {
+                    body.push('\n');
                 }
+                body.push_str(&since);
             }
         }
         // Written beside and renamed over, so a machine that stops halfway
@@ -553,13 +566,19 @@ impl Log {
             return Ok(());
         }
         self.make_room()?;
-        // Taken for the append too, and that is not belt-and-braces: the whole
-        // point of the lock is that a compaction's rename cannot land between
-        // an append's open and its write. Cheap — one file created and removed
-        // — against a write that is already a syscall or three.
-        let _held = crate::lock::hold(&self.path);
-        // One `write_all` on a handle opened for append, so the line lands
-        // whole or the tear is at the end of the file, where replay can see it.
+        // **No lock, on purpose.** An append is line-safe on its own — one
+        // `write_all` on a handle opened for append lands whole or tears at
+        // the end, where replay can see it — and the lock existed here only
+        // against a compaction's rename. It cost a file created and deleted
+        // around *every* record any store in the layer wrote, to close a
+        // window that opens only when a rename lands inside one `write_all`.
+        // The compaction keeps the lock and carries forward everything that
+        // landed before its tail-read ([`Log::rewrite_after`]); what this
+        // gives up is the sliver where an append is physically mid-write as
+        // the rename replaces the directory entry — nanoseconds against a
+        // tidy-up that happens a handful of times in a layer's life. The
+        // alternative was two extra filesystem operations per keystroke
+        // batch, paid for ever by every writer, for that sliver.
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

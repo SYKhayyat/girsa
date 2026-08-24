@@ -33,10 +33,13 @@
 //!
 //! # It is advisory
 //!
-//! Nothing enforces it. It works because every write in this crate goes through
-//! one of two functions and both take it. A seventh store that writes the file
-//! by hand is outside it, which is the usual price of an advisory lock and the
-//! reason the writes are funnelled rather than merely documented.
+//! Nothing enforces it. It is taken by [`Log::rewrite_after`] — the one write
+//! in this crate that stops being append-only — so that two processes cannot
+//! compact over each other, and by nothing else: an append is line-safe on its
+//! own and does not pay for it ([`Log::push`] says why in full). A seventh
+//! store that writes the file by hand is outside even that, which is the usual
+//! price of an advisory lock and the reason the writes are funnelled rather
+//! than merely documented.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
