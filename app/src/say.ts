@@ -69,7 +69,6 @@ const WORDS = {
     "a new tab — for a sefer already open too",
   ] as Both,
   closeTab: ["סגור", "Close"] as Both,
-  renameTab: ["שנה שם ללשונית", "Rename this tab"] as Both,
   seforimCount: ["ספרים", "seforim"] as Both,
   inBrowser: ["דפדפן, נתוני דוגמה", "browser — sample data"] as Both,
   smaller: ["א−", "A−"] as Both,
@@ -594,6 +593,8 @@ const WORDS = {
   instrumentDilug: ["דילוג", "dilug"] as Both,
   /** The era facet's largest row: the seforim whose era nobody recorded. */
   noEraRecorded: ["לא נרשמה תקופה", "no era recorded"] as Both,
+  noAuthorRecorded: ["לא נרשם מחבר", "no author recorded"] as Both,
+  facetUnlabelled: ["בלי כיתוב", "unlabelled"] as Both,
 
   // --- what the header says, and what a zero says --------------------------
   //
@@ -1241,7 +1242,6 @@ const WORDS = {
     "move this column into another tab, with the place you are at in it",
   ] as Both,
   moveToNewTab: ["ללשונית חדשה", "to a new tab"] as Both,
-  moveStay: ["השאר כאן", "stay here"] as Both,
   // A15: pressed in a sefer with no marks in it. Said, rather than the key
   // doing nothing — a shortcut that is silent is one a reader stops pressing.
   noPlaceMarked: [

@@ -702,7 +702,11 @@ function relatedSaid(companion: MefarshimChoice): string {
   if (companion.stands === "on") return say("relatedOn");
   if (companion.stands === "base") return say("relatedBase");
   if (companion.stands === "alongside") return say("relatedAlongside");
-  return companion.links > 0 ? say("onlyLinked") : say("onlyLinked");
+  // The link count does not change the row's word — it is said in `why`
+  // below, where the number has a sentence to sit in. This used to be a
+  // ternary with two identical branches, which was the count trying to
+  // matter and not.
+  return say("onlyLinked");
 }
 
 function relatedWhy(companion: MefarshimChoice): string {

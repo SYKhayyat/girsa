@@ -90,29 +90,37 @@ export interface Trouble {
   detail: string;
 }
 
-/** What each attempt is called, when a sentence has to name it. */
-const DOING: Record<Doing, string> = {
-  reach_ksav: fill("doingReachKsav", { ksav: KSAV }),
-  send_to_ksav: fill("doingSendToKsav", { ksav: ksavAs("ל") }),
-  open_pdf: say("doingOpenFile"),
-  read_page: say("doingReadPage"),
-  read_links: say("doingReadLinks"),
-  repair_link: say("doingRepairLink"),
-  read_lane: say("doingReadLane"),
-  write_note: say("doingWriteNote"),
-  fix: say("doingFix"),
-  export: say("doingExport"),
-  print: say("doingPrint"),
-  desks: say("doingDesks"),
-  update: say("doingUpdate"),
-  mark: say("doingMark"),
-  keep_query: say("doingKeepQuery"),
-  copy_scan: say("doingCopySource"),
-  read_suspects: say("doingReadSuspects"),
-  open_ref: say("doingOpenRef"),
-  chain: say("doingChain"),
-  contents: say("doingContents"),
-  general: say("doingSomething"),
+/** What each attempt is called, when a sentence has to name it.
+ *
+ * Arrows, not strings: this module loads once per session and the reader can
+ * switch language mid-session (the switch reloads the document, but *only*
+ * because the settings panel orders cache-write before reload — a table of
+ * strings here would have frozen against whatever `say`'s cache held at
+ * load, which is the kind of correct-by-accident that stops being correct
+ * the day the ordering changes).
+ */
+const DOING: Record<Doing, () => string> = {
+  reach_ksav: () => fill("doingReachKsav", { ksav: KSAV }),
+  send_to_ksav: () => fill("doingSendToKsav", { ksav: ksavAs("ל") }),
+  open_pdf: () => say("doingOpenFile"),
+  read_page: () => say("doingReadPage"),
+  read_links: () => say("doingReadLinks"),
+  repair_link: () => say("doingRepairLink"),
+  read_lane: () => say("doingReadLane"),
+  write_note: () => say("doingWriteNote"),
+  fix: () => say("doingFix"),
+  export: () => say("doingExport"),
+  print: () => say("doingPrint"),
+  desks: () => say("doingDesks"),
+  update: () => say("doingUpdate"),
+  mark: () => say("doingMark"),
+  keep_query: () => say("doingKeepQuery"),
+  copy_scan: () => say("doingCopySource"),
+  read_suspects: () => say("doingReadSuspects"),
+  open_ref: () => say("doingOpenRef"),
+  chain: () => say("doingChain"),
+  contents: () => say("doingContents"),
+  general: () => say("doingSomething"),
 };
 
 /**
@@ -266,7 +274,7 @@ const FAMILIES: { match: RegExp; said: (doing: string) => string }[] = [
 /** Turn anything a `catch` can hold into a sentence and a detail. */
 export function trouble(e: unknown, doing: Doing = "general"): Trouble {
   const detail = raw(e);
-  const what = DOING[doing] ?? DOING.general;
+  const what = DOING[doing]?.() ?? DOING.general();
   // The name first, and the words only if there is no name. A refusal this
   // codebase made carries one; a refusal from the operating system does not.
   const code = codeOf(detail);

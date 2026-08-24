@@ -816,13 +816,17 @@ export class SearchView {
 /**
  * What a facet row with no label is called.
  *
- * Only the era facet has one — the seforim whose era nobody wrote down, which
- * is the largest row of that facet on the real shelf. Named per dimension
- * because *no era recorded* and *no author recorded* are not the same sentence,
- * and the day a second dimension grows an empty row it needs its own.
+ * Named per dimension because *no era recorded* and *no author recorded* are
+ * not the same sentence. The old fallback handed back `nothingHere` — the
+ * reading pane's *אין כאן*, a sentence about the sefer you are standing in —
+ * for any dimension whose row had no label, which answered an attribution
+ * question with a place-word. Anything else falls to *unlabelled*, which says
+ * only what is true: this row has no name.
  */
 function nameOfNothing(dimension: Dimension): string {
-  return dimension === "era" ? say("noEraRecorded") : say("nothingHere");
+  if (dimension === "era") return say("noEraRecorded");
+  if (dimension === "author") return say("noAuthorRecorded");
+  return say("facetUnlabelled");
 }
 
 /** What one rung of the relaxation ladder is called (spec.md §9.6). */
