@@ -128,9 +128,22 @@ const GATE = [
     run: ["node", "node_modules/typescript/bin/tsc", "--noEmit"],
   },
   { lane: "window", at: "app", say: "window tests", run: ["node", "test/run.mjs"] },
-  // And the one thing in here that has ever seen a pixel. It exits 0 with no
-  // browser installed and says so, which is why it can be in the gate at all.
-  { lane: "window", at: "app", say: "eyes", run: ["node", "tools/eyes.mjs"] },
+  // The one thing in here that has ever seen a pixel.
+  //
+  // **Not a vacuous pass.** Eyes exits 0 when it finds no browser, which is
+  // right for a tool run by hand and wrong inside the one gate whose job is to
+  // end vacuous passes — a green gate on a machine where nothing was looked at
+  // is the shape this file was written against. So the gate runs it with
+  // `EYES_REQUIRED=1`: no browser is a red step whose own output says how to
+  // fix it (install Edge, or point `EYES_BROWSER` at one), once, every run,
+  // until it is fixed. CI sets the same variable.
+  {
+    lane: "window",
+    at: "app",
+    say: "eyes",
+    run: ["node", "tools/eyes.mjs"],
+    env: { EYES_REQUIRED: "1" },
+  },
 ];
 
 /** The banner one step prints above itself. */
@@ -155,6 +168,9 @@ function step(one, i, live) {
     const [command, ...args] = one.run;
     const child = spawn(command, args, {
       cwd: path.join(ROOT, one.at),
+      // A step may carry its own environment — the eyes step runs required,
+      // which is a gate decision and not this file's default.
+      env: { ...process.env, ...(one.env ?? {}) },
       stdio: live ? "inherit" : ["ignore", "pipe", "pipe"],
       // No `shell`, on any platform. It was here for one step — see the note on
       // `types` in `GATE` — and every command in that list is now an executable

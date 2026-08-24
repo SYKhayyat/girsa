@@ -11,8 +11,8 @@
 # source, the file is the copy, and a copy nothing regenerates is a copy that
 # rots.
 set -uo pipefail
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$here"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
+cd "$here" || exit 1
 
 # 4686 → 4,686, so a reader takes it in at a glance. The test strips the commas
 # before comparing, so either spelling passes and this is the one that reads.
@@ -35,14 +35,23 @@ set_marked() {
   # markdown emphasis and the marker and insert a second copy of the number
   # beside the one already there. It did exactly that on its first run.
   #
-  # No `perl -i` either: on Windows it refuses an in-place edit without a backup
-  # suffix, and fails quietly enough that this script reported success while
-  # changing nothing. Also found by running it.
+  # No `sed -i`: that is a GNU extension BSD sed does not share — on macOS it
+  # either refuses or demands an argument for the backup suffix, and the run
+  # reported success having edited nothing. No `perl -i` either, for the same
+  # reason one comment down: on Windows it refuses an in-place edit without a
+  # backup suffix and fails quietly enough to look like success. So: write
+  # beside and move over — which is also this repository's own doctrine for
+  # every whole-file write — and let a failed rewrite say so.
   # Every page, because a marker's name is not owned by one of them: `bins` is
   # claimed in both, and a name that moves between pages must not need this
   # script edited to follow it.
   for page in $PAGES; do
-    sed -i "s/[0-9][0-9,]*\(\**\)<!--=$name-->/$value\1<!--=$name-->/g" "$page"
+    if ! sed "s/[0-9][0-9,]*\(\**\)<!--=$name-->/$value\1<!--=$name-->/g" "$page" > "$page.tmp"; then
+      echo "could not rewrite $page for $name" >&2
+      rm -f "$page.tmp"
+      exit 1
+    fi
+    mv -f "$page.tmp" "$page"
   done
 }
 

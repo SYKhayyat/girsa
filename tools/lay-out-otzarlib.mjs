@@ -45,7 +45,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
 
 /** Where a sefer belongs, by the folder OtzarLib filed it under. */
 const BY_FOLDER = new Map([
@@ -133,6 +133,7 @@ function unzipEntry(buffer, wanted) {
   let at = 0;
   while (at + 30 <= buffer.length) {
     if (buffer.readUInt32LE(at) !== 0x04034b50) break;
+    const flags = buffer.readUInt16LE(at + 6);
     const method = buffer.readUInt16LE(at + 8);
     const compressed = buffer.readUInt32LE(at + 18);
     const uncompressed = buffer.readUInt32LE(at + 22);
@@ -140,11 +141,30 @@ function unzipEntry(buffer, wanted) {
     const extraLength = buffer.readUInt16LE(at + 28);
     const name = buffer.toString("utf8", at + 30, at + 30 + nameLength);
     const start = at + 30 + nameLength + extraLength;
+    if (name === wanted && !(flags & 0x08)) {
+      // Sizes in the header, as Word writes them.
+      const raw = buffer.subarray(start, start + compressed);
+      return method === 0 ? raw : inflateRawSync(raw);
+    }
+    // A zero length is not the end of the archive: with bit 3 of the flags
+    // set — a *streaming* entry — both sizes live in a data descriptor after
+    // the data, and this used to `break` there, so every entry after it was
+    // unreachable and `word/document.xml` "did not exist" in any file one of
+    // these sat in front of. Scan for the next local header instead; if there
+    // is none, the walk below ends on its own.
+    if (compressed === 0 && uncompressed === 0) {
+      let next = start;
+      while (next + 4 <= buffer.length) {
+        if (buffer.readUInt32LE(next) === 0x04034b50) break;
+        next += 1;
+      }
+      at = next;
+      continue;
+    }
     if (name === wanted) {
       const raw = buffer.subarray(start, start + compressed);
       return method === 0 ? raw : inflateRawSync(raw);
     }
-    if (compressed === 0 && uncompressed === 0) break; // sizes are in a trailer
     at = start + compressed;
   }
   return null;
@@ -275,7 +295,14 @@ function main() {
     }
     const linksDir = join(out, "links");
     mkdirSync(linksDir, { recursive: true });
-    for (const path of links) cpSync(path, join(linksDir, basename(path)));
+    for (const path of links) {
+      // Under their own relative paths. Copied flat by `basename`, two
+      // sidecars with one name overwrote each other and the survivor was
+      // whichever was walked last.
+      const into = join(linksDir, relative(books, path));
+      mkdirSync(dirname(into), { recursive: true });
+      cpSync(path, into);
+    }
     writeFileSync(
       join(out, "library.json"),
       `${JSON.stringify(DECLARATION, null, 2)}\n`,

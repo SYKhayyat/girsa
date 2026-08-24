@@ -33,7 +33,11 @@
 // Headless Edge is used because this is a WebView2 application and Edge is the
 // engine the window is already running — the same layout, not an approximation
 // of it. `EYES_BROWSER` overrides the path. Where no browser is found this says
-// so and exits 0: a developer without one is not a failing build.
+// so and exits 0 when run by hand: a developer without one is not, by itself, a
+// failing build. The **gate** (`tools/verify.mjs`) runs this with
+// `EYES_REQUIRED=1`, so there the same situation is a red step that says how to
+// fix it — a green gate on a machine where nothing was looked at is the vacuous
+// pass BUILDER.md rule 7 forbids by name.
 //
 // `EYES_REQUIRED=1` makes that a failure instead, and CI sets it. The original
 // line here said *"CI that wants it enforced can set the variable"* and no CI
