@@ -651,6 +651,12 @@ export class LinksView {
  */
 function provenance(link: LinkRow, kinds: LinkKind[]): string[] {
   const bits = [`${Math.round(link.confidence * 100)}%`, link.method];
+  // Which way the arrow points, and whether anybody said so. `undeclared`
+  // means the direction is the order of two CSV columns — the one fact that
+  // makes a −0.15 confidence dent legible, which is why it is said here and
+  // not left inside the number.
+  if (link.direction === "undeclared") bits.push(say("linkUndeclared"));
+  else if (link.direction === "declared") bits.push(say("linkDeclared"));
   // Which words, and who says so — the dibur hamatchil the commentary itself
   // declares, or a span you pinned (spec.md §8.4).
   if (link.span_from) bits.push(link.span_from === "pinned" ? say("onWordsYours") : say("onWords"));

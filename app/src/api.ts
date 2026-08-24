@@ -210,6 +210,12 @@ export interface LinkRow {
   said: string;
   method: string;
   confidence: number;
+  /**
+   * Whether the corpus said which way this points: `declared`, `undeclared`,
+   * or null. Undeclared means the arrow is the order of two CSV columns —
+   * priced into confidence and shown to nobody until the audit said so.
+   */
+  direction: string | null;
   /** The label the corpus used, verbatim — blank for 40% of them. */
   label: string;
   confirmed: boolean;

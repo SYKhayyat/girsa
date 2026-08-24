@@ -955,6 +955,7 @@ fn links(server: &Server, args: &Value) -> Result<Value, String> {
             row["asserts_something"] = json!(link.repaired.edge.edge_type.is_asserted());
             row["outgoing"] = json!(link.outgoing);
             row["confidence"] = json!(link.repaired.confidence());
+            row["direction"] = json!(link.repaired.edge.direction.as_str());
             row
         })
         .collect();
@@ -1029,6 +1030,10 @@ fn trace(server: &mut Server, args: &Value) -> Result<Value, String> {
                     let mut row = named(server, &step.at.from);
                     row["type"] = json!(step.edge_type.as_str());
                     row["the_corpus_said"] = json!(step.label);
+                    // Whether the corpus said which way the arrow points, or
+                    // whether it is the order of two CSV columns. Priced into
+                    // confidence and shown to nobody until now.
+                    row["direction"] = json!(step.direction.as_str());
                     row
                 })
                 .collect();
@@ -1069,6 +1074,7 @@ fn path(server: &mut Server, args: &Value) -> Result<Value, String> {
                 "links": links.iter().map(|link| {
                     let mut row = named(server, &link.at.from);
                     row["type"] = json!(link.edge_type.as_str());
+                    row["direction"] = json!(link.direction.as_str());
                     row
                 }).collect::<Vec<Value>>(),
                 "unasserted_hops": links.len() - asserted,

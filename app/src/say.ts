@@ -757,6 +757,8 @@ const WORDS = {
   linksIn: ["אל כאן מן", "to here from"] as Both,
   onWords: ["על מילים", "on words"] as Both,
   onWordsYours: ["על מילים (שלך)", "on words (yours)"] as Both,
+  linkDeclared: ["הכיוון נאמר", "direction declared"] as Both,
+  linkUndeclared: ["הכיוון לא נאמר", "direction undeclared"] as Both,
   wasKind: ["היה", "was"] as Both,
   /**
    * **What is missing, in the words of the thing that is missing.**

@@ -57,7 +57,7 @@ use girsa_corpus::era::{Order, Timeline, When};
 use girsa_corpus::segment::SegmentId;
 
 use crate::repair::{Repaired, Repairs};
-use crate::{inbound, Anchor, EdgeType};
+use crate::{inbound, Anchor, Direction as EdgeDirection, EdgeType};
 
 /// Which way along the axis of time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,6 +218,12 @@ pub struct Step {
     pub confidence: f32,
     /// You drew this link, or confirmed it.
     pub mine: bool,
+    /// Whether the corpus said which way this points. The audit's finding was
+    /// that this was computed, priced into confidence, and shown to nobody:
+    /// a coin-flip arrow looked exactly like a declared one on every surface.
+    /// Spelled out because this module has its own `Direction` — which way a
+    /// trace walks — and the two must never be confused.
+    pub direction: EdgeDirection,
 }
 
 impl Step {
@@ -769,8 +775,10 @@ pub fn trace(graph: &mut Graph<'_>, at: &SegmentId, direction: Direction, limits
                 label: repaired.edge.source_label.clone(),
                 confidence: repaired.confidence(),
                 mine: repaired.mine,
+                direction: repaired.edge.direction,
             });
             frontier.push_back((Some(index), other, depth + 1));
+
         }
     }
 
@@ -828,6 +836,7 @@ pub struct Link {
     pub edge_type: EdgeType,
     pub label: String,
     pub confidence: f32,
+    pub direction: EdgeDirection,
 }
 
 /// What a search between two places found.
@@ -901,6 +910,7 @@ pub fn path(graph: &mut Graph<'_>, from: &SegmentId, to: &SegmentId, limits: Lim
                     edge_type: repaired.edge.edge_type,
                     label: repaired.edge.source_label.clone(),
                     confidence: repaired.confidence(),
+                    direction: repaired.edge.direction,
                 };
                 if sides[side].contains_key(&key) {
                     continue;
@@ -1816,7 +1826,7 @@ mod tests {
                 girsa_corpus::segment::Ordinal::root(n),
             )
         };
-        let mut mk = |near_end: &SegmentId, n: u32| {
+        let mk = |near_end: &SegmentId, n: u32| {
             Repaired::of(crate::Edge {
                 from: Anchor::point(near_end.clone()),
                 to: Anchor::point(far(n)),

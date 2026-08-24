@@ -967,6 +967,11 @@ pub struct LinkRow {
     /// `sefaria-seed`, `otzaria-seed`, `by-hand`.
     pub method: &'static str,
     pub confidence: f32,
+    /// Whether the corpus said which way this points: `declared`,
+    /// `undeclared`, or nothing. The audit's F1: this was computed at
+    /// import, priced into `confidence` — the −0.15 dent — and shown to
+    /// nobody, so a coin-flip arrow drew exactly like a declared one.
+    pub direction: Option<&'static str>,
     /// The label the corpus used, verbatim — blank for 40% of them (T5).
     pub label: String,
     pub confirmed: bool,
@@ -1011,6 +1016,7 @@ impl LinkRow {
             said: link.said(),
             method: link.repaired.edge.method.as_str(),
             confidence: link.repaired.confidence(),
+            direction: link.repaired.edge.direction.as_str(),
             label: link.repaired.edge.source_label.clone(),
             confirmed: link.repaired.confirmed,
             rejected: link.repaired.rejected,
