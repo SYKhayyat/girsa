@@ -760,6 +760,18 @@ const WORDS = {
   onWordsYours: ["על מילים (שלך)", "on words (yours)"] as Both,
   linkDeclared: ["הכיוון נאמר", "direction declared"] as Both,
   linkUndeclared: ["הכיוון לא נאמר", "direction undeclared"] as Both,
+  linksWhoCitesOpen: ["מי מביא משלך", "who cites this, of your own"] as Both,
+  linksWhoCitesNone: [
+    "אף מסמך שלך לא מביא את המקום הזה",
+    "none of your documents cite this place",
+  ] as Both,
+  linksWhoCitesAway: ["(לא נמצא בדיסק)", "(file not on disk)"] as Both,
+  yoursLinkify: ["מראי מקומות בדבריך", "references in your text"] as Both,
+  yoursNoRefs: [
+    "לא נמצאו מראי מקומות בדבריך",
+    "no references found in your text",
+  ] as Both,
+  keysWereBound: ["היו מקושרים ל", "were bound to"] as Both,
   wasKind: ["היה", "was"] as Both,
   /**
    * **What is missing, in the words of the thing that is missing.**

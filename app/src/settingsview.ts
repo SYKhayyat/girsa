@@ -550,7 +550,24 @@ export class SettingsView {
           key.textContent = row.bound ?? "—";
           return;
         }
-        void this.bind(row.id, said(pressed));
+        void (async () => {
+          // What those keys do **today**, asked of Rust rather than read off
+          // the state's copy: taking them for this action silently takes
+          // them away from whichever action held them, and the reader is
+          // told before it happens, not after. The marker lasts until the
+          // rebind lands and redraws the row.
+          const held = await api.whatKey(pressed).catch(() => null);
+          const other =
+            held && held !== row.id
+              ? this.now?.shortcuts.find((s) => s.id === held)
+              : undefined;
+          if (other) {
+            const named = interfaceLanguage() === "hebrew" ? other.he : other.en;
+            key.title = `${say("keysWereBound")} ${named}`;
+            key.textContent = `${said(pressed)} ⇄`;
+          }
+          await this.bind(row.id, said(pressed));
+        })();
       });
     });
     key.className = "settings-key";

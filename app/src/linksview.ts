@@ -10,13 +10,14 @@
 // about the texts (`curated`) is answered in Rust, because it is a rule about
 // evidence and not about a stylesheet.
 
-import { api, type LensRow, type LinkKind, type LinkRow, type Links, type Yours } from "./api.ts";
+import { api, type Citing, type LensRow, type LinkKind, type LinkRow, type Links, type Yours } from "./api.ts";
 
 import { sayTrouble } from "./trouble.ts";
 import { about, button, choice, shut } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { fill, linkKind, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
+import { workOf } from "./yoursview.ts";
 
 /**
  * What a kind of link is called.
@@ -297,6 +298,54 @@ export class LinksView {
     what.textContent = say("linksDrawOpen");
     drawer.append(what, this.drawRow(found.types));
     this.list.append(drawer);
+
+    // And the question the corpus's graph cannot answer because it is about
+    // **your own writing**: which of your documents cite this line. Folded,
+    // and read only if opened — the registry can be stale on disk and the
+    // first open may pay for a read.
+    const citing = document.createElement("details");
+    citing.className = "links-drawer";
+    const who = document.createElement("summary");
+    who.textContent = say("linksWhoCitesOpen");
+    who.addEventListener("click", () => {
+      if (citing.dataset.read === "1" || !this.at) return;
+      citing.dataset.read = "1";
+      const here = this.at;
+      void api
+        .whoCites(here)
+        .then((rows) => {
+          citing.replaceChildren(who, this.citedBy(rows));
+        })
+        .catch((e) => sayTrouble(this.note, e, "read_links"));
+    });
+    citing.append(who);
+    this.list.append(citing);
+  }
+
+  /** The *who cites this* answer, as rows. */
+  private citedBy(rows: Citing[]): HTMLElement {
+    const box = document.createElement("div");
+    if (rows.length === 0) {
+      box.textContent = say("linksWhoCitesNone");
+      return box;
+    }
+    for (const one of rows) {
+      const row = document.createElement("p");
+      row.className = "links-citing";
+      const name = document.createElement("strong");
+      name.textContent =
+        one.name + (one.away ? ` ${say("linksWhoCitesAway")}` : "");
+      row.append(name);
+      for (const ref of one.refs) {
+        const jump = button(ref, ref, () =>
+          void this.goTo?.(workOf(ref), ref),
+        );
+        jump.classList.add("yours-where");
+        row.append(jump);
+      }
+      box.append(row);
+    }
+    return box;
   }
 
   /**

@@ -12,6 +12,7 @@
 import {
   api,
   type FolderRow,
+  type LinkedRef,
   type MarkRow,
   type NoteRow,
   type PatchRow,
@@ -322,6 +323,32 @@ export class YoursView {
     });
     box.append(add);
 
+    // The citations in your own words. Only the certain ones come back —
+    // that is the engine's promise and the reason they are safe to offer as
+    // jumps rather than as guesses.
+    const refs = document.createElement("details");
+    refs.className = "yours-refs";
+    const summary = document.createElement("summary");
+    summary.textContent = say("yoursLinkify");
+    summary.addEventListener("click", () => {
+      if (refs.dataset.read === "1") return;
+      refs.dataset.read = "1";
+      const prose = paras.map((para) => para.text).join("\n");
+      void api
+        .linkify(prose)
+        .then((found) => {
+          refs.replaceChildren(summary, this.refRows(found));
+        })
+        .catch(() => {
+          // The lexicon is the one thing this needs, and a shelf without
+          // girsa-import has none; the fold closes rather than lying.
+          refs.dataset.read = "";
+          refs.open = false;
+        });
+    });
+    refs.append(summary);
+    box.append(refs);
+
     for (const at of note.on) {
       const where = document.createElement("button");
       where.className = "yours-where";
@@ -333,8 +360,27 @@ export class YoursView {
     return box;
   }
 
-  private async drawMarks(): Promise<void> {
-    const marks = await api.bookmarks();
+  /** The refs linkify found in a note, as jump rows. */
+  private refRows(found: LinkedRef[]): HTMLElement {
+    const box = document.createElement("div");
+    if (found.length === 0) {
+      box.textContent = say("yoursNoRefs");
+      return box;
+    }
+    for (const one of found) {
+      const row = document.createElement("button");
+      row.className = "yours-where";
+      row.textContent = one.text;
+      row.title = one.reference;
+      row.addEventListener("click", () =>
+        void this.goTo?.(workOf(one.reference), one.reference),
+      );
+      box.append(row);
+    }
+    return box;
+  }
+
+  private async drawMarks(): Promise<void> {    const marks = await api.bookmarks();
     this.tell(
       marks.length === 0 ? say("yoursNoMarks") : `${marks.length} ${say("countMarks")}`,
     );
@@ -672,8 +718,11 @@ function chip(tag: string, pick: (tag: string) => void): HTMLElement {
   return el;
 }
 
-/** The sefer a segment id names — everything before the last `/`. */
-function workOf(id: string): string {
+/** The sefer a segment id names — everything before the last `/`.
+ *
+ * Exported for the links panel, whose *who cites this* rows jump the same way
+ * yours' rows do; a second copy of three lines is still a second copy. */
+export function workOf(id: string): string {
   const body = id.replace(/^girsa:/, "").split("#")[0];
   const cut = body.lastIndexOf("/");
   return cut < 0 ? body : body.slice(0, cut);

@@ -252,6 +252,33 @@ export interface LensRow {
   mine: boolean;
 }
 
+/** One of your own documents that cites a place — `girsa_desk::Citing`. */
+export interface Citing {
+  /** What you called it — a buffer's name, or the document's. */
+  name: string;
+  /** The refs in it that answer the question asked. */
+  refs: string[];
+  /** Where it is on disk, for a document the registry holds. */
+  path?: string | null;
+  /**
+   * The registry knows about it and the file is not there — a stick that is
+   * not plugged in, a folder that has not synced. **The cached refs are still
+   * answered from**, and this says they are cached.
+   */
+  away: boolean;
+}
+
+/** A citation found in prose by linkify — certain enough to become a link. */
+export interface LinkedRef {
+  /** Where it sits in the text, in characters. */
+  from: number;
+  to: number;
+  /** The citation as it was written. */
+  text: string;
+  /** The ref it resolves to, exactly. */
+  reference: string;
+}
+
 export interface Links {
   links: LinkRow[];
   /** No companions cache, so the incoming half is missing — said, never
@@ -1657,6 +1684,24 @@ export const api = {
     call<void>("link_reanchor", { edge, end, to }),
   linkDraw: (from: string, to: string, kind: string) =>
     call<void>("link_draw", { from, to, kind }),
+  /** Which of your own documents cite a place — the drawer and the registry,
+   * the same answer Ksav's panel gives. */
+  whoCites: (reference: string) => call<Citing[]>("who_cites", { reference }),
+  /** The citations in a piece of prose — only the certain ones, which is what
+   * makes them safe to turn into links. */
+  linkify: (text: string) => call<LinkedRef[]>("linkify", { text }),
+  /** What a press is bound to, by Rust's table — asked when a reader is about
+   * to take keys another action holds, and nowhere else: the keydown path
+   * resolves synchronously from the state's own copy of the bindings. */
+  whatKey: (press: { key: string; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean }) =>
+    call<string | null>("what_key", {
+      press: {
+        key: press.key,
+        ctrl: press.ctrlKey ?? false,
+        shift: press.shiftKey ?? false,
+        alt: press.altKey ?? false,
+      },
+    }),
 
   // --- your own layer (spec.md §11, W27) ----------------------------------
   //
@@ -2235,7 +2280,16 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // ever does appear the click says why it went nowhere instead of falling
     // through to `default: undefined` and looking like a link that is broken.
     case "cite_open":
+    // The same argument covers the two commands that read the personal layer
+    // and the lexicon: a browser fixture has neither, so empty is the truth —
+    // said as an error for who_cites (a refusal, not a lie about your
+    // documents) and as an empty list for linkify.
+    case "who_cites":
       throw new Error(say("browserLayer"));
+    case "linkify":
+      return [] as T;
+    case "what_key":
+      return null as T;
     case "buffer_open":
       return {
         name: String(args?.name ?? ""),
