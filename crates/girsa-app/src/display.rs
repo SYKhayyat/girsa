@@ -214,24 +214,33 @@ fn bits(text: &str) -> Vec<Bit> {
     let mut depth = 0usize;
     let mut i = 0usize;
 
-    let plain = |out: &mut Vec<Bit>, letters: &[char], from: usize, style| {
-        for (n, ch) in letters.iter().skip(from).enumerate() {
-            out.push(Bit::Letter {
-                ch: *ch,
-                style,
-                at: from + n,
-                len: 1,
-            });
-        }
-    };
-
     while i < letters.len() {
         let ch = letters[i];
         if ch == '<' {
-            let Some(end) = (i..letters.len()).find(|j| letters[*j] == '>') else {
-                // An unclosed `<` is a `<`, not the start of markup.
-                plain(&mut out, &letters, i, style);
-                break;
+            // Markup opens with a letter or a slash and reaches its `>` without
+            // meeting another `<` on the way. Anything else is a literal angle
+            // bracket sitting in the prose — which markup.rs says really does
+            // happen — and treating every `<` as an opener ate all the words
+            // up to the next `>`, wherever in the segment that turned up.
+            let opens_tag = letters
+                .get(i + 1)
+                .is_some_and(|next| next.is_ascii_alphabetic() || *next == '/');
+            let end = if opens_tag {
+                (i + 1..letters.len())
+                    .find(|j| letters[*j] == '>' || letters[*j] == '<')
+                    .filter(|j| letters[*j] == '>')
+            } else {
+                None
+            };
+            let Some(end) = end else {
+                out.push(Bit::Letter {
+                    ch,
+                    style,
+                    at: i,
+                    len: 1,
+                });
+                i += 1;
+                continue;
             };
             let tag: String = letters[i + 1..end].iter().collect();
             i = end + 1;
@@ -986,6 +995,26 @@ mod hit_tests {
         assert!(!marked.iter().any(|r| r.hit));
         let whole: String = marked.iter().map(|r| r.text.as_str()).collect();
         assert_eq!(whole, text, "and the words are all still there");
+    }
+
+    #[test]
+    fn an_angle_bracket_in_the_prose_is_a_character_and_not_an_opener() {
+        // markup.rs says raw angle brackets occur — `א < ב` in a printed
+        // source. The scan used to find the *next* `>` wherever it lived and
+        // eat everything between as a tag; here that was "ב ו אומר", and the
+        // real `<b>` after it still has to work.
+        let text = "א < ב ו אומר <b>רשב\"י</b> דבר אחר";
+        let shown: String = runs(text).iter().map(|r| r.text.as_str()).collect();
+        for word in ["א", "<", "ב", "אומר", "רשב\"י", "דבר אחר"] {
+            assert!(shown.contains(word), "{word} missing from {shown:?}");
+        }
+        assert!(!shown.contains("b>"), "the real tag is still stripped: {shown:?}");
+        assert!(!shown.contains("<b"), "{shown:?}");
+
+        // And an unclosed `<` is a `<`.
+        let dangling = runs("קטן < מה שרוצה");
+        let whole: String = dangling.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(whole, "קטן < מה שרוצה");
     }
 
     #[test]

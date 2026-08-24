@@ -239,7 +239,11 @@ pub fn span_on(
     pointing: Pointing,
 ) -> Option<std::ops::Range<usize>> {
     if let Some((pinned_at, span)) = &link.repaired.pinned {
-        if pinned_at == at {
+        // A pin made before a cut is a pin on the words, and the cut moved
+        // them into a child — which `covers` answers for. Exact equality
+        // stopped applying it the moment the segment was split, silently,
+        // on the one link whose placement the reader had vouched for.
+        if pinned_at.covers(at) {
             return Some(span.clone());
         }
     }

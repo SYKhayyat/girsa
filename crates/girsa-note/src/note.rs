@@ -412,6 +412,12 @@ impl Note {
         let mut note = Self::new(slug, name, String::new());
         note.paras.clear();
 
+        // A UTF-8 BOM is not whitespace and `trim` will not take it off, so a
+        // file saved by anything that prefixes one read as banner-less: the
+        // front matter became loose paragraphs, and the next save made the
+        // metadata lines permanent text with the tags and anchors gone. It is
+        // not part of the note; it is not even part of the first line.
+        let body = body.strip_prefix('\u{FEFF}').unwrap_or(body);
         let mut lines = body.lines().peekable();
         let banner = lines.peek().is_some_and(|l| l.trim() == BANNER);
         if banner {
@@ -1072,6 +1078,19 @@ pub(crate) mod tests {
         // And from the next save on it is a note like any other.
         let (again, _) = Note::parse(&note.slug, &note.to_text());
         assert_eq!(again.paras(), note.paras());
+    }
+
+    #[test]
+    fn a_bom_is_not_the_first_line_of_the_note() {
+        // `trim` does not strip U+FEFF — it is not whitespace — so a file
+        // saved by something that prefixes one failed the banner test and the
+        // whole front matter became loose paragraphs, permanent at the next
+        // save. The BOM is not part of the note.
+        let body = "\u{FEFF}girsa note\ntitle: בורא\nwho: me\n\nbody words\n";
+        let (note, trouble) = Note::parse("note/boreh", body);
+        assert!(trouble.is_empty(), "{trouble:?}");
+        assert_eq!(note.title, "בורא");
+        assert_eq!(note.who, "me");
     }
 
     #[test]

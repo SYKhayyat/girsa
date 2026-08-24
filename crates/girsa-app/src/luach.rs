@@ -1062,7 +1062,12 @@ fn limudim(rd: Rd) -> Vec<Limud> {
             address: daf.address(),
             cycle: daf.cycle,
             day: daf.day,
-            of: 2711,
+            // How long the cycle is — and it has two lengths, which is the
+            // whole Shekalim story this module tells: 2,702 dapim for the
+            // first seven cycles, 2,711 from June 1975 on. A reader looking
+            // back before the eighth cycle was told *day 400 of 2,711* about
+            // a 2,702-day cycle.
+            of: if daf.cycle <= 7 { 2_702 } else { 2_711 },
             here: false,
         })
         .into_iter()

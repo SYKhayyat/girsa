@@ -525,7 +525,7 @@ impl Held {
         if last == u32::MAX {
             return None;
         }
-        let mut over = Self::prefix(key, depth - 1)?;
+        let over = Self::prefix(key, depth - 1)?;
         Some(over.child(last + 1))
     }
 
