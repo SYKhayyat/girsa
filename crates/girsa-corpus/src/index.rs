@@ -332,6 +332,17 @@ fn with_work(slug: &str, id: SegmentId) -> SegmentId {
     SegmentId::new(slug, id.path().to_vec(), id.ordinal().clone())
 }
 
+/// A catalogue row, short enough to name in a report.
+fn truncate(line: &str) -> String {
+    const ROOM: usize = 60;
+    if line.chars().count() <= ROOM {
+        return line.to_string();
+    }
+    let mut out: String = line.chars().take(ROOM).collect();
+    out.push('…');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     // A panic in a test is a failure report. The workspace denies these in
@@ -507,15 +518,4 @@ mod tests {
             "girsa:shulchan-arukh/orach-chayim/10:3#30"
         );
     }
-}
-
-/// A catalogue row, short enough to name in a report.
-fn truncate(line: &str) -> String {
-    const ROOM: usize = 60;
-    if line.chars().count() <= ROOM {
-        return line.to_string();
-    }
-    let mut out: String = line.chars().take(ROOM).collect();
-    out.push('…');
-    out
 }
