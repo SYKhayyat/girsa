@@ -589,8 +589,12 @@ mod tests {
             ),
             "zero is not a length problem"
         );
+        // Built through a variable, because a literal `50..=10` is one clippy
+        // refuses to even compile — the whole point here is that it reaches
+        // the constructor and is *named* as inverted.
+        let from = 50;
         assert!(matches!(
-            Instrument::dilug("תורה", 50..=10).expect_err("refused"),
+            Instrument::dilug("תורה", from..=10).expect_err("refused"),
             InstrumentError::InvertedRange(50, 10)
         ));
     }

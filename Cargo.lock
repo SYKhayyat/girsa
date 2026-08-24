@@ -2109,6 +2109,7 @@ version = "0.1.0"
 dependencies = [
  "girsa-app",
  "girsa-corpus",
+ "girsa-desk",
  "girsa-fix",
  "girsa-fixture",
  "girsa-hebrew",

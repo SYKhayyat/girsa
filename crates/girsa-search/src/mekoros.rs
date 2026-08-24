@@ -258,9 +258,13 @@ fn gather(
             // The names of what actually ran — not the announcement sentence,
             // which is one renderer's English and used to be printed as
             // though it were the rung.
-            how: (!rungs.is_empty()).then(|| How::Widened {
-                rungs: rungs.iter().map(|rung| rung.name().to_string()).collect(),
-            }).unwrap_or(how),
+            how: if rungs.is_empty() {
+                how
+            } else {
+                How::Widened {
+                    rungs: rungs.iter().map(|rung| rung.name().to_string()).collect(),
+                }
+            },
             total: results.total,
             candidates: results
                 .hits

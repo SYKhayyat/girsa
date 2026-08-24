@@ -30,6 +30,10 @@ girsa-note.workspace = true
 girsa-search.workspace = true
 # The graph, and W28's chain tracing over it.
 girsa-link.workspace = true
+# Your own writing that cites a place — `who_cites` asks the desk's registry,
+# the same answer the window's panel gives, so an agent cannot get a second
+# opinion by asking a second surface.
+girsa-desk.workspace = true
 # The semantic lane (spec.md §9.9, W30), for its `State` — the `adjacent` tool
 # has to tell a caller whether the lane is off, adrift or running, in the same
 # words the window uses.

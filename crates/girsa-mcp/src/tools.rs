@@ -272,6 +272,60 @@ pub fn catalogue(writable: bool) -> Value {
                 },
                 "required": ["title"]
             }
+        },
+        {
+            "name": "marks",
+            "title": "Your marks",
+            "description": "\
+    The highlights, lns and bookmarks your own layer holds. An agent that can \
+    see the layer it is standing in is the point: without this, everything \
+    `write_note` writes has a twin nobody can read back. Filter by place, by \
+    sefer, or ask for bookmarks alone.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "at": {"type": "string", "description": "A segment id — marks left on exactly that segment."},
+                    "sefer": {"type": "string", "description": "A work slug — marks anywhere in one sefer."},
+                    "bookmarks": {"type": "boolean", "description": "True: bookmarks only."},
+                    "tag": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
+                }
+            }
+        },
+        {
+            "name": "folders",
+            "title": "Your chaburah folders",
+            "description": "\
+    The folders your layer holds, each with its members in order — places, whole \
+    seforim of yours, saved queries. Read-only here: a folder's shape is the \
+    reader's business and an agent's order would be a guess.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "holding": {"type": "string", "description": "A segment id — only folders that hold this place."}
+                }
+            }
+        },
+        {
+            "name": "queries",
+            "title": "Your saved searches",
+            "description": "\
+    The queries you have saved, as typed — sigils and all — with what they say. \
+    What `save_query` writes and `forget_query` takes back.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "who_cites",
+            "title": "Who cites this place",
+            "description": "\
+    Which of YOUR OWN documents cite a place — notes in the drawer and documents \
+    in the registry whose refs cover it. Not the corpus's link graph; `links` is \
+    that. This is your own writing answering back.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"id": {"type": "string", "description": "A segment id or girsa: ref."}},
+                "required": ["id"]
+            }
         }
     ]);
     if !writable {
@@ -444,6 +498,72 @@ fn writing() -> Vec<Value> {
                 "required": ["at", "says"]
             }
         }),
+        json!({
+            "name": "bookmark",
+            "title": "Bookmark a place",
+            "description": "\
+        Put a bookmark in your own layer. A bookmark is a mark with no span — \
+        the whole segment — and a name if you give one. It shows up wherever \
+        your layer shows marks, and `marks` is where you take it back from.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "at": {"type": "string", "description": "A segment id or girsa: ref."},
+                    "label": {"type": "string", "description": "What you called it."},
+                    "colour": {"type": "string"},
+                    "tag": {"type": "string"}
+                },
+                "required": ["at"]
+            }
+        }),
+        json!({
+            "name": "forget_mark",
+            "title": "Take a mark back",
+            "description": "\
+        Remove a mark — bookmark or highlight — from your own layer, by the id \
+        `marks` gave you. The id is the proof of having looked: there is no \
+        other way to name one.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+            "inputSchema": {
+                "type": "object",
+                "properties": {"id": {"type": "string", "description": "`marks`' `id`."}},
+                "required": ["id"]
+            }
+        }),
+        json!({
+            "name": "save_query",
+            "title": "Save a search",
+            "description": "\
+        Keep a query as you wrote it, under a name, in your own layer. The same \
+        object the window's saved-searches row holds, so it comes back there too.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "typed": {"type": "string", "description": "The query as it would be typed into the bar, sigils and all."}
+                },
+                "required": ["name", "typed"]
+            }
+        }),
+        json!({
+            "name": "forget_query",
+            "title": "Throw a saved query away",
+            "description": "\
+        Remove a saved query from your own layer. `typed` must be what it says \
+        now — `queries` gives you that — because this end cannot show you what \
+        you are about to delete; a mismatch is refused and nothing is removed.",
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "typed": {"type": "string", "description": "What it says now — `queries`' `typed`."}
+                },
+                "required": ["name", "typed"]
+            }
+        }),
     ]
 }
 
@@ -466,6 +586,10 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "path" => path(server, &args),
         "fork" => fork(server, &args),
         "seforim" => seforim(server, &args),
+        "marks" => marks(server, &args),
+        "folders" => folders(server, &args),
+        "queries" => queries(server, &args),
+        "who_cites" => who_cites(server, &args),
         "adjacent" => adjacent(server, &args),
         // The three that write. Guarded here as well as being absent from the
         // catalogue, because a tool list is a description and this is the
@@ -473,6 +597,7 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         // called one against a read-only server gets a refusal that names the
         // reason rather than a note appearing in somebody's layer.
         "write_note" | "draw_link" | "correct" | "forget_note" | "undraw_link" | "uncorrect"
+        | "bookmark" | "forget_mark" | "save_query" | "forget_query"
             if !server.is_writable() =>
         {
             Err(format!(
@@ -485,6 +610,10 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "forget_note" => forget_note(server, &args),
         "undraw_link" => undraw_link(server, &args),
         "uncorrect" => uncorrect(server, &args),
+        "bookmark" => bookmark(server, &args),
+        "forget_mark" => forget_mark(server, &args),
+        "save_query" => save_query(server, &args),
+        "forget_query" => forget_query(server, &args),
         other => Err(format!("no such tool: {other}")),
     };
     Response::ok(match answered {
@@ -1111,6 +1240,161 @@ fn seforim(server: &Server, args: &Value) -> Result<Value, String> {
     }))
 }
 
+/// Your own marks (F4).
+///
+/// The layer an agent is standing in, read back: highlights, bookmarks and
+/// their labels. Without this, `bookmark` wrote into a drawer that opened
+/// from no side but the window's.
+fn marks(server: &Server, args: &Value) -> Result<Value, String> {
+    let limit = limit_of(args);
+    let tag = args.get("tag").and_then(Value::as_str);
+    let bookmarks_only = args
+        .get("bookmarks")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    // A place filter needs a standing, and a standing needs the sefer open —
+    // the same derivation `links` asks for, for the same reason.
+    let standing = match args.get("at").and_then(Value::as_str) {
+        Some(text) => {
+            let id: SegmentId = text
+                .parse()
+                .map_err(|e| format!("`at` is not a segment id: {e}"))?;
+            Some(
+                server
+                    .shelf
+                    .read(id.work())
+                    .map_err(|e| e.to_string())?
+                    .standing(&id),
+            )
+        }
+        None => None,
+    };
+    let marks = server.shelf.marks();
+    let mut chosen: Vec<&girsa_note::Mark> = match &standing {
+        Some(at) => marks.on(at),
+        None => match args.get("sefer").and_then(Value::as_str) {
+            Some(slug) => marks.in_work(slug).collect(),
+            None => marks.all().collect(),
+        },
+    };
+    chosen.retain(|mark| {
+        (!bookmarks_only || matches!(mark.kind, girsa_note::Kind::Bookmark))
+            && tag.is_none_or(|wanted| mark.has_tag(wanted))
+    });
+    let total = chosen.len();
+    Ok(json!({
+        "total": total,
+        "showing": total.min(limit),
+        "marks": chosen.iter().take(limit).map(|mark| {
+            let mut row = json!({
+                "id": mark.id.as_str(),
+                "kind": mark.kind,
+                "at": named(server, &mark.at),
+                "label": mark.label,
+                "colour": mark.colour,
+                "tags": mark.tags,
+                "by": mark.who,
+                "when": mark.when,
+            });
+            if mark.kind == girsa_note::Kind::Highlight {
+                row["was"] = json!(mark.was);
+            }
+            row
+        }).collect::<Vec<Value>>(),
+        "note": "a highlight's `was` is the words it was made on; offsets live in your layer, not on this wire",
+    }))
+}
+
+/// Your own chaburah folders (F4). Read-only here: reordering somebody's
+/// shiur is not an agent's call to make over the wire.
+fn folders(server: &Server, args: &Value) -> Result<Value, String> {
+    let holding = match args.get("holding").and_then(Value::as_str) {
+        Some(text) => {
+            let id: SegmentId = text
+                .parse()
+                .map_err(|e| format!("`holding` is not a segment id: {e}"))?;
+            Some(
+                server
+                    .shelf
+                    .read(id.work())
+                    .map_err(|e| e.to_string())?
+                    .standing(&id),
+            )
+        }
+        None => None,
+    };
+    let collections = server.shelf.collections();
+    let list: Vec<&girsa_note::Collection> = match &holding {
+        Some(at) => collections.holding(at),
+        None => collections.all().collect(),
+    };
+    Ok(json!({
+        "total": list.len(),
+        "folders": list.iter().map(|folder| {
+            let members: Vec<Value> = folder.members.iter().map(|member| match member {
+                girsa_note::Member::Place(id) => {
+                    let mut row = named(server, id);
+                    row["member"] = json!("place");
+                    row
+                }
+                girsa_note::Member::Work(slug) => json!({ "member": "work", "slug": slug }),
+                girsa_note::Member::Query(name) => json!({ "member": "query", "name": name }),
+            }).collect();
+            json!({
+                "name": folder.name,
+                "title": folder.title,
+                "tags": folder.tags,
+                "members": members,
+            })
+        }).collect::<Vec<Value>>(),
+    }))
+}
+
+/// Your own saved searches (F4).
+fn queries(server: &Server, _args: &Value) -> Result<Value, String> {
+    let queries = server.shelf.queries();
+    let all: Vec<&girsa_note::SavedQuery> = queries.all().collect();
+    Ok(json!({
+        "total": all.len(),
+        "queries": all.iter().map(|query| json!({
+            "name": query.name,
+            "typed": query.typed,
+            "said": query.said(),
+            "chips": query.chips,
+            "only": query.only,
+            "without": query.without,
+            "tags": query.tags,
+        })).collect::<Vec<Value>>(),
+    }))
+}
+
+/// Which of your own documents cite a place (F4).
+///
+/// The desk's answer, not a second one: notes in the drawer and documents in
+/// the registry, asked through [`girsa_desk::citing::who_cites`] exactly as
+/// the window's panel asks.
+fn who_cites(server: &Server, args: &Value) -> Result<Value, String> {
+    let id = id_arg(args, "id")?;
+    let place = id
+        .to_string()
+        .parse::<girsa_ref::Ref>()
+        .map_err(|e| format!("{id} does not read as a ref: {e}"))?;
+    let (documents, _) = girsa_desk::Documents::open(&server.personal);
+    let citing = girsa_desk::citing::who_cites(&server.personal, &documents, &place);
+    Ok(json!({
+        "at": named(server, &id),
+        "total": citing.len(),
+        "cited_by": citing.iter().map(|one| json!({
+            "name": one.name,
+            "refs": one.refs,
+            "path": one.path,
+            "cached_only": one.away,
+        })).collect::<Vec<Value>>(),
+        "note": "your own writing only — for the corpus's link graph, call `links`",
+    }))
+}
+
 /// Who a write is by, over the wire.
 ///
 /// `girsa_app::who` is the same name the window and the command-line tools
@@ -1424,5 +1708,123 @@ fn uncorrect(server: &mut Server, args: &Value) -> Result<Value, String> {
         "kind": kind,
         "into": "personal",
         "note": "an overlay was removed, not an edit reverted — the text on disk never changed",
+    }))
+}
+
+/// Bookmark a place (F4).
+fn bookmark(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let at = id_arg(args, "at")?;
+    let who = writer(args);
+    let mut mark = girsa_note::Mark::bookmark(at.clone(), who);
+    if let Some(label) = args.get("label").and_then(Value::as_str) {
+        mark = mark.called(label);
+    }
+    if let Some(colour) = args.get("colour").and_then(Value::as_str) {
+        mark = mark.coloured(colour);
+    }
+    let tags: Vec<String> = args
+        .get("tag")
+        .and_then(Value::as_str)
+        .map(|tag| vec![tag.to_string()])
+        .unwrap_or_default();
+    if !tags.is_empty() {
+        mark = mark.tagged(tags);
+    }
+    let id = mark.id.as_str().to_string();
+    server
+        .shelf_mut()
+        .marks_mut()
+        .add(mark)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "marked": id,
+        "at": named(server, &at),
+        "into": "personal",
+        "note": "`marks` reads them back; `forget_mark` takes one back by this id",
+    }))
+}
+
+/// Take a mark back (F4).
+///
+/// The id is the proof of having looked: `marks` is the only way to name one,
+/// so a caller removing by id has read the list it came from.
+fn forget_mark(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let id = text_arg(args, "id")?;
+    // The type carries no constructor over the wire, and should not have to:
+    // find the mark your layer actually holds, then take *that* back.
+    let found = server
+        .shelf
+        .marks()
+        .all()
+        .find(|mark| mark.id.as_str() == id.trim())
+        .map(|mark| mark.id.clone())
+        .ok_or_else(|| {
+            format!("no mark in your layer has id {id} — `marks` lists the ids that exist")
+        })?;
+    let gone = server
+        .shelf_mut()
+        .marks_mut()
+        .remove(&found)
+        .map_err(|e| e.to_string())?;
+    if !gone {
+        return Err(format!("the mark {id} could not be taken back"));
+    }
+    Ok(json!({
+        "forgot": id,
+        "into": "personal",
+    }))
+}
+
+/// Save a search (F4).
+fn save_query(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let name = text_arg(args, "name")?;
+    let typed = text_arg(args, "typed")?;
+    // Through the same constructor the window's row uses, so a query saved
+    // over the wire and one typed into the bar are the same object — sigils
+    // and all, chips empty until something sets them.
+    let query = girsa_note::SavedQuery::new(name.clone(), typed);
+    let said = query.said();
+    server
+        .shelf_mut()
+        .queries_mut()
+        .save(query)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "saved": name,
+        "said": said,
+        "into": "personal",
+        "note": "`queries` reads them back; the window's saved-searches row holds the same objects",
+    }))
+}
+
+/// Throw a saved query away (F4).
+///
+/// `typed` must be what the query says now, which `queries` gives you — the
+/// same proof `forget_note` asks for, for the same reason: this end cannot
+/// show what is about to be deleted.
+fn forget_query(server: &mut Server, args: &Value) -> Result<Value, String> {
+    let name = text_arg(args, "name")?;
+    let says = text_arg(args, "typed")?;
+    let queries = server.shelf.queries();
+    let held = queries
+        .get(&name)
+        .ok_or_else(|| format!("no saved query named {name} — `queries` lists the names"))?;
+    if held.typed.trim() != says.trim() {
+        return Err(format!(
+            "{name} says something else now — `queries` returns its `typed`; a mismatch is refused"
+        ));
+    }
+    let gone = server
+        .shelf_mut()
+        .queries_mut()
+        .remove(&name)
+        .map_err(|e| e.to_string())?;
+    if !gone {
+        return Err(format!("{name} could not be removed"));
+    }
+    Ok(json!({
+        "forgot": name,
+        "said": says,
+        "into": "personal",
     }))
 }
