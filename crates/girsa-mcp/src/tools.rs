@@ -1213,32 +1213,27 @@ fn seforim(server: &Server, args: &Value) -> Result<Value, String> {
     let title = text_arg(args, "title")?;
     let limit = limit_of(args);
     // Compared through the shared normalizer, like every other comparison of
-    // two Hebrew strings in this project (W2's sibling rule).
+    // two Hebrew strings in this project (W2's sibling rule) — normalized
+    // once per server, not ~7,200 times per call.
     let wanted = girsa_hebrew::normalize(&title);
-    let mut matched: Vec<&girsa_corpus::work::Work> = server
-        .shelf
-        .works()
+    let wanted_en = title.trim().to_lowercase();
+    let mut matched: Vec<&crate::TitleEntry> = server
+        .titles
         .iter()
-        .filter(|work| {
-            girsa_hebrew::normalize(&work.he_title).contains(&wanted)
-                || work
-                    .en_title
-                    .to_lowercase()
-                    .contains(&title.trim().to_lowercase())
-        })
+        .filter(|row| row.he.contains(&wanted) || row.en.contains(&wanted_en))
         .collect();
-    matched.sort_by_key(|work| work.he_title.chars().count());
+    matched.sort_by_key(|row| row.he_title.chars().count());
     Ok(json!({
         "total": matched.len(),
         "showing": matched.len().min(limit),
-        "seforim": matched.iter().take(limit).map(|work| {
-            let when = server.timeline.when(&work.slug);
+        "seforim": matched.iter().take(limit).map(|row| {
+            let when = server.timeline.when(&row.slug);
             json!({
-                "sefer": work.slug,
-                "title": work.he_title,
-                "en_title": work.en_title,
-                "shelf": work.categories,
-                "author": work.author,
+                "sefer": row.slug,
+                "title": row.he_title,
+                "en_title": row.en_title,
+                "shelf": row.categories,
+                "author": row.author,
                 "written": when.written(),
                 "era": when.era.map(|e| e.he()),
             })

@@ -58,6 +58,20 @@ pub enum OpenError {
     Index(PathBuf, String),
 }
 
+/// One row of the title index `seforim` searches.
+pub struct TitleEntry {
+    /// The Hebrew title, through the shared normalizer (W2).
+    pub he: String,
+    /// The English title, lowercased, for the same reason in its own case.
+    pub en: String,
+    /// The work slug — what the reply names and the caller filters by.
+    pub slug: String,
+    pub he_title: String,
+    pub en_title: String,
+    pub categories: Vec<String>,
+    pub author: Option<String>,
+}
+
 /// The server: a shelf, a search bar, the graph and the time axis.
 ///
 /// Built once at start-up. The index and the catalogue are the expensive part
@@ -84,6 +98,12 @@ pub struct Server {
     index: PathBuf,
     /// Your own layer's root, for the same reason.
     personal: PathBuf,
+    /// Every title, normalized once, beside what a `seforim` row says.
+    ///
+    /// `seforim` used to normalize all ~7,200 of them per call to look one
+    /// thing up; the open is the obvious place for that work, and it happens
+    /// once.
+    titles: Vec<TitleEntry>,
     /// Set once the client has sent `initialize`. A tool call before that is
     /// refused rather than served, because a client that has not handshaken has
     /// not agreed a protocol version and cannot be assumed to read the answer.
@@ -134,6 +154,20 @@ impl Server {
         // `narrow_by: "tag"` has somewhere to narrow to (B18).
         let (notes, _) = girsa_note::note::Notes::open(personal);
         let catalogue = Catalogue::of(shelf.works()).tagged(&notes);
+        // Titles normalized here, once, rather than per `seforim` call.
+        let titles: Vec<TitleEntry> = shelf
+            .works()
+            .iter()
+            .map(|work| TitleEntry {
+                he: girsa_hebrew::normalize(&work.he_title),
+                en: work.en_title.to_lowercase(),
+                slug: work.slug.clone(),
+                he_title: work.he_title.clone(),
+                en_title: work.en_title.clone(),
+                categories: work.categories.clone(),
+                author: work.author.clone(),
+            })
+            .collect();
         // Loads a side-loaded model when the lane is on, which is why it is done
         // once here and not per call. With the lane off — the default — this
         // costs nothing at all.
@@ -149,6 +183,7 @@ impl Server {
             lane,
             index: index.to_path_buf(),
             personal: personal.to_path_buf(),
+            titles,
             ready: false,
             writable: false,
             walked: girsa_link::chain::Cache::default(),

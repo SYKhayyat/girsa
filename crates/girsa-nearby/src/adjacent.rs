@@ -53,7 +53,7 @@ use girsa_lane::{
 };
 
 use girsa_app::naming::{Names, Naming};
-use girsa_app::shelf::Shelf;
+use girsa_app::shelf::{self, Shelf};
 
 /// One adjacent result, ready to draw.
 #[derive(Debug, Clone, PartialEq)]
@@ -326,15 +326,27 @@ impl Adjacency {
         // whole answer to a request for ten.
         let mut unresolved: usize = 0;
         let mut near = Vec::with_capacity(asked.adjacent.len());
+        // One read per **sefer**, not per hit: the lane's answers cluster, and
+        // ten hits out of one daf used to parse that whole work ten times.
+        let mut opened: std::collections::HashMap<String, Option<shelf::Open>> =
+            std::collections::HashMap::new();
         for adjacent in asked.adjacent {
             // The text comes off the shelf, through the same reader every
             // other consumer of a segment id uses — corrections applied,
             // because the lane must show what the reader can see.
-            let opened = shelf.read(adjacent.id.work()).ok().and_then(|open| {
+            let work = adjacent.id.work().to_string();
+            let open = match opened.entry(work) {
+                std::collections::hash_map::Entry::Occupied(known) => known.get().clone(),
+                std::collections::hash_map::Entry::Vacant(miss) => {
+                    let read = shelf.read(adjacent.id.work()).ok();
+                    miss.insert(read.clone());
+                    read
+                }
+            };
+            match open.and_then(|open| {
                 let at = open.position_of(&adjacent.id)?;
                 Some(open.segments.get(at)?.text.clone())
-            });
-            match opened {
+            }) {
                 Some(text) => near.push(Near {
                     at: names.of(&adjacent.id),
                     text,
