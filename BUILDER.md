@@ -34,7 +34,7 @@ silently corrupt ten thousand commentary links is the actual project.
    node tools/verify.mjs
    ```
 
-   Unverified is not done. The runner is the gate — nine steps across the
+   Unverified is not done. The runner is the gate — ten steps across the
    workspace, the Tauri shell and the window — and it is deliberately the only
    place they are written down. `--from <n>` picks up where a failure stopped it;
    `--list` prints the steps without running them.

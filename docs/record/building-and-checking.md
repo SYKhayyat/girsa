@@ -5,7 +5,7 @@
 ---
 
 ```sh
-node tools/verify.mjs               # the gate: nine steps, two lanes
+node tools/verify.mjs               # the gate: ten steps, two lanes
 node tools/verify.mjs --list        # what they are, and which lane, without running
 node tools/verify.mjs --from 4      # pick up where a failure stopped it
 ```

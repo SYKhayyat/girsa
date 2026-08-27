@@ -32,6 +32,16 @@ Nothing is retyped, because what gets stored is the **reference**, not a printed
 
 **Important boundary.** Girsa is a research and study tool. It does not replace a qualified teacher or posek, and corpus text, OCR, links, and user corrections require verification.
 
+## The tree
+
+**15**<!--=crates--> crates and **16**<!--=bins--> command-line binaries, wrapped
+in a Tauri shell: a window and **138**<!--=commands--> commands,
+**35**<!--=window-modules--> TypeScript modules and one stylesheet of
+**4,706**<!--=styles-lines--> lines. The shell is **6,861**<!--=shell-lines-->
+lines of Rust, and **25**<!--=rules--> checks read this repository's own source
+and fail when a rule stated in a doc comment stops being true.
+[`docs/architecture.md`](docs/architecture.md) draws the stack.
+
 ## Getting it
 
 An installer is attached to every `v*` tag on the releases page. The installer carries the application and tools but not the library. From a clone, the shelf-building flow is:
@@ -46,7 +56,7 @@ The full prerequisites, library sources, disk requirements, resumable stages, an
 
 To report a problem, include the release or commit, operating system, corpus/library source, exact query or reference, what appeared, what you expected, and whether the problem reproduces after rebuilding the relevant cache. For documentation or corpus work, preserve source provenance and do not silently overwrite imported text; use the correction/personal layer when the source itself must remain replaceable.
 
-For code contributors, [`CONTRIBUTING.md`](CONTRIBUTING.md) explains the Rust workspace, the application, tools, test gates, and the smallest checks to run. [`docs/your-first-change.md`](docs/your-first-change.md) is the recommended path for a first patch.
+For code contributors, [`CONTRIBUTING.md`](CONTRIBUTING.md) explains the Rust workspace, the application, tools, test gates, and the smallest checks to run; the gate itself is one command, `node tools/verify.mjs`, from the repository root. [`docs/your-first-change.md`](docs/your-first-change.md) is the recommended path for a first patch.
 
 ## Documentation
 
