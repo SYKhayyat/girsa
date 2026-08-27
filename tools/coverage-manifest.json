@@ -1,0 +1,296 @@
+{
+  "_readme": "The coverage manifest. Every surface of the tree, where it is tested, and what is honestly not swept. `node tools/check-coverage.mjs` validates every claim in here against the tree on every gate run: files must exist, named tests must exist, and each invariant's pinning test must actually mention the thing it pins (the `keyword`). The mutation table doubles as the input to `node tools/mutation.mjs`, which breaks each guard and demands the pinning test fail. The narrative version of this file is docs/coverage.md; if the two ever disagree, the checker is right and the prose has rotted.",
+  "surfaces": [
+    {
+      "name": "girsa-plain",
+      "what": "plaintext reading and normalization",
+      "tests": ["crates/girsa-plain/src/lib.rs"],
+      "note": "unit-tested inside the crate"
+    },
+    {
+      "name": "girsa-personal",
+      "what": "the personal layer: append-only logs, tombstones, compaction, six stores",
+      "tests": ["crates/girsa-personal/src/log.rs", "crates/girsa-personal/src/store.rs"],
+      "note": "unit-tested inside the crate, including the durability findings M2/M3"
+    },
+    {
+      "name": "girsa-corpus",
+      "what": "import, continuity, sections, taxonomy, work, redirects",
+      "tests": [
+        "crates/girsa-corpus/tests/a_reimport_keeps_every_name.rs",
+        "crates/girsa-corpus/tests/anchors_survive_editing.rs",
+        "crates/girsa-corpus/tests/a_library_says_what_it_is.rs",
+        "crates/girsa-corpus/tests/a_volume_is_not_a_place.rs",
+        "crates/girsa-corpus/tests/spec_counts.rs",
+        "crates/girsa-corpus/tests/your_own_seforim.rs"
+      ],
+      "note": "the re-import invariants the audit called the highest-consequence logic in the tree"
+    },
+    {
+      "name": "girsa-search",
+      "what": "the index, citation, facets, the widening ladder, proximity",
+      "tests": [
+        "crates/girsa-search/tests/a_note_is_searchable_before_the_next_rebuild.rs",
+        "crates/girsa-search/tests/a_section_named_like_a_level_word.rs",
+        "crates/girsa-search/tests/a_sefer_of_yours_is_citable.rs",
+        "crates/girsa-search/tests/a_typo_you_fixed_is_findable_by_the_word.rs",
+        "crates/girsa-search/tests/narrow_on_the_second_try.rs",
+        "crates/girsa-search/tests/offered_not_applied.rs",
+        "crates/girsa-search/tests/one_index_two_places.rs",
+        "crates/girsa-search/tests/one_normalized_index.rs",
+        "crates/girsa-search/tests/the_ladder_never_widens_into_meaning.rs",
+        "crates/girsa-search/tests/the_other_three_modes.rs",
+        "crates/girsa-search/tests/what_tesseract_got_wrong_is_in_the_queue.rs",
+        "crates/girsa-search/tests/what_you_typed_is_what_was_searched_for.rs",
+        "crates/girsa-search/tests/where_is_this_from.rs"
+      ],
+      "note": "scoring and facets were 'read for shape only' by the 23-Aug audit; the per-gap proximity contract is new in this pass"
+    },
+    {
+      "name": "girsa-link",
+      "what": "the link graph, inbound caches, repair layer",
+      "tests": [
+        "crates/girsa-link/tests/how_it_became_halacha.rs",
+        "crates/girsa-link/tests/known_good_lookup.rs",
+        "crates/girsa-link/tests/the_data_is_wrong_and_you_can_say_so.rs",
+        "crates/girsa-link/tests/the_meforshim_are_on_the_daf.rs"
+      ],
+      "note": "the repair layer the audit said was 'sampled, not swept' is pinned here, including attribution after a restart"
+    },
+    {
+      "name": "girsa-fix",
+      "what": "corrections and their application",
+      "tests": ["crates/girsa-fix/tests", "crates/girsa-fix/src/lib.rs"],
+      "note": "unit and integration"
+    },
+    {
+      "name": "girsa-note",
+      "what": "notes, marks, saved queries, two people's layers",
+      "tests": ["crates/girsa-note/tests/two_peoples_layers_become_one.rs", "crates/girsa-note/src/lib.rs"],
+      "note": "merge-across-layers refusal is the hard case and is pinned"
+    },
+    {
+      "name": "girsa-scan",
+      "what": "OCR, paging schemes, anchors, the daf a page is",
+      "tests": [
+        "crates/girsa-scan/tests/a_page_is_citable.rs",
+        "crates/girsa-scan/tests/the_image_is_ground_truth.rs",
+        "crates/girsa-scan/tests/which_page_is_which_daf.rs",
+        "crates/girsa-scan/src/engine.rs",
+        "crates/girsa-scan/src/paging.rs"
+      ],
+      "note": "paging and anchor arithmetic were 'read for shape only'; the bounded probe is new in this pass"
+    },
+    {
+      "name": "girsa-lane",
+      "what": "the semantic lane: vectors, signatures, coverage",
+      "tests": [
+        "crates/girsa-lane/src/bring.rs",
+        "crates/girsa-lane/src/chosen.rs",
+        "crates/girsa-lane/src/coverage.rs",
+        "crates/girsa-lane/src/job.rs",
+        "crates/girsa-lane/src/lane.rs",
+        "crates/girsa-lane/src/model.rs",
+        "crates/girsa-lane/src/signature.rs",
+        "crates/girsa-lane/src/vectors.rs"
+      ],
+      "note": "the vectors themselves, which the audit said nothing was checked about"
+    },
+    {
+      "name": "girsa-app",
+      "what": "the library the shell calls: sending, held, workspace, luach, view, arrangement, session",
+      "tests": ["crates/girsa-app/tests"],
+      "note": "22 integration files, including the gates that read the whole tree"
+    },
+    {
+      "name": "girsa-export",
+      "what": "fixed seforim out to text and word files",
+      "tests": ["crates/girsa-export/tests/a_fixed_sefer_comes_out.rs"],
+      "note": "the word-file round-trip is the interop half"
+    },
+    {
+      "name": "girsa-nearby",
+      "what": "adjacency and what you have not seen",
+      "tests": ["crates/girsa-nearby/tests", "crates/girsa-nearby/src/unseen.rs"],
+      "note": "thin — one integration file and the unseen unit tests"
+    },
+    {
+      "name": "girsa-desk",
+      "what": "the desk: sessions, refreshing, citing, documents",
+      "tests": ["crates/girsa-desk/src"],
+      "note": "unit-tested inside the crate; no integration file"
+    },
+    {
+      "name": "girsa-mcp",
+      "what": "the MCP server and its tool surface",
+      "tests": [
+        "crates/girsa-mcp/tests/a_program_can_write_into_your_own_layer.rs",
+        "crates/girsa-mcp/tests/a_program_gets_the_same_engine.rs",
+        "crates/girsa-mcp/src/protocol.rs"
+      ],
+      "note": "the tool surface the audit said was 'sampled, not swept'; the read-only door is pinned"
+    },
+    {
+      "name": "girsa-fixture",
+      "what": "the test shelf",
+      "tests": ["crates/girsa-fixture/src/lib.rs"],
+      "note": "what every other crate's tests stand on"
+    },
+    {
+      "name": "app/src-tauri",
+      "what": "the Tauri shell: commands, refusal codes, post, clipboard",
+      "tests": [],
+      "note": "no test files; held by shell clippy, shell fmt, the window suite's wire tests, and the 22 girsa-app gates that read lib.rs"
+    },
+    {
+      "name": "app/src (the window)",
+      "what": "35 TypeScript modules",
+      "tests": ["app/test"],
+      "note": "24 window test files, ~538 tests, run by `node test/run.mjs`"
+    }
+  ],
+  "invariants": [
+    {
+      "name": "Near is a per-gap contract",
+      "source": "crates/girsa-search/src/proximity.rs",
+      "find": "step: gap.saturating_add(1)",
+      "replace": "step: gap.saturating_add(0)",
+      "test": {
+        "file": "crates/girsa-search/tests/what_you_typed_is_what_was_searched_for.rs",
+        "fn": "near_is_a_per_gap_contract_for_three_words_too",
+        "keyword": "gap"
+      },
+      "crate": "girsa-search",
+      "why": "M4: tantivy's slop is a summed budget, so the per-gap promise was recall loss. A mutation that tightens every step by one must be caught."
+    },
+    {
+      "name": "OCR structural rows are not words",
+      "source": "crates/girsa-scan/src/engine.rs",
+      "find": "if text.trim().is_empty() {",
+      "replace": "if false {",
+      "test": {
+        "file": "crates/girsa-scan/src/engine.rs",
+        "fn": "the_structural_rows_are_not_words_and_the_boxes_are_fractions_of_the_page",
+        "keyword": "פרק"
+      },
+      "crate": "girsa-scan",
+      "why": "tesseract's TSV carries level-1 and level-4 rows beside the words; if they leaked in, every page's words would be polluted."
+    },
+    {
+      "name": "Repairs attribute by time, not by key order",
+      "source": "crates/girsa-link/src/repair.rs",
+      "find": "records.sort_by_key(|record| record.when);",
+      "replace": "",
+      "test": {
+        "file": "crates/girsa-link/tests/the_data_is_wrong_and_you_can_say_so.rs",
+        "fn": "attribution_after_a_restart_goes_to_the_latest_action_not_the_kind_that_sorts_last",
+        "keyword": "restart"
+      },
+      "crate": "girsa-link",
+      "why": "minor 17: a replay rebuilds the index through a key-sorted map; without the when-sort your repair attributes to whichever kind sorted last."
+    },
+    {
+      "name": "An anchor counts for the page it is on, and never a page before it",
+      "source": "crates/girsa-scan/src/paging.rs",
+      "find": "a.page <= page",
+      "replace": "a.page < page",
+      "test": {
+        "file": "crates/girsa-scan/src/paging.rs",
+        "fn": "an_anchor_counts_for_the_page_it_is_on",
+        "keyword": "own page"
+      },
+      "crate": "girsa-scan",
+      "why": "the boundary is what makes an anchor page its own page; a mutation to `<` unpages the anchor's own page and breaks the bijection between the pages a scan covers and the dafim they carry."
+    },
+    {
+      "name": "A small layer is never rewritten",
+      "source": "crates/girsa-personal/src/log.rs",
+      "find": "const FLOOR: usize = 64;",
+      "replace": "const FLOOR: usize = 0;",
+      "test": {
+        "file": "crates/girsa-personal/src/log.rs",
+        "fn": "a_small_layer_is_never_rewritten_for_a_stray_deletion",
+        "keyword": "rewritten"
+      },
+      "crate": "girsa-personal",
+      "why": "M2: the floor is what keeps a store from rewriting the whole file for a stray deletion — and what keeps an unreadable file (0 lines, 0 live) from ever being rewritten at all."
+    },
+    {
+      "name": "A read-only MCP server refuses writes at the door",
+      "source": "crates/girsa-mcp/src/tools.rs",
+      "find": "if !server.is_writable() =>",
+      "replace": "if false =>",
+      "test": {
+        "file": "crates/girsa-mcp/tests/a_program_can_write_into_your_own_layer.rs",
+        "fn": "a_write_against_a_read_only_server_is_refused_at_the_door",
+        "keyword": "--writable"
+      },
+      "crate": "girsa-mcp",
+      "why": "a client that remembered the tools from a writable session must be refused by name, not silently written into somebody's layer."
+    }
+  ],
+  "uncovered": [
+    {
+      "surface": "girsa-corpus fetch",
+      "what": "the downloader's path handling and library layout",
+      "status": "sampled — the path-finding fixes (finding 12) are pinned; the network half of fetch cannot be exercised without the libraries"
+    },
+    {
+      "surface": "girsa-search scoring",
+      "what": "the score arithmetic that orders answers",
+      "status": "sampled — order is pinned by offered_not_applied.rs and the typo-queue ranking; the score formula itself is asserted only through those orders"
+    },
+    {
+      "surface": "girsa-lane nearest-neighbour arithmetic",
+      "what": "the vector distance and ranking",
+      "status": "sampled — vectors.rs pins persistence, signatures and restarts; the distance formula is asserted through ranked outcomes only"
+    },
+    {
+      "surface": "girsa-nearby",
+      "what": "adjacency beyond one integration file and unseen.rs",
+      "status": "thin — the smallest crate in the tree and the least swept"
+    },
+    {
+      "surface": "girsa-desk",
+      "what": "sessions, refreshing and documents",
+      "status": "unit-tested inside the crate; no integration file exercises it against a real shelf"
+    },
+    {
+      "surface": "app/src-tauri",
+      "what": "the 7,554 lines of shell commands",
+      "status": "no shell test files; held by clippy, fmt, the wire tests and the girsa-app gates — not by tests that drive the commands"
+    }
+  ],
+  "platform_gated": [
+    {
+      "surface": "the eyes step",
+      "what": "the one thing in the gate that has ever seen a pixel",
+      "status": "skipped on a machine with no browser — and the gate runs it with EYES_REQUIRED=1 so a skipped eyes is a red step, never a green one",
+      "requires": "a browser (Edge on Windows, or EYES_BROWSER)"
+    },
+    {
+      "surface": "OCR against real tesseract",
+      "what": "the engine probes, bounded but real",
+      "status": "the engine's absence is pinned as a sentence, not a silence; the hung-probe bound is pinned; a real OCR run needs tesseract with heb installed",
+      "requires": "tesseract with the heb traineddata"
+    },
+    {
+      "surface": "WebKitGTK and macOS WebKit",
+      "what": "the window on the other two platforms",
+      "status": "never seen — docs/not-yet.md is the honest account; the CI matrix builds and lints them, it does not look at them",
+      "requires": "a Linux desktop with WebKitGTK, a Mac"
+    },
+    {
+      "surface": "the semantic lane on a real shelf",
+      "what": "candle embedding against the libraries",
+      "status": "the lane's coverage disclosure is pinned; an end-to-end embed needs the model and the two-library shelf",
+      "requires": "the model weights and the shelf"
+    },
+    {
+      "surface": "Ksav interop",
+      "what": "the pen's side of the seam",
+      "status": "CI checks out Ksav beside this tree and catches drift; a live pen is a machine this desk does not have",
+      "requires": "Ksav's repository and a real pen"
+    }
+  ]
+}

@@ -45,8 +45,9 @@
 // `target/`. They share the cargo lock and they **must** stay in the order
 // below.
 //
-// Steps 7–9 share nothing with them: `tsc`, `node test/run.mjs` and
-// `node tools/eyes.mjs` are TypeScript and esbuild, they never read `target/`,
+// Steps 7–10 share nothing with them: `tsc`, `node test/run.mjs`,
+// `node tools/check-coverage.mjs` and `node tools/eyes.mjs` are TypeScript and
+// esbuild, they never read `target/`,
 // they never take the cargo lock, and they do not need `app/dist`. Run after
 // the cargo lane they were pure addition to the wall clock; run beside it they
 // are free, because on a warm cache the cargo lane dominates by minutes.
@@ -128,6 +129,13 @@ const GATE = [
     run: ["node", "node_modules/typescript/bin/tsc", "--noEmit"],
   },
   { lane: "window", at: "app", say: "window tests", run: ["node", "test/run.mjs"] },
+  // The coverage manifest, checked against the tree: every named test file
+  // still exists, every pinning test still mentions what it pins, and the
+  // uncovered and platform-gated rows are printed out loud — a green gate is
+  // a gate that has said what it did not reach. The dynamic half — break each
+  // guard, demand the test fail — is `node tools/mutation.mjs`, run by hand
+  // because each mutation recompiles its crate. See docs/coverage.md.
+  { lane: "window", at: ".", say: "coverage", run: ["node", "tools/check-coverage.mjs"] },
   // The one thing in here that has ever seen a pixel.
   //
   // **Not a vacuous pass.** Eyes exits 0 when it finds no browser, which is
