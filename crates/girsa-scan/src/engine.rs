@@ -452,4 +452,37 @@ mod tests {
         );
         assert!(message.contains("text layer"), "{message}");
     }
+
+    #[test]
+    fn a_probe_that_hangs_is_given_up_on_before_the_deadline() {
+        // Minor 21: `--version` and `--list-langs` were probed synchronously on
+        // up to four candidate binaries, and a binary that hung — a dead mount,
+        // a broken install — hung the caller with it, once per candidate. The
+        // probe is bounded; pin that a child that would run forever is walked
+        // away from well before the caller's patience runs out.
+        //
+        // `cmd /c` (Windows) and `/bin/sh` (everywhere else) both sleep in
+        // seconds, and the deadline here is much shorter than a second.
+        let started = std::time::Instant::now();
+        let mut hang = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });
+        if cfg!(windows) {
+            hang.args(["/c", "ping", "-n", "60", "127.0.0.1"]);
+        } else {
+            hang.args(["-c", "sleep 60"]);
+        }
+        // A third of the real probe timeout: the bound is what is under test,
+        // not the exact seconds. Something that would hang for a minute must
+        // come back in a couple of tenths.
+        let within = PROBE_TIMEOUT / 3;
+        let came_back = run_bounded(hang, within);
+        let elapsed = started.elapsed();
+        assert!(came_back.is_none(), "a hung probe must not produce output");
+        // The probe is given a few wake-ups at 10 ms steps; anything near the
+        // deadline means the child was waited on to the end rather than walked
+        // away from.
+        assert!(
+            elapsed < within * 3,
+            "gave up after {elapsed:?}, not the ~{within:?} bound"
+        );
+    }
 }

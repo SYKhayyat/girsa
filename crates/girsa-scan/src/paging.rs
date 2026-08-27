@@ -516,6 +516,27 @@ mod tests {
     }
 
     #[test]
+    fn an_anchor_counts_for_the_page_it_is_on() {
+        // The `<=` boundary in `placed_in`: an anchor at page 5 pages page 5
+        // itself, and the page before it carries nothing. The mutation that
+        // turns the boundary into `<` unpages the anchor's own page — while
+        // `page_of`, which computes from the anchors directly, still reports
+        // the address as on that page — and the bijection between the pages a
+        // scan covers and the dafim they carry is the two halves agreeing.
+        let anchors = vec![Anchor::written(5, "ב.").expect("an anchor")];
+        assert_eq!(
+            placed_in(&anchors, Scheme::Amud, 5),
+            Scheme::Amud.placed(4),
+            "the anchor's own page is the anchor"
+        );
+        assert_eq!(
+            placed_in(&anchors, Scheme::Amud, 4),
+            Placed::Unpaged,
+            "the page before an anchor carries nothing"
+        );
+    }
+
+    #[test]
     fn a_run_is_computed_from_the_anchor_behind_it_and_never_from_one_ahead() {
         // Said as an assertion rather than only in the module note: adding an
         // anchor at page 20 may not change what page 19 says, whatever it says.

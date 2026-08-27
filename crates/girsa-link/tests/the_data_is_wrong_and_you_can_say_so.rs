@@ -226,3 +226,57 @@ fn a_repair_about_an_edge_that_is_no_longer_shipped_is_kept_and_says_so() {
     assert_eq!(repairs.orphans(&[]).len(), 1);
     assert_eq!(repairs.orphans(&[untyped()]).len(), 0);
 }
+
+#[test]
+fn attribution_after_a_restart_goes_to_the_latest_action_not_the_kind_that_sorts_last() {
+    // Minor 17: a replay rebuilds the index through a key-sorted map, so the
+    // kinds of what you said about one edge arrive sorted by name, not by the
+    // order you said them. `over()` must still attribute `who`/`when` to the
+    // **latest** action — the file says when each statement was made, and the
+    // replay is what scrambled the order, not the truth.
+    let root = scratch("attribution");
+    std::fs::create_dir_all(root.join("personal")).expect("makes the personal dir");
+    let log = root.join("personal").join("links.jsonl");
+    let edge = untyped();
+    let name = girsa_link::repair::name_of(&edge);
+
+    // Written in this order, so the latest action (when = 200) is *second* in
+    // the file. After a restart the replay hands the layer "judged" before
+    // "retyped" — key order, not time order — and without the when-sort the
+    // attribution would drift to the earlier action.
+    let retyped = girsa_link::repair::Record {
+        edge: name.clone(),
+        repair: girsa_link::repair::Repair::Retyped {
+            edge_type: EdgeType::CommentsOn.as_str().to_string(),
+        },
+        who: "earlier".into(),
+        when: 100,
+        note: None,
+    };
+    let judged = girsa_link::repair::Record {
+        edge: name,
+        repair: girsa_link::repair::Repair::Judged {
+            verdict: Verdict::Confirmed,
+        },
+        who: "latest".into(),
+        when: 200,
+        note: None,
+    };
+    std::fs::write(
+        &log,
+        format!(
+            "{}\n{}\n",
+            serde_json::to_string(&retyped).expect("serializes"),
+            serde_json::to_string(&judged).expect("serializes"),
+        ),
+    )
+    .expect("writes the layer");
+
+    let (repairs, trouble) = Repairs::open(&root.join("personal"));
+    assert!(trouble.is_empty(), "{trouble:?}");
+    let seen = repairs.apply(vec![edge]);
+    assert_eq!(seen[0].who.as_deref(), Some("latest"));
+    assert_eq!(seen[0].when, Some(200));
+    // Applied in time order: the retype first, the confirmation second.
+    assert_eq!(seen[0].changed, ["retyped", "confirmed"]);
+}

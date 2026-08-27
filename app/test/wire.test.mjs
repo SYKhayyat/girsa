@@ -112,6 +112,7 @@ function rustRows(source) {
 /** The TypeScript interfaces, as {name: {fields, extends}}. */
 function tsRows(source) {
   const rows = new Map();
+  const twice = [];
   const lines = source.split("\n");
   for (let i = 0; i < lines.length; i += 1) {
     const declared = /^export interface (\w+)(?: extends (\w+))? \{$/.exec(lines[i]);
@@ -121,9 +122,14 @@ function tsRows(source) {
       const field = /^ {2}(\w+)\??:/.exec(lines[j]);
       if (field) fields.push(field[1]);
     }
+    // TypeScript merges a name declared twice, so the last one silently won
+    // the `Map` above — the exact way `Found` and `Choice` were each declared
+    // twice and the wire test could not see it (audit minor 5). A second
+    // declaration is a failure, not a merge.
+    if (rows.has(declared[1])) twice.push(declared[1]);
     rows.set(declared[1], { fields, extends: declared[2] });
   }
-  return rows;
+  return { rows, twice };
 }
 
 export async function run() {
@@ -132,8 +138,12 @@ export async function run() {
   const ts = tsRows(api);
 
   ok(
-    `view.rs was walked (${rust.size} rows) and api.ts was walked (${ts.size} interfaces)`,
-    rust.size >= 40 && ts.size >= 40,
+    `view.rs was walked (${rust.size} rows) and api.ts was walked (${ts.rows.size} interfaces)`,
+    rust.size >= 40 && ts.rows.size >= 40,
+  );
+  ok(
+    `no interface is declared twice (TS would silently merge it and the map above would keep the last one)`,
+    ts.twice.length === 0,
   );
 
   const missing = [];
@@ -141,7 +151,7 @@ export async function run() {
   for (const [name, fields] of rust) {
     if (NOT_A_ROW.has(name)) continue;
     const called = CALLED.get(name) ?? name;
-    const declared = ts.get(called);
+    const declared = ts.rows.get(called);
     if (!declared) {
       missing.push(`${name} → no \`export interface ${called}\` in api.ts`);
       continue;
@@ -158,7 +168,7 @@ export async function run() {
       if (!declared.extends) {
         differ.push(`${name} flattens a struct and ${called} extends nothing`);
       }
-      for (const inherited of ts.get(declared.extends)?.fields ?? []) {
+      for (const inherited of ts.rows.get(declared.extends)?.fields ?? []) {
         theirs.add(inherited);
       }
       for (const inherited of rust.get(field.slice(1)) ?? []) {
