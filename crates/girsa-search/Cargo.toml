@@ -43,6 +43,11 @@ thiserror.workspace = true
 # embedded segment store, because offline is the product (spec.md §14) and a
 # search server is not something a reader should have to run.
 tantivy = "0.26"
+# The automaton `AutomatonWeight` walks the term dictionary with, so a
+# `contains`/`letters` form inside a proximity can be expanded to the terms it
+# matches. Pinned to the same minor tantivy itself uses (0.5), so the two
+# automata can never disagree about what a regex means.
+tantivy-fst = "0.5"
 
 [dev-dependencies]
 # The synthetic shelf, so a test about *which place a citation lands on* has a

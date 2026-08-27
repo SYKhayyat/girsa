@@ -64,6 +64,12 @@ fn shelf() -> Vec<&'static str> {
         "וכן פסק שו\"ע שם",
         // 10 · the expansion. `שו"ע` must not reach this line in this mode.
         "שולחן ערוך סימן א",
+        // 11 · three single-letter words, each consecutive pair two words
+        // apart. The single letters are words only here — no other line has
+        // them as standalone tokens.
+        "א אחד שני ב שלושה ארבעה ג",
+        // 12 · the same three, each consecutive pair three words apart.
+        "א אחד שני שלושה ב ארבעה חמישה ששה ג",
     ]
 }
 
@@ -211,12 +217,46 @@ fn words_within_x_words_of_each_other() {
 }
 
 #[test]
+fn near_is_a_per_gap_contract_for_three_words_too() {
+    // The audit finding: tantivy's phrase slop is a **total budget across all
+    // terms** — `"A B C" with slop 1 allows "A X B C", "A B X C", but not
+    // "A X B X C"` — so asking for `Near{2}` over three words that sit two
+    // apart each cost 2+2=4 against a slop of 2 and was silently missed. The
+    // promised contract, per spec.md §9.1, is *these words within X words of
+    // each other*: each consecutive pair may have at most X words between it.
+    //
+    // Line 1: each pair two apart — must match `Near{2}` and `Near{3}`.
+    // Line 2: each pair three apart — must not match `Near{2}`, must match
+    // `Near{3}`.
+    let index = loaded();
+
+    let two = Query::new("א ב ג").together(Together::Near { words: 2 });
+    let three = Query::new("א ב ג").together(Together::Near { words: 3 });
+
+    assert_eq!(lines(&index, &two), [11], "{two:?}");
+    assert_eq!(lines(&index, &three), [11, 12], "{three:?}");
+}
+
+#[test]
 fn near_does_not_care_which_word_came_first() {
     // "within X words of each other" says nothing about order, so neither does
     // this. Line 7 is the pair reversed.
     let index = loaded();
     let query = Query::new("יתגבר כארי").together(Together::Near { words: 0 });
     assert_eq!(lines(&index, &query), [5, 7]);
+}
+
+#[test]
+fn contains_and_near_compose_with_the_per_gap_contract() {
+    // The regex slot of the proximity query: `contains` forms are regexes over
+    // whole terms, and inside a `Near` they have to keep the per-gap contract
+    // too. Line 3 has המקדש (contains קדש) adjacent to עומד; nothing else has
+    // both words at all.
+    let index = loaded();
+    let query = Query::new("קדש עומד")
+        .matching(Match::Contains)
+        .together(Together::Near { words: 2 });
+    assert_eq!(lines(&index, &query), [3], "{query:?}");
 }
 
 #[test]

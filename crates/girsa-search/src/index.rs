@@ -57,6 +57,7 @@ use crate::ladder::{
     Alternative, Form, Offer, Offers, Position, Refusal, Rung, Standing, Widened, Widening,
     MOST_EXACT_QUERIES,
 };
+use crate::proximity::{OrderedProximity, Slot};
 use crate::scope::Scope;
 use crate::tokenizer;
 use crate::torat_emet::{self, Match, Plan, Together, MOST_WORDS_UNORDERED};
@@ -1603,7 +1604,7 @@ impl SearchIndex {
                 for ordering in &every {
                     clauses.push((
                         Occur::Should,
-                        self.exactly(wide.matching, ordering, gap, max_expansions, every.len())?,
+                        self.exactly_in_gap(ordering, gap, max_expansions, every.len())?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(clauses)))
@@ -1695,6 +1696,39 @@ impl SearchIndex {
         Ok(Box::new(BooleanQuery::new(clauses)))
     }
 
+    /// The same combination walk as [`Self::exactly`], with the distance asked
+    /// per consecutive pair instead of as one slop budget.
+    ///
+    /// The two are [`Self::in_a_row`] and [`Self::in_gap`] respectively, and
+    /// the reason there are two is the audit finding M4: tantivy's phrase slop
+    /// is a budget summed across all the terms of the phrase, so `Near{2}` over
+    /// three words two apart each cost 2+2=4 against a slop of 2 and was
+    /// silently missed. See [`crate::proximity`].
+    fn exactly_in_gap(
+        &self,
+        order: &[&Position],
+        gap: u32,
+        max_expansions: u32,
+        orderings: usize,
+    ) -> Result<Box<dyn Query>, IndexError> {
+        let queries = combination_count(order).saturating_mul(orderings);
+        if queries > MOST_EXACT_QUERIES {
+            return Err(IndexError::TooManyForms {
+                queries,
+                limit: MOST_EXACT_QUERIES,
+            });
+        }
+        let sequences = flattened(order);
+        if let [only] = sequences.as_slice() {
+            return self.in_gap(only, gap, max_expansions);
+        }
+        let mut clauses: Clauses = Vec::with_capacity(sequences.len());
+        for sequence in &sequences {
+            clauses.push((Occur::Should, self.in_gap(sequence, gap, max_expansions)?));
+        }
+        Ok(Box::new(BooleanQuery::new(clauses)))
+    }
+
     /// Several forms in a row, with `slop` others allowed between them.
     fn in_a_row(
         &self,
@@ -1730,6 +1764,39 @@ impl SearchIndex {
         let mut phrase = PhraseQuery::new(terms);
         phrase.set_slop(slop);
         Ok(Box::new(phrase))
+    }
+
+    /// Several forms in a row, with at most `gap` other words between each
+    /// consecutive pair — the promised distance model, which tantivy's phrase
+    /// slop (a summed budget) cannot express. See [`crate::proximity`].
+    fn in_gap(
+        &self,
+        forms: &[Form],
+        gap: u32,
+        max_expansions: u32,
+    ) -> Result<Box<dyn Query>, IndexError> {
+        if let [only] = forms {
+            return self.one_form(only);
+        }
+        let mut slots: Vec<Slot> = Vec::with_capacity(forms.len());
+        for form in forms {
+            if form.regex {
+                slots.push(Slot::Regex {
+                    pattern: form.pattern.clone(),
+                });
+            } else {
+                slots.push(Slot::Term(Term::from_field_text(
+                    self.fields.text,
+                    &form.pattern,
+                )));
+            }
+        }
+        Ok(Box::new(OrderedProximity::new(
+            self.fields.text,
+            slots,
+            gap,
+            max_expansions,
+        )))
     }
 
     /// The hits, and how many there were in total.

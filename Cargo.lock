@@ -2221,6 +2221,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tantivy",
+ "tantivy-fst",
  "thiserror 2.0.19",
 ]
 
