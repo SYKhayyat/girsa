@@ -9,7 +9,7 @@ Each item below is shaped so it can be lifted directly into one GitHub issue.
 ## 1. The chain walk ("which seforim relate to this one") is pure ordinal-prefix descent and never consults `Standing` — thread it in at reader sites
 
 - **Lens:** 2 · **Verdict:** rewrite → **fix and refine**
-- **The problem:** the panel path absorbs re-segmentation correctly — `Anchor::names` and `Address::`/`Standing` are used by the panel (`store.rs:308`, `inbound.rs:169`, `repair.rs:576`) — but `chain::trace` walks the transmission graph through `Graph::beside` → `far_end`, which decides "is the other end of this edge near me?" by `overlaps` alone, an ordinal-prefix descent (`chain.rs:695–760`; `far_end` at :712). The file is explicit about the choice: *"a chain hops anchor to anchor and nobody is standing on a segment for a `Standing` to be about"* (`chain.rs:683–684`). So on a re-segmented corpus, a merge or insertion upstream is silently mis-followed by the very feature built to survive it.
+- **The problem:** the panel path absorbs re-segmentation correctly — `Anchor::names` + `Standing` are used by the panel (`store.rs:308` `Landing::naming`, `inbound.rs:169` `ranges_for`, `repair.rs:576` `drawn_touching`) — but `chain::trace` walks the transmission graph through `Graph::beside` → `far_end`, which decides "is the other end of this edge near me?" by `overlaps` alone, an ordinal-prefix descent (`chain.rs:695–760`; `far_end` at :712). The file is explicit about the choice: *"a chain hops anchor to anchor and nobody is standing on a segment for a `Standing` to be about"* (`chain.rs:683–684`). So on a re-segmented corpus, a merge or insertion upstream is silently mis-followed by the very feature built to survive it.
 - **Refine:** thread a `Standing`-resolving closure into `Graph` for the reader-standing site (`chain::trace`), so the first hop — where the reader actually is, a live segment with a shelf — is resolved by `Standing` exactly as the panel already resolves it. Keep pure `overlaps` prefix-descent only for true anchor-to-anchor overlap (the acyclic "edge endpoints coincide" case), not for the walking graph.
 - **Cost:** incremental, no wire/format change; the `a_link_survives_a_resegmentation` and `the_chain_is_rows_a_panel_can_draw` tests become the net. Add one regression: a re-segmentation between the reader's segment and its known relation must not drop the hop.
 - **Why keep the *panel* path when both could share:** the panel is where the feature already works; the fix is to teach `chain` the panel's method, not to change the panel.
@@ -31,7 +31,7 @@ Each item below is shaped so it can be lifted directly into one GitHub issue.
 
 ## 4. `girsa-mcp` is a heavy leaf with no in-tree caller — keep the read spine, gate the write surface
 
-- **Lens:** 2 · **Verdict:** wrong-but-keep → **fix (cut the growth, keep the read spine)**
+- **Lens:** 2 · **Verdict:** wrong-but-keep → **fix (gate the growth, keep the read spine)**
 - **The problem:** `girsa-mcp` (~2,350 lines: `lib.rs` 314 + `tools.rs` 1,839 + `protocol.rs` 194) is a leaf that nothing in either repo calls; its only dependents are its own tests and the fixture/dev surface. It pulls the whole shelf stack — including `girsa-lane`'s embedded lane model and, through the `index` feature, tantivy via `girsa-search` — into every `cargo test` on the workspace. Its write capability (`write_note`, `correct`, and siblings) sits behind `--writable`, which no in-repo consumer turns on.
 - **Refine:** re-frame the crate honestly as the third product surface (read spine first): keep the read-only paths that give a program the *same* engine and refusals a person gets, and either gate the write tools behind a feature CI never enables or keep them only if there is a stakeholder (see Interop/Open Questions). Do not delete the read spine — it is the only in-tree way to prove "a program gets the same engine."
 - **Cost:** incremental; zero in-repo callers to migrate.
@@ -40,7 +40,7 @@ Each item below is shaped so it can be lifted directly into one GitHub issue.
 ## 5. The desktop shell's self-description and its real surface have diverged — "the twelve commands behind it" is a 140-command, 6,861-line adapter monolith
 
 - **Lens:** 2 · **Verdict:** rewrite → **fix (re-declare honestly, then split)**
-- **The problem:** `app/src-tauri/src/lib.rs:1` still opens *"The window, and the twelve commands behind it,"* and the module header still says *"Nothing is decided in this crate."* But the file now carries **140** `#[tauri::command(async)]` commands in one 6,861-line file — the crate mutated from "adapter, nothing decided here" into a 138–140-verb product surface while keeping the old self-description. Recurrence of the "self-description is prose that lags the code" pattern.
+- **The problem:** `app/src-tauri/src/lib.rs:1` still opens *"The window, and the twelve commands behind it,"* and the module header still says *"Nothing is decided in this crate."* But the file now carries **140** `#[tauri::command(async)]` commands in one 6,861-line file — the crate mutated from "adapter, nothing decided here" into a 140-command product surface while keeping the old self-description. Recurrence of the "self-description is prose that lags the code" pattern.
 - **Refine:**
   - Rewrite the module header to say plainly what it is (a third product surface — the Tauri shell — on top of the `girsa_app` engine), and correct the "twelve commands" sentence.
   - Split the 6,861-line monolith by area (shelf, reading/lens, links/chain, search/ladder, notes/personal, settings), each thin command module forwarding to `girsa_app`. Cheapest immediate win; behaviour unchanged.
@@ -76,9 +76,9 @@ Each item below is shaped so it can be lifted directly into one GitHub issue.
 
 ## 10. The committed audit volumes are a second, unshipped documentation layer — distill, don't re-explain
 
-- **Lens:** 1 · **Verdict:** don't-build → **fix (distill to conclusions, stop growing)**
+- **Lens:** 1 · **Verdict:** rewrite → **fix (distill to conclusions, keep every durable rule in CONTRIBUTING, let git log hold the history)**
 - **The problem:** `AUDIT.md` (~24 KB), `AUDIT-2026-08-23.md` (~36 KB), `AUDIT-CORRECTNESS.md` (~52 KB) and `lamdan/girsa-2026-08-06.md` (~53 KB) are committed narrative that CI neither runs nor cross-checks — they are history best kept in `git log`, plus a few durable rules that belong in `CONTRIBUTING.md`. Keeping four dated essays word-for-word invites re-reading them as current on the next sweep (this audit's recurrence check had to do exactly that).
-- **Refine:** collapse the committed audit volumes into one `audit/README.md` (or a section in `CONTRIBUTING.md`) stating the 2–3 conclusions each stands for, and let git history hold the full text. Nothing loses correctness evidence this way because none of it is asserted; what survives is the *rule*, not the essay.
+- **Refine:** distill the committed audit volumes into one `audit/README.md` (or a section in `CONTRIBUTING.md`) stating the 2–3 conclusions each stands for, keep every durable rule in `CONTRIBUTING.md`, and let git history hold the full text. Nothing loses correctness evidence this way because none of it is asserted; what survives is the *rule*, not the essay.
 - **Cost:** file-level; no code change.
 
 ## 11. Code-comment citations to `spec.md §N` and `W`-needs are human-read and unchecked — add a resolving test
