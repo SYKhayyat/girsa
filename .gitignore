@@ -20,10 +20,9 @@
 # Derived indices. Rebuildable by definition (spec.md §4.1).
 /index/
 
-# The personal layer: how the shelf was arranged, and the seforim somebody
-# added. Not derived, not the corpus, and not anybody else's — the one thing
-# here that no command can rebuild (spec.md §11).
-/personal/
+# personal/ is tracked (force-added 2026-08-31). It holds the one thing no
+# command can rebuild (spec.md §11): shelf arrangement, scans, OCR data,
+# editorial corrections, user works. See restore.sh for recovery.
 
 node_modules/
 dist/
