@@ -1,0 +1,13 @@
+{
+  "scans": {
+    "user/berachos-combined": {
+      "scheme": "numbered",
+      "anchors": [
+        {
+          "page": 7,
+          "at": "1"
+        }
+      ]
+    }
+  }
+}

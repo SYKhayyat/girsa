@@ -1,0 +1,14 @@
+{
+  "slug": "user/sample",
+  "he_title": "sample",
+  "en_title": "sample",
+  "categories": [
+    "שלי"
+  ],
+  "source": "mine",
+  "origin": "personal\\files\\user-sample.ksav",
+  "version": {
+    "edition": "your own writing, 24 blocks, 2 notes, 7 table rows",
+    "provenance": "C:/Users/Administrator/Videos/Ksav/ksav/engine/examples/sample.ksav"
+  }
+}
