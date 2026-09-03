@@ -83,6 +83,12 @@ impl Panel {
     fn graph(&self) -> Graph<'_> {
         Graph::new(corpus(), &self.timeline, self.shelf.repairs())
     }
+
+    /// Where the reader stands, under every name those words have carried.
+    fn standing(&self, at: &SegmentId) -> girsa_corpus::standing::Standing {
+        let sefer = self.shelf.read(at.work()).expect("the sefer opens");
+        sefer.standing(at)
+    }
 }
 
 #[test]
@@ -98,6 +104,7 @@ fn walking_forward_from_a_mishnah_names_the_sefer_that_read_it() {
         &at,
         Direction::Forward,
         Limits::default(),
+        &panel.standing(&at),
     );
 
     assert_eq!(chain.direction, "forward");
@@ -137,6 +144,7 @@ fn a_hop_off_the_start_has_no_parent_and_the_rest_point_at_one() {
         &at,
         Direction::Forward,
         Limits::default(),
+        &panel.standing(&at),
     );
 
     for (i, hop) in chain.hops.iter().enumerate() {
@@ -172,6 +180,7 @@ fn a_chain_is_only_a_transmission_when_every_hop_claims_something() {
         &at,
         Direction::Forward,
         Limits::default(),
+        &panel.standing(&at),
     );
 
     assert!(
@@ -208,6 +217,7 @@ fn what_the_walk_would_not_follow_comes_back_with_the_answer() {
         &at,
         Direction::Forward,
         Limits::default(),
+        &panel.standing(&at),
     );
     let left = &chain.left_out;
     let counted = left.undated
@@ -230,7 +240,14 @@ fn walking_back_is_the_other_direction_and_says_so() {
     let names = panel.names();
     let mut graph = panel.graph();
 
-    let back = chaining::walk(&mut graph, &names, &at, Direction::Back, Limits::default());
+    let back = chaining::walk(
+        &mut graph,
+        &names,
+        &at,
+        Direction::Back,
+        Limits::default(),
+        &panel.standing(&at),
+    );
     assert_eq!(back.direction, "back");
     // The mishnah is early, so walking back from it finds little or nothing —
     // and *nothing this walk could follow* is an answer, not a failure. What is
@@ -254,7 +271,13 @@ fn a_fork_names_both_readings_and_says_it_is_not_a_machlokes() {
     let names = panel.names();
     let mut graph = panel.graph();
 
-    let forked = chaining::forked(&mut graph, &names, &at, Limits::default());
+    let forked = chaining::forked(
+        &mut graph,
+        &names,
+        &at,
+        Limits::default(),
+        &panel.standing(&at),
+    );
     assert_eq!(forked.start, at.to_string());
     for fork in &forked.forks {
         assert_ne!(

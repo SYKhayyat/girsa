@@ -3524,17 +3524,26 @@ struct ForAWalk {
     timeline: girsa_corpus::era::Timeline,
     language: girsa_app::session::Language,
     cite: girsa_cite::CiteStyle,
+    /// Where the reader stands, resolved from the open sefer.
+    ///
+    /// The walk's first hop is a live segment with a shelf, so it is resolved
+    /// by `Standing` exactly as the links panel resolves its own list — and a
+    /// `Standing` is built out of the open sefer's live segments and redirect
+    /// table, so it has to be taken while the state lock is held, with the
+    /// rest of the snapshot.
+    standing: girsa_corpus::standing::Standing,
     held: girsa_link::chain::Cache,
 }
 
 impl ForAWalk {
     /// Take it, and let the state lock go.
-    fn taken(shared: &tauri::State<'_, Shared>) -> Result<Self, String> {
+    fn taken(shared: &tauri::State<'_, Shared>, at: &SegmentId) -> Result<Self, String> {
         let mut state = shared.lock().map_err(|_| State::poisoned())?;
         let shelf = state.shelf.as_ref().ok_or_else(|| state.trouble())?.clone();
         let timeline = state.timeline.clone().ok_or_else(no_timeline)?;
         let language = state.session.language;
         let cite = state.session.cite;
+        let standing = state.sefer(at.work())?.standing(at);
         // Last. See the note above.
         let held = std::mem::take(&mut state.chains);
         Ok(Self {
@@ -3542,6 +3551,7 @@ impl ForAWalk {
             timeline,
             language,
             cite,
+            standing,
             held,
         })
     }
@@ -3584,7 +3594,7 @@ fn chain_walk(
     // Everything the walk needs, and then the state lock is gone. The cache is
     // carried through so the reader's two clicks from one place are still one
     // reading of the shards; see `ForAWalk`.
-    let taken = ForAWalk::taken(&shared)?;
+    let taken = ForAWalk::taken(&shared, &at)?;
     // The ceiling is `chain`'s (`Limits::DEEPEST`) and not this file's — it
     // used to be a private 12 here while the terminal tool clamped to nothing.
     let limits = girsa_link::chain::Limits::with_depth(depth);
@@ -3598,7 +3608,8 @@ fn chain_walk(
             shelf.repairs(),
             taken.held,
         );
-        let chain = girsa_app::chaining::walk(&mut graph, &names, &at, direction, limits);
+        let chain =
+            girsa_app::chaining::walk(&mut graph, &names, &at, direction, limits, &taken.standing);
         (chain, graph.into_cache())
     };
     ForAWalk::put_back(&shared, kept);
@@ -3613,7 +3624,7 @@ fn chain_forks(
 ) -> Result<girsa_app::chaining::Forked, String> {
     let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
     // The same walk, so the same arrangement. See `ForAWalk`.
-    let taken = ForAWalk::taken(&shared)?;
+    let taken = ForAWalk::taken(&shared, &at)?;
     let (forked, kept) = {
         let shelf = taken.shelf.read().map_err(|_| State::poisoned())?;
         let names =
@@ -3629,6 +3640,7 @@ fn chain_forks(
             &names,
             &at,
             girsa_link::chain::Limits::default(),
+            &taken.standing,
         );
         (forked, graph.into_cache())
     };

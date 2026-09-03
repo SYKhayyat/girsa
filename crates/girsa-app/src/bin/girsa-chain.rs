@@ -35,6 +35,7 @@ use girsa_app::session::Language;
 use girsa_app::Shelf;
 use girsa_corpus::era::Timeline;
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use girsa_link::chain::{self, Direction, Found, Graph, Limits, Refused, Trace};
 use girsa_link::Anchor;
 use girsa_plain::argv::{self, Argv, Roots};
@@ -136,7 +137,16 @@ fn main() -> std::process::ExitCode {
             let Some(at) = parse(arguments.first().map(|a| a.as_str())) else {
                 return std::process::ExitCode::from(2);
             };
-            let trace = chain::trace(&mut graph, &at, direction, limits);
+            // The reader stands on a live segment, so the first hop is resolved
+            // by the shelf's `Standing`, exactly as the panel resolves it
+            // (Lamdan 1) — a re-segmentation cannot drop the relation. A work
+            // that cannot be read is walked without one: `Standing::just` names
+            // only itself, which is the honest no-history answer.
+            let standing = shelf
+                .read(at.work())
+                .map(|open| open.standing(&at))
+                .unwrap_or_else(|_| Standing::just(at.clone()));
+            let trace = chain::trace(&mut graph, &at, direction, limits, Some(&standing));
             printer.trace(&trace);
             std::process::ExitCode::SUCCESS
         }
@@ -154,7 +164,11 @@ fn main() -> std::process::ExitCode {
             let Some(at) = parse(arguments.first().map(|a| a.as_str())) else {
                 return std::process::ExitCode::from(2);
             };
-            let (forks, refused) = chain::forks(&mut graph, &at, limits);
+            let standing = shelf
+                .read(at.work())
+                .map(|open| open.standing(&at))
+                .unwrap_or_else(|_| Standing::just(at.clone()));
+            let (forks, refused) = chain::forks(&mut graph, &at, limits, Some(&standing));
             printer.forks(&at, &forks);
             printer.refused(&refused);
             std::process::ExitCode::SUCCESS

@@ -35,6 +35,7 @@
 //! `girsa-chain` ends every command with this paragraph; so does the panel.
 
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 use girsa_link::chain::{self, Direction, Limits, Refused, Trace};
 use girsa_link::Anchor;
 use serde::Serialize;
@@ -198,14 +199,20 @@ fn side(names: &Names<'_>, at: &Anchor) -> Side {
 /// The `Graph` is the caller's because it is expensive to build and worth
 /// keeping: it holds every edge touching a work, and a panel that rebuilt it
 /// per question would re-read an 8 MB shard for every click.
+///
+/// `standing` is where the reader stands — the one place in the walk that is a
+/// live segment with a shelf. The first hop is resolved by it exactly as the
+/// links panel resolves its own list, so a re-segmentation between the reader
+/// and a known relation cannot drop the hop (Lamdan 1).
 pub fn walk(
     graph: &mut chain::Graph<'_>,
     names: &Names<'_>,
     at: &SegmentId,
     direction: Direction,
     limits: Limits,
+    standing: &Standing,
 ) -> Chain {
-    let trace = chain::trace(graph, at, direction, limits);
+    let trace = chain::trace(graph, at, direction, limits, Some(standing));
     let start = names.of(at);
     let ends = trace.ends();
     let transmissions = ends.iter().filter(|i| trace.is_transmission(**i)).count();
@@ -256,13 +263,18 @@ fn hops(trace: &Trace, names: &Names<'_>) -> Vec<Hop> {
 }
 
 /// The forks below a place, as rows.
+///
+/// `standing` is where the reader stands, and reaches the walk's first hop the
+/// same way it does for [`walk`] — a re-segmentation cannot lose a reading of
+/// the line the reader is actually on.
 pub fn forked(
     graph: &mut chain::Graph<'_>,
     names: &Names<'_>,
     at: &SegmentId,
     limits: Limits,
+    standing: &Standing,
 ) -> Forked {
-    let (found, refused) = chain::forks(graph, at, limits);
+    let (found, refused) = chain::forks(graph, at, limits, Some(standing));
     let start = names.of(at);
     Forked {
         start: at.to_string(),

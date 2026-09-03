@@ -55,6 +55,7 @@ use std::path::{Path, PathBuf};
 
 use girsa_corpus::era::{Order, Timeline, When};
 use girsa_corpus::segment::SegmentId;
+use girsa_corpus::standing::Standing;
 
 use crate::repair::{Repaired, Repairs};
 use crate::{inbound, Anchor, Direction as EdgeDirection, EdgeType};
@@ -499,27 +500,7 @@ impl Held {
 
         match &at.to {
             None => {
-                let from = &at.from;
-                // The block: everything whose ordinal begins with this one.
-                let lower = self.points.partition_point(|(id, _)| id < from);
-                let upper = match Self::block_end(from.ordinal()) {
-                    Some(end) => {
-                        let edge_of_block = SegmentId::new(work, Vec::new(), end);
-                        self.points.partition_point(|(id, _)| id < &edge_of_block)
-                    }
-                    // A component at `u32::MAX` cannot step over; take the rest
-                    // of this work rather than guess.
-                    None => self.points.partition_point(|(id, _)| id.work() <= work),
-                };
-                out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
-                // The ancestors: edges stored at a coarser granularity than
-                // the reader stands at, which cover this place by name.
-                for elder in Self::ancestors(from.ordinal()) {
-                    let key = SegmentId::new(work, Vec::new(), elder);
-                    let lower = self.points.partition_point(|(id, _)| id < &key);
-                    let upper = self.points.partition_point(|(id, _)| id <= &key);
-                    out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
-                }
+                out.extend(self.point_candidates(&at.from));
             }
             Some(to) => {
                 // The stretch, normalized: `overlaps` asks `from <= p <= to`
@@ -558,6 +539,60 @@ impl Held {
             }
         }
 
+        out.extend(self.spans.iter().copied());
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Every edge whose stored end could name this point — its block, and the
+    /// coarser names it descends from. The superset [`far_end`] is still the
+    /// only thing that decides.
+    ///
+    /// The point half of [`Held::near`], lifted out because a reader standing
+    /// on words that have carried several names asks it once per name.
+    fn point_candidates(&self, id: &SegmentId) -> Vec<usize> {
+        let work = id.work();
+        let mut out: Vec<usize> = Vec::new();
+        // The block: everything whose ordinal begins with this one.
+        let lower = self.points.partition_point(|(other, _)| other < id);
+        let upper = match Self::block_end(id.ordinal()) {
+            Some(end) => {
+                let edge_of_block = SegmentId::new(work, Vec::new(), end);
+                self.points
+                    .partition_point(|(other, _)| other < &edge_of_block)
+            }
+            // A component at `u32::MAX` cannot step over; take the rest
+            // of this work rather than guess.
+            None => self
+                .points
+                .partition_point(|(other, _)| other.work() <= work),
+        };
+        out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
+        // The ancestors: edges stored at a coarser granularity than the reader
+        // stands at, which cover this place by name.
+        for elder in Self::ancestors(id.ordinal()) {
+            let key = SegmentId::new(work, Vec::new(), elder);
+            let lower = self.points.partition_point(|(other, _)| other < &key);
+            let upper = self.points.partition_point(|(other, _)| other <= &key);
+            out.extend(self.points[lower..upper].iter().map(|(_, at)| *at));
+        }
+        out
+    }
+
+    /// The superset for a reader standing on words that have carried several
+    /// names.
+    ///
+    /// A name from before a re-segmentation sorts nowhere near the live id's
+    /// own block — a folded se'if's old number is not a descendant of anything
+    /// the new one contains — which is the whole reason [`Standing`] exists.
+    /// So the gate is asked once per name the words have carried, and
+    /// [`far_end_standing`] is still the only thing that decides.
+    fn near_standing(&self, standing: &Standing) -> Vec<usize> {
+        let mut out: Vec<usize> = Vec::new();
+        for name in standing.names() {
+            out.extend(self.point_candidates(name));
+        }
         out.extend(self.spans.iter().copied());
         out.sort_unstable();
         out.dedup();
@@ -679,11 +714,42 @@ impl<'a> Graph<'a> {
             None => Vec::new(),
         };
         // Filtered by `far_end` alone, which asks whether the two anchors
-        // overlap — a stricter test than a pre-filter on the near end, and the
-        // right one here: a chain hops anchor to anchor and nobody is standing
-        // on a segment for a [`girsa_corpus::standing::Standing`] to be about.
+        // overlap — a stricter test than a pre-filter on the near end. A chain
+        // hops anchor to anchor, and for those hops nobody is standing on a
+        // segment for a [`girsa_corpus::standing::Standing`] to be about. The
+        // one exception is the first hop, where the reader is standing on live
+        // words; that site is resolved by `beside_standing` instead.
         for repaired in &self.drawn {
             if let Some(hop) = far_end(at, repaired) {
+                out.push(hop);
+            }
+        }
+        out
+    }
+
+    /// Everywhere a link joins to the words a reader is standing on, the way
+    /// the panel asks it — by [`Anchor::names`] against a [`Standing`], not by
+    /// the prefix descent [`Graph::beside`] uses.
+    ///
+    /// `beside` is for hops where the walk has left the reader's shelf behind
+    /// and is moving anchor to anchor; this is for the one place in a walk that
+    /// has a shelf to ask — the start, where the reader stands on a live
+    /// segment. Same candidates (one block per name the words have carried),
+    /// same drawn edges; only the decider differs, and the decider is the
+    /// panel's.
+    fn beside_standing(&mut self, standing: &Standing) -> Vec<(Anchor, Repaired)> {
+        let slug = standing.at().work().to_string();
+        let mut out: Vec<(Anchor, Repaired)> = match self.work(&slug) {
+            Some(held) => held
+                .near_standing(standing)
+                .into_iter()
+                .filter_map(|which| held.edges.get(which))
+                .filter_map(|repaired| far_end_standing(standing, repaired))
+                .collect(),
+            None => Vec::new(),
+        };
+        for repaired in &self.drawn {
+            if let Some(hop) = far_end_standing(standing, repaired) {
                 out.push(hop);
             }
         }
@@ -702,11 +768,40 @@ fn far_end(at: &Anchor, repaired: &Repaired) -> Option<(Anchor, Repaired)> {
     None
 }
 
+/// The other end of an edge, if one of its ends names the words the reader
+/// stands on.
+///
+/// The panel's question — [`Anchor::names`] — asked of the graph, for the one
+/// place in a walk where there is a shelf to ask. `overlaps` above decides
+/// anchor-to-anchor; this decides the first hop, and the two are deliberately
+/// not interchangeable.
+fn far_end_standing(standing: &Standing, repaired: &Repaired) -> Option<(Anchor, Repaired)> {
+    if repaired.edge.from.names(standing) {
+        return Some((repaired.edge.to.clone(), repaired.clone()));
+    }
+    if repaired.edge.to.names(standing) {
+        return Some((repaired.edge.from.clone(), repaired.clone()));
+    }
+    None
+}
+
 /// Walk out from a segment along the axis of time.
 ///
 /// Breadth first, so the nearest heirs are found before the distant ones, and
 /// bounded by [`Limits`] in both directions with every drop counted.
-pub fn trace(graph: &mut Graph<'_>, at: &SegmentId, direction: Direction, limits: Limits) -> Trace {
+///
+/// `standing` is the place the reader stands, for the **first** hop only — the
+/// one site in the walk that is a live segment with a shelf, resolved the way
+/// the panel resolves it. Every later hop is anchor-to-anchor, where the walk
+/// has left the shelf behind and `overlaps` is the honest test. `None` is the
+/// honest answer where no shelf was asked (a terminal tool walking a graph).
+pub fn trace(
+    graph: &mut Graph<'_>,
+    at: &SegmentId,
+    direction: Direction,
+    limits: Limits,
+    standing: Option<&Standing>,
+) -> Trace {
     let start = Anchor::point(at.clone());
     let mut steps: Vec<Step> = Vec::new();
     let mut refused = Refused::default();
@@ -724,7 +819,21 @@ pub fn trace(graph: &mut Graph<'_>, at: &SegmentId, direction: Direction, limits
         let here_when = graph.timeline.when(&here_work);
         let mut candidates: Vec<(Anchor, Repaired, When)> = Vec::new();
 
-        for (other, repaired) in graph.beside(&here) {
+        // The first hop is where the reader actually is — a live segment with
+        // a shelf — so it is resolved by `Standing` exactly as the panel
+        // resolves it (`Anchor::names`). Every later hop is anchor-to-anchor,
+        // where the walk has left the shelf behind and `overlaps` is the
+        // honest test.
+        let neighbours: Vec<(Anchor, Repaired)> = if parent.is_none() {
+            match standing {
+                Some(standing) => graph.beside_standing(standing),
+                None => graph.beside(&here),
+            }
+        } else {
+            graph.beside(&here)
+        };
+
+        for (other, repaired) in neighbours {
             if repaired.rejected {
                 refused.rejected += 1;
                 continue;
@@ -1038,7 +1147,12 @@ struct Downstream {
 ///
 /// Returns them best first — most witnesses, then earliest — and everything the
 /// walk would not follow.
-pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork>, Refused) {
+pub fn forks(
+    graph: &mut Graph<'_>,
+    at: &SegmentId,
+    limits: Limits,
+    standing: Option<&Standing>,
+) -> (Vec<Fork>, Refused) {
     // **A reading is one hop and a witness is not.** The two bounds used to be
     // the same number, and only one of them was a definition.
     //
@@ -1059,13 +1173,13 @@ pub fn forks(graph: &mut Graph<'_>, at: &SegmentId, limits: Limits) -> (Vec<Fork
         depth: limits.depth.max(1),
         ..limits
     };
-    let readings = trace(graph, at, Direction::Forward, one_hop);
+    let readings = trace(graph, at, Direction::Forward, one_hop, standing);
     let mut refused = readings.refused.clone();
 
     // What each reading is read by, and how far down.
     let mut readers: Vec<Downstream> = Vec::new();
     for step in &readings.steps {
-        let below = trace(graph, &step.at.from, Direction::Forward, downstream);
+        let below = trace(graph, &step.at.from, Direction::Forward, downstream, None);
         refused.absorb(&below.refused);
         let mut reached: BTreeMap<String, (Anchor, usize)> = BTreeMap::new();
         for reader in below.steps {
@@ -1280,6 +1394,7 @@ mod tests {
             &id("gemara", 1),
             Direction::Forward,
             Limits::default(),
+            None,
         );
 
         let reached: BTreeSet<&str> = trace.steps.iter().map(Step::work).collect();
@@ -1319,6 +1434,7 @@ mod tests {
             &id("gemara", 1),
             Direction::Forward,
             Limits::default(),
+            None,
         );
         assert!(there.works_read > 1, "the first walk pays for the shards");
         let cache = first.into_cache();
@@ -1330,6 +1446,7 @@ mod tests {
             &id("gemara", 1),
             Direction::Back,
             Limits::default(),
+            None,
         );
         assert_eq!(
             second.works_read(),
@@ -1344,6 +1461,7 @@ mod tests {
             &id("gemara", 1),
             Direction::Back,
             Limits::default(),
+            None,
         );
         let names =
             |t: &Trace| -> Vec<String> { t.steps.iter().map(|s| s.work().to_string()).collect() };
@@ -1361,6 +1479,7 @@ mod tests {
             &id("mishnah-berurah", 1),
             Direction::Back,
             Limits::default(),
+            None,
         );
         let reached: BTreeSet<&str> = trace.steps.iter().map(Step::work).collect();
         assert!(reached.contains("shulchan-arukh"));
@@ -1410,6 +1529,7 @@ mod tests {
             &id("gemara", 1),
             Direction::Forward,
             Limits::default(),
+            None,
         );
 
         let rishon = trace
@@ -1445,6 +1565,7 @@ mod tests {
             &id("gemara", 1),
             Direction::Forward,
             Limits::default(),
+            None,
         );
         assert!(
             trace.refused.incoming_unknown.contains("gemara"),
@@ -1467,6 +1588,7 @@ mod tests {
                 width: 1,
                 ..Limits::default()
             },
+            None,
         );
         assert_eq!(trace.steps.len(), 1);
         assert_eq!(
@@ -1539,7 +1661,7 @@ mod tests {
         let (root, timeline) = shas("girsa-chain-fork");
         let repairs = Repairs::nowhere();
         let mut graph = Graph::new(&root, &timeline, &repairs);
-        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default());
+        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default(), None);
 
         let pair = forks
             .iter()
@@ -1615,7 +1737,7 @@ mod tests {
         let (root, timeline) = shas_with_a_far_witness("girsa-chain-far-fork");
         let repairs = Repairs::nowhere();
         let mut graph = Graph::new(&root, &timeline, &repairs);
-        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default());
+        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default(), None);
 
         let pair = forks
             .iter()
@@ -1647,7 +1769,7 @@ mod tests {
         let (root, timeline) = shas_with_a_far_witness("girsa-chain-readings-stay-near");
         let repairs = Repairs::nowhere();
         let mut graph = Graph::new(&root, &timeline, &repairs);
-        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default());
+        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default(), None);
 
         for fork in &forks {
             for side in [fork.a_work(), fork.b_work()] {
@@ -1668,7 +1790,7 @@ mod tests {
         let (root, timeline) = shas("girsa-chain-self-witness");
         let repairs = Repairs::nowhere();
         let mut graph = Graph::new(&root, &timeline, &repairs);
-        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default());
+        let (forks, _) = forks(&mut graph, &id("gemara", 1), Limits::default(), None);
 
         for fork in &forks {
             for witness in &fork.witnesses {
@@ -1700,12 +1822,137 @@ mod tests {
             &id("gemara", 1),
             Direction::Forward,
             Limits::default(),
+            None,
         );
         assert!(
             !trace.steps.iter().any(|s| s.work() == "rashi"),
             "your layer said this link is wrong, so a chain does not walk it"
         );
         assert!(trace.refused.rejected > 0, "and the answer says so");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A gemara and a rishon on it, the rishon's edge stored at `at` of the
+    /// gemara. One edge, so the walk's first hop is exactly the question under
+    /// test.
+    fn gemara_plus_rishon(name: &str, at: u32) -> (PathBuf, Timeline) {
+        let root = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("works")).expect("makes the root");
+
+        let works = [
+            work("gemara", "c.450  – c.550 CE"),
+            work("rishon", "c.1065  – c.1115 CE"),
+        ];
+        let body: String = works
+            .iter()
+            .map(|w| format!("{}\n", serde_json::to_string(w).expect("writes")))
+            .collect();
+        std::fs::write(root.join("works/index.jsonl"), body).expect("writes the catalogue");
+
+        let edges = [edge("gemara", at, "rishon", 1, EdgeType::CommentsOn)];
+        let mut shard = store::Writer::default();
+        let mut back = inbound::Writer::default();
+        for e in &edges {
+            shard.push(e);
+            back.push(e);
+        }
+        shard.flush(&root).expect("writes the shards");
+        back.flush(&root).expect("writes the inbound cache");
+
+        let timeline = Timeline::of(&root).expect("reads the catalogue");
+        (root, timeline)
+    }
+
+    #[test]
+    fn a_merge_upstream_does_not_drop_the_known_relation_from_the_chain() {
+        // Upstream folded se'if 3 into se'if 2. The rishon's edge is stored
+        // under the old name — `#3` — and `#2` covers `#3` is false, so the
+        // walk used to lose the hop by the very feature built to survive it
+        // (Lamdan 1). The first hop is the reader standing on live words, so it
+        // is resolved by `Standing`, and the relation survives.
+        let (root, timeline) = gemara_plus_rishon("girsa-chain-standing-merge", 3);
+        let repairs = Repairs::nowhere();
+        let mut graph = Graph::new(&root, &timeline, &repairs);
+
+        let merged = id("gemara", 2);
+        let old = id("gemara", 3);
+        assert!(
+            !merged.covers(&old),
+            "descent cannot express a merge — the old name is not an ancestor of the new one"
+        );
+        let without = trace(
+            &mut graph,
+            &merged,
+            Direction::Forward,
+            Limits::default(),
+            None,
+        );
+        assert!(
+            !without.steps.iter().any(|s| s.work() == "rishon"),
+            "prefix descent alone misses the relation, which is the bug"
+        );
+
+        let standing = Standing::of(merged.clone(), [old.clone()]);
+        let with = trace(
+            &mut graph,
+            &merged,
+            Direction::Forward,
+            Limits::default(),
+            Some(&standing),
+        );
+        assert!(
+            with.steps.iter().any(|s| s.work() == "rishon"),
+            "and Standing is the missing half, so the known relation is still a hop"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_insertion_upstream_does_not_invent_a_relation_onto_an_inserted_seif() {
+        // The dangerous direction, and the one a prefix test gets backwards:
+        // the rishon commented on se'if 1, upstream inserted a se'if after it,
+        // and the only name that sorts between `#1` and `#2` is a child of
+        // `#1` — so prefix descent says "this is your line" to a se'if whose
+        // words the rishon has never seen. `Standing` knows `#1` is still on
+        // the shelf and stops at it.
+        let (root, timeline) = gemara_plus_rishon("girsa-chain-standing-insert", 1);
+        let repairs = Repairs::nowhere();
+        let mut graph = Graph::new(&root, &timeline, &repairs);
+
+        let inserted = SegmentId::new(
+            "gemara",
+            vec!["1".into(), "1".into()],
+            Ordinal::root(1).child(1),
+        );
+        assert!(
+            id("gemara", 1).covers(&inserted),
+            "the inserted se'if is spelled like a piece of se'if 1, which is the trap"
+        );
+        let without = trace(
+            &mut graph,
+            &inserted,
+            Direction::Forward,
+            Limits::default(),
+            None,
+        );
+        assert!(
+            without.steps.iter().any(|s| s.work() == "rishon"),
+            "the prefix test is fooled by the dotted name — that is the bug"
+        );
+
+        let standing = Standing::of(inserted.clone(), []);
+        let with = trace(
+            &mut graph,
+            &inserted,
+            Direction::Forward,
+            Limits::default(),
+            Some(&standing),
+        );
+        assert!(
+            !with.steps.iter().any(|s| s.work() == "rishon"),
+            "an anchor on the live se'if does not name the inserted one, so no hop is invented"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

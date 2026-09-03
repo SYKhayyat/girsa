@@ -89,6 +89,7 @@ fn a_ruling_traces_back_to_the_code_and_the_tur_behind_it() {
             width: 4,
             ..Limits::default()
         },
+        None,
     );
 
     let arukh = trace
@@ -142,6 +143,7 @@ fn the_same_chain_forwards_reaches_the_later_sefer_from_the_earlier() {
             width: 40,
             ..Limits::default()
         },
+        None,
     );
     assert!(
         trace.steps.iter().any(|s| s.work() == "mishnah-berurah"),
@@ -202,6 +204,7 @@ fn two_readings_of_the_first_mishnah_and_the_sefer_that_cites_both() {
             width: 25,
             ..Limits::default()
         },
+        None,
     );
     let rashi_and_tosafot = forks
         .iter()

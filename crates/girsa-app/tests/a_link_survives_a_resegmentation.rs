@@ -26,6 +26,7 @@
 use std::path::{Path, PathBuf};
 
 use girsa_app::shelf::Shelf;
+use girsa_corpus::era::Timeline;
 use girsa_corpus::import::{ImportedWork, Previous, RawSegment, SegmentKind, Why};
 use girsa_corpus::segment::SegmentId;
 use girsa_corpus::work::{Source, Work};
@@ -74,6 +75,26 @@ fn catalogue(root: &Path) {
         .iter()
         .map(|slug| {
             let line = serde_json::to_string(&a_work(slug)).expect("serializes");
+            format!("{line}\n")
+        })
+        .collect();
+    std::fs::write(root.join("works/index.jsonl"), body).expect("a catalogue");
+}
+
+/// The catalogue again, with the two works dated so a chain can decide which
+/// way time runs: the Shulchan Arukh is written before the Mishnah Berurah.
+fn catalogue_dated(root: &Path) {
+    std::fs::create_dir_all(root.join("works")).expect("a works dir");
+    let body: String = [SEFER, MEFARESH]
+        .iter()
+        .map(|slug| {
+            let mut work = a_work(slug);
+            work.comp_date = Some(if *slug == SEFER {
+                "1563 CE".to_string()
+            } else {
+                "1875 CE".to_string()
+            });
+            let line = serde_json::to_string(&work).expect("serializes");
             format!("{line}\n")
         })
         .collect();
@@ -175,6 +196,60 @@ fn an_edge_onto_a_seif_upstream_folded_away_still_reaches_the_reader() {
     );
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn the_chain_from_a_merged_seif_still_reaches_its_known_relation() {
+    // The panel absorbed a re-segmentation through `Standing`; the chain walk
+    // used to decide "is the other end near me" by prefix descent alone, so a
+    // merge upstream was silently mis-followed by the very feature built to
+    // survive it (Lamdan 1). The first hop of the walk is the same live
+    // segment the panel stands on, so it is now resolved by the same
+    // `Standing`, and this asserts the hop survives a real re-import.
+    let root = scratch("chain-merged");
+    catalogue_dated(&root);
+
+    let first = import(&root, vec![seif(1, "אלף"), seif(2, "בית"), seif(3, "גימל")]);
+    let third = id_saying(&first, "גימל");
+    link_from(&root, &third);
+
+    let after = import(&root, vec![seif(1, "אלף"), seif(2, "בית גימל")]);
+    let merged = id_saying(&after, "בית גימל");
+    let row = after
+        .redirects
+        .iter()
+        .find(|row| row.from == third)
+        .expect("the importer recorded where se'if 3 went");
+    assert_eq!(row.to, vec![merged.clone()]);
+
+    let personal = scratch("chain-merged-personal");
+    let shelf = Shelf::open(&root, &personal).expect("the shelf opens");
+    let timeline = Timeline::across(&root, &personal).expect("the catalogue reads");
+    let names = girsa_app::Names::new(
+        &shelf,
+        Some(&timeline),
+        girsa_app::session::Language::Hebrew,
+        girsa_cite::CiteStyle::HebrewFull,
+    );
+    let mut graph = girsa_link::chain::Graph::new(&root, &timeline, shelf.repairs());
+    let sefer = shelf.read(SEFER).expect("the sefer opens");
+    let standing = sefer.standing(&merged);
+    let chain = girsa_app::chaining::walk(
+        &mut graph,
+        &names,
+        &merged,
+        girsa_link::chain::Direction::Forward,
+        girsa_link::chain::Limits::default(),
+        &standing,
+    );
+
+    assert!(
+        chain.hops.iter().any(|hop| hop.work == MEFARESH),
+        "the Mishnah Berurah, filed under the old name of these words, is still a hop from them"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&personal);
 }
 
 #[test]

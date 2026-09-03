@@ -1018,7 +1018,16 @@ fn trace(server: &mut Server, args: &Value) -> Result<Value, String> {
         &repairs,
         std::mem::take(&mut server.walked),
     );
-    let walked = chain::trace(&mut graph, &id, direction, limits);
+    // The first hop is where a reader stands, so it is resolved by the shelf's
+    // `Standing` — a program gets the same engine and refusals a person gets.
+    // A work that cannot be read is walked without one, which is the honest
+    // no-history answer rather than a fabricated one.
+    let standing = server
+        .shelf
+        .read(id.work())
+        .map(|open| open.standing(&id))
+        .unwrap_or_else(|_| girsa_corpus::standing::Standing::just(id.clone()));
+    let walked = chain::trace(&mut graph, &id, direction, limits, Some(&standing));
     server.walked = graph.into_cache();
 
     let chains: Vec<Value> = walked
@@ -1108,7 +1117,12 @@ fn fork(server: &mut Server, args: &Value) -> Result<Value, String> {
         &repairs,
         std::mem::take(&mut server.walked),
     );
-    let (forks, left_out) = chain::forks(&mut graph, &id, limits_of(args));
+    let standing = server
+        .shelf
+        .read(id.work())
+        .map(|open| open.standing(&id))
+        .unwrap_or_else(|_| girsa_corpus::standing::Standing::just(id.clone()));
+    let (forks, left_out) = chain::forks(&mut graph, &id, limits_of(args), Some(&standing));
     server.walked = graph.into_cache();
     let shown = forks.iter().take(limit_of(args));
     Ok(json!({
