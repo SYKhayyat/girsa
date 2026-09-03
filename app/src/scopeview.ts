@@ -46,9 +46,33 @@ import { button, field, glyph } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { sefer } from "./names.ts";
 import { fill, say } from "./say.ts";
+import { trouble } from "./trouble.ts";
 
 /** What a box on one row reads. */
 type Tick = "in" | "out" | "off";
+
+/**
+ * Fold a shelf-tree read into the panel's tree state.
+ *
+ * The one rule is the fix: **a failure does not become a cached empty tree.**
+ * `null` branches mean *not successfully read*, so a failed read leaves them
+ * `null` and the next `refresh()` reads again — while a success clears the
+ * trouble sentence the tree was showing.
+ */
+export async function folded(
+  branches: Branch[] | null,
+  treeTrouble: string | null,
+  treeDetail: string | null,
+  attempt: () => Promise<Branch[]>,
+): Promise<{ branches: Branch[] | null; trouble: string | null; detail: string | null }> {
+  if (branches !== null) return { branches, trouble: treeTrouble, detail: treeDetail };
+  try {
+    return { branches: await attempt(), trouble: null, detail: null };
+  } catch (e) {
+    const t = trouble(e, "read_shelf");
+    return { branches: null, trouble: t.said, detail: t.detail };
+  }
+}
 
 export class ScopePanel {
   readonly element: HTMLElement;
@@ -58,7 +82,15 @@ export class ScopePanel {
   private readonly tree: HTMLElement;
   private readonly found: HTMLElement;
   private readonly box: HTMLInputElement;
-  private branches: Branch[] = [];
+  /** The shelf tree, once a read succeeded. `null` means *not successfully
+   * read* — the panel has not asked yet, or the last ask failed. A failure is
+   * kept as `null` rather than cached as an empty tree, so the next refresh
+   * reads again. */
+  private branches: Branch[] | null = null;
+  /** The last failed read's sentence, when there is no tree to draw. */
+  private treeTrouble: string | null = null;
+  /** The last failed read's raw string, for the trouble row's hover. */
+  private treeDetail: string | null = null;
   private openShelves = new Set<string>();
   /** Shelf key → the seforim standing on it, once it has been opened. Asked for
    * on the first twist and kept: a shelf's contents change when the reader
@@ -136,10 +168,15 @@ export class ScopePanel {
       async () => {
         const scope = await api.findScope();
         // The tree is read once and kept: it changes when the reader rearranges
-        // the bookcase, not when they search.
-        if (this.branches.length === 0) {
-          this.branches = await api.shelfTree().catch(() => [] as Branch[]);
-        }
+        // the bookcase, not when they search. A failed read is **not** an empty
+        // tree — `folded` leaves the tree unloaded on a failure, so the next
+        // refresh reads again instead of showing an empty panel forever.
+        const tree = await folded(this.branches, this.treeTrouble, this.treeDetail, () =>
+          api.shelfTree(),
+        );
+        this.branches = tree.branches;
+        this.treeTrouble = tree.trouble;
+        this.treeDetail = tree.detail;
         return scope;
       },
       (scope) => this.draw(scope),
@@ -198,6 +235,20 @@ export class ScopePanel {
 
   private drawTree(): void {
     this.tree.replaceChildren();
+    if (this.branches === null) {
+      // No tree to draw: the first read has not answered, or the last one
+      // failed. A failure is a sentence, never a blank column — and it is not
+      // cached as an empty shelf, so the next `refresh()` reads again.
+      const note = document.createElement("div");
+      note.className =
+        "scope-row" + (this.treeTrouble === null ? " is-waiting" : " is-trouble");
+      note.textContent = this.treeTrouble ?? say("scopeLoading");
+      if (this.treeTrouble !== null && this.treeDetail !== null) {
+        note.title = this.treeDetail;
+      }
+      this.tree.append(note);
+      return;
+    }
     for (const branch of this.branches) this.branch(this.tree, branch);
   }
 

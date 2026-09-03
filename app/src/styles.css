@@ -4037,6 +4037,15 @@ body {
   padding-inline-start: 22px;
 }
 
+/* A failed shelf read is a sentence, never a blank tree — the same rule as the
+ * `is-waiting` row, in the window's trouble colour. */
+.scope-row.is-trouble {
+  color: var(--mark);
+  font-family: var(--plain);
+  font-size: 12px;
+  padding-inline-start: 22px;
+}
+
 /* One line that says what the panel comes to, which is the question the panel
  * is named after and which a list of labels cannot answer. */
 .scope-counted {

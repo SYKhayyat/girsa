@@ -1404,6 +1404,7 @@ const WORDS = {
   doingReadLinks: ["קריאת הקישורים", "reading the links"] as Both,
   doingOpenRef: ["פתיחת המראה מקום", "opening the mareh makom"] as Both,
   doingChain: ["מעקב אחר שלשלת המסירה", "following the chain"] as Both,
+  doingReadShelf: ["קריאת המדפים", "reading the shelves"] as Both,
   doingContents: ["קריאת תוכן הספר", "reading the sefer's contents"] as Both,
   doingRepairLink: ["תיקון הקישור", "repairing the link"] as Both,
   doingReadLane: ["קריאת נתיב המשמעות", "reading the lane"] as Both,

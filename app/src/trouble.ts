@@ -76,6 +76,11 @@ export type Doing =
   // failure is specific and not about links at all: the catalogue could not be
   // read, so nothing knows when any sefer was written.
   | "chain"
+  // Reading the shelf tree for the scope panel (`scopeview.ts`). Its own name
+  // because the panel's commonest failure is a real one to act on — the library
+  // cannot be read, so there is nothing to tick — and *reading the lane* would
+  // name the wrong thing.
+  | "read_shelf"
   // Reading a sefer's table of contents (A3). Its own name because its
   // commonest failure is one a reader can act on — the sefer is not open — and
   // *reading the sefer* would name the page they are already looking at.
@@ -119,6 +124,7 @@ const DOING: Record<Doing, () => string> = {
   read_suspects: () => say("doingReadSuspects"),
   open_ref: () => say("doingOpenRef"),
   chain: () => say("doingChain"),
+  read_shelf: () => say("doingReadShelf"),
   contents: () => say("doingContents"),
   general: () => say("doingSomething"),
 };
