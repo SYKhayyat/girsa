@@ -33,6 +33,17 @@
 //!   do not, so the neighbours anchor it and the **address** decides it inside
 //!   that gap. A corrected word must not cost a segment its name.
 //!
+//! **And the evidence is compared in the same normal form the search index is
+//! keyed on.** Every matcher here runs through [`girsa_hebrew::normalize`]:
+//! nikud and te'amim are stripped, final letters folded, maqaf and punctuation
+//! made into spaces. Upstream adding nikud to a se'if, or re-spelling its first
+//! word with a maqaf, changes the printed bytes and leaves the words alone — so
+//! a raw-byte comparison would orphan every citation to it to [`super::Why::Gone`],
+//! the exact event this machinery exists to survive. The sibling search crate
+//! has always normalized every token on the way in; the matcher that guards the
+//! permanent names used to compare bytes, which was one answer for the two
+//! halves of the same question.
+//!
 //! So: unique texts anchor the alignment, the longest increasing run of those
 //! anchors is kept so the matching cannot cross itself, and addresses settle
 //! what is left inside each gap. What still has no partner is reported rather
@@ -303,18 +314,37 @@ pub fn align(previous: &[Place], fresh: &[Fresh<'_>]) -> Alignment {
 /// nothing cost those 18 their names on every re-import, and it bought nothing:
 /// the failure being guarded against is an old name landing on new *words*, and
 /// a segment with no words cannot be wrong about which ones it has.
+///
+/// **The word is compared after [`girsa_hebrew::normalize`], not byte for byte.**
+/// The whole text is normalized rather than the raw first token, because the
+/// first *normalized* word is not always the first whitespace run of the print:
+/// a maqaf splits a token in two (`אֶת־הַשָּׁמַיִם` → `את השמים`) and a leading
+/// punctuation mark vanishes. Upstream adding nikud to a se'if's opening, or
+/// re-spelling it, leaves the word itself alone — and that is exactly the edit
+/// this corroboration exists to absorb. The conservative failure is unchanged:
+/// an opening corrected to a *different* word still refuses the handover, loudly
+/// (a new name and a redirect row) rather than silently.
 fn same_opening(was: &str, now: &str) -> bool {
     fn opening(text: &str) -> &str {
         text.split_whitespace().next().unwrap_or_default()
     }
-    opening(was) == opening(now)
+    opening(&girsa_hebrew::normalize(was)) == opening(&girsa_hebrew::normalize(now))
 }
 
-/// Position of every text that appears exactly once in the sequence.
-fn once_by_text<'a>(texts: impl Iterator<Item = &'a str>) -> HashMap<&'a str, usize> {
-    let mut seen: HashMap<&str, Option<usize>> = HashMap::new();
+/// Position of every text that appears exactly once in the sequence, after
+/// [`girsa_hebrew::normalize`].
+///
+/// The anchor pass compares what the words *are*, not how they were printed, so
+/// an upstream edit that adds nikud or fixes a spelling without changing the
+/// words still anchors — and a text whose normalized form collides with a
+/// sibling's says nothing about which of the two this is, exactly as a repeated
+/// raw text already did. The keys are owned because the normal form is a new
+/// string, not a borrow of the input.
+fn once_by_text<'a>(texts: impl Iterator<Item = &'a str>) -> HashMap<String, usize> {
+    let mut seen: HashMap<String, Option<usize>> = HashMap::new();
     for (at, text) in texts.enumerate() {
-        seen.entry(text)
+        let key = girsa_hebrew::normalize(text);
+        seen.entry(key)
             .and_modify(|slot| *slot = None)
             .or_insert(Some(at));
     }
@@ -518,6 +548,15 @@ fn one_between(under: &Ordinal, high: Option<&Ordinal>, taken: &BTreeSet<Ordinal
 /// not a re-segmentation, and following it would be the silent wrongness this
 /// whole design is arranged against.
 ///
+/// **The raw bytes first, then the normal form.** A raw containment that holds
+/// is the strongest evidence and is returned immediately. When it does not hold,
+/// the words may still have gone there while their *print* changed — upstream
+/// added nikud in the same release it re-drew the boundary — so both directions
+/// are retried after [`girsa_hebrew::normalize`], still confined to the same
+/// gap. An old text whose words normalize to nothing is no evidence at all and
+/// is not retried: `""` is contained in everything, and matching it would turn
+/// every orphan into a re-segmentation.
+///
 /// Returns the new places whose words contain the old ones, or the new places
 /// whose words the old one contained. Empty when neither holds, which is
 /// [`super::Why::Gone`] and is a real answer.
@@ -534,11 +573,38 @@ pub fn went_to(old: &Place, fresh: &[Fresh<'_>], within: std::ops::Range<usize>)
         }
     }
     // One se'if split into several upstream, its own way: the new words are
-    // inside the old ones. Consecutive only — a scatter is not a split.
+    // inside the old ones. Consecutive only — a scatter is not a split. The
+    // range is cloned because the normalized pass below retries it.
     let run: Vec<usize> = within
+        .clone()
         .filter(|at| {
             let piece = fresh[*at].text.trim();
             !piece.is_empty() && old_text.contains(piece)
+        })
+        .collect();
+    if run.len() > 1
+        && run
+            .last()
+            .zip(run.first())
+            .is_some_and(|(a, b)| a - b + 1 == run.len())
+    {
+        return run;
+    }
+
+    let old_norm = girsa_hebrew::normalize(old_text);
+    if old_norm.is_empty() {
+        return Vec::new();
+    }
+    for at in within.clone() {
+        let now = girsa_hebrew::normalize(fresh[at].text);
+        if now.contains(&old_norm) {
+            return vec![at];
+        }
+    }
+    let run: Vec<usize> = within
+        .filter(|at| {
+            let piece = girsa_hebrew::normalize(fresh[*at].text);
+            !piece.is_empty() && old_norm.contains(&piece)
         })
         .collect();
     if run.len() > 1
@@ -919,6 +985,90 @@ mod tests {
     fn a_place_whose_words_are_nowhere_is_said_to_be_gone_rather_than_guessed_at() {
         let old = place(5, &["1", "5"], "נמחק לגמרי");
         let now = vec![fresh(&["1", "5"], "משהו אחר לגמרי")];
+        assert!(went_to(&old, &run(&now), 0..1).is_empty());
+    }
+
+    #[test]
+    fn adding_nikud_upstream_costs_no_name_at_all() {
+        // The whole class of edits this fixes: same words, different print.
+        // With raw-byte matching, pass 1 lost all three anchors (every text
+        // changed), pass 3 refused the addresses (the openings no longer agreed
+        // byte for byte), and all three were orphaned to `Why::Gone`.
+        let previous = vec![
+            place(1, &["1"], "אחד"),
+            place(2, &["2"], "שנים"),
+            place(3, &["3"], "שלשה"),
+        ];
+        let now = vec![
+            fresh(&["1"], "אֶחָד"),
+            fresh(&["2"], "שְׁנַיִם"),
+            fresh(&["3"], "שְׁלֹשָׁה"),
+        ];
+        let aligned = align(&previous, &run(&now));
+        assert_eq!(aligned.for_fresh, vec![Some(0), Some(1), Some(2)]);
+        assert!(aligned.orphaned.is_empty());
+    }
+
+    #[test]
+    fn same_opening_sees_a_nikud_edit_as_the_same_word() {
+        assert!(same_opening("שנים", "שְׁנַיִם"));
+        assert!(same_opening("מאימתי קורין", "מֵאֵימָתַי קוֹרִין"));
+        // A maqaf splits a token, so the first *normalized* word is the first
+        // normalized token, not the raw first whitespace run.
+        assert!(same_opening("אֶת־הַשָּׁמַיִם", "את השמים"));
+        // A leading punctuation mark is not a word and vanishes.
+        assert!(same_opening("»שנים", "שְׁנַיִם"));
+        // Two texts with no words in them still agree.
+        assert!(same_opening("", ""));
+        // A corrected first word is still a different word.
+        assert!(!same_opening("שנים", "שלשה"));
+        assert!(!same_opening("שנים", ""));
+    }
+
+    #[test]
+    fn a_nikud_edit_and_a_typo_fix_in_the_same_release_keeps_the_name() {
+        // Pass 1 cannot anchor it — the text changed in two ways at once — so
+        // the neighbours pin the gap and the address hands the name over. The
+        // opening agrees only after normalization.
+        let previous = vec![
+            place(1, &["1"], "אחד"),
+            place(2, &["2"], "שנים בטעות"),
+            place(3, &["3"], "שלשה"),
+        ];
+        let now = vec![
+            fresh(&["1"], "אחד"),
+            fresh(&["2"], "שְׁנַיִם"),
+            fresh(&["3"], "שלשה"),
+        ];
+        let aligned = align(&previous, &run(&now));
+        assert_eq!(aligned.for_fresh, vec![Some(0), Some(1), Some(2)]);
+        assert!(aligned.orphaned.is_empty());
+    }
+
+    #[test]
+    fn a_merge_that_also_added_nikud_is_still_followed() {
+        // The raw pass fails — the old words are bare and the absorbing se'if
+        // is menukad — and the normalized fallback sees the same words.
+        let old = place(5, &["1", "5"], "שלשה");
+        let now = vec![fresh(&["1", "4"], "שְׁנַיִם שְׁלֹשָׁה")];
+        assert_eq!(went_to(&old, &run(&now), 0..1), vec![0]);
+    }
+
+    #[test]
+    fn a_split_whose_pieces_are_menukad_is_still_a_split() {
+        let old = place(5, &["1", "5"], "שלשה אנשים");
+        let now = vec![fresh(&["1", "5"], "שְׁלֹשָׁה"), fresh(&["1", "6"], "אֲנָשִׁים")];
+        assert_eq!(went_to(&old, &run(&now), 0..2), vec![0, 1]);
+    }
+
+    #[test]
+    fn a_place_whose_words_normalize_to_nothing_is_no_evidence_at_all() {
+        // A bullet is not a word: its raw text is non-empty, so the raw pass
+        // runs and fails, and its normal form is empty. Without the guard the
+        // fallback would match the first place in the gap — `""` is contained
+        // in everything — and turn every orphan into a re-segmentation.
+        let old = place(5, &["1", "5"], "•");
+        let now = vec![fresh(&["1", "5"], "משהו אחר")];
         assert!(went_to(&old, &run(&now), 0..1).is_empty());
     }
 }

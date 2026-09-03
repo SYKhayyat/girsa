@@ -401,6 +401,57 @@ fn two_seifim_merged_upstream_redirect_to_the_one_that_absorbed_them() {
 }
 
 #[test]
+fn adding_nikud_between_imports_costs_no_name_at_all() {
+    // The matcher used to compare raw bytes, and the search index did not. An
+    // upstream release that added nikud to a se'if changed its every token, so
+    // pass 1 lost the anchor, `same_opening` refused the address, and the
+    // citation was orphaned to `Why::Gone` — the exact event this whole
+    // machinery exists to survive. The words did not change, only their print.
+    //
+    // `as_resolved` resolves the way a link, a correction or a Ksav citation
+    // does, so "kept" here is the property that matters: every anchor written
+    // against the bare release still names its words.
+    let root = scratch("nikud");
+    import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], "מאימתי קורין את שמע בערב"),
+            raw(&["1", "2"], "עד סוף האשמורה הראשונה"),
+            raw(&["1", "3"], "דברי רבי אליעזר"),
+        ],
+    );
+    let before = anchors(&root);
+
+    let imported = import_over(
+        &root,
+        vec![
+            raw(&["1", "1"], "מֵאֵימָתַי קוֹרִין אֶת־שְׁמַע בָּעֶרֶב"),
+            raw(&["1", "2"], "עַד סוֹף הָאַשְׁמוּרָה הָרִאשׁוֹנָה"),
+            raw(&["1", "3"], "דִּבְרֵי רַבִּי אֱלִיעֶזֶר"),
+        ],
+    );
+
+    assert_eq!(imported.continuity.kept, before.len());
+    assert_eq!(imported.continuity.minted, 0);
+    assert_eq!(imported.continuity.resegmented, 0);
+    assert_eq!(imported.continuity.gone, 0);
+
+    let after = as_resolved(&root);
+    for (anchor, was) in &before {
+        // The words did not move — their *print* did — so the resolved text is
+        // the menukad spelling of the same words, equal after the normal form.
+        let now = after
+            .text_at(anchor)
+            .unwrap_or_else(|| panic!("{anchor} stopped resolving across a nikud edit"));
+        assert_eq!(
+            girsa_hebrew::normalize(now.as_str()),
+            girsa_hebrew::normalize(was),
+            "{anchor} landed on different words across a nikud edit"
+        );
+    }
+}
+
+#[test]
 fn a_first_import_is_exactly_what_it_always_was() {
     // The continuity machinery must cost a fresh corpus nothing — the names
     // still come out of reading order, one-based, and 7,189 directories of
