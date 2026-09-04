@@ -4206,17 +4206,37 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 0 14px;
+}
+
+/* The tall element the list scrolls. Rows are absolutely positioned inside it
+ * at `top: rowTop(i)` (tocview.ts), and its height is the whole filtered list
+ * — so the scrollbar is honest about the length while the document holds only
+ * the rows the viewport can see. The old top and bottom padding live in that
+ * arithmetic (`TOP_PAD`/`BOTTOM_PAD`), because a pad on the list would shift
+ * every row's position by exactly the thing the math forgot. */
+.toc-fill {
+  position: relative;
 }
 
 /* One place. The indent is the tree — a Tur's simanim sit under their chelek —
  * and it is `--depth` rather than nested elements, the same way `.chain-hop`
- * draws a chain twelve deep without nesting twelve divs to say so. */
+ * draws a chain twelve deep without nesting twelve divs to say so.
+ *
+ * A fixed height, and `box-sizing: border-box`: the windowing in tocview.ts
+ * knows where every row sits from `ROW` and an index, and that arithmetic only
+ * holds if the row measures what it says. It can, because the title is one
+ * line by rule — `.toc-row-title` is `nowrap` with an ellipsis — so nothing
+ * can ever make a row taller. */
 .toc-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 27px;
+  box-sizing: border-box;
   display: flex;
   gap: 8px;
   align-items: baseline;
-  width: 100%;
   padding: 5px 14px;
   padding-inline-start: calc(14px + var(--depth, 0) * 14px);
   border: 0;
