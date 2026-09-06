@@ -1419,6 +1419,8 @@ const WORDS = {
   doingCopySource: ["העתקת המקור", "copying the source"] as Both,
   doingClosePane: ["סגירת הלוח", "closing the pane"] as Both,
   doingPointing: ["החלפת הניקוד", "switching the pointing"] as Both,
+  doingCloseTab: ["סגירת הלשונית", "closing the tab"] as Both,
+  doingTheme: ["החלפת ערכת הצבעים", "switching the colour scheme"] as Both,
   doingFollow: ["קישור הגלילה", "linking the scroll"] as Both,
   doingReadSuspects: ["קריאת החשודים", "reading the queue"] as Both,
   doingSomething: ["הפעולה", "the action"] as Both,

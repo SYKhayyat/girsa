@@ -70,7 +70,7 @@ import { presenceSaid } from "./presence.ts";
 import { Latest } from "./latest.ts";
 import { codeOf, sayTrouble, trouble } from "./trouble.ts";
 import { whatKey, type Pressed } from "./keys.ts";
-import { announces, ask, button, choice, glyph, region } from "./controls.ts";
+import { announces, ask, button, choice, glyph, region, tap } from "./controls.ts";
 
 const root = document.querySelector<HTMLElement>("#app");
 const picker = new Picker();
@@ -1188,10 +1188,10 @@ function dragTab(holder: HTMLElement, index: number): void {
     const from = Number(event.dataTransfer?.getData("text/plain"));
     const to = Number(holder.dataset.tab);
     if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return;
-    void (async () => {
+    tap((async () => {
       await api.moveTab(from, to);
       await reload();
-    })();
+    })());
   });
 }
 
@@ -1238,14 +1238,18 @@ function tabBar(): HTMLElement {
       // it says **close**, never delete: closing a tab closes the arrangement
       // and leaves every sefer exactly where it was.
       const shut = glyph("×", `${say("closeTab")} — ${named}`, () => {
-        void (async () => {
-          await api.closeTab(index);
-          for (const pane of open.panes) {
-            views.delete(pane.id);
-            scans.delete(pane.id);
+        tap((async () => {
+          try {
+            await api.closeTab(index);
+            for (const pane of open.panes) {
+              views.delete(pane.id);
+              scans.delete(pane.id);
+            }
+            await reload();
+          } catch (e) {
+            announce(trouble(e, "close_tab").said, true);
           }
-          await reload();
-        })();
+        })());
       });
       shut.classList.add("tab-shut");
       holder.append(go, shut);
@@ -1395,15 +1399,19 @@ function toolBar(): HTMLElement {
   // you, which is finding 12 — and the same round the settings row now reads.
   const nextTheme = nextIn(THEME_ROUND, state?.look.theme ?? "system");
   const theme = button(themeSaid(nextTheme), say("themeWhy"), () => {
-    void (async () => {
+    tap((async () => {
       const look = state?.look;
       if (!look) return;
-      // The whole record, because `set_look` takes the whole record — and
-      // `Look::sane` clamps what it is given, so sending four fields as
-      // defaults would quietly reset the reader's line height on a theme click.
-      await api.setLook({ ...look, theme: nextTheme });
-      await reload();
-    })();
+      try {
+        // The whole record, because `set_look` takes the whole record — and
+        // `Look::sane` clamps what it is given, so sending four fields as
+        // defaults would quietly reset the reader's line height on a theme click.
+        await api.setLook({ ...look, theme: nextTheme });
+        await reload();
+      } catch (e) {
+        announce(trouble(e, "theme").said, true);
+      }
+    })());
   });
   theme.classList.add("tool-wide");
 
@@ -1755,7 +1763,7 @@ function moveToTab(id: PaneId): HTMLElement | null {
   box.addEventListener("change", () => {
     const picked = box.value;
     if (picked === "") return;
-    void (async () => {
+    tap((async () => {
       await api.movePane(id, picked === "new" ? null : Number(picked));
       // The pane is a different pane in its new tab — `split` mints an id — so
       // the view keyed by the old one is stale. Dropped rather than moved: the
@@ -1763,7 +1771,7 @@ function moveToTab(id: PaneId): HTMLElement | null {
       views.delete(id);
       scans.delete(id);
       await reload();
-    })();
+    })());
   });
   return box;
 }
@@ -2215,24 +2223,32 @@ function shortcut(event: KeyboardEvent): void {
       event.preventDefault();
       const open = tab();
       if (!open) return;
-      void (async () => {
-        await api.closePane(open.focused);
-        views.delete(open.focused);
-        await reload();
-      })();
+      tap((async () => {
+        try {
+          await api.closePane(open.focused);
+          views.delete(open.focused);
+          await reload();
+        } catch (e) {
+          announce(trouble(e, "close_pane").said, true);
+        }
+      })());
       return;
     }
     case "nikud":
       event.preventDefault();
-      void (async () => {
+      tap((async () => {
         if (!state) return;
-        // The same round the toolbar button walks, and the same function that
-        // labels it — one rule, so the key and the button cannot get out of
-        // step about what *next* means.
-        await api.setPointing(nextIn(POINTING_ROUND, state.pointing));
-        views.clear();
-        await reload();
-      })();
+        try {
+          // The same round the toolbar button walks, and the same function that
+          // labels it — one rule, so the key and the button cannot get out of
+          // step about what *next* means.
+          await api.setPointing(nextIn(POINTING_ROUND, state.pointing));
+          views.clear();
+          await reload();
+        } catch (e) {
+          announce(trouble(e, "pointing").said, true);
+        }
+      })());
       return;
     case "write":
       event.preventDefault();

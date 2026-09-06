@@ -47,7 +47,7 @@ import {
   type ScopeView,
 } from "./api.ts";
 import { LaneColumn } from "./laneview.ts";
-import { announces, button, field, glyph, region, shut } from "./controls.ts";
+import { announces, button, field, glyph, region, shut, tap } from "./controls.ts";
 import { dock, isDocked, minimise, undock } from "./dock.ts";
 import { Latest } from "./latest.ts";
 import { chipRow, chipSaid } from "./chips.ts";
@@ -666,10 +666,10 @@ export class SearchView {
     }
     if (found.pages > found.page) {
       const more = button(say("more"), say("more"), () => {
-        void (async () => {
+        tap((async () => {
           this.page += 1;
           await this.run();
-        })();
+        })());
       });
       more.classList.add("find-more");
       this.list.append(more);
@@ -788,11 +788,11 @@ export class SearchView {
 
     // `−` is not a name. What it does is, and it says which row it does it to.
     const out = glyph("−", `${say("takeOut")} ${label}`, () => {
-      void (async () => {
+      tap((async () => {
         await api.findNarrow(dimension, row, true);
         this.page = 1;
         await this.run();
-      })();
+      })());
     });
     out.classList.add("find-facet-out");
 

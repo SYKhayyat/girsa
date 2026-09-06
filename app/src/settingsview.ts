@@ -34,7 +34,7 @@ import {
   type Shemos,
   type Shortcut,
 } from "./api.ts";
-import { about, announces, button, choice as pick, field, glyph, region } from "./controls.ts";
+import { about, announces, button, choice as pick, field, glyph, region, tap } from "./controls.ts";
 import { OneKey } from "./capture.ts";
 import { said } from "./keys.ts";
 import type { Language } from "./names.ts";
@@ -442,7 +442,7 @@ export class SettingsView {
     answer.setAttribute("aria-live", "polite");
     const ask = button(say("update"), say("updateWhy"), () => {
       answer.replaceChildren(document.createTextNode(say("updateChecking")));
-      void (async () => {
+      tap((async () => {
         try {
           const found = await api.checkForUpdate();
           answer.replaceChildren(
@@ -462,7 +462,7 @@ export class SettingsView {
           answer.replaceChildren();
           sayTrouble(answer, e, "update");
         }
-      })();
+      })());
     });
     row.append(ask, answer);
     const box = document.createElement("div");
@@ -550,7 +550,7 @@ export class SettingsView {
           key.textContent = row.bound ?? "—";
           return;
         }
-        void (async () => {
+        tap((async () => {
           // What those keys do **today**, asked of Rust rather than read off
           // the state's copy: taking them for this action silently takes
           // them away from whichever action held them, and the reader is
@@ -567,7 +567,7 @@ export class SettingsView {
             key.textContent = `${said(pressed)} ⇄`;
           }
           await this.bind(row.id, said(pressed));
-        })();
+        })());
       });
     });
     key.className = "settings-key";

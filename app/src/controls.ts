@@ -63,6 +63,23 @@ function settle(result: void | Promise<void>): void {
   if (result instanceof Promise) void result.catch(reportClick);
 }
 
+/**
+ * Fire-and-forget async work, with the rejection reported, never dropped.
+ *
+ * The seam in this module catches a handler's **return value**; it cannot see a
+ * handler that starts its own async work and returns `void`. The
+ * `void (async () => …)()` spelling dropped that rejection a level above the
+ * seam — reported in nobody's face, and untouchable by anything here. This is
+ * the same floor `settle()` gives a handler's return value, for the work the
+ * handler starts itself: one spelling, and a rejection lands on
+ * `window.reportError` like every other. A caller that wants to say something
+ * real catches its own error; this is the floor beneath that, for the ones
+ * that forget.
+ */
+export function tap(promise: Promise<void>): void {
+  void promise.catch(reportClick);
+}
+
 export function button(
   label: string,
   title: string,

@@ -34,7 +34,7 @@ import type {
 } from "./api.ts";
 import { glyphsOf } from "./glyphs.ts";
 import { sayTrouble } from "./trouble.ts";
-import { area, button, choice, field, toolStrip } from "./controls.ts";
+import { area, button, choice, field, tap, toolStrip } from "./controls.ts";
 import { fill, say } from "./say.ts";
 
 /**
@@ -561,7 +561,7 @@ export class ScanView {
         this.stopCorrecting();
         return;
       }
-      void (async () => {
+      tap((async () => {
         try {
           this.words = await api.scanFix(this.slug, this.page, index, says);
           this.stopCorrecting();
@@ -570,7 +570,7 @@ export class ScanView {
         } catch (e) {
           sayTrouble(this.note, e, "fix");
         }
-      })();
+      })());
     });
     this.overlay.append(typed);
     typed.focus();

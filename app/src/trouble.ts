@@ -91,6 +91,11 @@ export type Doing =
   // *the action* would name nothing the reader can check.
   | "close_pane"
   | "pointing"
+  // Closing a tab (the tab strip's ×), and switching the theme on the same
+  // toolbar as the pointing. Their own names for the same reason: the engine
+  // refused, and the tab stays open / the light stays as it was.
+  | "close_tab"
+  | "theme"
   // Linking (or unlinking) the panes' scroll, on the same toolbar. Its own
   // name because its commonest failure is the engine's refusal to change the
   // arrangement, and the button's whole job is to change it.
@@ -138,6 +143,8 @@ const DOING: Record<Doing, () => string> = {
   contents: () => say("doingContents"),
   close_pane: () => say("doingClosePane"),
   pointing: () => say("doingPointing"),
+  close_tab: () => say("doingCloseTab"),
+  theme: () => say("doingTheme"),
   follow: () => say("doingFollow"),
   general: () => say("doingSomething"),
 };

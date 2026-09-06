@@ -20,7 +20,7 @@ import {
   type TagRow,
 } from "./api.ts";
 import { sayTrouble } from "./trouble.ts";
-import { area, glyph, shut } from "./controls.ts";
+import { area, glyph, shut, tap } from "./controls.ts";
 import { Latest, type Ticket } from "./latest.ts";
 import { fill, say } from "./say.ts";
 import { dock, undock, wideAs } from "./dock.ts";
@@ -247,11 +247,11 @@ export class YoursView {
     forget.textContent = say("yoursDelete");
     forget.title = say("yoursForgetNoteWhy");
     forget.addEventListener("click", () => {
-      void (async () => {
+      tap((async () => {
         await api.noteForget(note.name);
         await this.changed?.();
         await this.draw();
-      })();
+      })());
     });
 
     row.append(title, opening, about, edit, forget);
@@ -294,18 +294,18 @@ export class YoursView {
       });
 
       const after = glyph("+", say("yoursNewParagraph"), () => {
-        void (async () => {
+        tap((async () => {
           await api.noteEdit(note.name, "after", para.id, "");
           await this.draw();
-        })();
+        })());
       });
       after.classList.add("tool");
 
       const drop = glyph("−", say("yoursDropParagraph"), () => {
-        void (async () => {
+        tap((async () => {
           await api.noteEdit(note.name, "remove", para.id);
           await this.draw();
-        })();
+        })());
       });
 
       line.append(id, words, after, drop);
@@ -316,10 +316,10 @@ export class YoursView {
     add.className = "tool";
     add.textContent = say("yoursParagraphAtEnd");
     add.addEventListener("click", () => {
-      void (async () => {
+      tap((async () => {
         await api.noteEdit(note.name, "append", undefined, "");
         await this.draw();
-      })();
+      })());
     });
     box.append(add);
 
@@ -413,11 +413,11 @@ export class YoursView {
     forget.className = "tool";
     forget.textContent = say("yoursDelete");
     forget.addEventListener("click", () => {
-      void (async () => {
+      tap((async () => {
         await api.markForget(mark.id);
         await this.changed?.();
         await this.draw();
-      })();
+      })());
     });
 
     row.append(where, said, forget);
@@ -442,12 +442,12 @@ export class YoursView {
     again.textContent = query.name;
     again.title = say("yoursAskAgain");
     again.addEventListener("click", () => {
-      void (async () => {
+      tap((async () => {
         // The chips and the scope are set back in Rust; what comes back is the
         // line for the box. The window does not reconstruct a search.
         const typed = await api.queryRecall(query.name);
         await this.ask?.(typed);
-      })();
+      })());
     });
 
     const said = document.createElement("span");
@@ -458,10 +458,10 @@ export class YoursView {
     forget.className = "tool";
     forget.textContent = say("yoursDelete");
     forget.addEventListener("click", () => {
-      void (async () => {
+      tap((async () => {
         await api.queryForget(query.name);
         await this.draw();
-      })();
+      })());
     });
 
     row.append(again, said, forget);
@@ -492,10 +492,10 @@ export class YoursView {
     forget.textContent = say("yoursDelete");
     forget.title = say("yoursForgetFolderWhy");
     forget.addEventListener("click", () => {
-      void (async () => {
+      tap((async () => {
         await api.folderForget(folder.name);
         await this.draw();
-      })();
+      })());
     });
     row.append(title, count, forget);
 
@@ -516,10 +516,10 @@ export class YoursView {
       out.className = "tool";
       out.textContent = say("yoursRemove");
       out.addEventListener("click", () => {
-        void (async () => {
+        tap((async () => {
           await api.folderEdit(folder.name, "take-out", member.key);
           await this.draw();
-        })();
+        })());
       });
       line.append(open, out);
       row.append(line);
@@ -681,7 +681,7 @@ export class YoursView {
     forget.className = "tool";
     forget.textContent = say("yoursDelete");
     forget.addEventListener("click", () => {
-      void (async () => {
+      tap((async () => {
         try {
           await api.unfix(fix.segment, fix.id);
           // The panes are showing the corrected text, so they are wrong until
@@ -691,7 +691,7 @@ export class YoursView {
         } catch (e) {
           sayTrouble(this.note, e, "fix");
         }
-      })();
+      })());
     });
 
     row.append(where, said, forget);

@@ -60,6 +60,25 @@ export async function run() {
   }
   check("nowhere in src spells the sibling כסב", misspelled, []);
 
+  // ------------------------------------------ the caller's own fire-and-forget
+  //
+  // The seam in `controls.ts` catches a handler's **return value**; it cannot
+  // see a handler that starts its own async work and returns `void`. The
+  // `void (async () => …)()` spelling dropped that rejection a level above the
+  // seam — reported in nobody's face, and untouchable by anything the seam
+  // does. `controls::tap` is the floor beneath it, and this is the guard that
+  // keeps the spelling from coming back: a fire-and-forget is
+  // `tap((async () => …)())`, never `void (async …)`. A twenty-second site
+  // cannot appear without this going red.
+  const dropped = [];
+  for (const [f, body] of files) {
+    body.split("\n").forEach((line, i) => {
+      if (isComment(line)) return;
+      if (/\bvoid\s*\(\s*async\b/.test(line)) dropped.push(`${f}:${i + 1}`);
+    });
+  }
+  check("no fire-and-forget drops a rejection above the seam", dropped, []);
+
   // -------------------------------------------------- raw errors in the UI
   const leaks = [];
   for (const [f, body] of files) {

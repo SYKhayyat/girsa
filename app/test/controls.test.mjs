@@ -11,7 +11,7 @@
 // the parts they touch: `document.createElement` and `window.reportError`.
 
 import { check, ok } from "./harness.mjs";
-import { button, glyph, shut } from "../.tmp-test/controls.mjs";
+import { button, glyph, shut, tap } from "../.tmp-test/controls.mjs";
 
 function element() {
   return {
@@ -123,6 +123,27 @@ export async function run() {
     await Promise.resolve();
     check("shut reports an async rejection", reported.length, 3);
     ok("…and it is the shut's rejection", reported[2] === shutBoom);
+
+    // -------------------------------- tap: the floor beneath the caller's void
+    //
+    // The seam catches a handler's **return value**; a handler that starts its
+    // own async work and returns `void` is invisible to it, and the
+    // `void (async () => …)()` spelling dropped the rejection a level above the
+    // seam. `tap` is the same floor for the work a handler starts itself.
+    let tapped = 0;
+    tap(Promise.resolve().then(() => {
+      tapped += 1;
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+    check("tap runs the promise to completion", tapped, 1);
+
+    const tapBoom = new Error("the tab refused");
+    tap(Promise.reject(tapBoom));
+    await Promise.resolve();
+    await Promise.resolve();
+    check("tap reports a rejection", reported.length, 4);
+    ok("…and it is the tap's rejection", reported[3] === tapBoom);
   } finally {
     globalThis.document = realDocument;
     globalThis.window = realWindow;
