@@ -85,6 +85,16 @@ export type Doing =
   // commonest failure is one a reader can act on — the sefer is not open — and
   // *reading the sefer* would name the page they are already looking at.
   | "contents"
+  // Closing a pane, and switching the pointing (nikud) on the toolbar. Their
+  // own names because their commonest failure is the same one — the engine
+  // refused, and the pane stays open / the words stay as they are — and
+  // *the action* would name nothing the reader can check.
+  | "close_pane"
+  | "pointing"
+  // Linking (or unlinking) the panes' scroll, on the same toolbar. Its own
+  // name because its commonest failure is the engine's refusal to change the
+  // arrangement, and the button's whole job is to change it.
+  | "follow"
   | "general";
 
 export interface Trouble {
@@ -126,6 +136,9 @@ const DOING: Record<Doing, () => string> = {
   chain: () => say("doingChain"),
   read_shelf: () => say("doingReadShelf"),
   contents: () => say("doingContents"),
+  close_pane: () => say("doingClosePane"),
+  pointing: () => say("doingPointing"),
+  follow: () => say("doingFollow"),
   general: () => say("doingSomething"),
 };
 

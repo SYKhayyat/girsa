@@ -38,13 +38,42 @@
 /** A button with a visible label. The label is the name. */
 import { say } from "./say.ts";
 
-export function button(label: string, title: string, click: () => void): HTMLButtonElement {
+/**
+ * A rejection a click handler did not catch, sent where errors go.
+ *
+ * `addEventListener` does not read a handler's return value, so a handler typed
+ * `async` used to have its rejection dropped at the listener — an unhandled
+ * rejection, in nobody's face. The audit fixed that once, caller by caller, in
+ * `copySource`; this is the same fix at the seam every control passes through,
+ * once. `window.reportError` puts the error on the window error handler and
+ * the console, which is where a **sync** handler's throw already goes. A caller
+ * that wants to say something real catches its own error; this is the floor
+ * beneath that, for the ones that forget.
+ */
+function reportClick(reason: unknown): void {
+  if (typeof window !== "undefined" && typeof window.reportError === "function") {
+    window.reportError(reason);
+  } else {
+    console.error(reason);
+  }
+}
+
+/** Attach to a handler's return value, so a rejection is reported, never dropped. */
+function settle(result: void | Promise<void>): void {
+  if (result instanceof Promise) void result.catch(reportClick);
+}
+
+export function button(
+  label: string,
+  title: string,
+  click: () => void | Promise<void>,
+): HTMLButtonElement {
   const out = document.createElement("button");
   out.type = "button";
   out.className = "tool";
   out.textContent = label;
   out.title = title;
-  out.addEventListener("click", click);
+  out.addEventListener("click", () => settle(click()));
   return out;
 }
 
@@ -61,14 +90,14 @@ export function glyph(
   // itself clickable** has to stop the click reaching the row. Callers that do
   // not care still pass `() => void`, which TypeScript accepts for a handler
   // taking an argument.
-  click: (event: MouseEvent) => void,
+  click: (event: MouseEvent) => void | Promise<void>,
 ): HTMLButtonElement {
   const out = document.createElement("button");
   out.type = "button";
   out.textContent = face;
   out.title = name;
   out.setAttribute("aria-label", name);
-  out.addEventListener("click", click);
+  out.addEventListener("click", (event) => settle(click(event)));
   return out;
 }
 
@@ -93,7 +122,7 @@ export function glyph(
  * Here rather than in each panel so there is one `×` to change, and so a ninth
  * panel cannot be added without one.
  */
-export function shut(click: () => void): HTMLButtonElement {
+export function shut(click: () => void | Promise<void>): HTMLButtonElement {
   const out = glyph("×", say("close"), click);
   out.className = "panel-shut";
   return out;

@@ -962,8 +962,12 @@ function scrollLink(id: PaneId): HTMLElement {
         ? `${say("scrollNowOwnWhy")} — ${titleOf(to.slug)}`
         : say("scrollNowOwnWhy"),
     async () => {
-      await api.setFollows(id, linked ? null : (to?.id ?? null));
-      await reload();
+      try {
+        await api.setFollows(id, linked ? null : (to?.id ?? null));
+        await reload();
+      } catch (e) {
+        announce(trouble(e, "follow").said, true);
+      }
     },
   );
   control.classList.add("tool-wide");
@@ -1011,10 +1015,14 @@ function addControls(view: PaneView, id: PaneId): void {
     if (pane) void exportSefer(pane.slug);
   });
   const close = button(say("closePane"), say("closePaneWhy"), async () => {
-    await api.closePane(id);
-    views.delete(id);
-    scans.delete(id);
-    await reload();
+    try {
+      await api.closePane(id);
+      views.delete(id);
+      scans.delete(id);
+      await reload();
+    } catch (e) {
+      announce(trouble(e, "close_pane").said, true);
+    }
   });
   view.addControl(beside);
   view.addControl(scrollLink(id));
@@ -1044,10 +1052,14 @@ function addScanControls(view: ScanView, id: PaneId): void {
   // label drifts back apart.
   void nameTheDoor(beside, id);
   const close = button(say("closePane"), say("closePaneWhy"), async () => {
-    await api.closePane(id);
-    views.delete(id);
-    scans.delete(id);
-    await reload();
+    try {
+      await api.closePane(id);
+      views.delete(id);
+      scans.delete(id);
+      await reload();
+    } catch (e) {
+      announce(trouble(e, "close_pane").said, true);
+    }
   });
   view.addControl(beside);
   view.addControl(scrollLink(id));
@@ -1347,10 +1359,14 @@ function toolBar(): HTMLElement {
   // one, which is the one clicking gets you.
   const next = nextIn(POINTING_ROUND, state?.pointing ?? "full");
   const nikud = button(pointingSaid(next), say("pointingWhy"), async () => {
-    await api.setPointing(next);
-    // The words themselves change, so the panes are rebuilt.
-    views.clear();
-    await reload();
+    try {
+      await api.setPointing(next);
+      // The words themselves change, so the panes are rebuilt.
+      views.clear();
+      await reload();
+    } catch (e) {
+      announce(trouble(e, "pointing").said, true);
+    }
   });
   nikud.classList.add("tool-wide");
 
