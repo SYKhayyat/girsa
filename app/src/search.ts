@@ -513,10 +513,12 @@ export class SearchView {
       undo.type = "button";
       undo.className = "find-offer";
       undo.textContent = say("undo");
-      undo.addEventListener("click", async () => {
-        this.rung = null;
-        this.page = 1;
-        await this.run();
+      undo.addEventListener("click", () => {
+        tap((async () => {
+          this.rung = null;
+          this.page = 1;
+          await this.run();
+        })());
       });
       this.head.append(undo);
     }
@@ -529,12 +531,14 @@ export class SearchView {
       // and they were in English. `offer.rung` is the name the ladder travels
       // under; the words are in `say.ts`.
       chip.textContent = `${rungSaid(offer)} — ${offer.count}`;
-      chip.addEventListener("click", async () => {
-        // The click. Until here nothing has been applied — the count beside the
-        // offer was worked out from this very query, before it was asked for.
-        this.rung = offer.rung;
-        this.page = 1;
-        await this.run();
+      chip.addEventListener("click", () => {
+        tap((async () => {
+          // The click. Until here nothing has been applied — the count beside the
+          // offer was worked out from this very query, before it was asked for.
+          this.rung = offer.rung;
+          this.page = 1;
+          await this.run();
+        })());
       });
       this.head.append(chip);
     }
@@ -776,10 +780,12 @@ export class SearchView {
     narrow.className = "find-facet-narrow";
     narrow.textContent = label;
     narrow.title = `${say("narrowTo")}${label}`;
-    narrow.addEventListener("click", async () => {
-      await api.findNarrow(dimension, row, false);
-      this.page = 1;
-      await this.run();
+    narrow.addEventListener("click", () => {
+      tap((async () => {
+        await api.findNarrow(dimension, row, false);
+        this.page = 1;
+        await this.run();
+      })());
     });
 
     const count = document.createElement("span");

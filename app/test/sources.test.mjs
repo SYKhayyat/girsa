@@ -79,6 +79,27 @@ export async function run() {
   }
   check("no fire-and-forget drops a rejection above the seam", dropped, []);
 
+  // ------------------------------------ a handler handed straight to a listener
+  //
+  // `addEventListener` does not read a handler's return value, so a handler
+  // that is `async` and is passed straight to it has its rejection dropped at
+  // the listener — an unhandled rejection, in nobody's face, and untouchable
+  // by anything the seam does, because the handler never went through the
+  // seam. The fix is the same shape as `tap`: the handler becomes
+  // `() => { tap((async () => …)()); }`, so the rejection reaches
+  // `window.reportError` like every other. A thirteenth site cannot appear
+  // without this going red.
+  const listenerDrops = [];
+  for (const [f, body] of files) {
+    body.split("\n").forEach((line, i) => {
+      if (isComment(line)) return;
+      if (/addEventListener\(\s*[^,]*,\s*async\b/.test(line)) {
+        listenerDrops.push(`${f}:${i + 1}`);
+      }
+    });
+  }
+  check("no async handler is handed straight to a listener", listenerDrops, []);
+
   // -------------------------------------------------- raw errors in the UI
   const leaks = [];
   for (const [f, body] of files) {

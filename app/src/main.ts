@@ -1225,13 +1225,15 @@ function tabBar(): HTMLElement {
       go.className = "tab";
       go.textContent = named;
       go.title = open.panes.map((p) => titleOf(p.slug)).join(" · ");
-      go.addEventListener("click", async () => {
-        if (state) state.workspace.active = index;
-        // The pane that had the cursor in **this** tab, not its first pane: a
-        // tab is an arrangement and returning to it means returning to where you
-        // were in it.
-        await api.focus(open.focused);
-        await reload();
+      go.addEventListener("click", () => {
+        tap((async () => {
+          if (state) state.workspace.active = index;
+          // The pane that had the cursor in **this** tab, not its first pane: a
+          // tab is an arrangement and returning to it means returning to where you
+          // were in it.
+          await api.focus(open.focused);
+          await reload();
+        })());
       });
       // W40: *"needs a way to close tab without going in."* Named after the
       // sefer it closes, because `×` is a glyph and a glyph is not a name — and

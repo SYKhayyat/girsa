@@ -31,7 +31,7 @@ import {
   type LaneProgress,
   type LaneState,
 } from "./api.ts";
-import { field, shut } from "./controls.ts";
+import { field, shut, tap } from "./controls.ts";
 import { Latest } from "./latest.ts";
 import { clearTrouble, sayTrouble, trouble } from "./trouble.ts";
 import { fill, say } from "./say.ts";
@@ -362,15 +362,17 @@ export class LanePanel {
     const onoff = document.createElement("button");
     onoff.className = "tool lane-onoff";
     onoff.textContent = state.state === "off" ? say("laneOn") : say("laneOff");
-    onoff.addEventListener("click", async () => {
-      const next = await api.laneSet(state.state === "off").catch((e) => {
-        this.trouble(e);
-        return null;
-      });
-      if (next) {
-        this.state = next;
-        this.draw();
-      }
+    onoff.addEventListener("click", () => {
+      tap((async () => {
+        const next = await api.laneSet(state.state === "off").catch((e) => {
+          this.trouble(e);
+          return null;
+        });
+        if (next) {
+          this.state = next;
+          this.draw();
+        }
+      })());
     });
     this.body.append(onoff);
 
@@ -389,17 +391,19 @@ export class LanePanel {
     const pick = document.createElement("button");
     pick.className = "tool";
     pick.textContent = say("laneChooseModel");
-    pick.addEventListener("click", async () => {
-      const dir = await pickFolder(say("laneModelFolder"));
-      if (!dir) return;
-      const next = await api.laneSet(true, dir).catch((e) => {
-        this.trouble(e);
-        return null;
-      });
-      if (next) {
-        this.state = next;
-        this.draw();
-      }
+    pick.addEventListener("click", () => {
+      tap((async () => {
+        const dir = await pickFolder(say("laneModelFolder"));
+        if (!dir) return;
+        const next = await api.laneSet(true, dir).catch((e) => {
+          this.trouble(e);
+          return null;
+        });
+        if (next) {
+          this.state = next;
+          this.draw();
+        }
+      })());
     });
     model.append(pick);
     if (state.model) {
@@ -421,15 +425,17 @@ export class LanePanel {
     const box = field(say("laneModelPath"));
     box.type = "checkbox";
     box.checked = state.may_fetch;
-    box.addEventListener("change", async () => {
-      const next = await api.laneAllowFetch(box.checked).catch((e) => {
-        this.trouble(e);
-        return null;
-      });
-      if (next) {
-        this.state = next;
-        this.draw();
-      }
+    box.addEventListener("change", () => {
+      tap((async () => {
+        const next = await api.laneAllowFetch(box.checked).catch((e) => {
+          this.trouble(e);
+          return null;
+        });
+        if (next) {
+          this.state = next;
+          this.draw();
+        }
+      })());
     });
     const allowSaid = document.createElement("span");
     allowSaid.textContent = say("laneAllowFetch");
@@ -456,19 +462,22 @@ export class LanePanel {
       bring.className = "tool lane-bring";
       bring.textContent = fill("laneBringOne", { name: offer.name });
       bring.disabled = this.working;
-      bring.addEventListener("click", async () => {
-        // The button was already disabled here and the view was not, which is
-        // the mirror of the defect below: a redraw brought a live button back
-        // while the download was still running.
-        bring.disabled = true;
-        this.working = true;
-        this.progress.hidden = false;
-        this.progress.textContent = say("laneStarting");
-        await api.laneBring().catch((e) => {
-          this.working = false;
-          bring.disabled = false;
-          this.trouble(e);
-        });
+      bring.addEventListener("click", () => {
+        tap((async () => {
+          // The button was already disabled here and the view was not, which is
+          // the mirror of the defect below: a redraw brought a live button back
+          // while the download was still running.
+          bring.disabled = true;
+          this.working = true;
+          this.progress.hidden = false;
+          this.progress.textContent = say("laneStarting");
+          await api.laneBring().catch((e) => {
+            // The job never started, so the button comes back.
+            this.working = false;
+            bring.disabled = false;
+            this.trouble(e);
+          });
+        })());
       });
       this.body.append(terms, about, why, bring);
     }
@@ -479,15 +488,17 @@ export class LanePanel {
     const all = document.createElement("button");
     all.className = "tool";
     all.textContent = state.everything ? say("laneTakeAll") : say("laneAddAll");
-    all.addEventListener("click", async () => {
-      const next = await api.laneChoose(null, !state.everything, true).catch((e) => {
-        this.trouble(e);
-        return null;
-      });
-      if (next) {
-        this.state = next;
-        this.draw();
-      }
+    all.addEventListener("click", () => {
+      tap((async () => {
+        const next = await api.laneChoose(null, !state.everything, true).catch((e) => {
+          this.trouble(e);
+          return null;
+        });
+        if (next) {
+          this.state = next;
+          this.draw();
+        }
+      })());
     });
     chose.append(all);
     if (this.here && !state.everything) {
@@ -498,15 +509,17 @@ export class LanePanel {
       one.textContent = inside
         ? fill("laneTakeOut", { title: here.title })
         : fill("lanePutIn", { title: here.title });
-      one.addEventListener("click", async () => {
-        const next = await api.laneChoose(here.slug, !inside).catch((e) => {
-          this.trouble(e);
-          return null;
-        });
-        if (next) {
-          this.state = next;
-          this.draw();
-        }
+      one.addEventListener("click", () => {
+        tap((async () => {
+          const next = await api.laneChoose(here.slug, !inside).catch((e) => {
+            this.trouble(e);
+            return null;
+          });
+          if (next) {
+            this.state = next;
+            this.draw();
+          }
+        })());
       });
       chose.append(one);
     }
@@ -547,29 +560,33 @@ export class LanePanel {
       go.className = "tool lane-go";
       go.textContent = say("laneEmbed");
       go.disabled = this.working;
-      go.addEventListener("click", async () => {
-        // Disabled on the button that was clicked, not only recorded on the
-        // view. `go.disabled = this.working` above is evaluated when the row is
-        // drawn, and the row is not redrawn until the first progress event
-        // arrives — so setting a field and leaving the button live left a gap
-        // in which two clicks started two jobs. Rust refuses the second one
-        // (`already-working`); this is so the reader never gets to make it.
-        go.disabled = true;
-        this.working = true;
-        this.progress.hidden = false;
-        this.progress.textContent = say("laneStarting");
-        await api.laneEmbed().catch((e) => {
-          // The job never started, so the button comes back.
-          this.working = false;
-          go.disabled = false;
-          this.trouble(e);
-        });
+      go.addEventListener("click", () => {
+        tap((async () => {
+          // Disabled on the button that was clicked, not only recorded on the
+          // view. `go.disabled = this.working` above is evaluated when the row is
+          // drawn, and the row is not redrawn until the first progress event
+          // arrives — so setting a field and leaving the button live left a gap
+          // in which two clicks started two jobs. Rust refuses the second one
+          // (`already-working`); this is so the reader never gets to make it.
+          go.disabled = true;
+          this.working = true;
+          this.progress.hidden = false;
+          this.progress.textContent = say("laneStarting");
+          await api.laneEmbed().catch((e) => {
+            // The job never started, so the button comes back.
+            this.working = false;
+            go.disabled = false;
+            this.trouble(e);
+          });
+        })());
       });
       const stop = document.createElement("button");
       stop.className = "tool";
       stop.textContent = say("laneStop");
-      stop.addEventListener("click", async () => {
-        await api.laneStop().catch(() => undefined);
+      stop.addEventListener("click", () => {
+        tap((async () => {
+          await api.laneStop().catch(() => undefined);
+        })());
       });
       run.append(go, stop);
       this.body.append(run);
