@@ -24,7 +24,7 @@ use girsa_hebrew::VariantKind;
 use girsa_search::index::{IndexError, SearchIndex};
 use girsa_search::ladder::{Rule, Rung, Standing, Widened};
 use girsa_search::smart::Smart;
-use girsa_search::torat_emet::{Match, Query, Together};
+use girsa_search::torat_emet::{matches_under, Match, Query, Together};
 
 fn segment(n: u32, text: &str) -> Segment {
     Segment {
@@ -142,7 +142,7 @@ fn the_count_beside_an_offer_is_exactly_what_clicking_it_produces() {
     // says 7 and then shows 5 is worse than no chip, because it teaches the
     // reader that the numbers are decoration.
     let index = loaded();
-    for typed in ["מלך", "כהן", "רמבם", "שו\"ע", "שבת"] {
+    for typed in ["מלך", "כהן", "רמבם", "שו\"ע", "שבת", "קדש"] {
         for offer in index.offers(&Query::new(typed)).offers {
             let found = index
                 .search_widened(&offer.widened)
@@ -227,6 +227,87 @@ fn each_rung_reaches_the_line_that_only_it_can_reach() {
 }
 
 #[test]
+fn the_skeleton_rung_reaches_the_inflected_sibling_the_literal_query_cannot() {
+    // Lamdan 3's whole point: `קדש` is nowhere on the shelf as itself, and the
+    // ladder's only former answer to an inflected form was *there is no
+    // morphological analyser*. The skeleton — the word's letters in order, with
+    // others between — reaches `קודש` and `קידוש`, which even `contains`
+    // cannot (the ו/י sit between the letters).
+    let index = loaded();
+    let typed = Query::new("קדש");
+    assert!(
+        lines(&index, &typed).is_empty(),
+        "the literal mode must not find it"
+    );
+
+    let reached = wide_lines(&index, &Widened::new(typed, [Rung::Skeleton]));
+    assert!(
+        reached.contains(&1),
+        "קודש answers the skeleton of קדש: {reached:?}"
+    );
+    assert!(reached.contains(&4), "קידוש answers it too: {reached:?}");
+}
+
+#[test]
+fn the_skeleton_is_offered_on_a_zero_with_its_count_worked_out() {
+    // Offered like every other form rung — priced before the click, and the
+    // price is what clicking produces. The refusal-with-no-morphology is no
+    // longer the only answer to a root-inflected query.
+    let index = loaded();
+    let offers = index.offers(&Query::new("קדש"));
+    let skeleton = offers
+        .offers
+        .iter()
+        .find(|o| o.rung == Rung::Skeleton)
+        .expect("an offer of the consonant skeleton");
+    assert_eq!(skeleton.label, "its letters, in order");
+    let applied = wide_lines(&index, &skeleton.widened);
+    assert_eq!(applied.len(), skeleton.count);
+    assert!(applied.contains(&1));
+    assert!(applied.contains(&4));
+}
+
+#[test]
+fn the_skeleton_is_not_offered_or_applied_under_a_letters_query() {
+    // The `~קדש` query already *is* the skeleton, so offering the rung under it
+    // would be a chip that changes nothing — the same ruling as the prefix
+    // rung's other-direction half.
+    let index = loaded();
+    let letters = Query::new("קדש").matching(Match::Letters);
+    assert!(!lines(&index, &letters).is_empty());
+    let offers = index.offers(&letters);
+    assert!(
+        offers.offers.iter().all(|o| o.rung != Rung::Skeleton),
+        "a `letters` query was offered the rule it already is"
+    );
+    assert!(
+        !Widened::new(letters, [Rung::Skeleton])
+            .widening()
+            .changes_anything(),
+        "an inert chip is a lie about what the engine can do"
+    );
+}
+
+#[test]
+fn a_skeleton_hit_highlights_the_word_that_actually_matched() {
+    // The highlight has to agree with the search exactly: a mark drawn on a
+    // word that did not answer the skeleton would point at letters that were
+    // never asked for.
+    let index = loaded();
+    let widened = Widened::new(Query::new("קדש"), [Rung::Skeleton]);
+    let found = index.search_widened(&widened).expect("a widened search");
+    for hit in &found.hits {
+        for (start, end) in found.marks(hit) {
+            let word = &hit.text[start..end];
+            assert!(
+                matches_under(Match::Letters, "קדש", word),
+                "{word} was marked but does not answer the skeleton of קדש"
+            );
+        }
+    }
+}
+
+#[test]
 fn widening_the_proximity_is_the_last_rung_and_it_is_a_rung() {
     // `יתגבר בבוקר` is not a phrase anywhere on the shelf. Widening to the
     // whole passage finds the two lines that have both words.
@@ -286,6 +367,7 @@ fn the_rungs_are_in_the_order_the_spec_sets_out() {
             Rung::Forms(VariantKind::PrefixPeeled),
             Rung::Forms(VariantKind::KtivSwapped),
             Rung::Forms(VariantKind::GershayimDropped),
+            Rung::Skeleton,
             Rung::Root,
             Rung::Forms(VariantKind::AbbreviationExpanded),
             Rung::Proximity,

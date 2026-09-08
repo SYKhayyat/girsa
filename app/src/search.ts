@@ -847,6 +847,7 @@ const RUNG_WORDS: Record<string, Word> = {
   prefixes: "rungPrefixes",
   spellings: "rungSpellings",
   gershayim: "rungGershayim",
+  skeleton: "rungSkeleton",
   abbreviations: "rungAbbreviations",
   root: "rungRoot",
   proximity: "rungProximity",

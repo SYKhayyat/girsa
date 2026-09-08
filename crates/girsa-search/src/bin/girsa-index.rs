@@ -862,7 +862,8 @@ fn find(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
             Some(rung) => rungs.push(rung),
             None => {
                 eprintln!(
-                    "--rung wants one of: prefixes spellings gershayim abbreviations proximity"
+                    "--rung wants one of: prefixes spellings gershayim skeleton abbreviations \
+                     proximity"
                 );
                 return std::process::ExitCode::from(2);
             }

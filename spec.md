@@ -613,6 +613,13 @@ click applies it, and the result header then says what was changed, reversibly.
 The ladder in order: drop nikud → other forms → root → expand abbreviations →
 widen proximity.
 
+"Other forms" also includes the **consonant skeleton** — the word's own letters,
+in this order, with others between (the `~` rule of §9.5). It is not morphology
+(§9.4 stands): it is a containment match the engine already owns, offered as the
+cheap half of what the root rung was named for. Because it reaches far looser
+than the variant table, it is offered on a zero in the literal mode and is never
+auto-applied by Smart.
+
 **The rule underneath both columns: the engine never changes your query without
 you knowing.** Auto-applying is acceptable in Smart because widening is the mode's
 declared purpose and it always reports itself. In the default mode it is not.

@@ -91,11 +91,12 @@ pub enum How {
 /// The window has its own words for these (`search.ts`'s table); a wire name
 /// on the left, a Hebrew clause on the right, and nothing here composing a
 /// second English sentence to translate back.
-const RUNG_SPOKEN: [(&str, &str); 7] = [
+const RUNG_SPOKEN: [(&str, &str); 8] = [
     ("nikud", "ניקוד"),
     ("prefixes", "תחיליות"),
     ("spellings", "כתיב מלא וחסר"),
     ("gershayim", "גרשיים"),
+    ("skeleton", "אותיות"),
     ("abbreviations", "ראשי תיבות"),
     ("root", "השורש"),
     ("proximity", "רחבה לפסוק"),

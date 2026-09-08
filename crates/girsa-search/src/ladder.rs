@@ -31,6 +31,14 @@
 //!   and is not built, rather than reading a missing chip as *nothing down that
 //!   road*.
 //!
+//! One rung is on the ladder because the engine already owns its match:
+//! **Skeleton** offers the `~` rule ([`Match::Letters`]) — the word's own
+//! letters, in order, with others between — as the cheap, conservative half of
+//! what the root rung was named for. An inflected sibling like `קידוש` answers
+//! `קדש`. It is not morphology (§9.4 stands), and it is the one form rung
+//! Smart does not apply: the loosest of them, offered when the reader asks
+//! rather than folded into the mode that handles everything.
+//!
 //! # Which direction a rung widens in
 //!
 //! This is the part that looks done and is not. §9.2's table reads *you type
@@ -81,6 +89,14 @@ pub enum Rung {
     /// Other surface forms of the same word — one rung per transformation, so
     /// the reader can take the one they meant.
     Forms(VariantKind),
+    /// The word as a **consonant skeleton** — its letters, in this order, with
+    /// others between (`Match::Letters`, the `~` rule). The cheap, conservative
+    /// half of what the root rung was named for (§9.4): not morphology, but a
+    /// containment match the engine already owns, so an inflected sibling like
+    /// `קידוש` answers `קדש`. The one form rung that is **offered, never
+    /// applied by Smart**: it reaches far looser than the variant table does,
+    /// and a mode that applies every form rung would flood a phrase with it.
+    Skeleton,
     /// Every form of a root. Named by §9.6, deferred by §9.4.
     Root,
     /// From a phrase or a proximity to the whole passage.
@@ -90,15 +106,20 @@ pub enum Rung {
 impl Rung {
     /// Every rung, in the order spec.md §9.6 sets out.
     ///
+    /// `Skeleton` sits with the other form rungs, after the respellings and
+    /// before the root: it is still *what spelling counts as this word*, just
+    /// the loosest of them.
+    ///
     /// Note where abbreviations sit: **after** the root rung, not with the
     /// other form rungs. That is the spec's order and it is deliberate —
     /// expanding `שו"ע` into `שולחן ערוך` changes what the query is *about*
     /// far more than respelling a word does.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Nikud,
         Self::Forms(VariantKind::PrefixPeeled),
         Self::Forms(VariantKind::KtivSwapped),
         Self::Forms(VariantKind::GershayimDropped),
+        Self::Skeleton,
         Self::Root,
         Self::Forms(VariantKind::AbbreviationExpanded),
         Self::Proximity,
@@ -109,11 +130,11 @@ impl Rung {
     pub const fn standing(self) -> Standing {
         match self {
             Self::Nikud => Standing::Climbed,
+            Self::Skeleton | Self::Forms(_) | Self::Proximity => Standing::Ready,
             Self::Root => Standing::Deferred(
                 "there is no rabbinic-Hebrew-and-Aramaic morphological analyser to build it on \
                  (spec.md §9.4)",
             ),
-            Self::Forms(_) | Self::Proximity => Standing::Ready,
         }
     }
 
@@ -123,6 +144,7 @@ impl Rung {
         match self {
             Self::Nikud => "drop nikud",
             Self::Forms(kind) => kind.label(),
+            Self::Skeleton => "its letters, in order",
             Self::Root => "match the root",
             Self::Proximity => "widen to the same passage",
         }
@@ -142,6 +164,7 @@ impl Rung {
             Self::Forms(VariantKind::KtivSwapped) => "spellings",
             Self::Forms(VariantKind::GershayimDropped) => "gershayim",
             Self::Forms(VariantKind::AbbreviationExpanded) => "abbreviations",
+            Self::Skeleton => "skeleton",
             Self::Root => "root",
             Self::Proximity => "proximity",
         }
@@ -187,6 +210,9 @@ pub enum Rule {
     Prefixed(String),
     /// Any term that is this word with geresh or gershayim written into it.
     Punctuated(String),
+    /// Any term these letters appear in, in this order, with others between —
+    /// the `~קדש` rule (`Match::Letters`), offered as a rung.
+    Skeleton(String),
 }
 
 /// One word the index may be asked for, and the rule it is asked under.
@@ -246,6 +272,18 @@ impl Form {
         }
     }
 
+    /// Any term the word's own letters appear in, in this order, with others
+    /// between — the consonant skeleton, built by the same rule the `~` chip
+    /// matches under, so the offer and the chip cannot drift.
+    fn skeleton(word: &str) -> Self {
+        Self {
+            pattern: pattern_for(Match::Letters, word),
+            regex: true,
+            rule: Rule::Skeleton(word.to_string()),
+            shown: "its letters, in order".to_string(),
+        }
+    }
+
     /// Whether an indexed word answers this form.
     #[must_use]
     pub fn matches(&self, matching: Match, indexed: &str) -> bool {
@@ -260,6 +298,7 @@ impl Form {
                     && front.chars().all(|c| PREFIX_LETTERS.contains(&c))
             }
             Rule::Punctuated(word) => bare(indexed) == bare(word),
+            Rule::Skeleton(word) => matches_under(Match::Letters, word, indexed),
         }
     }
 }
@@ -420,6 +459,16 @@ impl Widened {
                 }
                 _ => {}
             }
+        }
+
+        // The consonant skeleton: the word's own letters, in order, with others
+        // between — the `~` rule offered as a rung. Only where the query's own
+        // rule does not already go there: a `Letters` query *is* the skeleton,
+        // so a rung that offers it would be an inert chip under it. It is the
+        // loosest of the form rungs, so it is deliberately not in Smart's
+        // baseline — see [`Rung::Skeleton`].
+        if matching != Match::Letters && self.rungs.contains(&Rung::Skeleton) {
+            push(Alternative::single(Form::skeleton(word)));
         }
 
         Position {
@@ -654,6 +703,41 @@ mod tests {
         let form = Form::punctuated("רמבמ");
         assert!(form.matches(Match::Word, "רמב\"מ"));
         assert!(!form.matches(Match::Word, "רמבמא"));
+    }
+
+    #[test]
+    fn the_skeleton_rule_and_the_skeleton_pattern_agree() {
+        // The regex goes to tantivy and the rule does the highlighting. If they
+        // disagree, a hit is marked on a word that did not match it.
+        let form = Form::skeleton("קדש");
+        assert_eq!(form.pattern, ".*ק.*ד.*ש.*");
+        assert!(
+            form.matches(Match::Word, "קידוש"),
+            "a letter between is fine"
+        );
+        assert!(form.matches(Match::Word, "קודש"));
+        assert!(
+            !form.matches(Match::Word, "שוקד"),
+            "the letters must stay in order"
+        );
+        assert!(
+            !form.matches(Match::Word, "קש"),
+            "a missing letter is missing"
+        );
+    }
+
+    #[test]
+    fn the_skeleton_rung_widens_a_word_but_not_a_letters_query() {
+        // Under the word rule the skeleton is a real widening; under `Letters`
+        // the query already *is* the skeleton, and an inert chip is a lie about
+        // what the engine can do — the same ruling as the prefix rung's
+        // other-direction half.
+        let widened = Widened::new(Query::new("קדש"), [Rung::Skeleton]);
+        assert!(widened.widening().changes_anything());
+        assert_eq!(widened.widening().added_forms(), 1);
+
+        let inert = Widened::new(Query::new("קדש").matching(Match::Letters), [Rung::Skeleton]);
+        assert!(!inert.widening().changes_anything());
     }
 
     #[test]

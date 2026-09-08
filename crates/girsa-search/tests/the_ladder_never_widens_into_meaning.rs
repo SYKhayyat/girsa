@@ -44,13 +44,19 @@ enum Kind {
 /// classifies it here, on purpose.
 fn kind_of(rung: Rung) -> Kind {
     match rung {
-        Rung::Nikud | Rung::Forms(_) | Rung::Root | Rung::Proximity => Kind::Lexical,
+        Rung::Nikud | Rung::Forms(_) | Rung::Skeleton | Rung::Root | Rung::Proximity => {
+            Kind::Lexical
+        }
     }
 }
 
 #[test]
 fn every_rung_of_the_ladder_is_a_lexical_widening_and_nothing_else() {
-    assert_eq!(Rung::ALL.len(), 7, "spec.md §9.6 sets out seven");
+    // The ladder holds eight: the seven §9.6's table and the concrete ladder
+    // were written for, plus the consonant skeleton (Lamdan 3) — a containment
+    // match the engine already owns, offered as the cheap half of the root
+    // rung. Still lexical all the way down.
+    assert_eq!(Rung::ALL.len(), 8, "the ladder has drifted from eight");
     for rung in Rung::ALL {
         assert_eq!(
             kind_of(rung),

@@ -617,7 +617,7 @@ const WORDS = {
     "אפשר להרחיב את החיפוש בשורת הכפתורים שלמעלה, או להוסיף מדפים ב״היכן לחפש״",
     "widen the search with the chips above, or add shelves under “Where to look”",
   ] as Both,
-  // The relaxation ladder (spec.md §9.6). Seven rungs, offered on a zero with
+  // The relaxation ladder (spec.md §9.6). Eight rungs, offered on a zero with
   // their counts worked out before the click and **nothing applied**. Their
   // names cross the wire; their words are here, because the offers were the one
   // thing on a zero-hit panel that was not blank and they were in English.
@@ -625,6 +625,7 @@ const WORDS = {
   rungPrefixes: ["בלי אותיות השימוש", "peel the prefixes"] as Both,
   rungSpellings: ["כתיב מלא וחסר", "full and defective spelling"] as Both,
   rungGershayim: ["בלי גרשיים", "drop the gershayim"] as Both,
+  rungSkeleton: ["לפי האותיות", "its letters, in order"] as Both,
   rungAbbreviations: ["פתיחת ראשי תיבות", "expand abbreviations"] as Both,
   rungRoot: ["לפי השורש", "match the root"] as Both,
   rungProximity: ["בכל הקטע", "widen to the same passage"] as Both,
