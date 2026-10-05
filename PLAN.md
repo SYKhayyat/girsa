@@ -1,7 +1,7 @@
 # PLAN — girsa (work top to bottom, one issue per worker session)
 
 Worker loop: top unchecked item only, fix + resolving test, commit, check off, stop.
-Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61, #43
+Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61, #43, #55
 (the Girsa half; the Source-Packet half is #64 and needs a sefer-crates semver break).
 
 ## SKIP
@@ -25,7 +25,14 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61,
   owner decision before any code.
 
 ## Phase 2 — Durability/Integrity Criticals+Highs
-- [ ] #55 poisoned fetch queue reports success. (High — silent skip)
+- [x] #55 poisoned fetch queue reports success. (High → **Low**, and the reason
+  is in the commit: `run` cannot poison its own queue, so the defect was the
+  *type*. `next_target` returned `Option`, which cannot say "broken", so the
+  invariant lived in a comment — and the comment named the exact failure the
+  line below it caused. Now `Result<Option<Target>, usize>`, propagated as
+  `FetchError::QueuePoisoned { skipped }`. The resolving test needs no network
+  and no corpus, which needed a seam: the worker loop is `drive()` now and `run`
+  builds the queue.)
 - [ ] #56 one bad line disables whole landing index. (High)
 - [ ] #54 corrupt session.json resets then overwrites. (High)
 - [ ] #53 MCP read re-parses whole sefer per call. (High)
