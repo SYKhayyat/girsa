@@ -21,6 +21,8 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61,
   character offsets and no words, so `/quote` regenerates **different** words
   under a correct-looking citation after a correction. STOP AND ASK (BUILDER.md
   §0.1) — the words have to ride on the packet, and the packet is `girsa-source`'s.
+  Filed 2026-10-05 with the field shape and both acceptance halves; needs an
+  owner decision before any code.
 
 ## Phase 2 — Durability/Integrity Criticals+Highs
 - [ ] #55 poisoned fetch queue reports success. (High — silent skip)
