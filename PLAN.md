@@ -1,15 +1,26 @@
 # PLAN — girsa (work top to bottom, one issue per worker session)
 
 Worker loop: top unchecked item only, fix + resolving test, commit, check off, stop.
-Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61.
+Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61, #43
+(the Girsa half; the Source-Packet half is #64 and needs a sefer-crates semver break).
 
 ## SKIP
 - #9 DUP of #10 (same button() bug, garbled body). Work #10.
 
 ## Phase 1 — Foundations first
-- [ ] #43 anchor ref+range binding surviving re-segmentation (unblocks #44–#48). (High)
+- [x] #43 anchor ref+range binding surviving re-segmentation (unblocks #44–#48). (High)
+  Landed 2026-10-05: `girsa_corpus::span::Anchored { at, span, was }` is one rule
+  for "which segment, which words", and every stored range in the tree goes
+  through it. Three silent misplacements fixed — the mined anchor's offset read
+  against the text you have corrected, a pin with no words to be found again by,
+  and a pin's offsets placed on a piece of a cut parent that does not hold them.
+  `span_on` asks `Standing` and takes the printed text as well as the drawn one.
 - [ ] #28 Rust↔TS command boundary generator/cross-check (unblocks safe renames). (Medium)
 - [ ] #33 resolving test for spec §N / W-needs citations (unblocks #35-class rot). (Low)
+- [ ] #64 the same disease one layer up: a Source Packet carries `Range` as bare
+  character offsets and no words, so `/quote` regenerates **different** words
+  under a correct-looking citation after a correction. STOP AND ASK (BUILDER.md
+  §0.1) — the words have to ride on the packet, and the packet is `girsa-source`'s.
 
 ## Phase 2 — Durability/Integrity Criticals+Highs
 - [ ] #55 poisoned fetch queue reports success. (High — silent skip)

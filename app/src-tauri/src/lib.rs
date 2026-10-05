@@ -3159,11 +3159,16 @@ fn links(
     let lens = lens.filter(|key| !key.is_empty());
 
     // The line itself, as the pane drew it, because a span is in those
-    // characters (W20's two coordinate systems, again).
+    // characters (W20's two coordinate systems, again) — **and** as it is on
+    // disk, because the mined anchors' offsets are positions in *that* text.
+    // For any segment nobody has corrected the two are the same string; for one
+    // you have corrected they are not, and reading a mined offset against the
+    // corrected text is a highlight on the wrong letters (W20's rule, reached
+    // from the other side).
     // …and, from the same read, every name these words have carried, so an edge
     // stored under the name this place had before a corpus update still finds
     // it (see `girsa_corpus::standing`).
-    let (base, anchors, standing) = {
+    let (base, printed, anchors, standing) = {
         let sefer = state.sefer(at.work())?;
         let nth = sefer
             .position_of(&at)
@@ -3174,7 +3179,8 @@ fn links(
         let segment = sefer.segments.get(nth);
         let text = segment.map(|s| s.text.clone()).unwrap_or_default();
         let anchors = segment.map(|s| s.anchors.clone()).unwrap_or_default();
-        (text, anchors, sefer.standing(&at))
+        let printed = sefer.as_printed(&at).to_string();
+        (text, printed, anchors, sefer.standing(&at))
     };
 
     let language = state.session.language;
@@ -3186,7 +3192,8 @@ fn links(
     // text is only consulted for seforim that are **already open**.
     for link in &mut links {
         let far = state.open.peek(&link.work).map(AsRef::as_ref);
-        link.span = girsa_app::links::span_on(link, &at, &base, &anchors, far, pointing);
+        link.span =
+            girsa_app::links::span_on(link, &standing, &base, &printed, &anchors, far, pointing);
     }
     if let (Some(from), Some(to)) = (from_char, to_char) {
         if from < to {
@@ -3237,6 +3244,27 @@ fn link_pin(
         ));
     }
     let mut state = shared.lock().map_err(|_| State::poisoned())?;
+    // The words the selection covers, so the pin is a place and not an offset.
+    //
+    // **Read here, from the text the pane drew**, which is the only text these
+    // offsets are a position in. A pin is the one placement in the panel a
+    // reader vouched for, and storing the numbers without the letters is what
+    // made it the one that could not follow the line when a correction above it
+    // moved everything — see `girsa_corpus::span::Anchored`.
+    let was: String = {
+        let sefer = state.sefer(at.work())?;
+        let nth = sefer.position_of(&at).unwrap_or(0);
+        let drawn = sefer
+            .segments
+            .get(nth)
+            .map(|s| s.text.as_str())
+            .unwrap_or("");
+        drawn
+            .chars()
+            .skip(from_char)
+            .take(to_char.saturating_sub(from_char))
+            .collect()
+    };
     // Every work the chain holds went through the repair layer as it stood
     // when it was read, and this is about to change it. See `State::chains`.
     state.chains = girsa_link::chain::Cache::default();
@@ -3244,7 +3272,11 @@ fn link_pin(
     let who = girsa_app::who();
     shelf
         .repairs_mut()
-        .pin_named(&edge, &at, from_char..to_char, &who)
+        .pin_named(
+            &edge,
+            &girsa_corpus::span::Anchored::new(at, from_char..to_char, was),
+            &who,
+        )
         .map_err(|e| e.to_string())
 }
 

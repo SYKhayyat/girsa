@@ -64,10 +64,25 @@ pub enum Repair {
     ///
     /// The segment is named because a link has two ends and a span belongs to
     /// one of them — the one you were looking at when you pinned it.
+    ///
+    /// `was` is the words those offsets named. It is what makes the pin a
+    /// **place** rather than an offset: a correction above them, or an upstream
+    /// re-typeset of the line, moves every character after it and leaves these
+    /// numbers resolving — to letters nobody chose. `girsa_note::mark` and
+    /// `girsa_fix::Patch` have carried the words since W20 and W27 for that
+    /// reason, and a pin is the one placement in this panel a reader vouched
+    /// for, so it is the last one that should have been left out.
+    ///
+    /// Absent on a record written before this field existed. That is *nobody
+    /// recorded the words*, and such a record is placed by its offsets and
+    /// nothing else — see [`girsa_corpus::span::Anchored::place`], which is the
+    /// one rule for both.
     Pinned {
         at: String,
         from_char: usize,
         to_char: usize,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        was: String,
     },
     /// An edge that is not in the corpus at all, because you drew it.
     Drawn {
@@ -339,22 +354,26 @@ impl Repairs {
 
     /// Say which words of a segment a link is about (spec.md §8.4).
     ///
+    /// Takes the whole [`girsa_corpus::span::Anchored`] rather than an id and a
+    /// range, because a range without the words it named is a position in a
+    /// text that does not hold still — see [`Repair::Pinned`].
+    ///
     /// # Errors
     ///
     /// If your layer cannot be written.
     pub fn pin_named(
         &mut self,
         edge: &str,
-        at: &girsa_corpus::segment::SegmentId,
-        span: std::ops::Range<usize>,
+        bound: &girsa_corpus::span::Anchored,
         who: &str,
     ) -> Result<(), RepairError> {
         self.record(
             edge.to_string(),
             Repair::Pinned {
-                at: at.to_string(),
-                from_char: span.start,
-                to_char: span.end,
+                at: bound.at.to_string(),
+                from_char: bound.span.start,
+                to_char: bound.span.end,
+                was: bound.was.clone(),
             },
             who,
         )
@@ -626,11 +645,16 @@ impl Repairs {
                     at,
                     from_char,
                     to_char,
+                    was,
                 } => {
                     let Ok(at) = at.parse() else {
                         continue;
                     };
-                    repaired.pinned = Some((at, *from_char..*to_char));
+                    repaired.pinned = Some(girsa_corpus::span::Anchored::new(
+                        at,
+                        *from_char..*to_char,
+                        was.clone(),
+                    ));
                 }
                 // A drawn edge is not an override of a shipped one.
                 Repair::Drawn { .. } => continue,
@@ -736,8 +760,11 @@ pub struct Repaired {
     pub mine: bool,
     /// Which of §8.3's actions were applied, in the order they were made.
     pub changed: Vec<&'static str>,
-    /// The words of one end this link is about, where you have said (§8.4).
-    pub pinned: Option<(girsa_corpus::segment::SegmentId, std::ops::Range<usize>)>,
+    /// Which words of one end this link is about, where you have said (§8.4).
+    ///
+    /// An [`girsa_corpus::span::Anchored`] rather than a pair, so that the words
+    /// travel with the offsets — see [`Repair::Pinned`].
+    pub pinned: Option<girsa_corpus::span::Anchored>,
     pub who: Option<String>,
     pub when: Option<u64>,
 }

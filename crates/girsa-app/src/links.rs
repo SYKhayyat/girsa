@@ -28,7 +28,6 @@
 
 use std::path::Path;
 
-use girsa_corpus::segment::SegmentId;
 use girsa_corpus::standing::Standing;
 use girsa_link::repair::{Repaired, Repairs};
 use girsa_link::{inbound, store, Anchor, EdgeType};
@@ -221,9 +220,37 @@ fn read_shard(root: &Path, slug: &str, wanted: &store::Landing) -> Vec<girsa_lin
 /// Which words of the segment you are standing on a link is about, where
 /// anything says (spec.md §8.4, W24).
 ///
-/// Two sources and no third: **you pinned it**, or the commentary at the far end
-/// declares a dibur hamatchil that is in this line exactly once. A link with
-/// neither is on the whole segment, which is what the shipped data addresses.
+/// Three sources and no fourth: **you pinned it**, **the volume the base text
+/// came from says so**, or the commentary at the far end declares a dibur
+/// hamatchil that is in this line exactly once. A link with none of them is on
+/// the whole segment, which is what the shipped data addresses.
+///
+/// # Both of its inputs, and why there are two texts
+///
+/// `at` is a [`Standing`] and not an id. A pin and a mined anchor are both
+/// written down under the name the place had when they were recorded, and
+/// `#7.1` is what a **cut** of `#7` mints *and* what upstream **inserting** a
+/// se'if after `#7` is named — `SegmentId::covers`, which is what this asked
+/// until now, cannot tell those apart. `girsa_corpus::standing` is the whole
+/// argument.
+///
+/// **The two predicates happened to agree on every input this can be given**, and
+/// that is worth saying rather than leaving implied: an inserted se'if is not
+/// reachable by the link either, because the edge is stored under `#7` and
+/// `Anchor::names` already asks `Standing`. So `covers` was not producing a
+/// witnessed misplacement here — it was right by a property of `Standing`'s
+/// walk that nothing states, and the walk is free to change. The words half is
+/// where the damage was: on a piece of a cut parent that does not hold them,
+/// `covers` said yes and the raw offsets drew a twenty-character highlight over
+/// the wrong line. `girsa_corpus::span` holds the cut/insertion disagreement
+/// itself, in `a_mark_belonging_to_another_seif_places_nothing`.
+///
+/// `base` is what the pane drew and `printed` is what is on disk, and the two
+/// are different texts for any segment you have corrected. The mined anchor's
+/// offsets are a position in `printed` — they come out of the raw sefer text at
+/// ingest — so they are read there, and the **words** they name are what gets
+/// found again in `base`. `girsa_corpus::span::Anchored` is the one rule, and
+/// `Mark::place` and `Layer::apply` already go through it.
 ///
 /// The far end's words are only looked at when that sefer is **already open** —
 /// the panel is not entitled to read forty seforim off the disk to decorate a
@@ -232,20 +259,20 @@ fn read_shard(root: &Path, slug: &str, wanted: &store::Landing) -> Vec<girsa_lin
 #[must_use]
 pub fn span_on(
     link: &Link,
-    at: &SegmentId,
+    at: &Standing,
     base: &str,
+    printed: &str,
     anchors: &[girsa_corpus::anchors::Anchor],
     far: Option<&crate::shelf::Open>,
     pointing: Pointing,
 ) -> Option<std::ops::Range<usize>> {
-    if let Some((pinned_at, span)) = &link.repaired.pinned {
-        // A pin made before a cut is a pin on the words, and the cut moved
-        // them into a child — which `covers` answers for. Exact equality
-        // stopped applying it the moment the segment was split, silently,
-        // on the one link whose placement the reader had vouched for.
-        if pinned_at.covers(at) {
-            return Some(span.clone());
-        }
+    if let Some(placed) = link
+        .repaired
+        .pinned
+        .as_ref()
+        .and_then(|pin| pin.place(at, base))
+    {
+        return Some(placed.span);
     }
     // The anchors mined at ingest, **before** anything that needs the far sefer
     // open. `girsa_corpus::anchors` records where each commentary attaches —
@@ -262,8 +289,10 @@ pub fn span_on(
     //
     // The commentator is matched by the shelf's English title, which is how the
     // corpus spells the name inside the anchor.
-    if let Some(span) = crate::spans::anchor_span(anchors, base, &link.en_title) {
-        return Some(span);
+    if let Some(placed) = crate::spans::anchor_span(anchors, at.at(), printed, &link.en_title)
+        .and_then(|bound| bound.place(at, base))
+    {
+        return Some(placed.span);
     }
     let far = far?;
     let commentary = far
@@ -383,6 +412,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use girsa_corpus::segment::Ordinal;
+    use girsa_corpus::segment::SegmentId;
     use girsa_link::{Edge, EdgeType, Method};
 
     fn id(work: &str, n: u32) -> SegmentId {

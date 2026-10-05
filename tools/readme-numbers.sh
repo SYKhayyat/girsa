@@ -79,6 +79,13 @@ set_marked bins           "$(ls crates/*/src/bin/*.rs | wc -l)"
 set_marked examples       "$(ls crates/*/examples/*.rs | wc -l)"
 set_marked window-modules "$(ls app/src/*.ts | wc -l)"
 set_marked styles-lines   "$(wc -l < app/src/styles.css)"
+# `rules` was the one marker this script did not cover, so the README's *25
+# checks* had to be hand-edited the first time somebody added a check — which is
+# the same failure the note above is about, one marker over: a copy nothing
+# regenerates is a copy that rots, and the reader who is told to run this script
+# to fix a stale number would have been handed a README that was still stale.
+# Counted the way the test counts it: `#[test]` in one file.
+set_marked rules         "$(grep -c '^#\[test\]' crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs)"
 
 echo "Numbers re-counted in: $PAGES"
 echo "The check is: cargo test -p girsa-app --test the_numbers_in_the_readme_are_measurements"

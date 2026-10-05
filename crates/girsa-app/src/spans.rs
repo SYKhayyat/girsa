@@ -189,15 +189,31 @@ fn span_of(
 /// sits where the note begins, and what it is about is the text from there until
 /// something else begins.
 ///
-/// Offsets are characters, not bytes, in the *cleaned* text — the same unit
-/// every span in this project counts in, and the unit `girsa_corpus::anchors`
-/// records.
+/// # Why it takes the text as it was **imported**, and hands back the words
+///
+/// The offsets come out of the raw sefer text at ingest
+/// ([`girsa_corpus::anchors::mine`]), so they are a position in **that** text
+/// and in no other. The pane draws `Open::corrected_by`'s text, and one
+/// correction anywhere above an anchor inside a segment shifts every character
+/// below it — and 3,850 of Shulchan Arukh Orach Chayim's 4,171 segments carry
+/// an anchor, so that is the common case rather than a corner.
+///
+/// So the extent is measured against `printed` — what is on disk, which is what
+/// the offsets are a position in — and the **words** it covered are handed back
+/// inside an [`girsa_corpus::span::Anchored`], for the caller to find again in
+/// the text it is drawing. That is `girsa_corpus::span`'s rule, the same one
+/// `Mark::place` and `Layer::apply` use; this used to have a fourth copy of it,
+/// which was to apply the offsets and hope.
+///
+/// Offsets are characters, not bytes, in both texts — the same unit every span
+/// in this project counts in, and the unit `girsa_corpus::anchors` records.
 #[must_use]
 pub fn anchor_span(
     anchors: &[girsa_corpus::anchors::Anchor],
-    text: &str,
+    at: &girsa_corpus::segment::SegmentId,
+    printed: &str,
     commentator: &str,
-) -> Option<std::ops::Range<usize>> {
+) -> Option<girsa_corpus::span::Anchored> {
     let wanted = fold_name(commentator);
     if wanted.is_empty() {
         return None;
@@ -209,7 +225,7 @@ pub fn anchor_span(
     if mine.next().is_some() {
         return None; // named twice: two candidates, no way to choose
     }
-    let chars = text.chars().count();
+    let chars = printed.chars().count();
     if only.at >= chars {
         // An anchor past the end of the text it is on. Not reachable from a
         // clean import — the offsets are rebased when a segment splits — but a
@@ -224,7 +240,14 @@ pub fn anchor_span(
         .min()
         .unwrap_or(chars)
         .min(chars);
-    Some(only.at..end)
+    // The words, in the text the offsets are a position in. Empty is impossible
+    // here — `end > only.at` always — so this is never a mark placed blind.
+    let was: String = printed.chars().skip(only.at).take(end - only.at).collect();
+    Some(girsa_corpus::span::Anchored::new(
+        at.clone(),
+        only.at..end,
+        was,
+    ))
 }
 
 /// A commentator's name, as loosely as two spellings of one name may differ.
@@ -243,6 +266,9 @@ fn fold_name(name: &str) -> String {
 
 #[cfg(test)]
 mod anchor_tests {
+    // A panic in a test is a failure report. The workspace denies these in
+    // library code, where a panic would take the reader's window with it.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use girsa_corpus::anchors::Anchor;
 
@@ -255,18 +281,44 @@ mod anchor_tests {
         }
     }
 
+    fn seif() -> girsa_corpus::segment::SegmentId {
+        "girsa:shulchan-arukh/orach-chayim/1:1#1"
+            .parse()
+            .expect("an id")
+    }
+
+    /// The extent an anchor's offsets cover, of the text they were measured
+    /// against. `None` for a name there is no anchor for, or two.
+    fn said(text: &str, anchors: &[Anchor], commentator: &str) -> Option<std::ops::Range<usize>> {
+        anchor_span(anchors, &seif(), text, commentator).map(|bound| bound.span)
+    }
+
     /// The case the report calls the single-resolution one.
     #[test]
     fn one_anchor_for_a_commentator_is_the_span() {
         let text = "יתגבר כארי לעמוד בבוקר";
         let anchors = [anchor("Mishnah Berurah", 6), anchor("Ba'er Hetev", 11)];
         // From its own mark to where the next one begins.
-        assert_eq!(anchor_span(&anchors, text, "Mishnah Berurah"), Some(6..11));
+        assert_eq!(said(text, &anchors, "Mishnah Berurah"), Some(6..11));
         // The last one runs to the end of the segment.
         assert_eq!(
-            anchor_span(&anchors, text, "Ba'er Hetev"),
+            said(text, &anchors, "Ba'er Hetev"),
             Some(11..text.chars().count())
         );
+    }
+
+    #[test]
+    fn an_anchor_hands_back_the_words_its_offsets_named() {
+        // The point of the change: the offsets are a position in the text as it
+        // was **imported**, and the pane draws the text as it has been
+        // corrected. What travels with them is what can be found again.
+        let printed = "יתגבר כארי לעמוד בבוקר";
+        let anchors = [anchor("Mishnah Berurah", 6)];
+        let bound = anchor_span(&anchors, &seif(), printed, "Mishnah Berurah")
+            .expect("the volume says where this attaches");
+        assert_eq!(bound.span, 6..printed.chars().count());
+        assert_eq!(bound.was, "כארי לעמוד בבוקר");
+        assert_eq!(bound.at, seif(), "and it says which segment it is on");
     }
 
     #[test]
@@ -275,31 +327,31 @@ mod anchor_tests {
         // no way to tell which of them *this* link is from the anchors alone.
         let text = "יתגבר כארי לעמוד בבוקר";
         let anchors = [anchor("Mishnah Berurah", 6), anchor("Mishnah Berurah", 11)];
-        assert_eq!(anchor_span(&anchors, text, "Mishnah Berurah"), None);
+        assert_eq!(said(text, &anchors, "Mishnah Berurah"), None);
     }
 
     #[test]
     fn a_commentator_that_is_not_there_gives_no_span() {
         let text = "יתגבר כארי";
         let anchors = [anchor("Ba'er Hetev", 3)];
-        assert_eq!(anchor_span(&anchors, text, "Mishnah Berurah"), None);
-        assert_eq!(anchor_span(&anchors, text, ""), None);
+        assert_eq!(said(text, &anchors, "Mishnah Berurah"), None);
+        assert_eq!(said(text, &anchors, ""), None);
     }
 
     #[test]
     fn the_name_is_matched_loosely_and_only_loosely() {
         let text = "יתגבר כארי";
         let anchors = [anchor("Mishnah  Berurah", 3)];
-        assert_eq!(anchor_span(&anchors, text, "mishnah berurah"), Some(3..10));
+        assert_eq!(said(text, &anchors, "mishnah berurah"), Some(3..10));
         // …and not so loosely that two different commentaries collide.
-        assert_eq!(anchor_span(&anchors, text, "Mishnah"), None);
+        assert_eq!(said(text, &anchors, "Mishnah"), None);
     }
 
     #[test]
     fn an_offset_past_the_text_is_no_span_rather_than_a_backwards_one() {
         let text = "יתגבר";
         let anchors = [anchor("Ba'er Hetev", 99)];
-        assert_eq!(anchor_span(&anchors, text, "Ba'er Hetev"), None);
+        assert_eq!(said(text, &anchors, "Ba'er Hetev"), None);
     }
 }
 

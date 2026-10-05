@@ -227,6 +227,19 @@
       },
       "crate": "girsa-mcp",
       "why": "a client that remembered the tools from a writable session must be refused by name, not silently written into somebody's layer."
+    },
+    {
+      "name": "A stored range is placed by its words and its Standing",
+      "source": "crates/girsa-corpus/src/span.rs",
+      "find": "if !at.named_by(&self.at) {",
+      "replace": "if false {",
+      "test": {
+        "file": "crates/girsa-corpus/src/span.rs",
+        "fn": "a_mark_belonging_to_another_seif_places_nothing",
+        "keyword": "inserted"
+      },
+      "crate": "girsa-corpus",
+      "why": "A pin is the one placement in the links panel a reader vouched for, and it was placed by `SegmentId::covers` and by raw offsets \u2014 the two predicates this repository keeps two types for. A mutation that accepts any segment must be caught: `covers` says yes to a cut's child and to a se'if inserted beside it, and only the first is the parent's words. This is the only test that separates the two \u2014 through the panel they agree on every input it can produce, because an inserted se'if is not reachable by the link either."
     }
   ],
   "uncovered": [

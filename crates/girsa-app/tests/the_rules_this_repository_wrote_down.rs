@@ -217,6 +217,83 @@ fn nothing_re_anchors_by_exact_id_where_a_standing_is_the_question() {
 }
 
 #[test]
+fn no_stored_range_is_applied_without_its_words_and_its_standing() {
+    // `girsa_corpus::span::Anchored`:
+    //
+    //   A range of one segment, and the words that range named. **The words are
+    //   not a nicety.** … Everything in the personal layer that points *inside*
+    //   a segment … is stored as a character range.
+    //
+    // There were three stored ranges in this repository and each of them
+    // answered *how to find them again* on its own:
+    //
+    // | what | its own answer | what was wrong with it |
+    // |---|---|---|
+    // | `girsa_note::mark::Mark` | `span::locate`, with `was` | — |
+    // | `girsa_fix::Patch` | `span::locate`, with `was` | — |
+    // | `Repair::Pinned` | raw `from_char..to_char` | the numbers still resolved after a correction moved the line, **to different letters** |
+    //
+    // and two things that were not stored ranges at all, which is worse:
+    //
+    // * `girsa_corpus::anchors::Anchor.at` is a position in the text **as it
+    //   was imported**, and `links::span_on` was applying it to the text the
+    //   pane draws, which is the text you have corrected. Shulchan Arukh
+    //   Orach Chayim has an anchor on **3,850 of 4,171** segments, so one
+    //   correction above an anchor moved the highlight on every one of them,
+    //   silently — and a highlight on the wrong letters looks exactly like a
+    //   highlight on the right ones.
+    // * `span_on` asked `SegmentId::covers` *which segment* a pin was on, the
+    //   predicate `girsa_corpus::standing` was written to replace and which
+    //   cannot tell a **cut** from an **insertion**: `#7.1` is what both mint.
+    //   The check above this one guards the same predicate for `shelf.rs` and
+    //   never looked here.
+    //
+    // On that second one: the two predicates **agreed on every input the panel
+    // can produce**, because an inserted se'if is not reachable by the link
+    // either. `covers` was not producing a witnessed misplacement; it was right
+    // by a property of `Standing`'s walk that nothing states. What did produce
+    // one was the offsets — a pin drawn on a piece of a cut parent that does
+    // not hold its words, which is what the test this names exercises.
+    let root = repo();
+    let links = std::fs::read_to_string(root.join("crates/girsa-app/src/links.rs"))
+        .unwrap_or_else(|e| panic!("links.rs reads: {e}"));
+    assert!(
+        !links.contains("pinned_at.covers"),
+        "`links.rs` still places a pin with `SegmentId::covers`. `covers` says yes \
+         to a cut's child and to a se'if inserted beside it, and only the first is \
+         the parent's words — see `girsa_corpus::standing` and \
+         `a_commentary_stays_on_the_words_it_names.rs`."
+    );
+    for placed in ["pin.place(at, base)", "bound.place(at, base)"] {
+        assert!(
+            links.contains(placed),
+            "`links.rs` no longer places {placed}. Every stored range resolves \
+             through `girsa_corpus::span::Anchored::place`, which asks `Standing` \
+             which segment and `span::locate` which words."
+        );
+    }
+
+    // And the other half: `span_on` needs the text **as imported** to read a
+    // mined offset against, which is a second argument rather than a detail.
+    assert!(
+        links.contains("printed: &str"),
+        "`links.rs` takes one text. A mined anchor's offset is a position in the \
+         text as imported, and the pane draws the corrected one; `Open::as_printed` \
+         is the second."
+    );
+
+    // The rule survives only if it is written down where it is applied.
+    let repair = std::fs::read_to_string(root.join("crates/girsa-link/src/repair.rs"))
+        .unwrap_or_else(|e| panic!("repair.rs reads: {e}"));
+    assert!(
+        repair.contains("was: bound.was.clone()"),
+        "`Repairs::pin_named` no longer records the words it pinned. A pin is the \
+         one placement in the links panel a reader vouched for, and it is the last \
+         one that should be able to go stale without saying so."
+    );
+}
+
+#[test]
 fn a_number_a_reader_can_change_is_clamped_in_one_place() {
     // `girsa_app::session::Look::sane`:
     //
