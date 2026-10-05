@@ -1044,6 +1044,14 @@ pub struct Links {
     /// sidebar quietly short of half its links reads as a sefer nobody comments
     /// on.
     pub incoming_unknown: bool,
+    /// The inbound cache **exists and could not be used**, so every row was
+    /// gated instead. The links are right; the panel is slow.
+    ///
+    /// **A different fact from the one above, and the whole of #56.** Both used
+    /// to be one `Option`, so a shelf with a torn index row and a shelf nobody
+    /// ever indexed read alike — and the repair is one command either way, which
+    /// you cannot pick without knowing which you have.
+    pub incoming_damaged: bool,
     /// The types a link may be retyped to, **labelled**, in the order they are
     /// offered. From `crate::links::kinds`, which is where the Hebrew for a
     /// kind of link lives — it used to be a lookup table in `linksview.ts` with

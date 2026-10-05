@@ -253,6 +253,19 @@
       },
       "crate": "girsa-corpus",
       "why": "#55: `queue.lock().ok()?` made a poisoned queue answer as an empty one, every worker stood down, and `run` returned `Ok(0)` \u2014 which `girsa-fetch` prints as *complete* and exits 0 on. The comment above that line named the failure mode and the code could not express it, which is the audit's own finding. A mutation that restores the `None` must be caught."
+    },
+    {
+      "name": "A damaged index refuses rather than answering with less",
+      "source": "crates/girsa-link/src/inbound.rs",
+      "find": "let row: Line = serde_json::from_str(line).map_err(|_| Unusable::Row)?;",
+      "replace": "let Ok(row) = serde_json::from_str(line) else { continue };",
+      "test": {
+        "file": "crates/girsa-link/src/inbound.rs",
+        "fn": "a_corrupt_row_costs_the_reader_nothing_and_is_told_about",
+        "keyword": "a body row that will not parse is its own reason"
+      },
+      "crate": "girsa-link",
+      "why": "#56 proposed skipping a row that will not parse. A row names the byte range the edges landing on one place live in, so skipping it makes the index answer with *fewer* edges than the gate \u2014 and it is the fast path, so nothing notices. That breaks the only property licensing a second read path: it may differ in speed and may not differ in answers. A mutation that skips instead of refusing must be caught, because this is the shape the proposal would have taken."
     }
   ],
   "uncovered": [

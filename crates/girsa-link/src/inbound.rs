@@ -136,24 +136,68 @@ struct Head {
     runs: u64,
 }
 
+/// Why an index could not be used, and therefore which repair it needs.
+///
+/// **Four reasons and not one `None`.** Every one of them ends in the same place
+/// — [`read_at`] declines, the caller gates the whole file, the answers are
+/// right — so before this they were one value and a reader could not tell a
+/// shelf that had never been indexed from one whose index is broken. Those are
+/// different problems with different fixes, and the second one used to be
+/// invisible: a panel that is slow for a week because a byte range got torn.
+///
+/// And it is deliberately **not** repaired by skipping the offending row, which
+/// is what #56 proposed. A row names the byte range where the edges landing on
+/// one place live; skipping it makes the index return *fewer* edges than the
+/// gate, and the index is the fast path, so nothing notices. That breaks the
+/// only property that licenses a second read path at all — *"it can differ in
+/// speed and it cannot differ in answers"* — and
+/// `the_index_and_the_gate_answer_alike_for_every_place` is what would catch it.
+/// The whole answer has to stay, so the run is made **legible** instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unusable {
+    /// There is no index beside this work's rows. Nothing to repair.
+    Absent,
+    /// The head — the block of runs — will not read, so nothing can be sought
+    /// and the whole file has to be gated. `girsa-link-types` writes it.
+    Head,
+    /// A body row will not parse. A torn write, a truncated copy, or a hand
+    /// edit; the rows either side of it are fine and are being ignored with it.
+    Row,
+    /// The entries are not in ordinal order, so the binary search would be
+    /// quietly wrong — which is worse than having no index at all.
+    Unsorted,
+}
+
+impl std::fmt::Display for Unusable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Absent => "no landing index",
+            Self::Head => "the landing index head will not read",
+            Self::Row => "a landing index row will not parse",
+            Self::Unsorted => "the landing index is not in ordinal order",
+        })
+    }
+}
+
 impl Landings {
-    /// Read one work's index, if it has one.
-    #[must_use]
-    pub fn of(root: &Path, slug: &str) -> Option<Self> {
-        let body = fs::read_to_string(landing_path(root, slug)).ok()?;
+    /// Read one work's index, or say why it cannot be used.
+    ///
+    /// **Every refusal is a refusal of the whole file, deliberately.** See
+    /// [`Unusable`].
+    pub fn of(root: &Path, slug: &str) -> Result<Self, Unusable> {
+        let body = fs::read_to_string(landing_path(root, slug)).map_err(|_| Unusable::Absent)?;
         let mut lines = body.lines();
-        let head: Head = serde_json::from_str(lines.next()?).ok()?;
+        let head: Head =
+            serde_json::from_str(lines.next().unwrap_or_default()).map_err(|_| Unusable::Head)?;
         let mut places = Vec::new();
         for line in lines.filter(|l| !l.trim().is_empty()) {
-            let row: Line = serde_json::from_str(line).ok()?;
+            let row: Line = serde_json::from_str(line).map_err(|_| Unusable::Row)?;
             places.push((row.at, row.from, row.len));
         }
-        // A file whose entries are not in order would make the binary search
-        // below quietly wrong, which is worse than having no index at all.
         if places.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-            return None;
+            return Err(Unusable::Unsorted);
         }
-        Some(Self {
+        Ok(Self {
             runs: head.runs,
             places,
         })
@@ -417,9 +461,11 @@ pub fn sort_and_index_at(path: &Path) -> Result<usize, std::io::Error> {
 
 /// The edges landing on one place, read out of the rows that hold them.
 ///
-/// `None` when this work has no index, or has one that does not agree with
-/// itself — the caller then falls back to [`read_landing`], which is slower and
-/// gives the same answers.
+/// [`Unusable::Absent`], or any of the three ways a file that exists cannot be
+/// used — the caller then falls back to [`read_landing`], which is slower and
+/// gives **the same answers**. That equality is the whole licence for this
+/// existing, and it is why a damaged index refuses outright rather than serving
+/// what it can still read: see [`Unusable`].
 ///
 /// # It does not know about repairs
 ///
@@ -427,16 +473,19 @@ pub fn sort_and_index_at(path: &Path) -> Result<usize, std::io::Error> {
 /// row does not mention, and no index over stored rows can find it. A caller
 /// with any moved edge in its layer must take the gate instead —
 /// `girsa_app::touching` asks `Repairs::moves_anything` and does.
-#[must_use]
-pub fn read_at(root: &Path, slug: &str, at: &Standing) -> Option<Vec<Edge>> {
+pub fn read_at(root: &Path, slug: &str, at: &Standing) -> Result<Vec<Edge>, Unusable> {
     let index = Landings::of(root, slug)?;
-    let mut file = fs::File::open(inbound_path(root, slug)).ok()?;
+    let mut file = fs::File::open(inbound_path(root, slug)).map_err(|_| Unusable::Absent)?;
     let mut out = Vec::new();
     for (from, len) in index.ranges_for(at) {
-        file.seek(SeekFrom::Start(from)).ok()?;
-        let mut held = vec![0u8; usize::try_from(len).ok()?];
-        file.read_exact(&mut held).ok()?;
-        let text = String::from_utf8(held).ok()?;
+        // A range that will not be read is a **broken** index rather than an
+        // absent one, and says so: the file was there and disagreed with the
+        // ranges. Same answer either way — the caller gates the whole file.
+        file.seek(SeekFrom::Start(from))
+            .map_err(|_| Unusable::Unsorted)?;
+        let mut held = vec![0u8; usize::try_from(len).map_err(|_| Unusable::Unsorted)?];
+        file.read_exact(&mut held).map_err(|_| Unusable::Unsorted)?;
+        let text = String::from_utf8(held).map_err(|_| Unusable::Unsorted)?;
         // Ranges are line-aligned by construction, so nothing here is a
         // fragment of a row.
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
@@ -445,7 +494,7 @@ pub fn read_at(root: &Path, slug: &str, at: &Standing) -> Option<Vec<Edge>> {
             }
         }
     }
-    Some(out)
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -623,6 +672,88 @@ mod landing_tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// The issue's proposed fix, and why it is the wrong way round.
+    ///
+    /// #56 says *"continue on bad lines (count them)"*. Skipping a row drops the
+    /// byte range that row named, so every edge landing on **that place** stops
+    /// being reachable through the index — and the index is the fast path, so
+    /// nothing notices. The test above this comment,
+    /// `the_index_and_the_gate_answer_alike_for_every_place`, is the thing that
+    /// would break: the index would answer with *fewer* edges than the gate, and
+    /// the only property that licenses a second read path at all is that it
+    /// "can differ in speed and […] cannot differ in answers".
+    ///
+    /// So the answer stays whole and the run is made *legible* instead: a
+    /// damaged index is reported, a missing one is reported, and a reader can
+    /// tell which is which and re-run `girsa-link-types` for the right reason.
+    #[test]
+    fn a_corrupt_row_costs_the_reader_nothing_and_is_told_about() {
+        let dir = std::env::temp_dir().join("girsa-inbound-corrupt");
+        let _ = fs::remove_dir_all(&dir);
+        let all = a_cache(&dir);
+        sort_and_index_at(&inbound_path(&dir, SEFER)).expect("sorts");
+
+        let landing = landing_path(&dir, SEFER);
+        let good = fs::read_to_string(&landing).expect("reads");
+        let mut lines: Vec<String> = good.lines().map(str::to_string).collect();
+        // Corrupt a **body** row, which is the one `ok()?` was collapsing.
+        let at_row = lines.len() - 1;
+        lines[at_row] = "{\"at\":[7,1],\"from\":0,\"len\":0".to_string();
+        fs::write(&landing, format!("{}\n", lines.join("\n"))).expect("writes");
+
+        // The reader's answer is unchanged — that is the half that must not move.
+        for n in [1u32, 7, 13, 40] {
+            let at = standing_on(n);
+            let gated =
+                read_landing(&dir, SEFER, &crate::store::Landing::naming(&at)).expect("gates");
+            assert_eq!(
+                kept(&gated, &at),
+                kept(&all, &at),
+                "se'if {n} lost an edge to a corrupt index row"
+            );
+        }
+
+        // And the index says **why** it declined, which is the half this change
+        // is actually for: `Absent` and `Row` are different facts and a reader
+        // who cannot tell them apart cannot know whether to re-run anything.
+        assert_eq!(
+            read_at(&dir, SEFER, &standing_on(7)).err(),
+            Some(Unusable::Row),
+            "a body row that will not parse is its own reason, not 'no index'"
+        );
+
+        // The other three reasons, each distinct — because a head that will not
+        // read and an unsorted body are different repairs.
+        let mut headless = lines.clone();
+        headless[0] = "not json".to_string();
+        // The head is read before any body row, so this one is about the head
+        // and not about the corrupt row still sitting in the body.
+        fs::write(&landing, format!("{}\n", headless.join("\n"))).expect("writes");
+        assert_eq!(
+            read_at(&dir, SEFER, &standing_on(7)).err(),
+            Some(Unusable::Head)
+        );
+
+        let mut unsorted = good.lines().map(str::to_string).collect::<Vec<String>>();
+        unsorted.swap(1, 2);
+        fs::write(&landing, format!("{}\n", unsorted.join("\n"))).expect("writes");
+        assert_eq!(
+            read_at(&dir, SEFER, &standing_on(7)).err(),
+            Some(Unusable::Unsorted),
+            "an index whose entries are out of order would make the binary search \
+             quietly wrong, which is worse than having no index at all"
+        );
+
+        fs::remove_file(&landing).expect("removes");
+        assert_eq!(
+            read_at(&dir, SEFER, &standing_on(7)).err(),
+            Some(Unusable::Absent),
+            "and no index at all is its own answer again"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_tree_with_no_index_is_read_the_slower_way_and_not_wrongly() {
         // spec.md §4.1 — this is a cache of a cache. Its absence is a speed, not
@@ -631,7 +762,11 @@ mod landing_tests {
         let _ = fs::remove_dir_all(&dir);
         let all = a_cache(&dir);
         let at = standing_on(7);
-        assert!(read_at(&dir, SEFER, &at).is_none(), "nothing to read yet");
+        assert_eq!(
+            read_at(&dir, SEFER, &at).err(),
+            Some(Unusable::Absent),
+            "nothing to read yet, and it says so rather than looking broken"
+        );
 
         let gated =
             read_landing(&dir, SEFER, &crate::store::Landing::naming(&at)).expect("the gate reads");

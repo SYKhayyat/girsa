@@ -3210,6 +3210,7 @@ fn links(
             .map(|l| LinkRow::of(l, language, first_words(&state, l, pointing, shemos)))
             .collect(),
         incoming_unknown: touching.incoming_unknown,
+        incoming_damaged: touching.incoming_damaged,
         types: girsa_app::links::kinds(),
         lenses: lenses
             .lenses

@@ -284,6 +284,10 @@ export interface Links {
   /** No companions cache, so the incoming half is missing — said, never
    * swallowed. */
   incoming_unknown: boolean;
+  /** The cache exists and could not be used, so every row was gated instead:
+   * the links are right and the panel is slow. A different repair from the one
+   * above, which is why it is a different flag. */
+  incoming_damaged: boolean;
   /**
    * The kinds of link, **labelled**, in the order they are offered.
    *
@@ -2202,7 +2206,14 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "suspects":
       return [] as T;
     case "links":
-      return { links: [], incoming_unknown: false, types: [], lenses: [], lens: null } as T;
+      return {
+        links: [],
+        incoming_unknown: false,
+        incoming_damaged: false,
+        types: [],
+        lenses: [],
+        lens: null,
+      } as T;
     // The chain needs the link graph and the catalogue, both of which are the
     // shell's roots. An empty walk rather than a thrown error: the panel then
     // draws its own *nothing this walk could follow*, which is a true sentence

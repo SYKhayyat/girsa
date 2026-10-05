@@ -263,6 +263,18 @@ export class LinksView {
         ? `${say("linksNone")}${words}`
         : `${shown.length} ${say("links")}${words}`;
     this.list.append(this.lensRow(found));
+    if (found.incoming_damaged) {
+      // **Not** the sentence above. The links are all there — the index was
+      // refused rather than half-believed, because a half-believed index
+      // answers with *fewer* links and nothing would notice — so this is a
+      // speed and not a shortfall. Same shape as the one above, different fact,
+      // which is why #56 made it a different flag and not a louder `if`.
+      const slow = document.createElement("p");
+      slow.className = "links-warn";
+      slow.textContent = say("linksInboundDamaged");
+      slow.title = say("linksInboundDamagedWhy");
+      this.list.append(slow);
+    }
     if (found.incoming_unknown) {
       // Two different statements, and a short list says the wrong one.
       //

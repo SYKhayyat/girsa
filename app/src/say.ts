@@ -801,6 +801,19 @@ const WORDS = {
     "המטמון שקורא את הקישורים לאחור לא נבנה — שלב 5 בהקמת הספרייה: girsa-link-types corpus personal",
     "the cache that reads the links backwards was never built — step 5 of setting up the library: girsa-link-types corpus personal",
   ] as Both,
+  /** The cache exists and will not read, so every row was gated instead. The
+   * links are **right** here and the panel is slow — which is a different fact
+   * from a cache that was never built, and a different command. One `Option`
+   * held both until #56, so a shelf with a torn index row and a shelf nobody
+   * indexed read alike, and the repair could not be chosen from what was shown. */
+  linksInboundDamaged: [
+    "מצוגים את כל הקישורים, אבל המטמון שקורא אותם לאחור פגום ולכן אין כאן כמה שהיה אפשר — החיפוש איטי.",
+    "All the links are listed, but the cache that reads them backwards is damaged, so this is slower than it should be.",
+  ] as Both,
+  linksInboundDamagedWhy: [
+    "המטמון קיים אך אינו קריא — להתקין מחדש: girsa-link-types corpus personal",
+    "the cache is there and will not read — rebuild it: girsa-link-types corpus personal",
+  ] as Both,
 
   // --- the writing drawer --------------------------------------------------
   documentName: ["שם המסמך", "Document name"] as Both,

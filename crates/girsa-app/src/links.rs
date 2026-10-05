@@ -78,6 +78,16 @@ pub struct Touching {
     /// True when there is no companions cache, so the incoming half of the
     /// answer is missing. Shown, never swallowed.
     pub incoming_unknown: bool,
+    /// True when the landing index **exists and could not be used**, so every
+    /// row was gated instead.
+    ///
+    /// **Not the same answer as `incoming_unknown`, and saying so is the point.**
+    /// That is the cache being absent, which costs the incoming half and is
+    /// fixed by building it. This is the cache being present and wrong, which
+    /// costs the same answers and a great deal more time on every panel, and is
+    /// fixed by `girsa-link-types` re-indexing one work (#56). Before this the
+    /// two were one `Option` and a reader had no way to know which they had.
+    pub incoming_damaged: bool,
 }
 
 /// The links touching a segment: outgoing, incoming, and the ones you drew.
@@ -134,14 +144,39 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &Standing) -> Touching {
     // which finds it. Slower for them, and the same answers for everyone: both
     // paths hand what they find to the same `names` test below.
     let incoming_unknown = !inbound::built(root);
-    let onto = if repairs.moves_anything() {
+
+    // **Absent is not damaged**, and before this they were one `Option`. A
+    // shelf nobody ever indexed is not broken; a shelf whose index has a torn
+    // row in it is, and the two want different repairs — one command either way,
+    // but you cannot pick the right one if you cannot tell them apart (#56).
+    //
+    // A reader who has moved a link by hand is neither: no index over stored
+    // rows can serve them, and that is their own doing rather than something to
+    // be handed a repair command for.
+    let indexed = if repairs.moves_anything() {
         None
     } else {
-        inbound::read_at(root, at.at().work(), at)
+        match inbound::read_at(root, at.at().work(), at) {
+            Ok(edges) => Some(edges),
+            Err(why) => {
+                eprintln!(
+                    "the landing index for {} is unusable: {why}",
+                    at.at().work()
+                );
+                None
+            }
+        }
     };
-    let onto = onto.unwrap_or_else(|| {
+    let incoming_damaged = indexed.is_none()
+        && !repairs.moves_anything()
+        && !matches!(
+            inbound::Landings::of(root, at.at().work()),
+            Err(inbound::Unusable::Absent)
+        );
+    let onto = indexed.unwrap_or_else(|| {
         inbound::read_landing(root, at.at().work(), &wanted).unwrap_or_default()
     });
+
     for repaired in repairs.apply(onto) {
         if !repaired.edge.to.names(at) {
             continue;
@@ -197,6 +232,7 @@ pub fn touching(shelf: &Shelf, repairs: &Repairs, at: &Standing) -> Touching {
     Touching {
         links,
         incoming_unknown,
+        incoming_damaged,
     }
 }
 
