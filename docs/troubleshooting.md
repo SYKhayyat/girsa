@@ -213,6 +213,38 @@ split and where.
 
 ---
 
+## The links panel is slow, and the list is complete
+
+**What you see:** every link is there — nothing is missing, nothing is
+half-there — and the panel takes noticeably longer to open than it did. Under
+the list, in the same warning style as a missing cache, a line saying the cache
+that reads the links backwards **is damaged** rather than that it was never
+built.
+
+**It means what it says, and the two are different.** Girsa keeps a small index
+beside each sefer's links so it can read a few kilobytes instead of twenty-odd
+megabytes. If that index has a torn row in it, Girsa **refuses the whole index**
+and gates every row instead: the same answers, more slowly. It refuses rather
+than serving what it can still read because a half-believed index would answer
+with *fewer* links than the slow path, and nothing would notice — so the cost of
+a damaged index is a slow panel and never a short one.
+
+Fix it with the command on the hover:
+
+```sh
+cargo run -p girsa-link --bin girsa-link-types  corpus personal
+```
+
+It is idempotent, so re-running it over a whole shelf costs only the sorting.
+
+**If the sentence says the cache was never *built*** instead, that is a different
+thing with the same command: the incoming half of the panel — mefarshim on this
+line, seforim quoting it — is genuinely absent rather than slow. Added 5 October
+2026; before it, a damaged index and an unbuilt one were one value and read
+alike.
+
+---
+
 ## Search will not search
 
 **What you see:** *there is no search index — build one: girsa-index build*
