@@ -1,7 +1,7 @@
 # PLAN — girsa (work top to bottom, one issue per worker session)
 
 Worker loop: top unchecked item only, fix + resolving test, commit, check off, stop.
-Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61, #43, #55
+Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61, #43, #55, #56
 (the Girsa half; the Source-Packet half is #64 and needs a sefer-crates semver break).
 
 ## SKIP
@@ -33,7 +33,14 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61,
   `FetchError::QueuePoisoned { skipped }`. The resolving test needs no network
   and no corpus, which needed a seam: the worker loop is `drive()` now and `run`
   builds the queue.)
-- [ ] #56 one bad line disables whole landing index. (High)
+- [x] #56 one bad line disables whole landing index. (High → **Low**, and the
+  issue's fix is rejected: skipping a row drops the byte range every edge landing
+  on one place lives in, so the index answers with *fewer* links than the gate
+  and breaks the one property licensing a second read path —
+  `the_index_and_the_gate_answer_alike_for_every_place`. `mutation.mjs` breaks
+  the guard *into the shape the issue proposed* so the thing asked for is the
+  thing proved wrong. The defect was four facts behind one `Option`; they are
+  now four, and the damaged case reaches the reader as *slow, not short*.)
 - [ ] #54 corrupt session.json resets then overwrites. (High)
 - [ ] #53 MCP read re-parses whole sefer per call. (High)
 - [ ] #24 byte-exact re-import matcher — VERIFY fix 09-03 held, else redo. (High)

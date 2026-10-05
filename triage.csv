@@ -35,7 +35,6 @@ number,title,url,D,R,why,risk
 52,Steal from Otzaria: biographies tool for authors cited,https://github.com/SYKhayyat/girsa/issues/52,2,2,Versioned bio lookup with provenance; wrong bio is bounded metadata,Bounded metadata
 53,[Low/perf] MCP read re-reads whole sefer per call no cache,https://github.com/SYKhayyat/girsa/issues/53,2,2,Add MRU Held cache with invalidation; perf only reversible,Perf only
 54,[Low/bug] Corrupt session.json silently resets workspace then overwrites,https://github.com/SYKhayyat/girsa/issues/54,1,5,Quarantine bad file and surface trouble code; overwrite destroys tabs forever,Destroys tabs
-56,[Low/bug] One bad line disables whole landing index forces full parse,https://github.com/SYKhayyat/girsa/issues/56,1,3,Skip bad lines and count; single corrupt line forces slow full parse visibly,Visible slow parse
 57,[Low/bug] Anchor attribute parsing substring-matches,https://github.com/SYKhayyat/girsa/issues/57,1,4,Parse name equals value with quotes; substring match binds wrong anchor silently,Silent wrong bind
 58,[Low/bug] Negative caching: missing work poisons caches until restart,https://github.com/SYKhayyat/girsa/issues/58,2,3,Cache positives only; typo sticks as empty until restart visibly,Visible stuck empty
 59,[Low/bug] Personal-layer merge silently drops unserializable records,https://github.com/SYKhayyat/girsa/issues/59,2,4,Propagate serialize errors with counts; empty-string fallback loses records silently,Silent record loss
