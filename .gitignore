@@ -41,3 +41,14 @@ app/.tmp-test/
 # One workspace, one lockfile. The shell is a member (see the root manifest);
 # a stray lockfile here would be a second resolution of the same graph.
 /app/src-tauri/Cargo.lock
+
+# `nix develop` writes this, and it is **not** committed on purpose — the
+# argument is in `tools/nixos-ci.sh` and again in `ci.yml`, and it is a good
+# one: `nixpkgs` and `flake-utils` are named by branch so every run resolves
+# their HEAD, which is how the `nixos` job notices a package renamed out from
+# under it. A lock file turns that into a silence lasting until somebody
+# remembers to refresh it.
+#
+# So it is ignored rather than absent — the same decision, without the file
+# showing up as untracked every time somebody enters the dev shell.
+/flake.lock
