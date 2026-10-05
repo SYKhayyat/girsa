@@ -97,6 +97,15 @@ pub enum FetchError {
     ShortRead { url: String, got: u64, want: u64 },
     #[error("a worker thread died")]
     WorkerLost,
+    /// The queue could not be locked, so this run cannot say what it fetched.
+    ///
+    /// **Not a fetch failure.** A file that failed is counted, retried on the
+    /// next run, and reported as `INCOMPLETE — n of 12,826 files did not
+    /// arrive`. A queue that cannot be locked is a run that stopped for a
+    /// reason nobody recorded, and `skipped` is how many files were still in it
+    /// when that happened — the number a reader would otherwise never be told.
+    #[error("the fetch queue broke: {skipped} files were never reached")]
+    QueuePoisoned { skipped: usize },
 }
 
 // ---------------------------------------------------------------------------
@@ -389,17 +398,55 @@ pub fn run(root: &Path, plan: &Plan, threads: usize) -> Result<usize, FetchError
     // part every later work order is seeded from — arrives last, two hours in.
     let mut outstanding = outstanding;
     outstanding.reverse();
-    let queue = Arc::new(Mutex::new(outstanding));
-    let root = root.to_path_buf();
+    drive(
+        root,
+        Arc::new(Mutex::new(outstanding)),
+        progress,
+        total,
+        threads,
+    )
+}
+
+/// Take from the queue until it is empty, and say what the run achieved.
+///
+/// **Separated from [`run`] so that the queue is a parameter.** Nothing inside
+/// the critical section of `next_target` can panic, so `run` cannot poison the
+/// queue it builds — which means the only way to test that a broken queue is
+/// not mistaken for an empty one is to be able to hand one in, and that is
+/// #55's whole claim.
+fn drive(
+    root: &Path,
+    queue: Arc<Mutex<Vec<Target>>>,
+    progress: Arc<Progress>,
+    total: usize,
+    threads: usize,
+) -> Result<usize, FetchError> {
+    // `0` is *not stopped*; anything else is the count of files the queue still
+    // held, plus one, because a count of zero files is not what happened. One
+    // worker records it and the rest see it and stand down.
+    let stopped_with: AtomicUsize = AtomicUsize::new(0);
 
     std::thread::scope(|scope| {
         for _ in 0..threads.max(1) {
             let queue = Arc::clone(&queue);
             let progress = Arc::clone(&progress);
-            let root = root.clone();
+            let stopped_with = &stopped_with;
+            let root = root.to_path_buf();
             scope.spawn(move || loop {
-                let Some(target) = next_target(&queue) else {
-                    return;
+                let target = match next_target(&queue) {
+                    Ok(Some(target)) => target,
+                    // Out of work, which is the ordinary end of a worker's day.
+                    Ok(None) => return,
+                    Err(skipped) => {
+                        let _ = stopped_with.compare_exchange(
+                            0,
+                            skipped + 1,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        );
+                        eprintln!("\nthe fetch queue broke; {skipped} files were not reached");
+                        return;
+                    }
                 };
                 match fetch_one(&root, &target) {
                     Ok(bytes) => {
@@ -421,14 +468,32 @@ pub fn run(root: &Path, plan: &Plan, threads: usize) -> Result<usize, FetchError
     });
 
     eprintln!();
-    Ok(progress.failed.load(Ordering::Relaxed))
+    match stopped_with.load(Ordering::Relaxed) {
+        0 => Ok(progress.failed.load(Ordering::Relaxed)),
+        stopped => Err(FetchError::QueuePoisoned {
+            skipped: stopped - 1,
+        }),
+    }
 }
 
-fn next_target(queue: &Mutex<Vec<Target>>) -> Option<Target> {
-    // A poisoned queue means another worker panicked mid-pop. Stopping is
-    // right: the alternative is a run that reports success having skipped an
-    // unknown number of seforim.
-    queue.lock().ok()?.pop()
+/// The next file, or nothing, or **a queue that cannot be locked**.
+///
+/// Three answers and not two, and the third is the one this had collapsed into
+/// the second. `queue.lock().ok()?` turned a poisoned lock into `None`, `None`
+/// into "this worker is finished", every worker finished, and `run` returned
+/// `Ok(0)` — which `girsa-fetch` prints as *complete — 12,826 files under …*
+/// and exits `0` on. The comment above this used to say *"Stopping is right:
+/// the alternative is a run that reports success having skipped an unknown
+/// number of seforim"*, which described the alternative exactly and did not
+/// avoid it.
+///
+/// `PoisonError::into_inner` hands the queue back, which is how the count of
+/// files nobody reached is known rather than guessed.
+fn next_target(queue: &Mutex<Vec<Target>>) -> Result<Option<Target>, usize> {
+    match queue.lock() {
+        Ok(mut queue) => Ok(queue.pop()),
+        Err(poisoned) => Err(poisoned.into_inner().len()),
+    }
 }
 
 /// Whether the file is already there *and whole*.
@@ -702,5 +767,112 @@ mod tests {
             "a 9-byte file must not pass for a 100-byte one"
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod queue_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    fn a_target(name: &str) -> Target {
+        Target {
+            url: format!("https://example.invalid/{name}"),
+            rel_path: format!("json/{name}.json"),
+            size: Some(1),
+        }
+    }
+
+    /// A queue poisoned the only way one can be: a thread panicked holding it.
+    fn poisoned(holding: Vec<Target>) -> Arc<Mutex<Vec<Target>>> {
+        let queue = Arc::new(Mutex::new(holding));
+        let held = Arc::clone(&queue);
+        let _ = std::thread::spawn(move || {
+            let _guard = held.lock().expect("the lock is free a moment ago");
+            panic!("a worker died mid-pop");
+        })
+        .join();
+        assert!(queue.is_poisoned(), "the premise: it really is poisoned");
+        queue
+    }
+
+    #[test]
+    fn a_broken_queue_does_not_answer_as_though_it_were_an_empty_one() {
+        // The whole of #55, at the seam. `next_target`'s own comment said
+        // *"Stopping is right: the alternative is a run that reports success
+        // having skipped an unknown number of seforim"* — and `queue.lock().ok()?`
+        // **was** the alternative. A poisoned lock became `None`, `None` became
+        // "this worker is finished", every worker finished, and `run` returned
+        // `Ok(0)`, which `girsa-fetch` prints as *complete — 12,826 files under
+        // …* and exits 0 on.
+        let queue = poisoned(vec![a_target("a"), a_target("b"), a_target("c")]);
+        assert_eq!(
+            next_target(&queue).err(),
+            Some(3),
+            "a queue that cannot be locked is not a queue with nothing in it, and the \
+             count of what it still held is how a reader finds out how much they did \
+             not get"
+        );
+    }
+
+    #[test]
+    fn an_empty_queue_still_answers_as_though_it_were_empty() {
+        let queue = Arc::new(Mutex::new(Vec::new()));
+        assert!(
+            matches!(next_target(&queue), Ok(None)),
+            "an empty queue answers empty"
+        );
+        // And one with something in it hands it over.
+        let queue = Arc::new(Mutex::new(vec![a_target("a")]));
+        assert_eq!(
+            next_target(&queue).ok().map(|t| t.map(|t| t.rel_path)),
+            Some(Some("json/a.json".into()))
+        );
+    }
+
+    /// And the half a reader would meet: **a run that stopped early cannot say
+    /// it finished.** `drive` needs no network for this, because a queue that
+    /// cannot be locked hands out nothing — so this is the whole `girsa-fetch`
+    /// outcome, reached without touching a bucket.
+    #[test]
+    fn a_run_that_stopped_early_is_an_error_and_not_a_complete_one() {
+        let root = std::env::temp_dir().join("girsa-fetch-poisoned");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("a scratch root");
+
+        // 3 files, 4 workers, and the queue is broken before any of them starts.
+        let queue = poisoned((0..3).map(|n| a_target(&format!("t{n}"))).collect());
+        let progress = Arc::new(Progress::default());
+        let stopped = drive(&root, queue, Arc::clone(&progress), 3, 4);
+
+        assert!(
+            matches!(stopped, Err(FetchError::QueuePoisoned { skipped: 3 })),
+            "and it says how many it never reached — which is the number a reader \
+             would otherwise never be told. Got {stopped:?}."
+        );
+        assert_eq!(progress.failed.load(Ordering::Relaxed), 0);
+        assert_eq!(progress.fetched.load(Ordering::Relaxed), 0);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The other half, so the first is not a test that passes because the code
+    /// refuses to do anything ever: **a queue that drains is a success**, and it
+    /// says zero failed files rather than refusing.
+    #[test]
+    fn a_run_whose_queue_drains_reports_zero_failures() {
+        let root = std::env::temp_dir().join("girsa-fetch-drained");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("a scratch root");
+
+        let progress = Arc::new(Progress::default());
+        let drained = drive(&root, Arc::new(Mutex::new(Vec::new())), progress, 0, 2);
+        assert_eq!(
+            drained.ok(),
+            Some(0),
+            "an empty queue is a finished run, not a broken one"
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

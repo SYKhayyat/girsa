@@ -240,6 +240,19 @@
       },
       "crate": "girsa-corpus",
       "why": "A pin is the one placement in the links panel a reader vouched for, and it was placed by `SegmentId::covers` and by raw offsets \u2014 the two predicates this repository keeps two types for. A mutation that accepts any segment must be caught: `covers` says yes to a cut's child and to a se'if inserted beside it, and only the first is the parent's words. This is the only test that separates the two \u2014 through the panel they agree on every input it can produce, because an inserted se'if is not reachable by the link either."
+    },
+    {
+      "name": "A broken queue is not an empty queue",
+      "source": "crates/girsa-corpus/src/fetch.rs",
+      "find": "Err(poisoned) => Err(poisoned.into_inner().len()),",
+      "replace": "Err(poisoned) => Ok(None),",
+      "test": {
+        "file": "crates/girsa-corpus/src/fetch.rs",
+        "fn": "a_run_that_stopped_early_is_an_error_and_not_a_complete_one",
+        "keyword": "QueuePoisoned"
+      },
+      "crate": "girsa-corpus",
+      "why": "#55: `queue.lock().ok()?` made a poisoned queue answer as an empty one, every worker stood down, and `run` returned `Ok(0)` \u2014 which `girsa-fetch` prints as *complete* and exits 0 on. The comment above that line named the failure mode and the code could not express it, which is the audit's own finding. A mutation that restores the `None` must be caught."
     }
   ],
   "uncovered": [

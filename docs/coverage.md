@@ -62,10 +62,11 @@ runs.
 | A small layer is never rewritten | `crates/girsa-personal/src/log.rs` — `const FLOOR: usize = 64` | `a_small_layer_is_never_rewritten_for_a_stray_deletion` |
 | A read-only MCP server refuses writes at the door | `crates/girsa-mcp/src/tools.rs` — `if !server.is_writable() =>` | `a_write_against_a_read_only_server_is_refused_at_the_door` |
 | A stored range is placed by its words and its Standing | `crates/girsa-corpus/src/span.rs` — `if !at.named_by(&self.at) {` | `a_mark_belonging_to_another_seif_places_nothing` |
+| A broken queue is not an empty queue | `crates/girsa-corpus/src/fetch.rs` — `Err(poisoned) => Err(poisoned.into_inner().len()),` | `a_run_that_stopped_early_is_an_error_and_not_a_complete_one` |
 
 `node tools/mutation.mjs --list` prints the exact break each mutation applies,
 and `node tools/mutation.mjs` applies them, one at a time, and demands the
-failure. The seven are the invariants that have a single-line guard; the rest of
+failure. The eight are the invariants that have a single-line guard; the rest of
 the tree is pinned by the suites in the table above and the audit's regression
 tests, which is a different and weaker claim than a mutation run, and this page
 does not pretend otherwise.

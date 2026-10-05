@@ -294,6 +294,50 @@ fn no_stored_range_is_applied_without_its_words_and_its_standing() {
 }
 
 #[test]
+fn a_comment_cannot_state_an_invariant_the_code_does_not_hold() {
+    // `fetch::next_target`:
+    //
+    //   A poisoned queue means another worker panicked mid-pop. Stopping is
+    //   right: the alternative is a run that reports success having skipped an
+    //   unknown number of seforim.
+    //
+    // …and `queue.lock().ok()?` **was** the alternative, four lines below. `None`
+    // became "this worker is finished", every worker finished, and `run`
+    // returned `Ok(0)` — which `girsa-fetch` prints as *complete — 12,826 files
+    // under …* and exits `0` on (#55).
+    //
+    // This is not a rule about `.ok()?`. It is the audit's own finding, in the
+    // place it is cheapest to enforce: **a comment that names the failure mode
+    // it is guarding against is worth nothing unless the code cannot express
+    // that failure mode.** Here the type said `Option`, so "empty" and "broken"
+    // were the same value and the prose had to be trusted — and prose is not
+    // checkable, which is what this file exists to stop.
+    //
+    // So the check is on the type, which is the one thing that cannot drift:
+    // a queue hands back three answers, and the third is the one that counts.
+    let root = repo();
+    let fetch = std::fs::read_to_string(root.join("crates/girsa-corpus/src/fetch.rs"))
+        .unwrap_or_else(|e| panic!("fetch.rs reads: {e}"));
+    let code: String = fetch
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !code.contains("queue.lock().ok()?"),
+        "`fetch.rs` swallows a poisoned lock again, which is how a fetch run says \\
+         `complete` having skipped an unknown number of seforim. The comment above \\
+         that line describes that outcome exactly and did not avoid it. \\
+         `fetch::next_target` returns three answers."
+    );
+    assert!(
+        !code.contains(".ok()?") && !code.contains("let _ = queue.lock()"),
+        "and a lock on the fetch queue is being discarded somewhere. Every answer \\
+         from it has to be able to say *broken*."
+    );
+}
+
+#[test]
 fn a_number_a_reader_can_change_is_clamped_in_one_place() {
     // `girsa_app::session::Look::sane`:
     //
