@@ -23,7 +23,7 @@ number,title,url,D,R,why,risk
 37,Interop B: cite the compiler not the prose (the shared seam),https://github.com/SYKhayyat/girsa/issues/37,3,2,Emit pairings once and cross-check; multi-seam hygiene test-guarded,Test-guarded
 38,Interop C: product-identity questions only you can answer,https://github.com/SYKhayyat/girsa/issues/38,4,1,Owner decisions on shell plus split plus MCP; no code reversible,Decisions only
 40,100% Rust rewrite: drop the Tauri/TypeScript shell for a native Rust UI,https://github.com/SYKhayyat/girsa/issues/40,5,3,Replace 138-command webview with native UI; wrong port breaks app visibly,Visible app break
-43,Steal from AlHaTorah: bind every commentary to an anchor ref,https://github.com/SYKhayyat/girsa/issues/43,5,4,Foundational anchor plus redirect model; wrong anchor misplaces commentary silently,Silent misplace
+64,"[Blocked/on sefer-crates] a Source Packet carries a range and no words",https://github.com/SYKhayyat/girsa/issues/64,3,4,"Same disease as #43 one layer up: /quote regenerates different words under the same citation after a correction",Silent wrong quote
 44,Steal from AlHaTorah: the Gedolah desk — one base text any set of commentaries,https://github.com/SYKhayyat/girsa/issues/44,5,3,Base plus selectable classes plus per-corpus profiles; wrong layout shows visibly,Visible layout error
 45,Steal from AlHaTorah: quoted sources inside every commentary are live refs,https://github.com/SYKhayyat/girsa/issues/45,4,4,Anchor versus quoted-ref index plus linkify; wrong ref misdirects reader silently,Silent misdirect
 46,Steal from AlHaTorah: a commentators register (identity era corpora),https://github.com/SYKhayyat/girsa/issues/46,3,2,Commentator entities plus timeline; wrong biography is isolated metadata,Isolated metadata
