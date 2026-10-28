@@ -5947,6 +5947,16 @@ fn moved(shared: tauri::State<'_, Shared>, pane: PaneId, at: String) -> Result<V
 /// which is now denied here rather than merely avoided (see `Cargo.toml`).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK on NixOS/Wayland reports a negative devicePixelRatio, which
+    // collapses the whole UI (ksav issue #103). Force X11 there — but never
+    // over an explicit choice: `GDK_BACKEND` set by the reader or the session
+    // is their decision, and `GDK_BACKEND=wayland` stays the escape hatch for
+    // a machine where XWayland is absent or native Wayland renders correctly.
+    if std::env::var_os("GDK_BACKEND").is_none()
+        && std::env::var_os("WAYLAND_DISPLAY").is_some()
+    {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
     let built = tauri::Builder::default();
 
     // **First**, before every other plugin, because it decides whether this
