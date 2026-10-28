@@ -39,6 +39,7 @@ for pages that are not:
 |---|---|
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | **read this first.** Setup, the gate, the rules that bind every change, how to send one |
 | [`your-first-change.md`](your-first-change.md) | one contribution end to end, with nothing skipped |
+| [`otzar-habina-review.md`](otzar-habina-review.md) | a field review of otzarhabina.com — 99 findings, what to take, what Girsa already does better, and what not to copy |
 | [`architecture.md`](architecture.md) | how the pieces fit, and why the seams are where they are |
 | [`the-record.md`](the-record.md) | why any particular thing is the way it is — the old README, kept whole, split into twelve pages under [`record/`](record) |
 
