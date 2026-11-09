@@ -28,7 +28,7 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   In the gate (`tools/verify.mjs`, two steps) and in the rust job's CI steps.
   Three prose counts had already drifted past the file they described — the
   module doc said "the twelve commands", `ci.yml` said "5,018 lines and all 100
-  tauri commands", against 138 in a 6,916-line file — so the numbers are out of
+  tauri commands", against 138 in a 6,914-line file — so the numbers are out of
   the prose and the tool prints them.
 - [ ] #33 resolving test for spec §N / W-needs citations (unblocks #35-class rot). (Low)
 - [ ] #64 the same disease one layer up: a Source Packet carries `Range` as bare
@@ -66,7 +66,7 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
 - [ ] #62 unbounded regex bound, #60 SegmentStore O(n), #61 (closed — verify), #53 (above).
 
 ## Phase 4 — Docs/process + features (Low/Info)
-- [ ] #68 the command layer is one 6,916-line file with `api.ts` as its twin: split
+- [ ] #68 the command layer is one 6,914-line file with `api.ts` as its twin: split
   into `app/src-tauri/src/commands/` domain modules, **one domain per commit**,
   pure movement, `node tools/commands.mjs` green after every one (#28 pins the
   surface, so the split can be verified rather than trusted). (Medium)
