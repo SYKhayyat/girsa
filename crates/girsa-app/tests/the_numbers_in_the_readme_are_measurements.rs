@@ -125,13 +125,8 @@ fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
     // occurrences anywhere in the file counts the two in the module's own
     // header, which is a doc comment about the attribute rather than a use of
     // it — the shell would gain two commands by explaining itself.
-    out.insert(
-        "commands",
-        read(&shell)
-            .lines()
-            .filter(|line| line.trim_start().starts_with("#[tauri::command"))
-            .count(),
-    );
+    // …and **over the directory**, not one file: see [`commands_in`] (#72).
+    out.insert("commands", commands_in(&root.join("app/src-tauri/src")));
     out.insert("shell-lines", lines_of(&shell));
     out.insert(
         "crates",
@@ -159,6 +154,39 @@ fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
     out.insert("window-modules", files_in(&root.join("app/src"), "ts"));
     out.insert("styles-lines", lines_of(&root.join("app/src/styles.css")));
     out
+}
+
+/// Every `#[tauri::command]` under the shell's source directory, recursively.
+///
+/// This counted `lib.rs` alone, and so did `tools/readme-numbers.sh` — two lists
+/// with the same blind spot, which is the one arrangement that cannot catch
+/// itself. #68 then moved the first command into `commands/nav.rs`, the tree
+/// gained a command, and both counters said 138 while the README said 138 too:
+/// nothing to fail. Worse, the script the documentation tells you to run
+/// **wrote the wrong number back**, so the value could not be corrected by the
+/// tool that exists to correct it (#72).
+///
+/// A directory because the shell is a directory now. The attribute is matched at
+/// the head of a line, for the reason in [`measurements`].
+fn commands_in(dir: &Path) -> usize {
+    let mut total = 0;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        panic!("the shell's source directory reads: {}", dir.display());
+    };
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|e| panic!("an entry of {} reads: {e}", dir.display()))
+            .path();
+        if path.is_dir() {
+            total += commands_in(&path);
+        } else if path.extension().is_some_and(|x| x == "rs") {
+            total += read(&path)
+                .lines()
+                .filter(|line| line.trim_start().starts_with("#[tauri::command"))
+                .count();
+        }
+    }
+    total
 }
 
 /// `**4,600**<!--=shell-lines-->` → `("shell-lines", 4600)`.
@@ -266,4 +294,29 @@ fn every_measurement_is_claimed_somewhere() {
         "measured and never cited: {unclaimed:?} — either mark them in one of {PAGES:?} or \
          stop counting them"
     );
+}
+
+/// The rule, not the number: a command declared outside `lib.rs` is counted.
+///
+/// Written against a temporary tree rather than against the repository, because
+/// the repository only proves the number for the arrangement it happens to be in
+/// — and it was in the other arrangement when this went wrong.
+#[test]
+fn a_command_declared_outside_lib_rs_is_counted() {
+    let dir = std::env::temp_dir().join(format!("girsa-commands-{}", std::process::id()));
+    let commands = dir.join("commands");
+    std::fs::create_dir_all(&commands).unwrap_or_else(|e| panic!("temp tree: {e}"));
+    std::fs::write(
+        dir.join("lib.rs"),
+        "//! The window.\n#[tauri::command]\nfn one() {}\n#[tauri::command(async)]\nfn two() {}\n",
+    )
+    .unwrap_or_else(|e| panic!("lib.rs: {e}"));
+    std::fs::write(
+        commands.join("nav.rs"),
+        "//! A domain.\n#[tauri::command]\npub(crate) fn three() {}\n",
+    )
+    .unwrap_or_else(|e| panic!("commands/nav.rs: {e}"));
+
+    assert_eq!(commands_in(&dir), 3, "2 in lib.rs and 1 in commands/");
+    std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("temp tree: {e}"));
 }
