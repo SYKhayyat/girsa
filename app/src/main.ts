@@ -340,6 +340,23 @@ async function openTodaysDaf(): Promise<void> {
  */
 async function goToCitation(reference: string): Promise<void> {
   try {
+    // #63: read what was typed before handing it to `cite_open`, because that
+    // command parses **one** citation and a comma-separated pair is two. Given
+    // whole, it answers with an address that has a sefer's name in the middle
+    // of it — which resolves, opens, and is the wrong page.
+    const answer = await api.navAsk(reference);
+    if (answer.kind === "go") {
+      await whenAskedFor(answer.landing);
+      return;
+    }
+    if (answer.kind === "several" && answer.refs.length > 1) {
+      // One at a time until the sheet exists (#63's remaining half), and said
+      // out loud, because opening the first of three silently would read as
+      // the other two not being found.
+      await whenAskedFor(await api.citeOpen(answer.refs[0]));
+      announce(`${answer.refs.length}: ${answer.refs.join(", ")}`, false);
+      return;
+    }
     await whenAskedFor(await api.citeOpen(reference));
   } catch (e) {
     announce(trouble(e, "open_ref").said, true);

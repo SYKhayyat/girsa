@@ -41,6 +41,7 @@ pub mod links;
 pub mod luach;
 pub mod markup;
 pub mod mefarshim;
+pub mod nav;
 pub mod notes;
 // A sefer to test against, without a corpus on the machine. Off unless asked
 // for; `cargo test -p girsa-app` asks for it by being a test.

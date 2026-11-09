@@ -35,9 +35,9 @@ Nothing is retyped, because what gets stored is the **reference**, not a printed
 ## The tree
 
 **15**<!--=crates--> crates and **16**<!--=bins--> command-line binaries, wrapped
-in a Tauri shell: a window and **138**<!--=commands--> commands,
+in a Tauri shell: a window and **139**<!--=commands--> commands,
 **35**<!--=window-modules--> TypeScript modules and one stylesheet of
-**4,735**<!--=styles-lines--> lines. The shell is **6,914**<!--=shell-lines-->
+**4,735**<!--=styles-lines--> lines. The shell is **6,916**<!--=shell-lines-->
 lines of Rust, and **27**<!--=rules--> checks read this repository's own source
 and fail when a rule stated in a doc comment stops being true.
 [`docs/architecture.md`](docs/architecture.md) draws the stack.

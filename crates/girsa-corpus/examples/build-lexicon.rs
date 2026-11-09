@@ -122,6 +122,8 @@ fn variants_of(schema: &Value, en_title: &str, he_title: &str) -> Vec<String> {
                 .map(str::to_string),
         );
     }
+
+    out.extend(girsa_corpus::lexicon::reader_spellings(&out));
     out
 }
 

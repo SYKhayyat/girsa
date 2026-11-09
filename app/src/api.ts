@@ -1723,6 +1723,20 @@ export const api = {
    * link takes, resolved in Rust because which segments an address names is a
    * question about the corpus. */
   citeOpen: (reference: string) => call<Asked>("cite_open", { reference }),
+  /**
+   * #63: the one box. Type a sefer and a place any way you like and either go
+   * there or be shown the choice — the five shapes are why this is not
+   * `Promise<Asked>`: "you meant two places", "these words name two seforim"
+   * and "nothing matched" are three different things to say.
+   */
+  navAsk: (typed: string) =>
+    call<
+      | { kind: "go"; landing: Asked }
+      | { kind: "several"; refs: string[]; sheet: boolean }
+      | { kind: "choose"; refs: string[] }
+      | { kind: "ask"; about: string }
+      | { kind: "nothing" }
+    >("nav_ask", { typed }),
   noteEdit: (note: string, does: string, value?: string, text?: string) =>
     call<ParaRow[]>("note_edit", {
       note,
@@ -2291,6 +2305,11 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // ever does appear the click says why it went nowhere instead of falling
     // through to `default: undefined` and looking like a link that is broken.
     case "cite_open":
+    // The box has the lexicon's argument but not its refusal: a browser
+    // fixture has no lexicon, so nothing matches, and `goToCitation` falls
+    // through to `cite_open` — which is what it did before #63 existed.
+    case "nav_ask":
+      return { kind: "nothing" } as T;
     // The same argument covers the two commands that read the personal layer
     // and the lexicon: a browser fixture has neither, so empty is the truth —
     // said as an error for who_cites (a refusal, not a lie about your

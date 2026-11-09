@@ -209,6 +209,66 @@ fn one_line(title: &str) -> String {
     title.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// How a reader spells what Sefaria catalogues (#69).
+///
+/// Sefaria's variants are exhaustive about **its** spelling — `Berachos`,
+/// `Shulchan Arukh, Orach Chayim`, `Mishneh Torah, Repentance` — and #63's one
+/// box takes what a *person* types. Measured through the resolver against the
+/// shipped lexicon before this table existed: `brachos`, `shabbos`,
+/// `mishnayos peah`, `shulchan aruch orech chaim` and `rambam hilchos teshuva`
+/// were all unresolved, while the same citations in Hebrew were fine.
+///
+/// Every entry is a substitution, never a similarity score. `Brachos` and
+/// `Berakhos` are one letter apart and so are `Bava Basra` and `Bava Batra`; a
+/// threshold that catches the first eventually opens the second, and a wrong
+/// sefer is the failure this whole system is arranged to prevent. A variant made
+/// here can only turn *unresolved* into *resolved* or *ambiguous*, and ambiguous
+/// is still shown to the reader as a choice.
+pub const READER: &[(&str, &str)] = &[
+    ("Berakhot", "Berachos"),
+    ("Berachos", "Brachos"),
+    ("Shabbat", "Shabbos"),
+    ("Mishnah", "Mishnayos"),
+    ("Hilchot", "Hilchos"),
+    ("Orach Chayim", "Orech Chaim"),
+    ("Orach Chayim", "Orach Chaim"),
+    ("Arukh", "Aruch"),
+    ("Chayim", "Chaim"),
+];
+
+/// The spellings [`READER`] produces from the ones a schema offers.
+///
+/// To a fixed point rather than one pass: `Shulchan Arukh, Orach Chayim` needs
+/// two substitutions at once to become the `Shulchan Aruch, Orech Chaim` a
+/// reader types, and one pass reaches each but never both. `Rambam` is added as
+/// a prefix because the work is catalogued under its own name and typed under
+/// the author's — which is also how `rambam hilchos teshuva` is reached, from a
+/// variant that spells the subsection `Hilchot Teshuva`.
+#[must_use]
+pub fn reader_spellings(variants: &[String]) -> Vec<String> {
+    let mut mine: Vec<String> = Vec::new();
+    let mut frontier: Vec<String> = variants.to_vec();
+    for _ in 0..3 {
+        let mut next: Vec<String> = Vec::new();
+        for variant in &frontier {
+            for (says, reader_says) in READER {
+                if variant.contains(says) {
+                    next.push(variant.replace(says, reader_says));
+                }
+            }
+            if let Some(section) = variant.strip_prefix("Mishneh Torah, ") {
+                next.push(format!("Rambam {section}"));
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        mine.extend(next.iter().cloned());
+        frontier = next;
+    }
+    mine
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -376,5 +436,46 @@ mod tests {
         let dir = tmp("bare");
         std::fs::create_dir_all(&dir).unwrap();
         assert!(Titles::of(&dir).is_err());
+    }
+
+    /// The five citations #63 measured as unresolved, spelled the way a reader
+    /// spells them rather than the way Sefaria catalogues them.
+    #[test]
+    fn the_spellings_a_reader_types_are_made_from_the_ones_sefaria_offers() {
+        let offered = [
+            "Berakhot",
+            "Shabbat",
+            "Mishnah Pe'ah",
+            "Shulchan Arukh, Orach Chayim",
+            "Mishneh Torah, Hilchot Teshuva",
+            "Mishneh Torah, Repentance",
+        ]
+        .map(str::to_string);
+
+        let mine = reader_spellings(&offered);
+        for wanted in [
+            "Brachos",
+            "Shabbos",
+            "Mishnayos Pe'ah",
+            // Both substitutions at once, which one pass cannot reach.
+            "Shulchan Aruch, Orech Chaim",
+            // Substitution then prefix, which is the other composition.
+            "Rambam Hilchos Teshuva",
+            "Rambam Repentance",
+        ] {
+            assert!(mine.iter().any(|v| v == wanted), "{wanted} was not made");
+        }
+    }
+
+    /// The one thing this must not be. `Bava Basra` is one letter from `Bava
+    /// Batra` and a similarity threshold would open the wrong sefer, so an
+    /// unlisted spelling produces nothing at all.
+    #[test]
+    fn an_unlisted_spelling_is_not_reached_by_being_close() {
+        let mine = reader_spellings(&["Bava Batra".to_string()]);
+        assert!(
+            mine.iter().all(|v| !v.contains("Basra")),
+            "a near miss was made"
+        );
     }
 }

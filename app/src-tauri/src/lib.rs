@@ -43,6 +43,7 @@
 //! commands still take their turn. It changes which thread waits.
 
 mod clipboard;
+mod commands;
 mod post;
 
 use std::collections::HashMap;
@@ -160,7 +161,7 @@ pub(crate) struct State {
     /// chip: a Ksav button that quietly does nothing is worse than one that
     /// says what is wrong.
     no_post: Option<String>,
-    /// The resolver's lexicon, for linkify (W19). Read once: it is 24,731
+    /// The resolver's lexicon, for linkify (W19). Read once: it is 27,667
     /// spellings and a citation is looked up per word of prose.
     pub(crate) lexicon: Option<girsa_ref::Lexicon>,
     /// The OCR queue, once it has been looked at (W21). Written by
@@ -377,7 +378,7 @@ impl State {
     /// One method rather than two calls because `sefer` takes `&mut self` to
     /// load on demand, and the borrow it hands back rules out reading
     /// `self.lexicon` afterwards. The alternatives were both worse: cloning a
-    /// 24,731-variant lexicon per pane of text, or passing `None` at the call
+    /// 27,667-variant lexicon per pane of text, or passing `None` at the call
     /// sites and quietly not linkifying anything.
     pub(crate) fn reading(
         &mut self,
@@ -6094,6 +6095,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             state,
+            commands::nav::nav_ask,
             choose_corpus,
             search,
             recent,
