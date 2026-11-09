@@ -5952,9 +5952,7 @@ pub fn run() {
     // over an explicit choice: `GDK_BACKEND` set by the reader or the session
     // is their decision, and `GDK_BACKEND=wayland` stays the escape hatch for
     // a machine where XWayland is absent or native Wayland renders correctly.
-    if std::env::var_os("GDK_BACKEND").is_none()
-        && std::env::var_os("WAYLAND_DISPLAY").is_some()
-    {
+    if std::env::var_os("GDK_BACKEND").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_some() {
         std::env::set_var("GDK_BACKEND", "x11");
     }
     let built = tauri::Builder::default();
