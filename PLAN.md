@@ -70,6 +70,12 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   into `app/src-tauri/src/commands/` domain modules, **one domain per commit**,
   pure movement, `node tools/commands.mjs` green after every one (#28 pins the
   surface, so the split can be verified rather than trusted). (Medium)
+- [x] #72 both programs that recount the README counted `#[tauri::command]` in
+  `lib.rs` alone, so #68's first move put the number one behind — and
+  `tools/readme-numbers.sh` wrote the wrong one back. **Landed**: both walk the
+  whole `app/src-tauri/src/` tree, and the rule is tested against a temporary
+  tree (`a_command_declared_outside_lib_rs_is_counted`) rather than against this
+  repository's current arrangement.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header divergence, #26 mcp leaf trim, #34 spec numbers guard, #32 audit volumes distill, #35 false §12 cite, #36/#37/#38 interop.
 - [ ] Features: #63 smart navigation (type any sefer+location, in Hebrew/English/phonetic, navigate or source-sheet), #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.
 - [ ] Perf: #53 (above), #15 pane walks, #14 batched linkWords, #12 degraded-ocr dup, #11 (closed — verify).
