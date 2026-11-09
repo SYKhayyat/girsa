@@ -7,12 +7,14 @@
 // # Why this exists
 //
 // `app/src/api.ts` opens with a sentence — *"Every function here is one Tauri
-// command"* — and nothing checked it. There are three lists of the same thing:
-// the `#[tauri::command]` declarations in `app/src-tauri/src/lib.rs`, the
-// `tauri::generate_handler![…]` list that registers them, and the `call<T>("…")`
-// sites in `app/src/api.ts` that reach them. They agree today (138 / 138 / 138),
-// which is why nobody has had to notice, and they are kept in step by the fact
-// that every rename so far was done by someone who remembered all three.
+// command"* — and nothing checked it. There are four lists of the same thing:
+// the `#[tauri::command]` declarations under `app/src-tauri/src/` (one file
+// `lib.rs` until #68 began splitting it, so this reads the whole directory),
+// the `tauri::generate_handler![…]` list that registers them, the
+// `call<T>("…")` sites in `app/src/api.ts` that reach them, and the browser
+// shim's `case "…"` labels. They agree today (139 / 139 / 139 / 87), which is
+// why nobody has had to notice, and they are kept in step by the fact that every
+// rename so far was done by someone who remembered all of them.
 //
 // That is the same shape as the shortcut card and the Ksav fixture: an artifact
 // that is correct because a person was careful, and that no program reads. Both
@@ -35,15 +37,16 @@
 // report it. `tools/mutation.mjs` does this by recompiling a crate; this needs
 // no compiler, so it can live in the gate's own step.
 
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 
-/** Where the three lists live. */
+/** Where the lists live. */
 const SHELL = "app/src-tauri/src/lib.rs";
+const SHELL_DIR = "app/src-tauri/src";
 const WINDOW = "app/src/api.ts";
 
 /** A command name, as both sides spell it. */
@@ -55,12 +58,14 @@ const NAME = /^[a-z][a-z0-9_]*$/;
  * The attribute carries `(async)` on every command in this file — see the
  * module doc in `lib.rs` for why — so the match is on the attribute's start and
  * not on its closing bracket. `pub` and `async` are both optional, because the
- * two exceptions (`copy`, `sefer_sheet`) are plain `fn`.
+ * two exceptions (`copy`, `sefer_sheet`) are plain `fn`; `pub` may be qualified
+ * (`pub(crate)`, which is what a command in `commands/` uses), because a plain
+ * `pub` at the crate root is not the only way to make one reachable.
  */
 function declaredIn(shell) {
   const found = [];
   for (const m of shell.matchAll(
-    /#\[tauri::command[^\]]*\]\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-z0-9_]+)/g,
+    /#\[tauri::command[^\]]*\]\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-z0-9_]+)/g,
   )) {
     found.push(m[1]);
   }
@@ -128,10 +133,34 @@ function devCasedIn(window) {
   return [...window.matchAll(/case\s+"([a-z0-9_]+)"/g)].map((m) => m[1]);
 }
 
+/**
+ * Every Rust file the shell is made of.
+ *
+ * `lib.rs` alone until #68 started moving domains into `commands/`, and the
+ * whole directory now — because a declaration that moves out of `lib.rs` while
+ * this tool kept reading one file would look exactly like a command that had
+ * been deleted, and the report would be right about the file and wrong about
+ * the tree.
+ */
+async function shellSources() {
+  const found = [];
+  const walk = async (dir) => {
+    for (const entry of await readdir(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) await walk(rel);
+      else if (entry.name.endsWith(".rs")) found.push(rel);
+    }
+  };
+  await walk(SHELL_DIR);
+  found.sort();
+  const texts = await Promise.all(found.map((rel) => readFile(path.join(ROOT, rel), "utf8")));
+  return { files: found, text: texts.join("\n") };
+}
+
 /** The four lists, once, from source text. */
-function surface(shell, window) {
+function surface(shell, window, declaredText = shell) {
   return {
-    declared: declaredIn(shell),
+    declared: declaredIn(declaredText),
     registered: registeredIn(shell),
     called: calledIn(window),
     devCased: devCasedIn(window),
@@ -177,7 +206,7 @@ function drift({ declared, registered, called, devCased }) {
 
 function say(s) {
   const source = {
-    declared: SHELL,
+    declared: `${SHELL_DIR}/**/*.rs`,
     registered: "tauri::generate_handler![]",
     called: WINDOW,
     "dev cases": `${WINDOW}, public/dev/ fixtures`,
@@ -196,7 +225,8 @@ function say(s) {
 /** Every line that names a command, so a rename is mechanical rather than remembered. */
 async function where(name) {
   if (!NAME.test(name)) throw new Error(`--where takes a command name, not ${name}`);
-  const files = [SHELL, WINDOW, "app/src/main.ts"];
+  const sources = await shellSources();
+  const files = [sources.files, WINDOW, "app/src/main.ts"].flat();
   let found = 0;
   for (const rel of files) {
     let text;
@@ -266,10 +296,11 @@ async function selfTest(shell, window) {
   return escaped === 0 && clean.length === 0;
 }
 
-const [shell, window] = await Promise.all([
-  readFile(path.join(ROOT, SHELL), "utf8"),
+const [sources, window] = await Promise.all([
+  shellSources(),
   readFile(path.join(ROOT, WINDOW), "utf8"),
 ]);
+const shell = sources.text;
 
 if (process.argv.includes("--self-test")) {
   process.exit((await selfTest(shell, window)) ? 0 : 1);

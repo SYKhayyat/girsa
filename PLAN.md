@@ -64,6 +64,9 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
 - [ ] #2 search recall/pagination/identity bundle (split per sub-item), #3 stale races/blocking, #7 validation consistency.
 - [ ] #59 merge drops unserializable, #58 negative-cache poison, #57 anchor substring-match.
 - [ ] #62 unbounded regex bound, #60 SegmentStore O(n), #61 (closed — verify), #53 (above).
+- [ ] #73 the ≥95% resolution promise is measured by hand and never by the gate: record
+  the number, report it in `tools/verify.mjs` even when `corpus/` is absent, and keep a
+  small corpus-free table that pins "never a wrong sefer". (Medium)
 
 ## Phase 4 — Docs/process + features (Low/Info)
 - [ ] #68 the command layer is one 6,914-line file with `api.ts` as its twin: split
@@ -76,8 +79,21 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   whole `app/src-tauri/src/` tree, and the rule is tested against a temporary
   tree (`a_command_declared_outside_lib_rs_is_counted`) rather than against this
   repository's current arrangement.
+- [x] #69 the lexicon holds Sefaria's spellings, not the reader's: `brachos`,
+  `rambam hilchos teshuva`, `mishnayos peah`, `shulchan aruch orech chaim` all
+  come back unresolved against the shipped `corpus/lexicon.tsv` (measured, #63).
+  **Landed** in `girsa_corpus::lexicon::reader_spellings`, applied by
+  `build-lexicon` rather than to the shipped file: substitutions to a fixed
+  point plus the Rambam prefix, with a negative test that `Bava Basra` makes
+  nothing.
+- [ ] #74 nav asks the wrong questions twice: `סימן א` is "nothing matched" because
+  `bare_place` only reads ASCII, and one ambiguous member turns a whole list into
+  "nothing matched" — a refusal that is untrue. (Low)
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header divergence, #26 mcp leaf trim, #34 spec numbers guard, #32 audit volumes distill, #35 false §12 cite, #36/#37/#38 interop.
-- [ ] Features: #63 smart navigation (type any sefer+location, in Hebrew/English/phonetic, navigate or source-sheet), #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.
+- [ ] Features: #63 smart navigation (**the reading half has landed** —
+  `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,
+  and the guard that stops a comma-separated pair from becoming one fabricated
+  address; what is left is the input element and the source-sheet assembly) #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.
 - [ ] Perf: #53 (above), #15 pane walks, #14 batched linkWords, #12 degraded-ocr dup, #11 (closed — verify).
 
 ## Routing rule for new issues
