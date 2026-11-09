@@ -1659,7 +1659,7 @@ fn undraw_link(server: &mut Server, args: &Value) -> Result<Value, String> {
             format!("you have not drawn a link from {from} to {to} — `links` shows what is there")
         })?;
     let held = drawn.edge.edge_type;
-    if !girsa_link::touching::type_named(&asked).is_some_and(|named| named == held) {
+    if girsa_link::touching::type_named(&asked).is_none_or(|named| named != held) {
         // Which type it *is* stays unsaid, for the reason `forget_note` gives.
         return Err(format!(
             "the link from {from} to {to} is not a {asked} — `links` says what it is"

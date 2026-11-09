@@ -1,7 +1,7 @@
 # PLAN — girsa (work top to bottom, one issue per worker session)
 
 Worker loop: top unchecked item only, fix + resolving test, commit, check off, stop.
-Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61, #43, #55, #56
+Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42, #61, #43, #55, #56
 (the Girsa half; the Source-Packet half is #64 and needs a sefer-crates semver break).
 
 ## SKIP
@@ -15,7 +15,21 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61,
   against the text you have corrected, a pin with no words to be found again by,
   and a pin's offsets placed on a piece of a cut parent that does not hold them.
   `span_on` asks `Standing` and takes the printed text as well as the drawn one.
-- [ ] #28 Rust↔TS command boundary generator/cross-check (unblocks safe renames). (Medium)
+- [x] #28 Rust↔TS command boundary generator/cross-check (unblocks safe renames). (Medium)
+  Landed 2026-11-08: `tools/commands.mjs` reads the four lists of the same surface
+  — the `#[tauri::command]` declarations in `lib.rs`, the `generate_handler![…]`
+  registration, the `call<>(…)` sites in `app/src/api.ts`, and the browser shim's
+  87 `case "…"` labels — and fails on any disagreement, in either direction, plus
+  a duplicate in any of them. They agree today (138 / 138 / 138); nothing checked
+  that they did. `--self-test` breaks each list in memory and demands the check
+  notice (4/4), so the gate step cannot pass vacuously. `--where <name>` prints
+  every site a rename has to touch — 9 for `recent`, including the dev-fixture
+  `case` that a shell-only rename would leave behind and that no compiler sees.
+  In the gate (`tools/verify.mjs`, two steps) and in the rust job's CI steps.
+  Three prose counts had already drifted past the file they described — the
+  module doc said "the twelve commands", `ci.yml` said "5,018 lines and all 100
+  tauri commands", against 138 in a 6,914-line file — so the numbers are out of
+  the prose and the tool prints them.
 - [ ] #33 resolving test for spec §N / W-needs citations (unblocks #35-class rot). (Low)
 - [ ] #64 the same disease one layer up: a Source Packet carries `Range` as bare
   character offsets and no words, so `/quote` regenerates **different** words
@@ -52,6 +66,10 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61,
 - [ ] #62 unbounded regex bound, #60 SegmentStore O(n), #61 (closed — verify), #53 (above).
 
 ## Phase 4 — Docs/process + features (Low/Info)
+- [ ] #68 the command layer is one 6,914-line file with `api.ts` as its twin: split
+  into `app/src-tauri/src/commands/` domain modules, **one domain per commit**,
+  pure movement, `node tools/commands.mjs` green after every one (#28 pins the
+  surface, so the split can be verified rather than trusted). (Medium)
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header divergence, #26 mcp leaf trim, #34 spec numbers guard, #32 audit volumes distill, #35 false §12 cite, #36/#37/#38 interop.
 - [ ] Features: #63 smart navigation (type any sefer+location, in Hebrew/English/phonetic, navigate or source-sheet), #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.
 - [ ] Perf: #53 (above), #15 pane walks, #14 batched linkWords, #12 degraded-ocr dup, #11 (closed — verify).
