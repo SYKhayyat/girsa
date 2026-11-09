@@ -69,7 +69,12 @@ set_marked() {
 # Nothing caught it because a generator is only run when a number moves, and
 # the numbers that moved since — the two line counts — are spelled the same way
 # on both sides. Two lists again, one of them nobody edits.
-set_marked commands       "$(grep -cE '^[[:space:]]*#\[tauri::command' app/src-tauri/src/lib.rs)"
+# The **directory**, not one file. #68 began moving commands out of `lib.rs`, and
+# `grep` over that file alone would have counted 138 while the tree had 139 — the
+# same shape as the paragraph above, one split later (#72).
+set_marked commands       "$(find app/src-tauri/src -name '*.rs' -print0 \
+                             | xargs -0 grep -hcE '^[[:space:]]*#\[tauri::command' \
+                             | awk '{n += $1} END {print n + 0}')"
 set_marked shell-lines    "$(wc -l < app/src-tauri/src/lib.rs)"
 # `*/Cargo.toml`, which is what the test counts: a directory under `crates/`
 # with no manifest in it is not a crate, and the two halves should not be able
