@@ -1,7 +1,7 @@
 # PLAN — girsa (work top to bottom, one issue per worker session)
 
 Worker loop: top unchecked item only, fix + resolving test, commit, check off, stop.
-Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61, #43, #55, #56
+Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42, #61, #43, #55, #56
 (the Girsa half; the Source-Packet half is #64 and needs a sefer-crates semver break).
 
 ## SKIP
@@ -15,7 +15,21 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #39, #41, #42, #61,
   against the text you have corrected, a pin with no words to be found again by,
   and a pin's offsets placed on a piece of a cut parent that does not hold them.
   `span_on` asks `Standing` and takes the printed text as well as the drawn one.
-- [ ] #28 Rust↔TS command boundary generator/cross-check (unblocks safe renames). (Medium)
+- [x] #28 Rust↔TS command boundary generator/cross-check (unblocks safe renames). (Medium)
+  Landed 2026-11-08: `tools/commands.mjs` reads the four lists of the same surface
+  — the `#[tauri::command]` declarations in `lib.rs`, the `generate_handler![…]`
+  registration, the `call<>(…)` sites in `app/src/api.ts`, and the browser shim's
+  87 `case "…"` labels — and fails on any disagreement, in either direction, plus
+  a duplicate in any of them. They agree today (138 / 138 / 138); nothing checked
+  that they did. `--self-test` breaks each list in memory and demands the check
+  notice (4/4), so the gate step cannot pass vacuously. `--where <name>` prints
+  every site a rename has to touch — 9 for `recent`, including the dev-fixture
+  `case` that a shell-only rename would leave behind and that no compiler sees.
+  In the gate (`tools/verify.mjs`, two steps) and in the rust job's CI steps.
+  Three prose counts had already drifted past the file they described — the
+  module doc said "the twelve commands", `ci.yml` said "5,018 lines and all 100
+  tauri commands", against 138 in a 6,916-line file — so the numbers are out of
+  the prose and the tool prints them.
 - [ ] #33 resolving test for spec §N / W-needs citations (unblocks #35-class rot). (Low)
 - [ ] #64 the same disease one layer up: a Source Packet carries `Range` as bare
   character offsets and no words, so `/quote` regenerates **different** words

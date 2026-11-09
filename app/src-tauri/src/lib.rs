@@ -1,4 +1,4 @@
-//! The window, and the twelve commands behind it.
+//! The window, and the commands behind it.
 //!
 //! Everything here is adapter: it holds the open seforim, forwards a question
 //! to [`girsa_app`], and hands back JSON. **Nothing is decided in this crate**

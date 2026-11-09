@@ -104,6 +104,22 @@ jobs:
       - run: cargo fmt -- --check
         working-directory: Girsa
 
+      # The command surface, in three lists that have to agree.
+      #
+      # `api.ts` opens with "Every function here is one Tauri command" and nothing
+      # checked it. The declarations in `lib.rs`, the `generate_handler![…]` list
+      # that registers them, and the `call<>(…)` sites in the window were kept in
+      # step by whoever last renamed something — which is the shape of the
+      # shortcut card and the Ksav fixture, both of which got a gate for exactly
+      # this reason. The self-test runs first: it breaks each list in memory and
+      # demands the check notice, because a check whose failure has never been
+      # observed is a check nobody knows works.
+      - name: The command surface is the same on both sides
+        run: |
+          node tools/commands.mjs --self-test
+          node tools/commands.mjs
+        working-directory: Girsa
+
       # The producer against the consumer, on every push.
       #
       # `Ksav/ksav/engine/tests/from_girsa.rs` asserts a Ksav page against a
@@ -129,7 +145,12 @@ jobs:
         working-directory: Girsa
 
   # The window, which is where the whole Girsa half of the Ksav loop lives:
-  # 5,018 lines and all 100 tauri commands.
+  # every tauri command, and the surface each one is reached by.
+  #
+  # Those counts used to be stated here ("5,018 lines and all 100 tauri
+  # commands") and had drifted to 6,916 and 138 — a number in a comment that
+  # nothing regenerates is a number that is wrong. `tools/commands.mjs` counts
+  # the surface instead, in the step below; this comment names the file.
   #
   # `app/src-tauri` cannot compile until the frontend has been built into
   # `app/dist`, and root `cargo build --all-targets` has to stay green without a

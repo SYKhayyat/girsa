@@ -136,6 +136,19 @@ const GATE = [
   // guard, demand the test fail — is `node tools/mutation.mjs`, run by hand
   // because each mutation recompiles its crate. See docs/coverage.md.
   { lane: "window", at: ".", say: "coverage", run: ["node", "tools/check-coverage.mjs"] },
+  // The command surface: the `#[tauri::command]` declarations, the
+  // `generate_handler!` list that registers them, the `call<>` sites in
+  // `api.ts`, and the browser shim's `case "…"` labels — four lists of the same
+  // 138 names, kept in step until now by whoever last renamed something. Its
+  // own self-test runs as the next step, because a check whose failure has
+  // never been observed is a check nobody knows works.
+  { lane: "window", at: ".", say: "commands", run: ["node", "tools/commands.mjs"] },
+  {
+    lane: "window",
+    at: ".",
+    say: "commands self-test",
+    run: ["node", "tools/commands.mjs", "--self-test"],
+  },
   // The one thing in here that has ever seen a pixel.
   //
   // **Not a vacuous pass.** Eyes exits 0 when it finds no browser, which is
