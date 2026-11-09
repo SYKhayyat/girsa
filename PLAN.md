@@ -64,9 +64,11 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
 - [ ] #2 search recall/pagination/identity bundle (split per sub-item), #3 stale races/blocking, #7 validation consistency.
 - [ ] #59 merge drops unserializable, #58 negative-cache poison, #57 anchor substring-match.
 - [ ] #62 unbounded regex bound, #60 SegmentStore O(n), #61 (closed — verify), #53 (above).
-- [ ] #73 the ≥95% resolution promise is measured by hand and never by the gate: record
-  the number, report it in `tools/verify.mjs` even when `corpus/` is absent, and keep a
-  small corpus-free table that pins "never a wrong sefer". (Medium)
+- [x] #73 the ≥95% resolution promise rested on a number nobody ran. Measured: **99.98%
+  exact, 0.01% ambiguous, 0 unresolved** over 20,000 real Sefaria citations.
+  `tools/resolver.mjs` holds it as a gate step (`--record` to move it) and says out loud
+  when `corpus/` is absent; the corpus-free half that keeps a sefer's name out of an
+  address is `girsa_app::nav`'s `is_a_place`. (Medium)
 
 ## Phase 4 — Docs/process + features (Low/Info)
 - [ ] #68 the command layer is one 6,914-line file with `api.ts` as its twin: split
