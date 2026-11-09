@@ -230,6 +230,21 @@ fn claims(text: &str) -> Vec<(String, usize, String)> {
     found
 }
 
+/// Claims whose measurement needs `corpus/`, which is generated and gitignored.
+///
+/// The value is the program that measures them. `docs/tools.md` may state the
+/// number; this test cannot recompute it from a checkout, so it holds the two
+/// things a checkout *can* prove — that the program exists, and that
+/// `tools/verify.mjs` runs it. A marker outside this list is still refused
+/// outright: "nothing measures it" stays an error, it just stops being the only
+/// thing a corpus-bound measurement can say.
+const MEASURED_ELSEWHERE: &[(&str, &str)] = &[
+    ("resolver-exact", "tools/resolver.mjs"),
+    ("resolver-ambiguous", "tools/resolver.mjs"),
+    ("resolver-unresolved", "tools/resolver.mjs"),
+    ("resolver-citations", "tools/resolver.mjs"),
+];
+
 #[test]
 fn every_marked_number_in_the_documentation_is_what_the_tree_measures() {
     let root = repo();
@@ -249,6 +264,26 @@ fn every_marked_number_in_the_documentation_is_what_the_tree_measures() {
         );
         seen += marked.len();
         for (name, claimed, line) in &marked {
+            // A claim measured by a program that needs the corpus is still a
+            // claim with a measurer — but that program cannot run here, so what
+            // this test can hold is that the program exists and that the gate
+            // runs it. Anything else marked is a number pretending to be
+            // measured (#73).
+            if let Some((_, tool)) = MEASURED_ELSEWHERE
+                .iter()
+                .find(|(mark, _)| *mark == name.as_str())
+            {
+                assert!(
+                    root.join(tool).is_file(),
+                    "`{name}` is measured by {tool}, and there is no {tool}"
+                );
+                assert!(
+                    read(&root.join("tools/verify.mjs")).contains(tool),
+                    "`{name}` is measured by {tool}, and the gate does not run it — a \
+                     measurement nothing runs is the claim this test refuses"
+                );
+                continue;
+            }
             let Some(measured) = known.get(name.as_str()) else {
                 wrong.push(format!(
                     "`{name}` is marked in {page} and nothing measures it — add it to \

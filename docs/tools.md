@@ -185,6 +185,17 @@ cargo run --release -p girsa-search --example measure-branch-citations  corpus  
 cargo run --release -p girsa-app    --example mishnah-table  corpus   # the Mishnah Yomis table, counted rather than typed
 ```
 
+`measure-resolver` is the one that answers a **promise** rather than a question.
+BUILDER.md W3 asks for ≥95% exact resolution over a corpus of real citations, and
+this is where that stands: **99.98**<!--=resolver-exact-->% exact,
+**0.01**<!--=resolver-ambiguous-->% ambiguous and
+**0.00**<!--=resolver-unresolved-->% unresolved over
+**20,000**<!--=resolver-citations--> sampled citations from Sefaria's own
+`links*.csv`. `node tools/resolver.mjs` re-measures it and fails on a regression;
+`--record` writes the numbers back here. Where `corpus/` is absent — every CI run,
+since it is generated and gitignored — it prints what was last recorded and says
+out loud that it did not measure, rather than passing quietly (#73).
+
 `mishnah-table` is the odd one out: it prints Rust rather than a number, and
 what it prints is `luach::MISHNAYOS` — 63 masechtos and the mishnah count of
 each of their perakim. Run it when the corpus changes and paste the output over

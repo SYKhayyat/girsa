@@ -149,6 +149,14 @@ const GATE = [
     say: "commands self-test",
     run: ["node", "tools/commands.mjs", "--self-test"],
   },
+  // The number BUILDER.md W3 promises, measured rather than remembered (#73).
+  //
+  // It needs `corpus/`, which is generated and gitignored, so on a machine
+  // without it this step prints what was last recorded in `docs/tools.md` and
+  // says plainly that it did not measure. That is the honest half of a check
+  // whose subject is not in the checkout — and it is the half that would have
+  // caught a lexicon change moving the figure, which #69 was.
+  { lane: "cargo", at: ".", say: "resolver", run: ["node", "tools/resolver.mjs"] },
   // The one thing in here that has ever seen a pixel.
   //
   // **Not a vacuous pass.** Eyes exits 0 when it finds no browser, which is
