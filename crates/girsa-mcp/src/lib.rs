@@ -1,6 +1,10 @@
 //! The library, answering a program instead of a person.
 //!
-//! spec.md §12 and BUILDER.md W28: *MCP on both ends.* This is Girsa's end — a
+//! BUILDER.md W28 and `spec.md` §15's **M8**: *MCP on both ends.* (The citation
+//! here read `spec.md §12` until 9 November 2026 and §12 is **Architecture**,
+//! which does not mention MCP once — a true sentence with a false address,
+//! which is what this repository is about. `a_citation_names_something_that_is_there.rs`
+//! holds the address now.) This is Girsa's end — a
 //! Model Context Protocol server over stdio, so an agent can search the corpus,
 //! read a segment, resolve a citation, follow the link graph and trace a
 //! transmission chain.

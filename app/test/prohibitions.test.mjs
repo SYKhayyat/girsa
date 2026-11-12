@@ -220,7 +220,7 @@ const RULES = [
     ],
   },
   {
-    // dup §1.2 / §1 #12 — the class, stated in
+    // The writer rule's own class, one sweep wider, stated in
     // `the_rules_this_repository_wrote_down.rs:912`: **the writer both
     // applications compile is `girsa_ksav::to_ksav`; a second one here would
     // pass a `contains` for years and produce documents that differ.** That

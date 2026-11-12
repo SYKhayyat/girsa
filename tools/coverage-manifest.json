@@ -100,7 +100,7 @@
       "name": "girsa-app",
       "what": "the library the shell calls: sending, held, workspace, luach, view, arrangement, session",
       "tests": ["crates/girsa-app/tests"],
-      "note": "22 integration files, including the gates that read the whole tree"
+      "note": "twenty-four integration files, including the gates that read the whole tree"
     },
     {
       "name": "girsa-export",
@@ -266,6 +266,19 @@
       },
       "crate": "girsa-link",
       "why": "#56 proposed skipping a row that will not parse. A row names the byte range the edges landing on one place live in, so skipping it makes the index answer with *fewer* edges than the gate \u2014 and it is the fast path, so nothing notices. That breaks the only property licensing a second read path: it may differ in speed and may not differ in answers. A mutation that skips instead of refusing must be caught, because this is the shape the proposal would have taken."
+    },
+    {
+      "name": "A citation resolves against the document it names",
+      "source": "spec.md",
+      "find": "### 9.4 Morphology \u2014 deliberately deferred",
+      "replace": "### 9.4a Morphology \u2014 deliberately deferred",
+      "test": {
+        "file": "crates/girsa-app/tests/a_citation_names_something_that_is_there.rs",
+        "fn": "every_section_a_comment_cites_is_a_section",
+        "keyword": "\u00a79.4"
+      },
+      "crate": "girsa-app",
+      "why": "lamdan item 11: §9.4 is cited from the search crate, the ladder and the shell, and a renumbering is the one edit no compiler sees. The citation reads like a fact for exactly as long as nobody checks it, which is item 13 in the wild."
     }
   ],
   "uncovered": [

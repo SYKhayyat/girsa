@@ -42,7 +42,7 @@ runs.
 | girsa-note | notes, marks, saved queries, two people's layers | one integration file and unit tests |
 | girsa-scan | OCR, paging schemes, anchors, the daf a page is | three integration files and unit tests |
 | girsa-lane | the semantic lane: vectors, signatures, coverage | unit tests in the crate |
-| girsa-app | the library the shell calls: sending, held, workspace, luach, arrangement, session | twenty-two integration files, including the gates that read the whole tree |
+| girsa-app | the library the shell calls: sending, held, workspace, luach, arrangement, session | twenty-four integration files, including the gates that read the whole tree |
 | girsa-export | fixed seforim out to text and word files | one integration file |
 | girsa-nearby | adjacency and what you have not seen | one integration file and unit tests |
 | girsa-desk | the desk: sessions, refreshing, citing, documents | unit tests in the crate |
@@ -64,10 +64,11 @@ runs.
 | A stored range is placed by its words and its Standing | `crates/girsa-corpus/src/span.rs` — `if !at.named_by(&self.at) {` | `a_mark_belonging_to_another_seif_places_nothing` |
 | A broken queue is not an empty queue | `crates/girsa-corpus/src/fetch.rs` — `Err(poisoned) => Err(poisoned.into_inner().len()),` | `a_run_that_stopped_early_is_an_error_and_not_a_complete_one` |
 | A damaged index refuses rather than answering with less | `crates/girsa-link/src/inbound.rs` — `let row: Line = serde_json::from_str(line).map_err(\|_\| Unusable::Row)?;` | `a_corrupt_row_costs_the_reader_nothing_and_is_told_about` |
+| A citation resolves against the document it names | `spec.md` — `### 9.4 Morphology` | `every_section_a_comment_cites_is_a_section` |
 
 `node tools/mutation.mjs --list` prints the exact break each mutation applies,
 and `node tools/mutation.mjs` applies them, one at a time, and demands the
-failure. The nine are the invariants that have a single-line guard; the rest of
+failure. The ten are the invariants that have a single-line guard; the rest of
 the tree is pinned by the suites in the table above and the audit's regression
 tests, which is a different and weaker claim than a mutation run, and this page
 does not pretend otherwise.

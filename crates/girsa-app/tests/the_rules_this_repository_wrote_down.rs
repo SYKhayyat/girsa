@@ -1209,8 +1209,9 @@ fn nothing_below_the_desk_knows_what_ksav_looks_like() {
 
 #[test]
 fn no_store_of_your_own_layer_rewrites_its_file_to_record_one_line() {
-    // The fourth of the four doc comments §19 asked for as a test, and the one
-    // that had no check.
+    // The fourth of the four doc comments the lamdan report asked for as tests
+    // (*"If I could only change four things"*, item 3), and the one that had no
+    // check.
     //
     // Six stores held a `BTreeMap`, and `save()` serialized the whole of it and
     // wrote the file — so correcting the eight thousandth typo wrote eight
@@ -1342,10 +1343,11 @@ fn the_four_rules_this_file_was_asked_for_are_all_here() {
     // Not a source scan — a list, and the one check in this file whose subject
     // is the file itself.
     //
-    // §19 named four doc comments and asked for four tests. Three of them were
-    // written, the fourth was not, and nothing said which — the same shape as
-    // every finding above it. So the four are named here: a rule that loses its
-    // test loses it loudly.
+    // The lamdan report's *"If I could only change four things"* item 3 named
+    // four doc comments and asked for four tests. Three of them were written,
+    // the fourth was not, and nothing said which — the same shape as every
+    // finding above it. So the four are named here: a rule that loses its test
+    // loses it loudly.
     let root = repo();
     let me = std::fs::read_to_string(
         root.join("crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs"),

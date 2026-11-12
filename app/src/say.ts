@@ -664,6 +664,10 @@ const WORDS = {
     "לסידור שעל המסך אין שם, ואין לאן להחזיר אותו",
     "the arrangement on screen has no name, so there is nowhere to put it back",
   ] as Both,
+  codeUnreadable: [
+    "קובץ שהחלון שומר עבורך לא נקרא — הישן נשמר לצדו, והחלון פתח חדש",
+    "a file this window keeps for you would not read — the old one is kept beside it, and the window started a fresh one",
+  ] as Both,
   codeWillNotSerialize: [
     "המקור לא נארז כראוי — העתק שוב, ואם זה חוזר דווח על השורה",
     "the source would not pack — copy again, and if it keeps happening report the line",

@@ -850,6 +850,64 @@ and what the walk refused. See `record/the-chain.md`.*
 
 ---
 
+### W29 · A `.ksav` on the shelf keeps its footnotes, headings, lists and tables
+
+**Recorded after the fact.** This order landed on 29 July 2026 (commit
+`30a346e`) and the section was never written, so four citations in
+`girsa-corpus` pointed at the gap between W28 and W30 — found by the resolving
+test that item 11 of the 30 August lamdan report asked for
+(`crates/girsa-app/tests/a_citation_names_something_that_is_there.rs`). The words
+below are the run's own, since the report it was argued in was a changelog entry
+and is held by `git log` rather than by a tracked file.
+
+Your writing has been a sefer on the shelf since W19, read for its words. Two
+thirds of a real document was not arriving.
+
+`girsa_ksav::to_text` took the commands and their arguments off and kept what
+was between the brackets. Against Ksav's own sample document:
+
+```text
+#כותרת1[מבוא]                  → "מבוא" as body text — not a heading, and so
+                                  not a level of the address either
+#רשימה(פריט[א], פריט[ב])        → nothing at all
+#טבלה(עמודות: 2, תא[א], תא[ב])  → nothing at all
+סוף#הערה[הערת שוליים].          → "סוף הערת שוליים ." — the note spliced into
+                                  the sentence, the full stop orphaned
+```
+
+A list's items and a table's cells live in the command's *arguments*, and
+arguments were skipped because arguments are usually settings. So every list and
+every table of yours was absent from the shelf and from the search, and it did
+not read as a loss — it read as a document that never had a table in it.
+
+**What the order asked for, and what shipped.** `girsa_ksav::read` returns a
+document's blocks and `to_text` is that reading rendered flat — one parser, not
+two. `SegmentKind` gained `note`, `item`, `row` and `quote`, and nothing in the
+corpus from Sefaria or Otzaria has them, so no shipped sefer changes shape.
+`import::mine::from_ksav` makes headings **levels of the address**, the same way
+Otzaria's `<h1>/<h2>/<h3>` are (W7), so a chaburah with chapters is cited as
+`girsa:user/חבורה/ראיות:2#9` and not as line 47; a footnote is its own segment
+right after the line that carried it, with the marker left in that line's words,
+which is the difference between a footnote and an interruption and what makes a
+note searchable, citable and correctable on its own. An editor's note
+(`#הערת_עורך`) is **not** a line of the sefer — it is a remark about the text and
+never part of it, the distinction W20 draws between a correction and a girsa
+variant. The pane draws each kind as itself: a row's cells in columns, an item
+indented by its depth, a note small, a quote against a rule.
+
+*The bug the new reader found in itself, and it is the one worth remembering: a
+content block read **in place** lets a nested block end the paragraph that is the
+command's own words, so a footnote containing a table lost its text and came out
+empty — no marker and no note anywhere. `a_footnote_with_a_table_in_it_is_still_a_footnote`
+is the test that says so.*
+
+**What it does not do, still.** The containment is flat: a list inside an item is
+two items at two depths and not a tree. Nothing writes a `.ksav` back (B23). A
+table has no header row unless it used `כותרת_תא`. A note's own words are not
+linkified, the same gap W27 has.
+
+---
+
 ### W30 · The semantic lane — **shipped**
 
 **Ruled in `spec.md` §16 #20 — build to it, not around it.**
@@ -1717,6 +1775,54 @@ under a heading, above the Acharonim.
 
 ---
 
+### W44b · A code that keeps the order is not a commentary on it
+
+**Recorded after the fact**, like W29 above: this order landed on 31 July 2026
+(commit `7c2411e`, *"W44b, F1/F2/F4: a bool had to mean two things, and threw
+one of them away"*) and had no section here, so `girsa-app/src/mefarshim.rs`
+cited a `W44b` that did not exist.
+
+`is_commentary_on` answered yes or no, so *not a commentary on this sefer* and
+*nothing to do with this sefer* shared the one `false`. Three faults filed
+separately turned out to be that single shape:
+
+- **A rishon filed in Hebrew reached nothing.** `ר חננאל על בראשית` arrives from
+  Otzaria in Otzaria's vocabulary — `["תנך","ראשונים","רבינו חננאל","תורה"]` —
+  and the rule compared `categories` as written, so a Hebrew shelf could never
+  equal an English one. The five Hebrew commentary prefixes join the five
+  English ones and the comparison runs over canonical paths; `shelf_of` and
+  `stands` share the one `canonical_path`, because two would put a sefer on one
+  shelf in the bookcase and judge it by another.
+- **A commentary over a whole division answered `false` to every sefer in it.**
+  Bartenura on Torah declares no base and stands above the whole of Tanakh, so
+  an equality test said no to Bereshis and Tehillim alike and quietly emptied
+  the Chumash of its rishonim. Where the commentary and the base both name a
+  division the shelf settles it; where neither does, the answer is
+  `AskTheEdges` rather than a guess, and the caller — which holds the graph —
+  decides on what the work actually says there.
+- **A code that keeps another code's order was thrown away with the strangers.**
+  The Shulchan Arukh keeps the Tur's order siman for siman and is not a
+  commentary on it; the Arukh HaShulchan does the same to the Shulchan Arukh.
+  None was refused by a decision — they were refused by the shape of their
+  categories.
+
+So the function is `stands`, and it answers `On`, `Alongside`, `Apart` or
+`AskTheEdges`. `Alongside` gets its own set on `Marks`, its own list on the
+command payload and its own group in the picker — `על סדר הספר`, drawn flat under
+an otherwise identical row, because the reader who ticks the Arukh HaShulchan
+wants the marker and the click and not a name in a list. `ticked()` counts both
+groups, or a reader who has ticked the Arukh HaShulchan is told they have ticked
+nobody.
+
+*And the suite gains the half it did not have: every existing test checked that
+nothing **wrong** was offered and none checked that anything **right** was, which
+is how W43's tightening from 40 mefarshim on the Tur down to 5 could have
+over-tightened to 0 with the whole suite green.
+`the_mefarshim_a_person_would_look_for_are_actually_offered` names seforim rather
+than counting them.*
+
+---
+
 ### W45 · A mefaresh is a commentary on **this** sefer
 
 > *"shabbos is put as a mefaresh on shulchan aruch which is absurd. rashi on
@@ -2144,3 +2250,74 @@ Where a claim here has since been overturned, the order above says so — see W3
 | **W15** · the clipboard | One Ctrl+C, three flavours — and the third is written natively, because a webview's custom format is a private encoding no other application can read. Only the highlighted part travels; the ref is a span when the quote is. The citation is `girsa-cite`, compiled into both apps, and **the test is that Girsa reads back what Girsa printed** — which found two defects in `girsa-ref` and fixed them there. Checked in Ksav against a packet Girsa really sent, asserted **on the laid-out page**. |
 | **W30** · the semantic lane | *I remember a Rishon who says something like this but not the words* — **measured, not hoped.** A half-remembered line finds its se'if **in the top 16 of 240 every time, and first 8 times in 10**; a *question* about a se'if reaches the top five once in twelve tries, so the box asks for a line rather than a question. Mean-centring, the standard repair, made it worse and was not built. The model is side-loaded — a picker by default, a fetch button behind a setting that ships off — so the day a better encoder exists it is a setting and not a release. Off is off: the corpus tree is byte-identical before and after, and every answer carries *adjacent — found by meaning rather than by these words* and a sentence saying what is **not** in the index. 4.5 segments/second, resumable, and it never blocks reading. |
 | **W14** · the rest of §9 | The other three modes, the chip row, and the five facets. **A facet row's count is the number clicking it gives you** — the ladder's promise, one section on, asserted for every row of every dimension. On the shelf: `יתגבר כארי` is 79 segments; the rail says `חסידות 26`, and clicking it gives 26. The two instruments the index cannot answer say so by name instead of approximating: a dilug reads letters and a notarikon is four patterns each matching half the vocabulary. |
+
+---
+
+# The orders of 30 July 2026, by number
+
+A `B`-number in a comment is an order from the round of work graded on 30 July
+2026, and it is **not** a `W`-number: a `W` is a build order in this document and
+a `B` is a finding an audit raised, across all three repositories at once
+(Girsa, Ksav, `sefer-crates`). `(B12)` means *the order that said a permanent id
+naming 1.2 MB of text names a volume and not a place*, which is why
+`girsa_corpus::oversized` exists.
+
+The order document itself — `BUILDER-2026-07-30.md` — is not tracked. It was
+committed on 31 July and removed on 6 August, because it was a changelog entry
+wearing a filename; `git show 6a2d158:BUILDER-2026-07-30.md` still has it, and
+the commits that did each order are prefixed `B12:`, `B13:` and so on. That is a
+good record and a bad citation: a comment reading `(B13)` gave a reader nothing to
+open, and nothing in the tree could tell a live number from a dead one. Ninety
+such citations existed.
+
+So the register, which is the whole of what a reader needs and no more — the
+order's own words, and the state this document's tail already narrates for the
+ones that are still open:
+
+| order | what it asked for |
+|---|---|
+| B1 | The live preview is unreadable at 1366×768 |
+| B2 | `התחל ריק` does not start blank |
+| B3 | The first screen shows 6 of 10 templates, and no English one |
+| B4 | Publish the release — a button, not a task |
+| B4a | Girsa spells its sibling's name wrong, in six places |
+| B4b | The desktop app's first screen shows a raw English transport error |
+| B5 | No Ksav diagnostic can name a line, because the type has nowhere to put one |
+| B6 | The timeout says the compile was stopped; the code says it wasn't |
+| B7 | Girsa never says your own writing is not in the index |
+| B8 | `Desk::drop` withdraws the token file and leaves the port bound |
+| B9 | The token file is created world-readable, then chmodded |
+| B10 | The desk caps requests at 1 MB and the client caps responses at nothing |
+| B10a | The gematria ceiling is reachable, on 43,076 real addresses |
+| B11 | Deep links: case-sensitive scheme, lossy decode |
+| B12 | Oversized segments are not counted anywhere |
+| B13 | Girsa has no settings |
+| B14 | The search box has no accessible name; the frontend has no tests |
+| B15 | `girsa-index find` eats an extra argument and its `--help` omits a required one |
+| B16 | `where-from` shows the first 12 words of the segment, not the words around the match |
+| B17 | The browser search panel is silent until you type |
+| B18 | Tags are not a way in |
+| B19 | The transmission chain is a command, not a panel |
+| B20 | Incremental indexing |
+| B21 | Corrections never reach the search index |
+| B22 | The rest of the personal layer |
+| B23 | `.ksav` on the shelf |
+| B24 | MCP, end to end |
+| B25 | The semantic lane and the link facet |
+| B26 | Page setup is app-wide, not per document |
+| B27 | A shared document's own commands compile but do not autocomplete |
+| B28 | `#נוסחה` is the one command that breaks the bracket convention |
+| B29 | The rest of Ksav's stated gaps |
+| B30 | Code signing — money, not engineering |
+| B31 | Two god modules, both of which document their own violation |
+| B32 | Nothing anywhere drives a pointer, and five claims rest on that |
+| B33 | macOS |
+| B34 | Property and model-based tests over the parts that deserve them |
+| B35 | Documentation drift, in the repository whose job is not drifting |
+| B36 | The resources a switcher needs |
+
+A number that is not in this table cannot be cited from a comment: the test that
+holds this is `crates/girsa-app/tests/a_citation_names_something_that_is_there.rs`,
+which also resolves every `spec.md §N` and every `W`-number against the two
+documents themselves. It is the answer to item 11 of the 30 August lamdan report,
+and it found the hole at `W29` on its first run.
