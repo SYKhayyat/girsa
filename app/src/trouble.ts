@@ -184,6 +184,12 @@ const CODED: Record<string, (doing: string) => string> = {
   "not-a-corpus": () => say("codeNotACorpus"),
   "no-sefer": () => say("codeNoSefer"),
   "will-not-open": () => say("codeWillNotOpen"),
+  // A file **this window keeps for the reader** — `session.json`,
+  // `shelf.json` — would not read, and the old one was kept beside it. Its
+  // own name because the sentence is not *this sefer will not open*: it is
+  // *something of yours was kept, and you are starting from a fresh one*,
+  // which is a fact about the window rather than about a sefer (#54).
+  unreadable: () => say("codeUnreadable"),
   poisoned: () => say("codePoisoned"),
   "no-such": (doing) => fill("codeNoSuch", { doing }),
   cycle: () => say("codeShelfLoop"),

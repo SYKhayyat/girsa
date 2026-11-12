@@ -18,6 +18,7 @@ use std::path::Path;
 use girsa_corpus::segment::SegmentId;
 use serde::{Deserialize, Serialize};
 
+use crate::trouble::{refuse, Code};
 use crate::workspace::Workspace;
 
 /// Everything the app remembers.
@@ -551,19 +552,73 @@ pub const SMALLEST_TEXT: u16 = 60;
 pub const LARGEST_TEXT: u16 = 250;
 
 impl Session {
-    /// Read the session back, or start a fresh one.
+    /// Read the session back, or start a fresh one — and say so when the file
+    /// that was there would not read.
     ///
-    /// A file that will not parse gives a **fresh session rather than an
+    /// A file that will not parse still gives a **fresh session rather than an
     /// error**: a preference file the app refuses to start without is a
     /// preference file that will one day stop somebody reading.
+    ///
+    /// # And the half this used to get wrong
+    ///
+    /// It gave a fresh session **and threw away the evidence**. `read_to_string
+    /// ().ok()` cannot tell *there is no file yet* from *there is a file and it
+    /// is damaged*, so both became the default, and the next ordinary write — a
+    /// scroll, a keystroke in a note, anything at all — put that default over
+    /// the reader's tabs, their positions in every sefer and every choice they
+    /// had made. The loss was silent twice over: nothing said the file was
+    /// damaged, and nothing said it had been replaced.
+    ///
+    /// So the damaged file is **moved aside** before a default is used, and the
+    /// move is reported. The reader gets a sentence naming the file they can
+    /// still open by hand, the fresh session is written to a new file, and
+    /// nothing is overwritten that was not first read.
     #[must_use]
-    pub fn load(path: &Path) -> Self {
-        let mut session: Self = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|body| serde_json::from_str(&body).ok())
-            .unwrap_or_default();
+    pub fn load(path: &Path) -> (Self, Option<String>) {
+        let body = match std::fs::read_to_string(path) {
+            // No file yet is not a failure. It is the first run, and a sentence
+            // about it would be a lie told to every reader once.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Self::default(), None),
+            // A file that exists and will not be read is the same class as one
+            // that will not parse — and moving it aside is *more* important,
+            // because the reason may be a permission or a torn write that the
+            // next `save` would turn into an empty workspace.
+            Err(e) => {
+                let said = Self::keep_aside(path, &e.to_string());
+                let mut session = Self::default();
+                session.sane();
+                return (session, Some(said));
+            }
+            Ok(body) => body,
+        };
+        let (mut session, noted): (Self, Option<String>) = match serde_json::from_str(&body) {
+            Ok(session) => (session, None),
+            Err(e) => (
+                Self::default(),
+                Some(Self::keep_aside(path, &e.to_string())),
+            ),
+        };
         session.sane();
-        session
+        (session, noted)
+    }
+
+    /// Move a session file that would not read out of the way, and say where it
+    /// went.
+    fn keep_aside(path: &Path, because: &str) -> String {
+        let aside = path.with_extension("json.unreadable");
+        let where_it_went = match std::fs::rename(path, &aside) {
+            Ok(()) => format!("it is at {}", aside.display()),
+            // If it cannot be moved, it is still there and the next save will
+            // overwrite it — which is worth saying rather than rounding off.
+            Err(e) => format!("it could not be moved aside either ({e})"),
+        };
+        refuse(
+            Code::Unreadable,
+            format!(
+                "your session file would not read ({because}) — {where_it_went}, and a fresh \
+                 workspace is being shown"
+            ),
+        )
     }
 
     /// Keep every number in this file inside what it can mean.
@@ -783,7 +838,7 @@ mod tests {
         let path = dir.join("session.json");
         std::fs::write(&path, r#"{"text_size":120}"#).expect("writes");
 
-        let session = Session::load(&path);
+        let session = Session::load(&path).0;
         assert_eq!(session.language, Language::Hebrew);
         assert_eq!(
             session.text_size, 120,
@@ -860,7 +915,7 @@ mod tests {
         session.save(&path).expect("saves");
 
         assert_eq!(
-            Session::load(&path).chosen_for("bavli/berakhot"),
+            Session::load(&path).0.chosen_for("bavli/berakhot"),
             ["bavli/rashi-on-berakhot"]
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -877,7 +932,11 @@ mod tests {
         let path = dir.join("session.json");
         std::fs::write(&path, r#"{"nikud":false,"text_size":120}"#).expect("writes");
 
-        let session = Session::load(&path);
+        let (session, noted) = Session::load(&path);
+        assert!(
+            noted.is_none(),
+            "a session written by an older build is read, not reported"
+        );
         assert_eq!(
             session.pointing,
             Pointing::Plain,
@@ -903,7 +962,7 @@ mod tests {
         session.pointing = Pointing::Nikud;
         session.save(&path).expect("saves");
 
-        assert_eq!(Session::load(&path), session);
+        assert_eq!(Session::load(&path).0, session);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -915,13 +974,75 @@ mod tests {
         let path = dir.join("session.json");
         std::fs::write(&path, "{ this is not json").expect("writes");
 
-        let session = Session::load(&path);
+        let (session, noted) = Session::load(&path);
         assert_eq!(session, Session::default());
         assert_eq!(
             session.pointing,
             Pointing::Full,
             "the default is the sefer as printed, marks and all"
         );
+
+        // The half that was missing (#54): the file is **kept**, not replaced,
+        // and the reader is told where it is. Before this, `load` returned a
+        // default and the next scroll wrote that default over the damaged file,
+        // so the tabs and the positions in them were gone and nothing said so.
+        let kept = path.with_extension("json.unreadable");
+        assert!(
+            kept.is_file(),
+            "the file that would not parse is at {}",
+            kept.display()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&kept).expect("reads"),
+            "{ this is not json",
+            "and it is the reader's own bytes, whole"
+        );
+        let said = noted.expect("the reader is told what happened");
+        assert_eq!(crate::trouble::named(&said), Some(Code::Unreadable));
+        assert!(
+            said.contains(&kept.display().to_string()),
+            "the sentence names the file they can still open: {said}"
+        );
+        assert!(
+            !path.exists(),
+            "and nothing is left where the next save would \
+             replace it without having read it"
+        );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_damaged_session_is_never_written_over_by_the_fresh_one() {
+        // The whole of #54 in one test: a damaged file, a load, an ordinary save
+        // — the save that used to destroy it. The damaged bytes are still on
+        // disk afterwards, and the fresh session went to a new file.
+        let dir = std::env::temp_dir().join("girsa-app-session-not-overwritten");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("session.json");
+        std::fs::write(&path, "{\"workspace\": {truncated").expect("writes");
+
+        let (mut session, noted) = Session::load(&path);
+        assert!(noted.is_some());
+        session.remember(id("bavli/berakhot", 3));
+        session.save(&path).expect("saves");
+
+        assert_eq!(
+            std::fs::read_to_string(path.with_extension("json.unreadable")).expect("reads"),
+            "{\"workspace\": {truncated"
+        );
+        assert_eq!(Session::load(&path).0.positions.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_session_file_yet_is_not_a_complaint() {
+        // The first run. A sentence here would be a lie told to every reader
+        // once, which is how a real notice stops being read.
+        let dir = std::env::temp_dir().join("girsa-app-session-never-written");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (session, noted) = Session::load(&dir.join("session.json"));
+        assert_eq!(session, Session::default());
+        assert!(noted.is_none());
     }
 }

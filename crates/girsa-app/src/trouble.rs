@@ -70,6 +70,18 @@ pub enum Code {
     NoSefer,
     /// It is in the catalogue and the file will not read.
     WillNotOpen,
+    /// A file **this application keeps for the reader** would not read, and the
+    /// old one is kept beside it.
+    ///
+    /// The window's own files — `session.json`, `shelf.json` — are rewritten
+    /// whole on every change, so a file that will not parse and is then written
+    /// over is an evening of a reader's filing replaced by a default, with
+    /// nothing anywhere saying it happened. The rule is the same for all of
+    /// them: move the damaged file aside, start fresh, and say so. Its own name
+    /// because the sentence a reader needs is not *this sefer will not open* —
+    /// it is *something of yours was kept and you are starting from a fresh
+    /// one* — and because the two were arriving as bare English prose.
+    Unreadable,
     /// A lock was poisoned: something panicked while holding the state.
     Poisoned,
     /// A rung, chip, lens or mode that does not exist was asked for.
@@ -141,6 +153,7 @@ girsa_corpus::spelled!(Code {
     NotACorpus => "not-a-corpus",
     NoSefer => "no-sefer",
     WillNotOpen => "will-not-open",
+    Unreadable => "unreadable",
     Poisoned => "poisoned",
     NoSuch => "no-such",
     Cycle => "cycle",

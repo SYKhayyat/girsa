@@ -29,6 +29,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::trouble::{refuse, Code};
+
 /// The top of the shelf, as a parent key.
 pub const TOP: &str = "";
 
@@ -180,7 +182,10 @@ impl Arrangement {
     /// A file that will not parse is **moved aside rather than overwritten** —
     /// [`Self::save`] would otherwise write an empty shelf over an evening of
     /// somebody's filing at the next drag. The returned message is shown in the
-    /// window.
+    /// window, and it carries [`Code::Unreadable`] because it arrived as bare
+    /// English prose at the top of a Hebrew window: the reader was told, in the
+    /// developer's words, that the thing this arrangement exists for had
+    /// happened.
     #[must_use]
     pub fn load(path: &Path) -> (Self, Option<String>) {
         let Ok(body) = std::fs::read_to_string(path) else {
@@ -198,9 +203,12 @@ impl Arrangement {
                 };
                 (
                     Self::default(),
-                    Some(format!(
-                        "your shelf arrangement would not read ({e}) — {where_it_went}, \
-                         and the shipped shelf is being shown"
+                    Some(refuse(
+                        Code::Unreadable,
+                        format!(
+                            "your shelf arrangement would not read ({e}) — {where_it_went}, \
+                             and the shipped shelf is being shown"
+                        ),
                     )),
                 )
             }

@@ -6002,7 +6002,11 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| PathBuf::from("."));
             let session_path = data.join("session.json");
-            let session = Session::load(&session_path);
+            // A session file that would not read is **kept aside and said out
+            // loud** (#54). The sentence goes in `trouble` below, which is what
+            // the top of the window shows; `opened.trouble` wins when the shelf
+            // is missing too, because that is the fact the reader needs first.
+            let (session, session_noted) = Session::load(&session_path);
             let personal = girsa_corpus::roots::personal(&data);
 
             // The one directory of the reader's own disk the window may read:
@@ -6024,7 +6028,7 @@ pub fn run() {
             );
             let Opened {
                 shelf,
-                trouble,
+                trouble: shelf_trouble,
                 timeline,
                 bar,
                 no_search,
@@ -6042,7 +6046,11 @@ pub fn run() {
                     no_search,
                     chips: Chips::default(),
                     here_chips: Chips::default(),
-                    trouble,
+                    // One slot for *what the window has to say before you ask
+                    // it anything*, and the shelf's absence comes first when
+                    // there are two things to say: a reader with no seforim
+                    // needs that sentence, not the one about their tabs.
+                    trouble: shelf_trouble.or(session_noted),
                     personal,
                     session,
                     session_path,
