@@ -1,0 +1,8 @@
+{
+  "title": "tsvei planning",
+  "messages": [
+    { "role": "user", "content": "take all of the tsvei from my obsidian and put it in a db", "created_at": "2026-11-12T09:00:00Z" },
+    { "role": "assistant", "content": [ { "type": "text", "text": "Two tables: verses and turns." } ], "created_at": "2026-11-12T09:00:30Z" },
+    { "role": "assistant", "content": "   ", "created_at": "2026-11-12T09:01:00Z" }
+  ]
+}
