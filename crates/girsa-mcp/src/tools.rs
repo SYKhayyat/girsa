@@ -799,8 +799,7 @@ fn read(server: &Server, args: &Value) -> Result<Value, String> {
         .and_then(Value::as_u64)
         .map_or(0, |n| (n as usize).min(20));
     let open = server
-        .shelf
-        .read(id.work())
+        .sefer(id.work())
         .map_err(|e| format!("cannot open {}: {e}", id.work()))?;
     let nth = open
         .position_of(&id)
@@ -942,8 +941,7 @@ fn links(server: &Server, args: &Value) -> Result<Value, String> {
     // stored under the name its endpoint had when the row was written, and only
     // the work on disk knows whether a corpus update has moved it since.
     let sefer = server
-        .shelf
-        .read(id.work())
+        .sefer(id.work())
         .map_err(|e| format!("{} will not open: {e}", id.work()))?;
     let at = sefer.standing(&id);
     let touching = girsa_app::links::touching(&server.shelf, server.shelf.repairs(), &at);
@@ -1023,8 +1021,7 @@ fn trace(server: &mut Server, args: &Value) -> Result<Value, String> {
     // A work that cannot be read is walked without one, which is the honest
     // no-history answer rather than a fabricated one.
     let standing = server
-        .shelf
-        .read(id.work())
+        .sefer(id.work())
         .map(|open| open.standing(&id))
         .unwrap_or_else(|_| girsa_corpus::standing::Standing::just(id.clone()));
     let walked = chain::trace(&mut graph, &id, direction, limits, Some(&standing));
@@ -1118,8 +1115,7 @@ fn fork(server: &mut Server, args: &Value) -> Result<Value, String> {
         std::mem::take(&mut server.walked),
     );
     let standing = server
-        .shelf
-        .read(id.work())
+        .sefer(id.work())
         .map(|open| open.standing(&id))
         .unwrap_or_else(|_| girsa_corpus::standing::Standing::just(id.clone()));
     let (forks, left_out) = chain::forks(&mut graph, &id, limits_of(args), Some(&standing));
@@ -1280,8 +1276,7 @@ fn marks(server: &Server, args: &Value) -> Result<Value, String> {
                 .map_err(|e| format!("`at` is not a segment id: {e}"))?;
             Some(
                 server
-                    .shelf
-                    .read(id.work())
+                    .sefer(id.work())
                     .map_err(|e| e.to_string())?
                     .standing(&id),
             )
@@ -1334,8 +1329,7 @@ fn folders(server: &Server, args: &Value) -> Result<Value, String> {
                 .map_err(|e| format!("`holding` is not a segment id: {e}"))?;
             Some(
                 server
-                    .shelf
-                    .read(id.work())
+                    .sefer(id.work())
                     .map_err(|e| e.to_string())?
                     .standing(&id),
             )
@@ -1543,7 +1537,7 @@ fn correct(server: &mut Server, args: &Value) -> Result<Value, String> {
     };
     let who = writer(args);
 
-    let sefer = server.shelf().read(at.work()).map_err(|e| e.to_string())?;
+    let sefer = server.sefer(at.work()).map_err(|e| e.to_string())?;
     // `Pointing::Full`: every letter and every nekuda, and the markup out. That
     // is what `read` hands back as `counting`, and the two have to be the same
     // string or the offsets name letters the caller never saw.
@@ -1572,6 +1566,10 @@ fn correct(server: &mut Server, args: &Value) -> Result<Value, String> {
     }
     let was = patch.was.clone();
     server.shelf_mut().fix(patch).map_err(|e| e.to_string())?;
+    // The sefer that was parsed a moment ago still holds the words that were
+    // just corrected. A `read` after this has to see the correction, which is
+    // what the window does by re-reading the sefer after a fix.
+    server.forgot(at.work());
     Ok(json!({
         "corrected": named(server, &at),
         "was": was,
@@ -1696,8 +1694,7 @@ fn uncorrect(server: &mut Server, args: &Value) -> Result<Value, String> {
     // it is in — the shelf knows which works there are and `Open` knows what
     // your layer said about their lines.
     let open = server
-        .shelf()
-        .read(at.work())
+        .sefer(at.work())
         .map_err(|e| format!("cannot open {}: {e}", at.work()))?;
     let corrected = open
         .correction(&at)
@@ -1722,6 +1719,9 @@ fn uncorrect(server: &mut Server, args: &Value) -> Result<Value, String> {
     if !removed {
         return Err(format!("the correction on {at} could not be taken back"));
     }
+    // And the words it was applied to are back under the layer's view of the
+    // sefer — see `forgot` on `correct`.
+    server.forgot(at.work());
     Ok(json!({
         "uncorrected": named(server, &at),
         "no_longer_says": now,

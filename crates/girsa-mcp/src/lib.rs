@@ -41,13 +41,12 @@
 pub mod protocol;
 pub mod tools;
 
-use std::path::{Path, PathBuf};
-
 use girsa_app::Shelf;
 use girsa_corpus::era::Timeline;
 use girsa_search::bar::Bar;
 use girsa_search::facets::Catalogue;
 use girsa_search::index::SearchIndex;
+use std::path::{Path, PathBuf};
 
 use protocol::{Request, Response};
 
@@ -136,6 +135,21 @@ pub struct Server {
     /// [`girsa_link::chain::Graph::resuming`] exists to carry them; this is
     /// where they are carried between calls.
     walked: girsa_link::chain::Cache,
+    /// Seforim already parsed, so a program reading N segments pays for one.
+    ///
+    /// `read` called `Shelf::read` on **every call**, and `Shelf::read` parses
+    /// the work's whole `segments.jsonl` — tens of megabytes for a masechta —
+    /// to serve at most forty-one segments. An agent reading a daf a segment at
+    /// a time re-parsed the sefer a segment at a time (issue #53), which is the
+    /// same defect the window fixed by holding `Arc<Open>`; this is the window's
+    /// answer, [girsa_app::held::Held], reached through the shelf's own read
+    /// rather than a second copy of it.
+    ///
+    /// A `Mutex` and not `&mut self` because every tool that reads is `&Server`
+    /// and only the four that write take `&mut`. A poisoned lock is treated as
+    /// an empty cache — the cost of that is one parse, and refusing a reader
+    /// their sefer over a lock is not an answer this end is allowed to give.
+    open: std::sync::Mutex<girsa_app::held::Held<std::sync::Arc<girsa_app::shelf::Open>>>,
 }
 
 impl Server {
@@ -191,7 +205,62 @@ impl Server {
             ready: false,
             writable: false,
             walked: girsa_link::chain::Cache::default(),
+            open: std::sync::Mutex::new(girsa_app::held::Held::default()),
         })
+    }
+
+    /// One sefer, parsed once.
+    ///
+    /// The first call for a slug pays `Shelf::read`; every later one gets the
+    /// same `Arc`, which is what makes an agent reading a daf forty times cost
+    /// one parse rather than forty (issue #53).
+    ///
+    /// Not `open`, which is already the name of the constructor — and the
+    /// compiler is right about that: one of the two builds a server and the
+    /// other fetches a sefer.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the shelf says: no such sefer, or its files will not read.
+    /// The error is the shelf's own and is not swallowed into a *not found*.
+    pub fn sefer(
+        &self,
+        slug: &str,
+    ) -> Result<std::sync::Arc<girsa_app::shelf::Open>, girsa_app::shelf::ShelfError> {
+        if let Some(here) = self.held(slug) {
+            return Ok(here);
+        }
+        let fresh = std::sync::Arc::new(self.shelf.read(slug)?);
+        if let Ok(mut held) = self.open.lock() {
+            held.put(slug, std::sync::Arc::clone(&fresh));
+        }
+        Ok(fresh)
+    }
+
+    /// The sefer here, if it is here — **without** counting as a use.
+    fn held(&self, slug: &str) -> Option<std::sync::Arc<girsa_app::shelf::Open>> {
+        let held = self.open.lock().ok()?;
+        held.peek(slug).map(std::sync::Arc::clone)
+    }
+
+    /// Forget what was read through this sefer, because a write moved it.
+    ///
+    /// Called by every tool that writes into the personal layer. A correction
+    /// applied to a cached `Open` is a `read` that hands back the words the
+    /// reader has just corrected out of the text — the window's own bug, one
+    /// layer over: the window re-reads after a fix, and this end has to as well.
+    pub fn forgot(&self, slug: &str) {
+        if let Ok(mut held) = self.open.lock() {
+            held.forget(slug);
+        }
+    }
+
+    /// Forget all of them. A `showing` toggle, or anything else that changes
+    /// what a read of *every* sefer would say.
+    pub fn forgot_everything(&self) {
+        if let Ok(mut held) = self.open.lock() {
+            held.clear();
+        }
     }
 
     /// Let a program write into your own layer.
