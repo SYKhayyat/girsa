@@ -323,22 +323,34 @@ impl Citations {
     /// One work's addresses, read back once.
     fn segments_of(&self, slug: &str) -> Option<WorkSegments> {
         let mut known = self.known.lock().ok()?;
-        // The root that holds this work's text, not the root the resolver was
-        // opened at. A sefer of yours resolves out of the same lexicon as a
-        // sefer of Sefaria's and its `segments.jsonl` is somewhere else
-        // entirely — read from the corpus it would come back missing, and a
-        // missing work is reported as *not on the shelf*, which is the one
-        // sentence a sefer sitting on your shelf must never produce.
-        let from = match self.personal.as_deref() {
+        if let Some(found) = known.get(slug) {
+            return found.clone();
+        }
+        let from = self.root_of(slug);
+        // A miss is not a fact. A sefer the reader drops in while this process
+        // is running was *absent a moment ago*, and an answer cached then
+        // would keep reporting it as not on the shelf until a restart — the
+        // negative-cache poison issue #58 is about. Only a work that is really
+        // here is worth remembering, and even then: nothing is held for a slug
+        // that reads as missing or empty.
+        let read = WorkSegments::load(from, slug)
+            .ok()
+            .filter(|w| !w.is_empty())?;
+        known.insert(slug.to_string(), Some(read.clone()));
+        Some(read)
+    }
+
+    /// The root that holds this work's text, not the root the resolver was
+    /// opened at. A sefer of yours resolves out of the same lexicon as a sefer
+    /// of Sefaria's and its `segments.jsonl` is somewhere else entirely — read
+    /// from the corpus it would come back missing, and a missing work is
+    /// reported as *not on the shelf*, which is the one sentence a sefer
+    /// sitting on your shelf must never produce.
+    fn root_of(&self, slug: &str) -> &Path {
+        match self.personal.as_deref() {
             Some(personal) if self.mine.contains(slug) => personal,
             _ => &self.root,
-        };
-        let entry = known.entry(slug.to_string()).or_insert_with(|| {
-            WorkSegments::load(from, slug)
-                .ok()
-                .filter(|w| !w.is_empty())
-        });
-        entry.clone()
+        }
     }
 
     /// The same ref, with a chelek the reader named in Hebrew turned into the
@@ -453,9 +465,16 @@ impl Citations {
         if let Some(found) = self.schemas.lock().ok().and_then(|s| s.get(slug).cloned()) {
             return found;
         }
-        let read = Arc::new(Sections::of_work(&self.root, slug));
-        if let Ok(mut schemas) = self.schemas.lock() {
-            schemas.insert(slug.to_string(), Arc::clone(&read));
+        // Held only when the work is really here. An absent sefer is a sefer
+        // that can be imported while this process is running, and an empty
+        // answer cached then would leave its addresses unnamed until a restart
+        // (issue #58).
+        let there = girsa_corpus::import::work_dir(self.root_of(slug), slug).is_dir();
+        let read = Arc::new(Sections::of_work(self.root_of(slug), slug));
+        if there {
+            if let Ok(mut schemas) = self.schemas.lock() {
+                schemas.insert(slug.to_string(), Arc::clone(&read));
+            }
         }
         read
     }

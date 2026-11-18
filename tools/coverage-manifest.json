@@ -33,6 +33,7 @@
         "crates/girsa-search/tests/a_note_is_searchable_before_the_next_rebuild.rs",
         "crates/girsa-search/tests/a_section_named_like_a_level_word.rs",
         "crates/girsa-search/tests/a_sefer_of_yours_is_citable.rs",
+        "crates/girsa-search/tests/a_sefer_that_arrives_later_is_readable.rs",
         "crates/girsa-search/tests/a_typo_you_fixed_is_findable_by_the_word.rs",
         "crates/girsa-search/tests/narrow_on_the_second_try.rs",
         "crates/girsa-search/tests/offered_not_applied.rs",
@@ -100,7 +101,7 @@
       "name": "girsa-app",
       "what": "the library the shell calls: sending, held, workspace, luach, view, arrangement, session",
       "tests": ["crates/girsa-app/tests"],
-      "note": "twenty-four integration files, including the gates that read the whole tree"
+      "note": "twenty-five integration files, including the gates that read the whole tree"
     },
     {
       "name": "girsa-export",

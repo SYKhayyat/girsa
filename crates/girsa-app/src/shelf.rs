@@ -871,15 +871,20 @@ impl Shelf {
         {
             return found;
         }
-        let read = self
-            .work(slug)
-            .map(|work| {
-                Open::new(work.clone(), Vec::new())
-                    .with_sections_from(self.root_of(work))
-                    .sections
-            })
-            .unwrap_or_default();
-        let read = std::sync::Arc::new(read);
+        // **A name this shelf does not have is not held.** This shelf grows:
+        // `add_mine` and `write_note` put a sefer on it in the middle of a
+        // session, which is the whole point of them. An empty answer cached for
+        // the slug before the file arrived would keep the margin of that sefer
+        // unnamed until a restart, and it is the sefer the reader just added
+        // and is looking at (issue #58).
+        let Some(work) = self.work(slug).cloned() else {
+            return std::sync::Arc::new(Sections::default());
+        };
+        let read = std::sync::Arc::new(
+            Open::new(work.clone(), Vec::new())
+                .with_sections_from(self.root_of(&work))
+                .sections,
+        );
         if let Ok(mut held) = self.sections.lock() {
             held.insert(slug.to_string(), std::sync::Arc::clone(&read));
         }
