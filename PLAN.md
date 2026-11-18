@@ -88,8 +88,11 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   so a sweep of a sefer was quadratic: twice the sefer cost 4.1× the sweep. The
   order is kept beside the map now, and `resolve_into` carries a visited set so a
   redirect diamond is walked once per id rather than once per path.
-- [ ] #62 unbounded regex bound, #61 (closed 2026-09-09 — verify), #53 (landed,
-  above).
+- [x] #62 unbounded regex bound — `378c781`. `Query::parse` checked what a pattern
+  said and never how much of it there was; `MOST_PATTERNS` (16) and
+  `MOST_PATTERN_CHARS` (200) are refused rather than trimmed, and the automaton
+  size limit that is tantivy's is named in the module docs so nobody hunts for it.
+- [ ] #61 (closed 2026-09-09 — verify), #53 (landed, above).
 - [x] #77 correcting a typo on a corrected sefer cost 5x what it costs on an
   empty one, and half of that was work done twice. Landed 2026-11-18 in
   `1b59fbd`: `replay` asked every line whether it was a tombstone, parsing it
