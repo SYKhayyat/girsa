@@ -603,7 +603,15 @@ impl Layer {
     /// correction onto different letters. See [`Corrected`].
     #[must_use]
     pub fn apply(&self, segment: &SegmentId, base: &str, showing: Showing) -> Corrected {
-        self.applying(self.on(segment).iter().collect(), base, showing)
+        // Borrowed, not collected: `applying` sorts into its own vector of
+        // placed patches anyway, and this ran for **every segment of the
+        // work** — 18,120 heap allocations per read of a corrected sefer, for
+        // an empty list on nearly all of them (issue #77).
+        let patches = self.on(segment);
+        if patches.is_empty() {
+            return Corrected::unchanged(base);
+        }
+        self.applying(patches.iter(), base, showing)
     }
 
     /// The same, for a place under every name it has carried — see [`Layer::at`].
@@ -613,13 +621,19 @@ impl Layer {
     /// path and silently wrong the day upstream re-segments a work.
     #[must_use]
     pub fn apply_at(&self, at: &Standing, base: &str, showing: Showing) -> Corrected {
-        self.applying(self.at(at), base, showing)
-    }
-
-    fn applying(&self, patches: Vec<&Patch>, base: &str, showing: Showing) -> Corrected {
+        let patches = self.at(at);
         if patches.is_empty() {
             return Corrected::unchanged(base);
         }
+        self.applying(patches.into_iter(), base, showing)
+    }
+
+    fn applying<'a>(
+        &self,
+        patches: impl Iterator<Item = &'a Patch>,
+        base: &str,
+        showing: Showing,
+    ) -> Corrected {
         let letters: Vec<char> = base.chars().collect();
 
         // Where each patch actually lands now, and whether it had to move.

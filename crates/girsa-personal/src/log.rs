@@ -57,7 +57,23 @@ struct Gone {
 /// them — a deletion is not a thing to be indexed.
 #[must_use]
 pub fn is_tombstone(line: &str) -> bool {
-    serde_json::from_str::<Gone>(line).is_ok()
+    may_be_a_tombstone(line) && serde_json::from_str::<Gone>(line).is_ok()
+}
+
+/// Whether a line could possibly parse as a tombstone.
+///
+/// A tombstone is `{"gone":"…"}` and nothing else — [`Gone`] refuses any other
+/// field — so a line that does not contain the bytes `"gone"` cannot be one,
+/// and a line that contains a `\u` escape might spell the key some other way
+/// and is parsed to find out. This is a filter and **not** an answer: what
+/// comes back true still has to be parsed, and the parse still decides.
+///
+/// It exists because replay asked the full question of every line, and the
+/// question is a deserialisation of the whole record to find out that it is
+/// not a two-field object (issue #77).
+#[must_use]
+fn may_be_a_tombstone(line: &str) -> bool {
+    line.contains("\"gone\"") || line.contains("\\u")
 }
 
 /// The one field a caller counting *what has changed since* needs.
@@ -269,9 +285,16 @@ pub fn replay<T: DeserializeOwned>(
             continue;
         }
         live.lines += 1;
-        if let Ok(stone) = serde_json::from_str::<Gone>(line) {
-            held.remove(&stone.gone);
-            continue;
+        // Asked before it is parsed, because the answer is nearly always no
+        // and the parse is the whole line. A layer of sixteen thousand
+        // corrections parsed every one of them twice — once as a `Gone` that
+        // could not match, once as the record — and the first parse was 105 ms
+        // of the 300 ms it took to open (issue #77).
+        if may_be_a_tombstone(line) {
+            if let Ok(stone) = serde_json::from_str::<Gone>(line) {
+                held.remove(&stone.gone);
+                continue;
+            }
         }
         match serde_json::from_str::<T>(line) {
             Ok(record) => {
@@ -672,6 +695,26 @@ mod tests {
         assert_eq!(read(&log), Vec::new());
         log.append(&thing("a", "risen")).unwrap();
         assert_eq!(read(&log), vec![thing("a", "risen")]);
+    }
+
+    #[test]
+    fn a_tombstone_is_found_however_the_line_was_spelled() {
+        // The replay asks `may_be_a_tombstone` before it parses, and a filter
+        // that answers no to a real tombstone would leave the record it
+        // deleted alive — silently, and in the direction that un-corrects a
+        // sefer. So the two spellings a human or another tool writes are run:
+        // spaces around the colon, and a key written as a `\u` escape.
+        let path = scratch("spelled-tombstones");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "{\"id\":\"a\",\"says\":\"one\"}\n\
+             { \"gone\" : \"a\" }\n\
+             {\"id\":\"b\",\"says\":\"two\"}\n\
+             {\"g\\u006fne\":\"b\"}\n",
+        )
+        .unwrap();
+        assert_eq!(read(&Log::at(path)), Vec::new());
     }
 
     #[test]

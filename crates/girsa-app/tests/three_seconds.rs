@@ -42,6 +42,15 @@
 //! sixteen years at three typos a day. The layer is an append-only log now
 //! (`girsa-personal`), and what is left of the slope is reading your corrections
 //! in order to apply them, which no design gets out of.
+//!
+//! # And why there are four sizes at the top
+//!
+//! Because at sixteen thousand the empty layer is not a fair other end of a
+//! ratio: two fixed costs — replaying a 2.9 MB layer and applying sixteen
+//! thousand patches — are on one side and not the other, and the ratio they
+//! produce moves by a factor of two between two runs on the same machine. So the
+//! top measurement is a *doubling*: eight thousand corrections against sixteen,
+//! where the fixed costs are on both ends. See [`ALLOWED_DOUBLING`].
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -90,7 +99,44 @@ const BUDGET: Duration = Duration::from_secs(3);
 /// **That argument holds for a busy machine and not for a fast one**, which is
 /// half of it and was the whole of it until a macOS runner said otherwise. See
 /// [`MEASURABLE`], which is the other half and the condition on this one.
+///
+/// It is asserted at **a thousand** corrections, where the two ends are close
+/// enough that the fixed costs divide out. At sixteen thousand it is not: see
+/// [`ALLOWED_DOUBLING`].
 const ALLOWED_SLOPE: u32 = 6;
+
+/// How much slower correcting a typo may get when the layer **doubles**.
+///
+/// # Why the empty baseline stops working at this size
+///
+/// The ratio above asks *how much dearer is a correction once there are
+/// corrections*, and the answer at sixteen thousand on this machine is five to
+/// seven times — against an allowance of six, so it went red in `cargo test`
+/// and green when the same file ran alone (issue #77). Nothing in it is a
+/// measurement of the code: the empty end is 200 ms of reading a sefer off a
+/// disk, and 200 ms of a machine doing nothing else, and the ratio moved by a
+/// factor of two between two runs a minute apart.
+///
+/// The reason is that the two ends are not the same measurement scaled, which
+/// is the same argument [`MEASURABLE`] makes about a fast machine. At sixteen
+/// thousand corrections two *fixed* costs join the corrected end and not the
+/// empty one: replaying a 2.9 MB layer at `Shelf::open`, and applying sixteen
+/// thousand patches in `Open::corrected_by`. Both are real and both are linear
+/// in the layer — and neither is the thing this file is here to catch, which is
+/// a layer whose cost per correction **grows with how many you have already
+/// made**: the serialization-in-full design that put the three-second line at
+/// about twenty thousand corrections.
+///
+/// So at sixteen thousand the question is asked the way it can be answered on
+/// any machine: **double the layer and see whether the cost doubles too**. Both
+/// ends carry the same fixed costs, both are measured the same way, the same
+/// minute, and a quadratic layer breaks the ratio by an order of magnitude
+/// rather than by an afternoon of disk weather.
+///
+/// Three, not two, because *linear* is an ideal and the allocator is not: the
+/// 8k end prints 700 ms and the 16k end 1,300 ms on the machine above, which
+/// is 1.9.
+const ALLOWED_DOUBLING: u32 = 3;
 
 /// The baseline below which the ratio above is measuring something else.
 ///
@@ -350,8 +396,9 @@ fn it_is_still_in_the_budget_after_a_year_of_corrections() {
     let made = corrections_already(&root, &personal, &at, 1_000);
     assert!(made > 900, "{made} corrections");
 
-    let (bare, _) = correct_it(&root, &empty, &at[0]);
-    let (took, corrected) = correct_it(&root, &personal, &at[1]);
+    // The fastest of three walks at each end, for the reason in [`best_of`].
+    let (bare, _) = best_of(&root, &empty, &at);
+    let (took, corrected) = best_of(&root, &personal, &at);
     assert_eq!(corrected, "ובו סעיף אחד כל הדבר הזה מוקדם ובשבת");
     println!(
         "{SEGMENTS} segments: {} ms with nothing on the layer, {} ms with {made} corrections",
@@ -370,27 +417,31 @@ fn it_is_still_in_the_budget_with_the_whole_sefer_corrected() {
     // the reading, and getting *here* meant writing 128 million lines to make
     // sixteen thousand corrections — so the test could not have been written,
     // never mind passed.
+    //
+    // Two layers, one twice the size of the other, and the slope is the ratio
+    // between them. See [`ALLOWED_DOUBLING`] for why the empty layer is no
+    // longer the baseline at this size.
     let root = scratch("whole-sefer");
     let at = shelf_with_a_typo(&root);
-    let personal = root.join("personal");
-    // A second layer over the same corpus, so the two ends of the slope are
-    // measured on the same shelf, on the same machine, minutes apart at most.
-    let empty = root.join("personal-empty");
+    let half = root.join("personal-half");
+    let full = root.join("personal");
 
-    let made = corrections_already(&root, &personal, &at, A_LIFETIME);
-    assert!(made >= A_LIFETIME, "{made} corrections");
+    let took_half = corrections_already(&root, &half, &at, A_LIFETIME / 2);
+    let took_full = corrections_already(&root, &full, &at, A_LIFETIME);
+    assert!(took_full >= A_LIFETIME, "{took_full} corrections");
+    assert_eq!(took_half, A_LIFETIME / 2, "the shorter layer is shorter");
 
-    let (bare, _) = correct_it(&root, &empty, &at[0]);
-    let (took, corrected) = correct_it(&root, &personal, &at[1]);
+    let (half_typo, _) = best_of(&root, &half, &at);
+    let (full_typo, corrected) = best_of(&root, &full, &at);
     assert_eq!(corrected, "ובו סעיף אחד כל הדבר הזה מוקדם ובשבת");
     println!(
-        "{SEGMENTS} segments: {} ms with nothing on the layer, {} ms with {made} corrections \
-         ({}%)",
-        bare.as_millis(),
-        took.as_millis(),
-        took.as_millis() * 100 / bare.as_millis().max(1)
+        "{SEGMENTS} segments: {} ms with {took_half} corrections, {} ms with {took_full} \
+         — doubling the layer cost {}%",
+        half_typo.as_millis(),
+        full_typo.as_millis(),
+        full_typo.as_millis() * 100 / half_typo.as_millis().max(1)
     );
-    the_cost_is_not_growing(bare, took, made);
+    the_cost_doubles_with_the_layer(half_typo, full_typo, took_full);
 }
 
 /// The slope and the budget, asserted once so both tests hold the same rule.
@@ -423,6 +474,25 @@ fn the_cost_is_not_growing(bare: Duration, took: Duration, made: usize) {
     assert!(
         took < BUDGET,
         "correcting one typo among {made} took {took:?}, and spec.md §7.5 says three \
+         seconds is the whole interaction — including the reader"
+    );
+}
+
+/// The rule at sixteen thousand: doubling the layer may not do much more than
+/// double the cost.
+///
+/// The budget is the same promise as above and is never skipped. The slope is
+/// the one that can be measured here, and it is [`ALLOWED_DOUBLING`]'s.
+fn the_cost_doubles_with_the_layer(half: Duration, full: Duration, made: usize) {
+    assert!(
+        full <= half * ALLOWED_DOUBLING,
+        "a layer of {made} corrections took {full:?} where half of it took {half:?} — the \
+         cost of a correction is growing faster than the corrections do, which is the failure \
+         spec.md §7.5 is about"
+    );
+    assert!(
+        full < BUDGET,
+        "correcting one typo among {made} took {full:?}, and spec.md §7.5 says three \
          seconds is the whole interaction — including the reader"
     );
 }
