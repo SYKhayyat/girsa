@@ -168,9 +168,10 @@ fn an_empty_commentary_anchor(text: &str, at: usize) -> Option<(Anchor, usize)> 
     }
     let open_end = at + rest.find('>')? + 1;
     let tag = text.get(at..open_end)?;
-    if !tag.contains("data-commentator") {
-        return None;
-    }
+    // Asked by reading the attribute, not by looking for its name in the tag:
+    // `contains` answers yes for a tag that merely *mentions* it — see
+    // [`attribute`], which is the same defect one layer down (issue #57).
+    let commentator = attribute(tag, "data-commentator")?;
     // It must be *empty*: the closing tag immediately follows. An `<i>` with content
     // is emphasis and stays.
     let after = text.get(open_end..)?;
@@ -179,7 +180,7 @@ fn an_empty_commentary_anchor(text: &str, at: usize) -> Option<(Anchor, usize)> 
 
     Some((
         Anchor {
-            commentator: attribute(tag, "data-commentator")?,
+            commentator,
             at: 0, // filled in by `mine`, which knows the character offset
             label: attribute(tag, "data-label"),
             order: attribute(tag, "data-order"),
@@ -194,14 +195,52 @@ fn an_empty_commentary_anchor(text: &str, at: usize) -> Option<(Anchor, usize)> 
 /// Chayim and is upstream. Reading up to the closing quote gets the name right in
 /// both shapes; refusing the malformed one would drop an anchor and read, downstream,
 /// as a commentator who does not comment there.
+///
+/// # The name has to be the name
+///
+/// This was `tag.find(name)`, which finds the letters anywhere in the tag —
+/// including inside another attribute's quoted value, and inside a longer
+/// attribute name. So `<i data-commentator-note="x" data-commentator="Rashi">`
+/// answered *no commentator* (the occurrence it found was followed by `-`, not
+/// `=`), and an anchor that says who said a thing was dropped without a word;
+/// and `xdata-order="9" data-order="1"` answered order **9**. A silent wrong
+/// anchor is the failure this file exists to prevent (issue #57), so the name is
+/// matched where an attribute name can begin — after whitespace, or after the
+/// tag's own name — and must end at `=`, whitespace, or the end of the tag.
 fn attribute(tag: &str, name: &str) -> Option<String> {
-    let at = tag.find(name)?;
-    let after = tag.get(at + name.len()..)?.trim_start();
-    let after = after.strip_prefix('=')?.trim_start();
-    let value = after.strip_prefix('"').unwrap_or(after);
-    let end = value.find('"')?;
-    let found = value.get(..end)?.trim();
-    (!found.is_empty()).then(|| found.to_string())
+    let mut from = 0;
+    while let Some(found) = tag.get(from..)?.find(name) {
+        let at = from + found;
+        from = at + name.len();
+        if !begins_an_attribute(tag, at) || !ends_an_attribute(tag, from) {
+            continue;
+        }
+        let after = tag.get(from..)?.trim_start();
+        let after = after.strip_prefix('=')?.trim_start();
+        let value = after.strip_prefix('"').unwrap_or(after);
+        let end = value.find('"')?;
+        let found = value.get(..end)?.trim();
+        return (!found.is_empty()).then(|| found.to_string());
+    }
+    None
+}
+
+/// Whether `at` is a place an attribute name can start: after whitespace, or
+/// immediately after the tag's own `<i`.
+fn begins_an_attribute(tag: &str, at: usize) -> bool {
+    match tag.get(..at).and_then(|before| before.chars().next_back()) {
+        Some(before) => before.is_whitespace() || before == 'i',
+        None => false,
+    }
+}
+
+/// Whether an attribute name ending at `end` is the whole name: `=`, whitespace,
+/// `>` or the end of the tag.
+fn ends_an_attribute(tag: &str, end: usize) -> bool {
+    match tag.get(end..).and_then(|after| after.chars().next()) {
+        Some(after) => after.is_whitespace() || after == '=' || after == '>',
+        None => true,
+    }
 }
 
 #[cfg(test)]
@@ -253,6 +292,38 @@ mod tests {
         assert_eq!(mined.text, "אב");
         assert_eq!(mined.anchors[0].label.as_deref(), Some("ב"));
         assert_eq!(mined.anchors[0].order.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn an_attribute_name_that_only_begins_with_the_one_we_want_is_not_it() {
+        // `tag.find(name)` matched anywhere, so the occurrence inside
+        // `data-commentator-note` was found first, was followed by `-` rather
+        // than `=`, and the anchor was thrown away — the commentator who said
+        // this simply vanished from the margin (issue #57).
+        let mined = mine(
+            "א<i data-commentator-note=\"x\" data-commentator=\"Rashi\" data-order=\"1\"></i>ב",
+        );
+        assert_eq!(mined.anchors.len(), 1, "the anchor is still an anchor");
+        assert_eq!(mined.anchors[0].commentator, "Rashi");
+        assert_eq!(mined.anchors[0].order.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn a_value_that_contains_an_attribute_name_does_not_answer_for_it() {
+        // The other direction, and the one that reads as a fact about the
+        // sefer rather than as a missing anchor: `xdata-order="9"` before the
+        // real `data-order="1"` used to answer **9**, so a commentator's place
+        // in the margin was taken from an attribute nobody asked about.
+        let mined = mine(
+            "א<i data-commentator=\"X\" xdata-order=\"9\" data-order=\"1\" \
+             data-label=\"data-order\"></i>ב",
+        );
+        assert_eq!(mined.anchors[0].order.as_deref(), Some("1"));
+        assert_eq!(
+            mined.anchors[0].label.as_deref(),
+            Some("data-order"),
+            "a label that happens to read like an attribute name is still the label"
+        );
     }
 
     /// Eight of these are in the corpus, all Mishnah Berurah, all upstream.
