@@ -8,7 +8,7 @@
 //!
 //! See `tests/anchors_survive_editing.rs` for the comparison.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::segment::{Ordinal, SegmentId};
 
@@ -114,6 +114,22 @@ impl Anchors for LineIndexStore {
 pub struct SegmentStore {
     work: String,
     live: BTreeMap<SegmentId, String>,
+    /// The same keys as `live`, in the same order, as a list.
+    ///
+    /// [`Anchors::anchor_at_position`] asks for *the nth readable segment*, and
+    /// the window asks that for every row it draws — the reading pane walks a
+    /// whole sefer. `live.keys().nth(n)` walks the map from the first key every
+    /// time, so a sweep of a sefer is quadratic in its length: Mishnah Berurah's
+    /// 18,120 segments came to 164 million key comparisons to draw one page of
+    /// results. The order is reading order, so it is the map's own order and
+    /// nothing else, and it is kept in step at the four places that change the
+    /// map rather than rebuilt on demand — a `RefCell` here would make the store
+    /// `!Sync`, and it is shared across the window's threads.
+    ///
+    /// The invariant is one line: `order` is `live`'s keys, in `live`'s order.
+    /// `nothing_has_fallen_out_of_step` holds it after a mixed run of splits,
+    /// merges and redirects.
+    order: Vec<SegmentId>,
     /// An ID that is no longer live, and the live IDs it became.
     ///
     /// A split points at its children; a merge points at whichever segment
@@ -144,7 +160,7 @@ impl SegmentStore {
     #[must_use]
     pub fn import(work: impl Into<String>, segments: Vec<(Vec<String>, String)>) -> Self {
         let work = work.into();
-        let live = segments
+        let live: BTreeMap<SegmentId, String> = segments
             .into_iter()
             .enumerate()
             .map(|(i, (path, text))| {
@@ -153,9 +169,11 @@ impl SegmentStore {
                 (SegmentId::new(work.clone(), path, ordinal), text)
             })
             .collect();
+        let order = live.keys().cloned().collect();
         Self {
             work,
             live,
+            order,
             redirects: BTreeMap::new(),
         }
     }
@@ -178,23 +196,33 @@ impl SegmentStore {
     #[must_use]
     pub fn resolve(&self, id: &SegmentId) -> Vec<SegmentId> {
         let mut out = Vec::new();
-        self.resolve_into(id, 0, &mut out);
+        self.resolve_into(id, 0, &mut out, &mut HashSet::new());
         out
     }
 
-    fn resolve_into(&self, id: &SegmentId, depth: usize, out: &mut Vec<SegmentId>) {
-        if depth > MAX_REDIRECT_DEPTH {
+    fn resolve_into(
+        &self,
+        id: &SegmentId,
+        depth: usize,
+        out: &mut Vec<SegmentId>,
+        walked: &mut HashSet<SegmentId>,
+    ) {
+        // `walked` as well as `out`, and the pair is not redundant: `out` holds
+        // the live ids being gathered, and a redirect graph is a DAG, not a
+        // tree — two rows can point at the same dead id, whose subtree was then
+        // walked twice. With one diamond that is a wasted read; with a chain of
+        // them it is 2^n reads, from a table a user can edit and an importer
+        // rewrites on every run.
+        if depth > MAX_REDIRECT_DEPTH || !walked.insert(id.clone()) {
             return;
         }
         if self.live.contains_key(id) {
-            if !out.contains(id) {
-                out.push(id.clone());
-            }
+            out.push(id.clone());
             return;
         }
         if let Some(targets) = self.redirects.get(id) {
             for target in targets {
-                self.resolve_into(target, depth + 1, out);
+                self.resolve_into(target, depth + 1, out, walked);
             }
         }
     }
@@ -209,7 +237,9 @@ impl SegmentStore {
     /// is the in-memory half of the same fact, and [`SegmentStore::from_disk`]
     /// is what makes the two one thing rather than two.
     pub fn redirect(&mut self, from: SegmentId, to: Vec<SegmentId>) {
-        self.live.remove(&from);
+        if self.live.remove(&from).is_some() {
+            self.order.retain(|id| *id != from);
+        }
         self.redirects.insert(from, to);
     }
 
@@ -232,13 +262,16 @@ impl SegmentStore {
     /// exits.
     #[must_use]
     pub fn from_disk(imported: &crate::import::ImportedWork) -> Self {
+        let live: BTreeMap<SegmentId, String> = imported
+            .segments
+            .iter()
+            .map(|s| (s.id.clone(), s.text.clone()))
+            .collect();
+        let order = live.keys().cloned().collect();
         Self {
             work: imported.work.slug.clone(),
-            live: imported
-                .segments
-                .iter()
-                .map(|s| (s.id.clone(), s.text.clone()))
-                .collect(),
+            live,
+            order,
             redirects: imported
                 .redirects
                 .iter()
@@ -262,6 +295,13 @@ impl SegmentStore {
         let children = id.split(2);
         self.live.insert(children[0].clone(), head.to_string());
         self.live.insert(children[1].clone(), tail.to_string());
+        // The children sort exactly where their parent was, so the reading
+        // order is the parent's place with two rows in it instead of one.
+        self.order.retain(|held| *held != *id);
+        for child in &children {
+            let at = self.order.partition_point(|held| held < child);
+            self.order.insert(at, child.clone());
+        }
         self.redirects.insert(id.clone(), children.clone());
         children
     }
@@ -285,6 +325,7 @@ impl SegmentStore {
             .map(|(id, _)| id.clone())?;
         let tail = self.live.remove(&next)?;
         self.live.get_mut(&id)?.push_str(&tail);
+        self.order.retain(|held| *held != next);
         self.redirects.insert(next, vec![id.clone()]);
         Some(id)
     }
@@ -308,7 +349,7 @@ impl Anchors for SegmentStore {
     type Anchor = SegmentId;
 
     fn anchor_at_position(&self, nth: usize) -> Option<SegmentId> {
-        self.live.keys().nth(nth).cloned()
+        self.order.get(nth).cloned()
     }
 
     /// The words the anchor names, wherever they ended up.
