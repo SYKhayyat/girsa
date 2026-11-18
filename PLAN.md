@@ -30,7 +30,12 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   module doc said "the twelve commands", `ci.yml` said "5,018 lines and all 100
   tauri commands", against 138 in a 6,914-line file — so the numbers are out of
   the prose and the tool prints them.
-- [ ] #33 resolving test for spec §N / W-needs citations (unblocks #35-class rot). (Low)
+- [x] #33 resolving test for spec §N / W-needs citations (unblocks #35-class rot). (Low)
+  Landed 2026-11-12 in `265cc97`, with #35: `a_citation_names_something_that_is_there.rs`
+  reads every comment in the tree for `spec.md §N`, `BUILDER.md §N`, `W<n>` and
+  `B<n>` and demands each number exist in the file it names. It found five
+  things on the way — `W29`, `W44b`, a `§19` that was in no document, ~90 `B<n>`
+  citations whose source file had been deleted, and one `§1.2` of nothing.
 - [ ] #64 the same disease one layer up: a Source Packet carries `Range` as bare
   character offsets and no words, so `/quote` regenerates **different** words
   under a correct-looking citation after a correction. STOP AND ASK (BUILDER.md
@@ -55,15 +60,33 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   the guard *into the shape the issue proposed* so the thing asked for is the
   thing proved wrong. The defect was four facts behind one `Option`; they are
   now four, and the damaged case reaches the reader as *slow, not short*.)
-- [ ] #54 corrupt session.json resets then overwrites. (High)
-- [ ] #53 MCP read re-parses whole sefer per call. (High)
-- [ ] #24 byte-exact re-import matcher — VERIFY fix 09-03 held, else redo. (High)
+- [x] #54 corrupt session.json resets then overwrites. (High)
+  Landed 2026-11-12 in `9d11125`: a file that will not read is kept, not
+  replaced, and the window says where it went.
+- [x] #53 MCP read re-parses whole sefer per call. (High)
+  Landed 2026-11-18 in `57cd36f`: `Server::sefer` holds the parsed sefer in
+  `girsa_app::held::Held`, the cache the window already had, and `fix`/`unfix`
+  forget it in the turn they write. `a_sefer_is_parsed_once.rs` asserts the
+  sharing with `Arc::ptr_eq` and the invalidation by reading after a correction;
+  both were watched failing.
+- [x] #24 byte-exact re-import matcher — **verified held**: `296e4ad` compares
+  through `normalize`, so a nikud edit costs no name.
 
 ## Phase 3 — Search quality Highs/Mediums
 - [ ] #17 morphology+fuzzy Smart rung, #16 re-ingest Otzaria (stale shelf), #19 embedding hybrid lane.
-- [ ] #2 search recall/pagination/identity bundle (split per sub-item), #3 stale races/blocking, #7 validation consistency.
+- [x] #2 search recall/pagination/identity bundle, #3 stale races/blocking, #7
+  validation consistency — all three closed 2026-08-27; the audit's successors
+  live in this plan (`#59`–`#62`).
 - [ ] #59 merge drops unserializable, #58 negative-cache poison, #57 anchor substring-match.
-- [ ] #62 unbounded regex bound, #60 SegmentStore O(n), #61 (closed — verify), #53 (above).
+- [ ] #62 unbounded regex bound, #60 SegmentStore O(n), #61 (closed 2026-09-09 —
+  verify), #53 (landed, above).
+- [x] #77 correcting a typo on a corrected sefer cost 5x what it costs on an
+  empty one, and half of that was work done twice. Landed 2026-11-18 in
+  `1b59fbd`: `replay` asked every line whether it was a tombstone, parsing it
+  whole to find out (a third of the layer open), and `Layer::apply` built a
+  `Vec` per segment for 18,120 segments. And the guardrail itself: at sixteen
+  thousand corrections the empty layer is not the other end of a ratio, so the
+  top measurement is a doubling (8k against 16k, allowance 3, measured 1.44–1.56).
 - [x] #73 the ≥95% resolution promise rested on a number nobody ran. Measured: **99.98%
   exact, 0.01% ambiguous, 0 unresolved** over 20,000 real Sefaria citations.
   `tools/resolver.mjs` holds it as a gate step (`--record` to move it) and says out loud
@@ -96,7 +119,8 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,
   and the guard that stops a comma-separated pair from becoming one fabricated
   address; what is left is the input element and the source-sheet assembly) #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.
-- [ ] Perf: #53 (above), #15 pane walks, #14 batched linkWords, #12 degraded-ocr dup, #11 (closed — verify).
+- [ ] Perf: #15 pane walks, #14 batched linkWords, #12 degraded-ocr dup, #11
+  (closed 2026-09-03 — verify).
 
 ## Routing rule for new issues
 Any AI opening an issue here MUST insert it into the phase above it belongs in. Data-model/boundary items (#43/#28-class) go in Phase 1 even if filed later; never append features above integrity fixes. See AI_ISSUE_ROUTING.md.
