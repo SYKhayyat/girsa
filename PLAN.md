@@ -124,9 +124,11 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   `build-lexicon` rather than to the shipped file: substitutions to a fixed
   point plus the Rambam prefix, with a negative test that `Bava Basra` makes
   nothing.
-- [ ] #74 nav asks the wrong questions twice: `סימן א` is "nothing matched" because
-  `bare_place` only reads ASCII, and one ambiguous member turns a whole list into
-  "nothing matched" — a refusal that is untrue. (Low)
+- [x] #74 nav asks the wrong questions twice — `7b7ff4d`. `bare_place` reads
+  Hebrew numerals through `girsa_ref`'s reader (strict enough that a word that
+  merely sums to a number, like `ייחוד`, does not become a "which sefer?"), and
+  `Nav::Several` carries `unread` so one ambiguous member no longer sinks the
+  whole list: the refs that resolved are answered, the rest is named, three ways. (Low)
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #34 spec numbers guard, #32 audit volumes distill, #35 false §12 cite, #36/#37/#38 interop.
 - [ ] Features: #63 smart navigation (**the reading half has landed** —
   `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,
