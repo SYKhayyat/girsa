@@ -26,6 +26,25 @@
 //! - one **anchored** with `^` or `$`, because a pattern is already matched
 //!   against the whole of a word and an anchor cannot mean anything else here.
 //!
+//! # What a pattern may ask for
+//!
+//! A pattern is compiled to a DFA and then matched against the whole term
+//! dictionary — 5.2 million words on the full corpus — so *how much* a query
+//! asks for is a question about the query and not only about what it says.
+//! Two of the bounds are [`MOST_PATTERNS`] and [`MOST_PATTERN_CHARS`]: a query
+//! of twenty patterns is twenty passes over every word in the index, and both
+//! are reachable without a reader writing anything, since the MCP server offers
+//! `mode: regex` to whatever is on the other end of the socket (issue #62).
+//!
+//! The third bound is not ours and is worth naming so nobody looks for it here:
+//! a pattern whose automaton will not fit in `tantivy-fst`'s ten-megabyte
+//! instruction budget is **refused by the compiler**, and that error reaches
+//! the reader unedited — which is the right treatment for a regex parser's
+//! complaint, and means a nested-quantifier blowup costs a compile, not a
+//! search. Nothing here screens patterns for shapes it dislikes: in the one
+//! mode whose contract is that the engine does not edit what you wrote, a
+//! refusal has to be about the query being unrunnable and not about taste.
+//!
 //! Each refusal names the thing and says what it would have to be instead. That
 //! is not the engine changing a query — nothing is run, and the reader retypes.
 //! Silently running a pattern that cannot match is the failure this whole
@@ -39,6 +58,19 @@ use crate::torat_emet::Together;
 pub enum RegexError {
     #[error("nothing to search for")]
     Empty,
+    /// More patterns than the mode will run.
+    #[error(
+        "`{count}` patterns is more than this mode runs at once (it runs {allowed}) — a pattern is \
+         matched against every word in the index, and {count} of them is {count} passes over all \
+         of it. Ask for fewer, or use the words mode"
+    )]
+    TooManyPatterns { count: usize, allowed: usize },
+    /// One pattern longer than the mode will compile.
+    #[error(
+        "`{length}` characters of pattern is longer than this mode runs ({allowed}) — is this a \
+         pattern, or a file? Look for a shorter one, or search the words"
+    )]
+    PatternTooLong { length: usize, allowed: usize },
     /// The pattern carries marks the index does not have.
     #[error(
         "the index holds words with their marks off, so `{mark}` in `{pattern}` can never match — \
@@ -88,6 +120,27 @@ pub enum RegexError {
     NoProximity { words: u32 },
 }
 
+/// How many patterns one query may hold.
+///
+/// A pattern is matched against the whole term dictionary, so a query of `n`
+/// patterns is `n` passes over five million words. Sixteen is far past what
+/// anyone types into a phrase and far short of what turns a command into a
+/// five-minute one — and past it the query is **refused**, not trimmed, because
+/// answering sixteen of twenty patterns is the partial answer that looks like a
+/// whole one (issue #62).
+pub const MOST_PATTERNS: usize = 16;
+
+/// How long one pattern may be, in characters.
+///
+/// The pattern is compiled to a DFA before it is run, and `tantivy-fst` already
+/// refuses one that compiles past ten megabytes of instructions — so the work a
+/// pattern can ask for is bounded, and this is not that bound. This is the
+/// smaller one: two hundred characters is longer than any pattern a person
+/// writes against a word of Hebrew, and a caller that sends four thousand is
+/// not writing a pattern, it is generating one at a program that answers
+/// questions about seforim.
+pub const MOST_PATTERN_CHARS: usize = 200;
+
 /// The anchor a pattern begins or ends with, if it has one.
 fn anchor_of(pattern: &str) -> Option<char> {
     if pattern.starts_with('^') {
@@ -131,6 +184,25 @@ impl Query {
             .collect();
         if patterns.is_empty() {
             return Err(RegexError::Empty);
+        }
+        // Bounded before anything is compiled or run: the two refusals below
+        // are the only ones here that are about the query's *size* rather than
+        // what it says, and a caller on the other side of a socket can send
+        // either without writing a pattern at all (issue #62).
+        if patterns.len() > MOST_PATTERNS {
+            return Err(RegexError::TooManyPatterns {
+                count: patterns.len(),
+                allowed: MOST_PATTERNS,
+            });
+        }
+        if let Some(long) = patterns
+            .iter()
+            .find(|p| p.chars().count() > MOST_PATTERN_CHARS)
+        {
+            return Err(RegexError::PatternTooLong {
+                length: long.chars().count(),
+                allowed: MOST_PATTERN_CHARS,
+            });
         }
         if let Together::Near { words } = together {
             return Err(RegexError::NoProximity { words });
@@ -249,6 +321,36 @@ mod tests {
         // each other* with one would return a window nobody asked for.
         let error = Query::parse("קדש", Together::Near { words: 5 }).expect_err("refused");
         assert_eq!(error, RegexError::NoProximity { words: 5 });
+    }
+
+    #[test]
+    fn a_query_of_more_patterns_than_the_mode_runs_is_refused_at_the_ceiling() {
+        let inside = vec!["ק.*"; MOST_PATTERNS].join(" ");
+        assert!(Query::parse(&inside, Together::Phrase).is_ok());
+
+        let outside = vec!["ק.*"; MOST_PATTERNS + 1].join(" ");
+        let error = Query::parse(&outside, Together::Phrase).expect_err("refused");
+        let RegexError::TooManyPatterns { count, allowed } = error else {
+            panic!("{error:?}");
+        };
+        assert_eq!((count, allowed), (MOST_PATTERNS + 1, MOST_PATTERNS));
+        assert!(error.to_string().contains("fewer"), "{error}");
+    }
+
+    #[test]
+    fn a_pattern_longer_than_the_mode_runs_is_refused_at_the_ceiling() {
+        let inside = "ק".repeat(MOST_PATTERN_CHARS);
+        assert!(Query::parse(&inside, Together::Anywhere).is_ok());
+
+        let outside = "ק".repeat(MOST_PATTERN_CHARS + 1);
+        let error = Query::parse(&outside, Together::Anywhere).expect_err("refused");
+        assert_eq!(
+            error,
+            RegexError::PatternTooLong {
+                length: MOST_PATTERN_CHARS + 1,
+                allowed: MOST_PATTERN_CHARS,
+            }
+        );
     }
 
     #[test]

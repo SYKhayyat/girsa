@@ -252,6 +252,46 @@ fn a_pattern_that_could_never_match_is_refused_rather_than_run() {
     assert!(refusal(ask(&bar, "^קדש$", &chips)).contains("whole of a word"));
 }
 
+#[test]
+fn a_pattern_query_bigger_than_the_mode_runs_is_refused_rather_than_trimmed() {
+    // Every pattern is matched against the whole term dictionary, so `n`
+    // patterns is `n` passes over five million words. This is reachable without
+    // writing a regex at all — an agent on the other end of the MCP socket
+    // sends `mode: regex` and a thousand words — so the bound is on the query's
+    // size and not on what it says (issue #62).
+    let shelf = Shelf::new("girsa-w14-regex-unbounded");
+    let bar = shelf.bar();
+    let chips = Chips {
+        mode: Mode::Regex,
+        ..Chips::default()
+    };
+
+    let many = "ק.* ".repeat(girsa_search::regex_mode::MOST_PATTERNS + 1);
+    let said = refusal(ask(&bar, many.trim(), &chips));
+    assert!(said.contains("more than this mode runs"), "{said}");
+
+    let long = "ק".repeat(girsa_search::regex_mode::MOST_PATTERN_CHARS + 1);
+    let said = refusal(ask(&bar, &long, &chips));
+    assert!(said.contains("characters of pattern"), "{said}");
+
+    // And a query that is inside both bounds is run, not refused: a ceiling
+    // that refuses the honest query under it is a ceiling nobody keeps.
+    let allowed = format!(
+        "{}ק",
+        ".*".repeat((girsa_search::regex_mode::MOST_PATTERN_CHARS - 1) / 2)
+    );
+    assert!(
+        allowed.chars().count() <= girsa_search::regex_mode::MOST_PATTERN_CHARS,
+        "the pattern under the ceiling is longer than it: {}",
+        allowed.chars().count()
+    );
+    let not_refused = ask(&bar, &allowed, &chips);
+    assert!(
+        !matches!(&not_refused, Answer::Refused(_)),
+        "a pattern inside the ceiling was refused: {not_refused:?}"
+    );
+}
+
 // ── Citation ────────────────────────────────────────────────────────────────
 
 #[test]
