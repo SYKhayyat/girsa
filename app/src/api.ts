@@ -1326,6 +1326,17 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return fixture<T>(cmd, args);
 }
 
+/**
+ * One part of a typed list that could not be read (#74).
+ *
+ * Three kinds because they ask three different things of the reader: pick a
+ * sefer, correct a name, or choose which seforim those words meant.
+ */
+export type Unread =
+  | { kind: "whichSefer"; typed: string }
+  | { kind: "nothing"; typed: string }
+  | { kind: "choice"; typed: string; refs: string[] };
+
 export const api = {
   state: () => call<AppState>("state"),
   /**
@@ -1732,7 +1743,18 @@ export const api = {
   navAsk: (typed: string) =>
     call<
       | { kind: "go"; landing: Asked }
-      | { kind: "several"; refs: string[]; sheet: boolean }
+      | {
+          kind: "several";
+          refs: string[];
+          /**
+           * What in the list could not be read, and why — carried beside the
+           * refs rather than instead of them (#74). Three kinds because they
+           * ask three different things of the reader: pick a sefer, correct a
+           * name, or choose which seforim those words meant.
+           */
+          unread: Unread[];
+          sheet: boolean;
+        }
       | { kind: "choose"; refs: string[] }
       | { kind: "ask"; about: string }
       | { kind: "nothing" }

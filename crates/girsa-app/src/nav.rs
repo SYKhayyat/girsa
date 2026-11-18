@@ -43,7 +43,18 @@ pub enum Nav {
     /// One place, and nothing else it could equally have been.
     Go(Ref),
     /// Two or more places. `sheet` says the reader wrote them in parentheses.
-    Several { refs: Vec<Ref>, sheet: bool },
+    ///
+    /// `unread` is the parts this could not read, in the order they were
+    /// typed, and it is what turns a list with one bad member from *nothing
+    /// matched* — which is untrue and is the only answer that tells a reader
+    /// their words meant nothing — into a true partial answer. Before it,
+    /// `ברכות ב א, או"ח א'` came back [`Nav::Nothing`]: one ambiguous member and
+    /// the two places that were perfectly clear went with it (issue #74).
+    Several {
+        refs: Vec<Ref>,
+        unread: Vec<Unread>,
+        sheet: bool,
+    },
     /// Several places the words genuinely name. Always shown as a choice, in
     /// the order the resolver gave them, because narrowing it would be a guess.
     Choose(Vec<Ref>),
@@ -51,6 +62,25 @@ pub enum Nav {
     Ask(Ask),
     /// Nothing in the lexicon. Better than a wrong answer, and the window says so.
     Nothing,
+}
+
+/// Something in a list that could not be answered, in the terms the window
+/// needs to say it.
+///
+/// Three kinds, because they are three different sentences to a reader: *I do
+/// not know a sefer by that name*, *those words name more than one sefer*, and
+/// *that is a place, but you did not say inside what*.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unread {
+    /// A bare location: `2b`, `סימן א`. The same fact [`Nav::Ask`] carries when
+    /// it is the whole of what was typed, here beside the parts that worked.
+    WhichSefer(String),
+    /// Words the lexicon does not hold. See #69, which is the gap this is
+    /// honest about rather than papering over.
+    Nothing(String),
+    /// Words that name more than one place. The candidates travel with them so
+    /// the window can offer the choice rather than only complain.
+    Choice { typed: String, candidates: Vec<Ref> },
 }
 
 /// The question [`Nav::Ask`] is asking.
@@ -89,6 +119,7 @@ pub fn read(lexicon: &Lexicon, typed: &str) -> Nav {
             return match sheet {
                 true => Nav::Several {
                     refs: vec![one],
+                    unread: Vec::new(),
                     sheet: true,
                 },
                 false => Nav::Go(one),
@@ -98,29 +129,48 @@ pub fn read(lexicon: &Lexicon, typed: &str) -> Nav {
         _ => {}
     }
 
-    // Not one place: read it as a list of them.
+    // Not one place: read it as a list of them. **A part that fails does not
+    // take the list down with it** — it is named in `unread` and the parts that
+    // did resolve are answered, which is the difference between *two of these
+    // are places and one I could not read* and *your words meant nothing*
+    // (issue #74).
     let mut refs = Vec::new();
+    let mut unread = Vec::new();
     for part in split_at_commas(body) {
         match resolve(lexicon, part.as_str()) {
             Resolution::Exact(one) => refs.push(one),
-            // A list where one target is itself a choice has no shape in the
-            // window yet, and picking for the reader would be the guess this
-            // system is arranged to avoid. Reported as unmatched rather than
-            // half-answered.
-            Resolution::Ambiguous(_) => return Nav::Nothing,
-            Resolution::Unresolved => {
-                return match bare_place(part.as_str()) {
-                    Some(bare) => Nav::Ask(Ask::WhichSefer(bare)),
-                    None => Nav::Nothing,
-                };
-            }
+            Resolution::Ambiguous(candidates) => unread.push(Unread::Choice {
+                typed: part.clone(),
+                candidates,
+            }),
+            Resolution::Unresolved => match bare_place(&part) {
+                Some(bare) => unread.push(Unread::WhichSefer(bare)),
+                None => unread.push(Unread::Nothing(part)),
+            },
         }
     }
 
-    match refs.len() {
-        0 => Nav::Nothing,
-        1 => Nav::Several { refs, sheet: true },
-        _ => Nav::Several { refs, sheet },
+    if refs.is_empty() {
+        // Nothing came of any of it. The two shapes that are a question rather
+        // than a refusal keep their question, because the reader's next step
+        // differs: one wants a sefer chosen, the other wants a name corrected.
+        return match unread.as_slice() {
+            [Unread::WhichSefer(bare)] => Nav::Ask(Ask::WhichSefer(bare.clone())),
+            [Unread::Choice { candidates, .. }] => Nav::Choose(candidates.clone()),
+            _ => Nav::Nothing,
+        };
+    }
+    if unread.is_empty() && refs.len() == 1 {
+        return Nav::Several {
+            refs,
+            unread,
+            sheet: true,
+        };
+    }
+    Nav::Several {
+        refs,
+        unread,
+        sheet,
     }
 }
 
@@ -157,21 +207,59 @@ fn split_at_commas(body: &str) -> Vec<String> {
     parts
 }
 
-/// The bare location, if the words are only one: `2a`, `3b`, `2.`, `1:2`.
+/// The bare location, if the words are only one: `2a`, `3b`, `2.`, `1:2`,
+/// `סימן א`, `קכ"א ג`.
 ///
-/// Deliberately narrow. It is the *only* unresolved shape that becomes a
-/// question rather than `Nothing`, so it has to be a shape no sefer is named by.
+/// Deliberately narrow. It is the one unresolved shape that becomes a question
+/// rather than `Nothing`, so it has to be a shape no sefer is named by.
+///
+/// **It reads Hebrew numerals now, and it did not.** The rule was written over
+/// ASCII digits, `a`, `b`, `:`, `.`, geresh and gershayim — so `סימן א`, which
+/// is a location written in the alphabet every other part of this system reads
+/// perfectly well, came back *nothing matched* (issue #74). `girsa_ref`'s
+/// numeral reader is the same one the resolver sums addresses with, and it is
+/// strict in exactly the way this function has to be: it refuses a word that
+/// merely sums to something (`שבת` is 702 and is not a numeral), so a typo'd
+/// sefer name does not become a question about which sefer.
+///
+/// A **section word** is allowed and is not a number: `סימן`, `פרק`, `עמ'` and
+/// the rest label the number after them, and `girsa_ref::resolve::is_section_word`
+/// is that list rather than a second copy of it.
 fn bare_place(part: &str) -> Option<String> {
     let part = part.trim();
-    let mut seen_digit = false;
-    for ch in part.chars() {
+    let mut seen_number = false;
+    for token in part.split_whitespace() {
+        if let Some(numbered) = ascii_token(token) {
+            seen_number = seen_number || numbered;
+            continue;
+        }
+        if girsa_ref::resolve::is_section_word(token) {
+            continue;
+        }
+        if girsa_ref::numerals::parse(token).is_some() {
+            seen_number = true;
+            continue;
+        }
+        return None;
+    }
+    seen_number.then(|| part.to_string())
+}
+
+/// An ASCII place token, and whether it carried a number itself.
+///
+/// `None` is *not an ASCII place token at all*, which is a different answer
+/// from *an ASCII token with no digit in it* — a daf's `a` is the second of
+/// those, and `2a` is the first.
+fn ascii_token(token: &str) -> Option<bool> {
+    let mut numbered = false;
+    for ch in token.chars() {
         match ch {
-            '0'..='9' => seen_digit = true,
-            'a' | 'b' | ':' | '.' | ' ' | '\'' | '"' => {}
+            '0'..='9' => numbered = true,
+            'a' | 'b' | ':' | '.' | '\'' | '"' => {}
             _ => return None,
         }
     }
-    seen_digit.then(|| part.to_string())
+    Some(numbered)
 }
 
 #[cfg(test)]
@@ -214,6 +302,19 @@ mod tests {
             &["או\"ח"],
         );
         lexicon
+    }
+
+    fn unread(nav: &Nav) -> Vec<String> {
+        match nav {
+            Nav::Several { unread, .. } => unread
+                .iter()
+                .map(|u| match u {
+                    Unread::WhichSefer(what) | Unread::Nothing(what) => what.clone(),
+                    Unread::Choice { typed, .. } => typed.clone(),
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     fn refs(nav: &Nav) -> Vec<String> {
@@ -277,11 +378,33 @@ mod tests {
             read(&lexicon(), "2a"),
             Nav::Ask(Ask::WhichSefer("2a".into()))
         );
+        // Hebrew numerals are how the rest of this system writes an address, and
+        // this read only ASCII digits until issue #74 — so `סימן א` was *nothing
+        // matched*, about a location the resolver beside it reads without
+        // complaint. The numeral reader is `girsa_ref`'s, not a second one.
         assert_eq!(
             read(&lexicon(), "סימן א"),
-            Nav::Nothing,
-            "Hebrew numerals are a place, but this is not the shape yet — see #63"
+            Nav::Ask(Ask::WhichSefer("סימן א".into()))
         );
+        assert_eq!(
+            read(&lexicon(), "קכ\"א"),
+            Nav::Ask(Ask::WhichSefer("קכ\"א".into()))
+        );
+        assert_eq!(
+            read(&lexicon(), "פרק ג משנה א"),
+            Nav::Ask(Ask::WhichSefer("פרק ג משנה א".into()))
+        );
+    }
+
+    #[test]
+    fn a_word_that_only_sums_to_a_number_is_not_a_place() {
+        // `שבת` sums to 702 and `ייחוד` to 38. A numeral is *written* high to
+        // low and in its canonical spelling, which is the rule that keeps a
+        // sefer's name from becoming an address — the same rule, borrowed, so
+        // that a question about which sefer is only asked when the words really
+        // are a location.
+        assert_eq!(read(&lexicon(), "ייחוד"), Nav::Nothing);
+        assert_eq!(read(&lexicon(), "סמין א"), Nav::Nothing);
     }
 
     #[test]
@@ -299,6 +422,43 @@ mod tests {
         assert_eq!(read(&lexicon(), "brachos 2a"), Nav::Nothing);
         assert_eq!(read(&lexicon(), ""), Nav::Nothing);
         assert_eq!(read(&lexicon(), "   "), Nav::Nothing);
+    }
+
+    #[test]
+    fn one_part_of_a_list_that_names_two_seforim_does_not_take_the_list_down() {
+        // This was `Nav::Nothing`: one ambiguous member and the two places that
+        // were clear went with it, and *nothing matched* is the only answer that
+        // tells a reader their words meant nothing. It is a lie here (issue #74).
+        let nav = read(&lexicon(), "ברכות ב א, או\"ח א'");
+        assert_eq!(
+            refs(&nav),
+            vec!["girsa:bavli/berakhot/2:1"],
+            "the part that resolved is still there"
+        );
+        assert_eq!(
+            unread(&nav),
+            vec!["או\"ח א'"],
+            "and the part that did not is named"
+        );
+        let Nav::Several { unread, .. } = &nav else {
+            panic!("expected several, got {nav:?}");
+        };
+        let Unread::Choice { candidates, .. } = &unread[0] else {
+            panic!("a choice keeps its candidates: {unread:?}");
+        };
+        assert_eq!(candidates.len(), 2, "both seforim, so the window can ask");
+    }
+
+    #[test]
+    fn a_list_with_one_part_nobody_knows_answers_the_parts_it_does() {
+        let nav = read(&lexicon(), "Berachos 2a, סמין ג");
+        assert_eq!(refs(&nav), vec!["girsa:bavli/berakhot/2a"]);
+        assert_eq!(unread(&nav), vec!["סמין ג"]);
+    }
+
+    #[test]
+    fn a_list_where_nothing_resolves_is_still_nothing() {
+        assert_eq!(read(&lexicon(), "סמין ג, קוקו ב"), Nav::Nothing);
     }
 
     #[test]

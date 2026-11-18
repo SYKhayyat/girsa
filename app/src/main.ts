@@ -27,6 +27,7 @@ import {
   // Named apart from the DOM's `Text`, which is a global and would otherwise
   // win the collision silently.
   type Text as SeferText,
+  type Unread,
 } from "./api.ts";
 import { FixBox } from "./fix.ts";
 import { build } from "./layout.ts";
@@ -349,18 +350,54 @@ async function goToCitation(reference: string): Promise<void> {
       await whenAskedFor(answer.landing);
       return;
     }
+    // **What could not be read is said, not swallowed.** Before #74 one
+    // ambiguous member made the whole list *nothing matched*, which is the one
+    // answer that tells a reader their words meant nothing — and it was untrue.
+    // The parts that did resolve are still opened; the parts that did not are
+    // named, because a partial answer that says which part is missing is a
+    // different thing from a refusal.
+    const unread = answer.kind === "several" ? answer.unread : [];
     if (answer.kind === "several" && answer.refs.length > 1) {
       // One at a time until the sheet exists (#63's remaining half), and said
       // out loud, because opening the first of three silently would read as
       // the other two not being found.
       await whenAskedFor(await api.citeOpen(answer.refs[0]));
-      announce(`${answer.refs.length}: ${answer.refs.join(", ")}`, false);
+      announce(
+        `${answer.refs.length}: ${answer.refs.join(", ")}${besideUnread(unread)}`,
+        unread.length > 0,
+      );
+      return;
+    }
+    if (answer.kind === "several" && answer.refs.length === 1 && unread.length > 0) {
+      await whenAskedFor(await api.citeOpen(answer.refs[0]));
+      announce(saidUnread(unread), true);
       return;
     }
     await whenAskedFor(await api.citeOpen(reference));
   } catch (e) {
     announce(trouble(e, "open_ref").said, true);
   }
+}
+
+/** What one unread part of a list asked for, in the window's own words. */
+function saidUnread(unread: Unread[]): string {
+  return unread
+    .map((one) => {
+      switch (one.kind) {
+        case "whichSefer":
+          return `${one.typed} is a place, but not inside which sefer — say the sefer`;
+        case "nothing":
+          return `no sefer here answers to ${one.typed}`;
+        case "choice":
+          return `${one.typed} could be ${one.refs.length} places`;
+      }
+    })
+    .join("; ");
+}
+
+/** The same, appended to a line about the parts that did resolve. */
+function besideUnread(unread: Unread[]): string {
+  return unread.length === 0 ? "" : ` — and ${saidUnread(unread)}`;
 }
 
 /** Whether Ksav is there. Polled while the window is open, because the answer
