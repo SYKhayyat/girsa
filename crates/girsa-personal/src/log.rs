@@ -421,8 +421,29 @@ impl Log {
         if self.is_nowhere() {
             return Ok(());
         }
-        let line = serde_json::to_string(record).map_err(|e| self.invalid(&e))?;
+        let line = self.line_of(record)?;
         self.push(std::iter::once(line))
+    }
+
+    /// One record as the line it is written down as.
+    ///
+    /// # Why this is on `Log` and not a `serde_json::to_string` at each site
+    ///
+    /// Three places turn a record into a line — an append, a merge's
+    /// comparison, and the file an export writes — and two of them had
+    /// `unwrap_or_default()`, which turns *this record will not serialize* into
+    /// **an empty line**. An empty line is a record that is not there: a merge
+    /// compared `""` with `""` and counted two unserializable records as *the
+    /// same record, already had*, and an export quietly wrote a file of one
+    /// line fewer than the layer held (issue #59).
+    ///
+    /// # Errors
+    ///
+    /// If the record will not serialize. A `Serialize` that can fail is rare
+    /// and real — a map with a non-string key is one — and the caller is told
+    /// which file it was in rather than being handed a blank line.
+    pub fn line_of<T: Serialize>(&self, record: &T) -> Result<String, LogError> {
+        serde_json::to_string(record).map_err(|e| self.invalid(&e))
     }
 
     /// Write several records down, in one append.

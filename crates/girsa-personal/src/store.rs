@@ -199,22 +199,30 @@ pub trait Store: Sized {
         // Mine, once, as lines. Built up front rather than scanned per record:
         // a layer with a thousand marks taking a file of a thousand more is a
         // million comparisons the other way, for no reason.
-        let mine: BTreeMap<String, String> = self
+        //
+        // `None` is *I hold this key and cannot write it down*, which is a
+        // different fact from *I do not hold it* and has to compare differently
+        // — see the doc on [`Log::line_of`] and issue #59, where two records
+        // that would not serialize both became `""`, compared equal, and the
+        // merge reported somebody's record as one it already had.
+        let mine: BTreeMap<String, Option<String>> = self
             .records()
             .into_iter()
-            .map(|record| {
-                (
-                    Self::key_of(record),
-                    serde_json::to_string(record).unwrap_or_default(),
-                )
-            })
+            .map(|record| (Self::key_of(record), self.log().line_of(record).ok()))
             .collect();
 
         let mut taking: Vec<Self::Record> = Vec::new();
         for record in theirs.records {
-            let line = serde_json::to_string(&record).unwrap_or_default();
+            // A record of theirs that will not write is refused here rather
+            // than failing the whole merge at the append — `append_all` would
+            // take the whole file down with it, and one bad record in their
+            // layer is theirs to lose.
+            let Ok(line) = self.log().line_of(&record) else {
+                merged.refused += 1;
+                continue;
+            };
             match mine.get(&Self::key_of(&record)) {
-                Some(held) if *held == line => merged.already_had += 1,
+                Some(Some(held)) if *held == line => merged.already_had += 1,
                 Some(_) => merged.refused += 1,
                 None => taking.push(record),
             }
@@ -230,16 +238,21 @@ pub trait Store: Sized {
         Ok(merged)
     }
 
-    #[must_use]
-    fn to_text(&self) -> String {
+    /// Every record as one text, for a caller writing the whole store out.
+    ///
+    /// # Errors
+    ///
+    /// If a record will not serialize. It used to drop the record and say
+    /// nothing, which in an export means writing a file of the reader's own
+    /// layer with fewer records in it than the layer holds and reporting the
+    /// full count anyway (issue #59).
+    fn to_text(&self) -> Result<String, LogError> {
         let mut body = String::new();
         for record in self.records() {
-            if let Ok(line) = serde_json::to_string(record) {
-                body.push_str(&line);
-                body.push('\n');
-            }
+            body.push_str(&self.log().line_of(record)?);
+            body.push('\n');
         }
-        body
+        Ok(body)
     }
 }
 
@@ -250,7 +263,7 @@ pub trait Store: Sized {
 ///
 /// ```text
 /// pub fn open(personal: &Path) -> (Self, Vec<String>) {
-///     girsa_personal::open(Self { log: Log::at(path_in(personal)), by_segment: BTreeMap::new() })
+///     crate::open(Self { log: Log::at(path_in(personal)), by_segment: BTreeMap::new() })
 /// }
 /// ```
 ///
@@ -308,4 +321,131 @@ macro_rules! io_from_log_error {
             }
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    // A panic in a test is a failure report. The workspace denies these in
+    // library code, where a panic would take the reader's window with it.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use serde::{Deserialize, Serializer};
+    use std::path::PathBuf;
+
+    /// A record whose `Serialize` **can** fail, which is the whole point.
+    ///
+    /// Every record type in this repository happens to be plain data, which is
+    /// why two `unwrap_or_default()`s sat here unnoticed: nothing in the tree
+    /// could reach them, so nothing in the tree could say what they did. A
+    /// `Serialize` that refuses is allowed by the trait and is what a store
+    /// written against a foreign type inherits (issue #59).
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+    struct Unwritable {
+        id: String,
+    }
+
+    impl Serialize for Unwritable {
+        fn serialize<S: Serializer>(&self, _into: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom(
+                "a record with no way to be written",
+            ))
+        }
+    }
+
+    /// The store: a log of `Unwritable`, keyed by `id`.
+    #[derive(Debug, Clone)]
+    struct Things {
+        log: Log,
+        held: BTreeMap<String, Unwritable>,
+    }
+
+    impl Things {
+        fn at(path: PathBuf) -> (Self, Vec<String>) {
+            crate::open(Self {
+                log: Log::at(path),
+                held: BTreeMap::new(),
+            })
+        }
+    }
+
+    impl Store for Things {
+        type Record = Unwritable;
+
+        const WHAT: &'static str = "a thing";
+
+        fn key_of(record: &Self::Record) -> String {
+            record.id.clone()
+        }
+
+        fn log(&self) -> &Log {
+            &self.log
+        }
+
+        fn hold(&mut self, record: Self::Record) {
+            self.held.insert(record.id.clone(), record);
+        }
+
+        fn count(&self) -> usize {
+            self.held.len()
+        }
+
+        fn records(&self) -> Vec<&Self::Record> {
+            self.held.values().collect()
+        }
+    }
+
+    fn unwritable(id: &str) -> Unwritable {
+        Unwritable { id: id.to_string() }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("girsa-store-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        dir.join("things.jsonl")
+    }
+
+    #[test]
+    fn a_record_that_will_not_write_is_an_error_and_not_an_empty_line() {
+        // `to_text` is what an export writes. Dropping the record and returning
+        // the count of what the layer *holds* is the export claiming a record
+        // it did not write.
+        let (mut things, _) = Things::at(scratch("unwritable"));
+        things.held.insert("a".into(), unwritable("a"));
+        assert!(
+            things.to_text().is_err(),
+            "an export claimed a record it could not serialize"
+        );
+        let refused = things.log().line_of(&unwritable("a"));
+        assert!(
+            refused.is_err(),
+            "a `Serialize` that refuses produced a line: {refused:?}"
+        );
+        assert!(
+            refused.unwrap_err().to_string().contains("things.jsonl"),
+            "the error names the file it was about"
+        );
+    }
+
+    #[test]
+    fn two_records_that_will_not_write_are_not_the_same_record() {
+        // The merge compared `""` with `""`, so a file of two unserializable
+        // records on both sides was reported as one already had — the count
+        // saying the merge worked when nothing had been compared at all.
+        let (mut mine, _) = Things::at(scratch("both-unwritable"));
+        mine.held.insert("a".into(), unwritable("a"));
+
+        let theirs = scratch("their-unwritable");
+        let mut body = String::new();
+        body.push_str("{\"id\":\"a\"}\n");
+        std::fs::write(&theirs, body).expect("writes");
+
+        let merged = mine.merge(&theirs).expect("the merge happens");
+        // Their line will not *parse* as this record type either, so it is
+        // trouble and refused — and the point is that it is never `already_had`
+        // against a record nobody could read.
+        assert_eq!(merged.already_had, 0, "{merged:?}");
+        assert_eq!(merged.taken, 0, "{merged:?}");
+        assert_eq!(merged.refused, 1, "{merged:?}");
+    }
 }

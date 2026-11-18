@@ -366,10 +366,20 @@ pub fn export(layer: &Layer<'_>, into: &Path) -> Result<Exported, ExportError> {
         written.written[Taggable::Note.at()] += 1;
     }
 
+    // Written by the store, and the store now refuses to write a file of fewer
+    // records than it holds: `to_text` drops nothing it cannot serialize
+    // (issue #59).
+    let out = |e: girsa_personal::LogError| ExportError::Io {
+        path: e.path,
+        source: e.source,
+    };
     for (kind, text) in [
-        (Taggable::Mark, layer.marks.to_text()),
-        (Taggable::Query, layer.queries.to_text()),
-        (Taggable::Collection, layer.collections.to_text()),
+        (Taggable::Mark, layer.marks.to_text().map_err(out)?),
+        (Taggable::Query, layer.queries.to_text().map_err(out)?),
+        (
+            Taggable::Collection,
+            layer.collections.to_text().map_err(out)?,
+        ),
     ] {
         let path = into.join(where_it_goes(kind));
         std::fs::write(&path, text).map_err(io(&path))?;
