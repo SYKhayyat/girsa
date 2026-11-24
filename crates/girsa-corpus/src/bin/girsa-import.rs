@@ -43,6 +43,7 @@ use std::sync::{Arc, Mutex};
 
 use girsa_corpus::beside;
 use girsa_corpus::import::{self, Counts, SegmentKind};
+use girsa_corpus::lexicon;
 use girsa_corpus::spec;
 use girsa_corpus::work::{Catalogue, Library, Source, Work};
 use girsa_plain::argv::{self, Argv};
@@ -148,7 +149,7 @@ fn main() -> std::process::ExitCode {
     );
 
     if metadata_only {
-        let (rewritten, missing) = rewrite_metadata(&corpus_root, &catalogue);
+        let (rewritten, missing) = rewrite_metadata(&corpus_root, &sefaria_root, &catalogue);
         eprintln!("\n{rewritten} works re-catalogued, {missing} not on the shelf");
         let commentaries = catalogue
             .works()
@@ -196,7 +197,7 @@ fn main() -> std::process::ExitCode {
     // From `imported.works`, never from `catalogue.works()`. The catalogue is
     // built from the schemas and has not opened a text file, so it does not
     // know the printed edition — see `Imported`.
-    if let Err(e) = write_index(&corpus_root, &imported.works, &catalogue) {
+    if let Err(e) = write_index(&corpus_root, &sefaria_root, &imported.works, &catalogue) {
         eprintln!("could not write the work index: {e}");
         return std::process::ExitCode::FAILURE;
     }
@@ -465,7 +466,7 @@ fn import_all(root: &Path, works: &[Work], threads: usize) -> Imported {
 ///
 /// Returns how many were rewritten and how many the catalogue knows but the
 /// shelf does not.
-fn rewrite_metadata(root: &Path, catalogue: &Catalogue) -> (usize, usize) {
+fn rewrite_metadata(root: &Path, sefaria: &Path, catalogue: &Catalogue) -> (usize, usize) {
     let mut merged = Vec::new();
     let mut missing = 0usize;
     for work in catalogue.works() {
@@ -511,7 +512,7 @@ fn rewrite_metadata(root: &Path, catalogue: &Catalogue) -> (usize, usize) {
             Err(e) => eprintln!("could not encode {}: {e}", work.slug),
         }
     }
-    if let Err(e) = write_index(root, &merged, catalogue) {
+    if let Err(e) = write_index(root, sefaria, &merged, catalogue) {
         eprintln!("could not write the work index: {e}");
     }
     (merged.len(), missing)
@@ -519,7 +520,21 @@ fn rewrite_metadata(root: &Path, catalogue: &Catalogue) -> (usize, usize) {
 
 /// One line per work, so the shelf and the link importer do not each have to
 /// walk the tree to find out what is on it.
-fn write_index(root: &Path, works: &[Work], catalogue: &Catalogue) -> Result<(), std::io::Error> {
+///
+/// # And the two lexicons the link importer needs
+///
+/// `girsa-link-import` refuses to start without `lexicon.tsv`, and it used to be
+/// `examples/build-lexicon`'s file — an example, so nothing in the shelf build
+/// or in any document ran it, and the one-command shelf build died at the link
+/// step on a fresh clone (#65). The vocabulary describes the works this function
+/// is already writing down, out of the schemas this run already read, so it is
+/// written here, beside-and-renamed like the index.
+fn write_index(
+    root: &Path,
+    sefaria: &Path,
+    works: &[Work],
+    catalogue: &Catalogue,
+) -> Result<(), std::io::Error> {
     let mut body = String::new();
     for work in works {
         match serde_json::to_string(work) {
@@ -534,6 +549,19 @@ fn write_index(root: &Path, works: &[Work], catalogue: &Catalogue) -> Result<(),
     // and its Otzaria lexicon — what tells the shelf what is on it — and a
     // truncating write would leave a torn index that reads as a short shelf.
     beside::write(&root.join("works/index.jsonl"), body)?;
+
+    // Sefaria's half: every spelling of every work with a schema. `skipped` is
+    // loud for the same reason the catalogue's is — a schema that would not
+    // parse is a sefer nobody can cite by name.
+    let built = lexicon::from_schemas(&sefaria.join("schemas"))?;
+    if built.skipped > 0 {
+        eprintln!(
+            "SKIPPED {} Sefaria schema files that would not parse — citations \
+             to those works will not resolve",
+            built.skipped
+        );
+    }
+    beside::write(&root.join("lexicon.tsv"), built.tsv)?;
 
     // The 978 Otzaria-only works have no Sefaria schema, so W3's lexicon has
     // never heard of them — and W8 has to resolve links *into* them.
@@ -797,7 +825,7 @@ mod tests {
         assert_eq!(catalogue.works().len(), 1);
 
         let corpus = dir.join("corpus");
-        write_index(&corpus, catalogue.works(), &catalogue).unwrap();
+        write_index(&corpus, &sefaria, catalogue.works(), &catalogue).unwrap();
 
         let index = corpus.join("works/index.jsonl");
         let body = std::fs::read_to_string(&index).expect("the index is there");
@@ -817,8 +845,23 @@ mod tests {
 
         // And a second run replaces the first, so the index never carries a
         // work that was taken off the shelf.
+        // The Sefaria half of the resolver's vocabulary, out of the same
+        // schemas the catalogue was built from — the file `girsa-link-import`
+        // refuses to start without (#65).
+        let lexicon = std::fs::read_to_string(corpus.join("lexicon.tsv"))
+            .expect("the lexicon is written too");
+        assert!(lexicon.contains("tanakh"), "the slug is in it: {lexicon}");
+        assert!(
+            lexicon.contains("תנ\"ך"),
+            "and the Hebrew spelling: {lexicon}"
+        );
+        assert!(
+            !corpus.join("lexicon.tsv.part").exists(),
+            "and beside-and-renamed like the rest"
+        );
+
         let first = std::fs::read_to_string(&index).unwrap();
-        write_index(&corpus, &[], &catalogue).unwrap();
+        write_index(&corpus, &sefaria, &[], &catalogue).unwrap();
         let second = std::fs::read_to_string(&index).unwrap();
         assert!(!second.contains("Tanakh"), "{second}");
         assert_ne!(first, second);

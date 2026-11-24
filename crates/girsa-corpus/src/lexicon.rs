@@ -1,9 +1,19 @@
 //! The vocabulary the resolver is allowed to be asked about.
 //!
-//! Two files ship it. `lexicon.tsv` is every spelling of every work Sefaria has
-//! a schema for, collected by `examples/build-lexicon`; `lexicon-otzaria.tsv`
-//! is the 978 works Sefaria never had, written by `girsa-import` out of
-//! [`crate::work::Catalogue::otzaria_lexicon_rows`]. Reading the first and
+//! Two files ship it, and **`girsa-import` writes both**. `lexicon.tsv` is every
+//! spelling of every work Sefaria has a schema for, collected here by
+//! [`from_schemas`]; `lexicon-otzaria.tsv` is the 978 works Sefaria never had,
+//! written out of [`crate::work::Catalogue::otzaria_lexicon_rows`].
+//!
+//! The first one used to be `examples/build-lexicon`'s job and nothing else's —
+//! an example is not a step you can put in an order, so `tools/build-a-shelf.mjs`
+//! did not have it and a reader who followed the one-command shelf build got
+//! `cannot load the lexicon` from `girsa-link-import` (#65). An input that a
+//! later step requires belongs in the step that produces what it describes, not
+//! in a program the documentation has to remember. The example is still there
+//! for regenerating one file without a full import, and it calls [`from_schemas`]
+//! rather than carrying the second copy this module's six-copies paragraph is
+//! about. Reading the first and
 //! appending the second is nine lines, and there were **six hand-written
 //! copies** of those nine lines — the window's linkify, the search bar's
 //! citation mode, `girsa-link-import`, `why-dropped`, and the two examples that
@@ -22,7 +32,7 @@
 //! corpus. That is the gap this module closes, and it is why it is one loader
 //! rather than a seventh copy.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use girsa_ref::Lexicon;
@@ -269,6 +279,155 @@ pub fn reader_spellings(variants: &[String]) -> Vec<String> {
     mine
 }
 
+/// What [`from_schemas`] made, and what it could not read.
+///
+/// The counts are not decoration: a schema that fails to parse is a sefer whose
+/// citations will not resolve, and both callers print the number so a mysteriously
+/// bad resolver at one shelf has a line to point at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Built {
+    /// The whole file, header and rows, ready to be written.
+    pub tsv: String,
+    /// Works that contributed at least their own two spellings.
+    pub works: usize,
+    /// Schema files that would not read or would not parse.
+    pub skipped: usize,
+}
+
+/// `lexicon.tsv` from Sefaria's `schemas/` — the resolver's starting vocabulary.
+///
+/// spec.md §4.3: the resolver is *"seeded from Sefaria's `titles` and
+/// `match_templates`, which is most of the lexicon for free"*. Every way each
+/// work is written, in both languages, out of the files that already list them:
+/// `Shulchan_Arukh,_Orach_Chayim.json` alone contributes 44 spellings, because
+/// the spellings a reader actually types live in the schema's nested `titles`
+/// and not only in its two headline names.
+///
+/// Sorted, so the output is byte-identical between runs and a regenerated
+/// lexicon shows an empty diff when nothing changed.
+///
+/// # Errors
+///
+/// If `schema_dir` cannot be read at all. One unreadable schema is counted in
+/// [`Built::skipped`] instead — a sefer the resolver cannot be asked about is a
+/// smaller failure than no lexicon at all.
+pub fn from_schemas(schema_dir: &Path) -> Result<Built, std::io::Error> {
+    // variant → slug, and slug → (he title, en title).
+    let mut rows: BTreeMap<(String, String), (String, String)> = BTreeMap::new();
+    let mut works = 0usize;
+    let mut skipped = 0usize;
+
+    let mut entries: Vec<_> = std::fs::read_dir(schema_dir)?.flatten().collect();
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+
+    for entry in entries {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            skipped += 1;
+            continue;
+        };
+        let Ok(schema) = serde_json::from_str::<serde_json::Value>(&text) else {
+            skipped += 1;
+            continue;
+        };
+
+        let Some(en_title) = schema.get("title").and_then(serde_json::Value::as_str) else {
+            skipped += 1;
+            continue;
+        };
+        let he_title = schema
+            .get("heTitle")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(en_title);
+        let categories = strings_of(schema.get("categories"));
+        works += 1;
+
+        for variant in variants_of(&schema, en_title, he_title) {
+            let variant = without_markup(&variant);
+            if variant.is_empty() {
+                continue;
+            }
+            rows.insert(
+                (variant, crate::work::slug_of(en_title, &categories)),
+                (he_title.to_string(), en_title.to_string()),
+            );
+        }
+    }
+
+    let mut tsv = String::new();
+    tsv.push_str(
+        "# girsa-ref lexicon. GENERATED from Sefaria's schemas by \
+         girsa_corpus::lexicon::from_schemas, written by girsa-import.\n\
+         # variant\tslug\the-title\ten-title\n",
+    );
+    for ((variant, slug), (he, en)) in &rows {
+        tsv.push_str(&format!("{variant}\t{slug}\t{he}\t{en}\n"));
+    }
+    Ok(Built {
+        tsv,
+        works,
+        skipped,
+    })
+}
+
+/// Every spelling a schema offers, before the markup is taken off it.
+fn variants_of(schema: &serde_json::Value, en_title: &str, he_title: &str) -> Vec<String> {
+    let mut out = vec![en_title.to_string(), he_title.to_string()];
+    out.extend(strings_of(schema.get("titleVariants")));
+    out.extend(strings_of(schema.get("heTitleVariants")));
+
+    // The nested node carries its own `titles`, as `{text, lang}` pairs. This
+    // is where the 44 spellings of Orach Chayim actually live.
+    if let Some(titles) = schema
+        .pointer("/schema/titles")
+        .and_then(serde_json::Value::as_array)
+    {
+        out.extend(
+            titles
+                .iter()
+                .filter_map(|t| t.get("text").and_then(serde_json::Value::as_str))
+                .map(str::to_string),
+        );
+    }
+
+    out.extend(reader_spellings(&out));
+    out
+}
+
+fn strings_of(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(serde_json::Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Strip the markup Sefaria's title lists carry.
+///
+/// Several variants arrive wrapped in `<i>…</i>` — the transliterated ones,
+/// `<i>Shulḥan Arukh, Oraḥ Ḥayyim</i>`. Left in, the tag becomes part of the
+/// spelling and the variant matches nothing.
+fn without_markup(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -476,6 +635,85 @@ mod tests {
         assert!(
             mine.iter().all(|v| !v.contains("Basra")),
             "a near miss was made"
+        );
+    }
+
+    /// `girsa-import` writes this file now, so the collection itself is tested
+    /// here rather than only through an example nothing runs (#65).
+    #[test]
+    fn the_lexicon_carries_every_way_a_work_is_written() {
+        let dir = std::env::temp_dir().join("girsa-lexicon-from-schemas");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("schemas")).unwrap();
+        // The shape Sefaria ships: a headline name in each language, and the
+        // spellings a reader types nested under `schema.titles`, markup and all.
+        std::fs::write(
+            dir.join("schemas/Shulchan_Arukh,_Orach_Chayim.json"),
+            r#"{"title": "Shulchan Arukh, Orach Chayim",
+                "heTitle": "שולחן ערוך, אורח חיים",
+                "categories": ["Halakhah"],
+                "titleVariants": ["<i>Shulḥan Arukh, Oraḥ Ḥayyim</i>"],
+                "schema": {"titles": [{"text": "Shulchan Aruch OC", "lang": "en"}]}}"#,
+        )
+        .unwrap();
+        // And one that will not parse: counted, not fatal.
+        std::fs::write(dir.join("schemas/Broken.json"), "{not json").unwrap();
+
+        let built = from_schemas(&dir.join("schemas")).unwrap();
+        assert_eq!(built.works, 1, "one schema named a work");
+        assert_eq!(built.skipped, 1, "and the other is counted, not ignored");
+
+        for variant in [
+            "Shulchan Arukh, Orach Chayim",
+            "Shulchan Aruch OC",
+            // The markup is off the transliterated variant, or it matches
+            // nothing a reader types.
+            "Shulḥan Arukh, Oraḥ Ḥayyim",
+            // And the reader's own spellings, from the same list.
+            "Shulchan Aruch, Orech Chaim",
+        ] {
+            assert!(
+                built.tsv.contains(&format!("\t{variant}\t"))
+                    || built
+                        .tsv
+                        .lines()
+                        .any(|line| line.starts_with(&format!("{variant}\t"))),
+                "{variant} is not in it:\n{}",
+                built.tsv
+            );
+        }
+        assert!(
+            !built.tsv.contains("<i>"),
+            "markup in a spelling matches nothing:\n{}",
+            built.tsv
+        );
+        assert!(
+            built.tsv.ends_with('\n'),
+            "so appending Otzaria's rows cannot glue"
+        );
+
+        // Byte-stable, so a regenerated lexicon diffs empty when nothing moved.
+        let again = from_schemas(&dir.join("schemas")).unwrap();
+        assert_eq!(built.tsv, again.tsv);
+    }
+
+    /// Two runs of one function, not two implementations of one file: the
+    /// example that used to own this writes what the importer writes.
+    #[test]
+    fn the_lexicon_is_a_file_and_not_a_second_copy() {
+        let dir = std::env::temp_dir().join("girsa-lexicon-one-copy");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("schemas")).unwrap();
+        std::fs::write(
+            dir.join("schemas/Berakhot.json"),
+            r#"{"title": "Berakhot", "heTitle": "ברכות", "categories": ["Talmud"]}"#,
+        )
+        .unwrap();
+        let built = from_schemas(&dir.join("schemas")).unwrap();
+        let header = built.tsv.lines().next().unwrap();
+        assert!(
+            header.contains("from_schemas") && header.contains("girsa-import"),
+            "the file says who writes it, and both do: {header}"
         );
     }
 }

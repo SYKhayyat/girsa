@@ -262,6 +262,13 @@ writes one the way the window writes one.
 cargo run -p girsa-corpus --example build-lexicon  corpus/sefaria/schemas corpus/lexicon.tsv   # the resolver's lexicon, from Sefaria's schemas
 ```
 
+**You should not have to run that.** `girsa-import` writes `lexicon.tsv` as part
+of an import — it is the vocabulary for the works the import is writing down, out
+of the schemas it has already read — so a shelf built by
+[`build-a-shelf.mjs`](../tools/build-a-shelf.mjs) has it and `girsa-link-import`
+can start. The example is for regenerating that one file without reimporting
+everything, and it calls the same function the import does.
+
 It reads Sefaria's schemas and writes the `.tsv` — both named, because it
 overwrites the second one and a generator that guessed its own output path is a
 generator that overwrites a file you did not name.

@@ -17,6 +17,19 @@
 // typing is a shelf whose exact contents nobody can recreate, including the
 // person who built it. This is the difference between *here is how* and *here*.
 //
+// **The order below is the order.** `docs/tools.md` is the list a reader types
+// and `docs/the-libraries.md` says what each step's absence costs, but neither
+// decides the sequence — this array does, and
+// `crates/girsa-app/tests/the_shelf_build_order_is_written_once.rs` reads it out
+// of this file and demands the prose agree, in order. A step that exists here
+// and in no document is a step nobody runs; a step in a document and not here is
+// a step this command silently leaves out, which is how `girsa-companions` went
+// missing from a shelf that looked built (AUDIT-lamdan-2026-08-30, item 7).
+//
+// And a step whose input nothing produces is not a step at all: `lexicon.tsv`
+// used to be an example's job, which is not a step anybody can be relied on to
+// have run, so `girsa-import` writes it now (#65).
+//
 // # It stops rather than half-doing
 //
 // Every step checks whether its output is already there and skips it if so, so

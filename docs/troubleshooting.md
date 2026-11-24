@@ -173,16 +173,21 @@ an archive built before this was noticed: `girsa-tools-<platform>.zip` carried
 `girsa-fetch`, `girsa-import` and `girsa-index` and not the link tools. Take a
 newer release, or build the two from source with the lines above.
 
-Two more are worth running, and nothing refuses without them —
-[`tools.md`](tools.md) says what each buys you:
+**`girsa-companions` is the fifth of the six steps** — not an extra, and not
+optional in the sense that matters: nothing refuses without it, so a shelf
+missing it looks built and behaves shorter. Run it if `corpus/links/companions.jsonl`
+is absent, and `girsa-link-orient` after it if you re-imported links by hand:
 
 ```sh
 cargo run --release -p girsa-app --bin girsa-companions corpus
 cargo run -p girsa-link --bin girsa-link-orient corpus
 ```
 
-Without `girsa-companions` the shelf offers the declared commentaries only and
-says so rather than pretending the list is complete.
+Without it the shelf offers only the commentaries a *schema* declares — none of
+them, for a `.txt` library — and says so rather than pretending the list is
+complete. The full order and what each step buys you is in
+[`tools.md`](tools.md#building-the-shelf); `node tools/build-a-shelf.mjs` runs
+all six.
 
 ## One sefer has no links, and the rest of the shelf is fine
 

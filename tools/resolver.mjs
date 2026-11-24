@@ -156,7 +156,8 @@ if (!(await exists(LEXICON)) || !(await exists(LINKS))) {
     `not measured this run: ${LEXICON} is not here (it is generated, and gitignored).\n` +
       `last recorded: ${was.exact}% exact, ${was.ambiguous}% ambiguous, ` +
       `${was.unresolved}% unresolved over ${was.citations} real citations.\n` +
-      `regenerate with:\n` +
+      `it is written by girsa-import, so a corpus that has been imported has it;\n` +
+      `to regenerate that one file:\n` +
       `  cargo run --release -p girsa-corpus --example build-lexicon -- \\\n` +
       `      corpus/sefaria/schemas corpus/lexicon.tsv\n` +
       `then re-run: node tools/resolver.mjs --record\n`,
