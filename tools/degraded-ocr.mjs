@@ -2,6 +2,12 @@
 //
 //     node tools/degraded-ocr.mjs personal 151 152 153
 //
+// And one mode that measures nothing: `--words` reads a passage on stdin and
+// prints the word list the comparison is made of. It exists so the tree's one
+// strict duplicate of Rust logic — the normalizer below — is pinned by a test
+// against `girsa_hebrew` instead of trusted (#12); see
+// `crates/girsa-app/tests/the_ocr_harness_normalizes_like_the_crate.rs`.
+//
 // # Why this exists
 //
 // `docs/record/scans.md` reports tesseract at 90.6% on this shelf's Berachos,
@@ -176,20 +182,77 @@ function findTesseract() {
 }
 
 /**
- * The words a Hebrew comparison is made of.
+ * The words a Hebrew comparison is made of — **`girsa_hebrew::normalize`'s rule,
+ * spelled in JavaScript.**
  *
- * Nikud off and final letters folded — the same normalizing `girsa-hebrew`
- * does, spelled here because this tool is node and that crate is Rust. A
- * comparison of two spellings of one word is the whole measurement, so it may
- * not be a comparison of two ways of writing a shin.
+ * The crate's rule, character by character (`folded` in `girsa-hebrew`'s
+ * `normalize.rs`), because a comparison of two spellings of one word is the
+ * whole measurement and it may not be a comparison of two ways of writing a
+ * letter:
+ *
+ * - nikud and te'amim (U+0591 to U+05C7) vanish — *except* the four in that
+ *   block that separate words rather than decorate one (maqaf, paseq, sof
+ *   pasuq, nun hafukha), which break the word;
+ * - the five final forms fold to their medial form;
+ * - every spelling of geresh and gershayim folds to one apostrophe or one quote
+ *   character (`GERESH`, `GERSHAYIM`, by code point) **and stays inside the
+ *   word**, so an acronym is one word and not three;
+ * - ASCII letters fold to lower case and digits stay, so `Berakhot 2a` and
+ *   `berakhot 2a` agree;
+ * - anything else — punctuation, HTML angle brackets, an em-dash — breaks the
+ *   word.
+ *
+ * # It is a second implementation, and something demands it agree
+ *
+ * This is the tree's one strict duplicate of Rust logic (#12). It cannot be
+ * deleted: the tool is node and has no Rust in it, and giving a measuring
+ * harness its own cargo build would mean it cannot run on a machine that only
+ * has node. So it is **pinned**:
+ * `crates/girsa-app/tests/the_ocr_harness_normalizes_like_the_crate.rs` runs
+ * `node tools/degraded-ocr.mjs --words` over a corpus of Hebrew — nikud, final
+ * forms, an acronym, a verse number, a Latin word — and demands this list equal
+ * `girsa_hebrew::tokenize`'s, word for word.
+ *
+ * The first draft of this function was *almost* the crate's rule: it dropped
+ * Latin and digits, and it split an acronym at its gershayim. Both are the kind
+ * of difference that leaves a number looking plausible and meaning something
+ * else, which is why the pin is a test and not a comment.
  */
 function words(text) {
-  const FINAL = { "\u05DA": "\u05DB", "\u05DD": "\u05DE", "\u05DF": "\u05E0", "\u05E3": "\u05E4", "\u05E5": "\u05E6" };
-  return text
-    .replace(/[\u0591-\u05C7]/gu, "")
-    .split(/[^\u05D0-\u05EA]+/u)
-    .filter(Boolean)
-    .map((word) => [...word].map((c) => FINAL[c] ?? c).join(""));
+  const MARKS = /[\u0591-\u05C7]/u;
+  const SEPARATES = new Set(["\u05BE", "\u05C0", "\u05C3", "\u05C6"]);
+  const FINAL = {
+    "\u05DA": "\u05DB",
+    "\u05DD": "\u05DE",
+    "\u05DF": "\u05E0",
+    "\u05E3": "\u05E4",
+    "\u05E5": "\u05E6",
+  };
+  const of = (points) => new Set(points.map((c) => String.fromCharCode(c)));
+  // GERESH and GERSHAYIM, by code point: the apostrophe and the quote, their
+  // curly forms, and the two Hebrew punctuation marks. Written this way rather
+  // than as literals so the four spellings of each are visible side by side.
+  const GERESH = of([0x05f3, 0x0027, 0x2018, 0x2019]);
+  const GERSHAYIM = of([0x05f4, 0x0022, 0x201c, 0x201d]);
+
+  const out = [];
+  let kept = "";
+  for (const character of text) {
+    if (MARKS.test(character) && !SEPARATES.has(character)) continue;
+    if (SEPARATES.has(character) || /\s/u.test(character)) {
+      if (kept) out.push(kept);
+      kept = "";
+    } else if (GERESH.has(character)) kept += String.fromCharCode(0x0027);
+    else if (GERSHAYIM.has(character)) kept += String.fromCharCode(0x0022);
+    else if (/[\u05D0-\u05EA]/u.test(character)) kept += FINAL[character] ?? character;
+    else if (/[0-9A-Za-z]/.test(character)) kept += character.toLowerCase();
+    else {
+      if (kept) out.push(kept);
+      kept = "";
+    }
+  }
+  if (kept) out.push(kept);
+  return out;
 }
 
 /** A multiset difference, which is what "how many of these words are there" is. */
@@ -366,7 +429,23 @@ function readWith(tesseract, image, tessdata) {
 }
 
 async function main() {
-  const [personalArg, ...pageArgs] = process.argv.slice(2);
+  const typed = process.argv.slice(2);
+  // The one mode that measures nothing: it prints what the comparison is made
+  // of, so the pinning test can compare this tool's normalizer against the
+  // crate's without a browser, tesseract or a shelf (#12).
+  if (typed[0] === "--words") {
+    const text = await new Promise((done) => {
+      let held = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (chunk) => {
+        held += chunk;
+      });
+      process.stdin.on("end", () => done(held));
+    });
+    for (const word of words(text)) console.log(word);
+    return 0;
+  }
+  const [personalArg, ...pageArgs] = typed;
   const personal = path.resolve(personalArg ?? path.join(ROOT, "personal"));
   const pages = pageArgs.length ? pageArgs.map(Number) : [151];
   const slug = process.env.GIRSA_SCAN_SLUG ?? "user/berachos-combined";
