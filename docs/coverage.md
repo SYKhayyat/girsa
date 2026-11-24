@@ -1,6 +1,6 @@
 # Where this tree is tested, and where it is not
 
-The audits said where they were thin. [`AUDIT-CORRECTNESS.md`](../AUDIT-CORRECTNESS.md),
+The audits said where they were thin. [`audit/README.md`](../audit/README.md),
 *Coverage, and what this audit did not reach*, named the surfaces that were read
 for shape only and the suites that were sampled rather than swept — and then
 said the question worth asking of every test was *which of these tests would

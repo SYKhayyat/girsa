@@ -91,6 +91,12 @@ fn documents(root: &Path) -> Vec<PathBuf> {
     ];
     let mut pages = Vec::new();
     walk(&root.join("docs"), &mut pages);
+    // `audit/` is documentation too (#32): four volumes of narrative moved
+    // there as one page of conclusions, and the page links out to `spec.md` and
+    // `CONTRIBUTING.md` like every other page does. A directory the walk does
+    // not enter is unchecked links, which is the same walk-stops-early defect
+    // this function's own note describes twice.
+    walk(&root.join("audit"), &mut pages);
     pages.sort();
     found.extend(pages);
     found.retain(|path| path.exists());

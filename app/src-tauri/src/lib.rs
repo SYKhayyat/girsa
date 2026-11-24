@@ -3931,10 +3931,10 @@ fn copy(
         Some(to) => to.parse().map_err(|e| format!("{e}"))?,
         None => from.clone(),
     };
-    // **Held first.** `AUDIT.md` records that this command is deliberately not
-    // `(async)` — *"the clipboard and the print sheet talk to the platform
-    // rather than to the shelf, they are fast"* — and tells a future agent not
-    // to re-fix that. It is still right about what this command *does* and it
+    // **Held first.** The 18 August performance audit had this command
+    // deliberately not `(async)` — *the clipboard and the print sheet talk to
+    // the platform rather than to the shelf, they are fast* — and told a future
+    // agent not to re-fix that. It is still right about what this command *does* and it
     // was wrong about what it can *wait for*: `State::sefer` on a cache miss is
     // a whole work off disk, 11 ms in the published table and more on a cold
     // cache, **on the thread that owns the message loop**. Ctrl+C on a sefer

@@ -549,7 +549,8 @@ fn every_documented_command_names_the_crate_that_has_it() {
         // been a binary in this tree, and it has to quote the command in order
         // to say so. A rule that forbade naming a defect would forbid recording
         // it — the same partition `app/test/prohibitions.test.mjs` draws around
-        // `lamdan/` and `docs/`, for the same reason.
+        // the record, `docs/` and [`audit/`](../audit/README.md), for the same
+        // reason.
         let shown = source.to_string_lossy().replace('\\', "/");
         if shown.contains("/tests/") {
             continue;

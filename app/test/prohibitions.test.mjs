@@ -47,10 +47,6 @@ const SKIP = new Set([
   "corpus",
   "index",
   "personal",
-  // The record. `lamdan/` and `docs/` describe the defects at length and quote
-  // the code that had them; a prohibition that forbade *naming* a bug would
-  // forbid recording it.
-  "lamdan",
 ]);
 
 /** Every source file in the repository, with comments stripped. */

@@ -166,6 +166,17 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   something has already gone wrong), and `node tools/verify.mjs` now refuses to
   gate a tree holding a ledger. Not fixed: a person can still run the gate and
   then mutate the tree; a pre-commit hook is a tooling decision, not this patch.
+- [x] #32 the audit volumes are history, and their conclusions are a page —
+  `audit/README.md`. Four documents, ~165 KB of narrative that nothing ran and
+  nothing cross-checked, replaced by 2–3 conclusions each: the performance
+  audit's *two findings were one story* and its lanes; the correctness audit's
+  *the seams between two processes and the paths a guard does not reach*;
+  the graded audit's *a diff, not a verdict*; and lamdan's §3, which is worth
+  keeping because it was right and it is now fixed. Each section says which of
+  its conclusions still stands. `AUDIT-lamdan-2026-08-30.md` stays where it is:
+  its items are open issues and four tests cite it by number. The doc-link walk
+  now enters `audit/` as well, because a directory the walk does not enter is
+  unchecked links.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #32 audit volumes distill, #36/#37/#38 interop.
 - [ ] Features: #63 smart navigation (**the reading half has landed** —
   `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,
