@@ -1,10 +1,10 @@
-//! The other end of spec.md §12 — MCP that writes, and everything it will not
+//! The other end of spec.md §11 — MCP that writes, and everything it will not
 //! touch.
 //!
 //! The server answered nine questions and wrote nothing. That is a defensible
-//! place to stop and it is not where §12 stops: *MCP on both ends* is the work
-//! order, and a library a program can read but not add to is a library an agent
-//! learns beside rather than with.
+//! place to stop and it is not where §11 stops: *MCP on both ends* is the work
+//! order (BUILDER.md W28, spec.md §15's M8), and a library a program can read
+//! but not add to is a library an agent learns beside rather than with.
 //!
 //! Three tools, and they are the three the record named: a note, a link, a
 //! correction. What is asserted here is the shape of the permission around

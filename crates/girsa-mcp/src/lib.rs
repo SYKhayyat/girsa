@@ -111,7 +111,7 @@ pub struct Server {
     /// refused rather than served, because a client that has not handshaken has
     /// not agreed a protocol version and cannot be assumed to read the answer.
     ready: bool,
-    /// Whether a program may write into your own layer (spec.md §12).
+    /// Whether a program may write into your own layer (spec.md §11).
     ///
     /// **Off unless asked for**, and the tools are not in the catalogue when it
     /// is off rather than being listed and refused. A tool list is what a

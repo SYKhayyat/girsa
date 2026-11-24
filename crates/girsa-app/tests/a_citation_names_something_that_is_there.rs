@@ -524,3 +524,151 @@ fn the_mcp_end_cites_the_milestone_that_names_mcp() {
         "the MCP end names the milestone that specifies it:\n{opening}"
     );
 }
+
+/// A section that resolves is not a section that says the thing.
+///
+/// The audit's item 13 was one sentence in `girsa-mcp` — *"spec.md §12 and
+/// BUILDER.md W28: MCP on both ends"* — where §12 is **Architecture** and never
+/// mentions MCP. It was fixed by hand, and the test above holds the half that
+/// can be mechanised: the section exists. Following that fix found the same
+/// mistake twice more in the same crate, one of them the worst shape of it —
+/// *"Whether a program may write into your own layer (spec.md §12)"* — because a
+/// **parenthesised** citation is prose saying *this is where that is written
+/// down*, and §12 is architecture and does not say it anywhere.
+///
+/// So this is the content check the number check cannot be, and it is
+/// deliberately narrow enough to be honest. A general *does this section
+/// support this claim* is not something a test can do; what it can do is hold a
+/// small list of subjects a reader has already been misled about, and demand
+/// that a parenthesised citation on a line naming one of them resolves to a
+/// section whose own text says it. A number that looks right cannot satisfy
+/// this, and a renumbering breaks it rather than passing it.
+#[test]
+fn a_parenthesised_citation_names_a_section_that_says_its_subject() {
+    // (the subject as a comment writes it, words that make a cited section
+    // acceptable). One row is the whole point of a table being honest about its
+    // own reach: the MCP case is checkable, and the second false §12 — *may a
+    // program write into your own layer* — is **not**, because §12's storage
+    // sentence says *personal layer* and a content check cannot tell that apart
+    // from saying what may be written to it. That one is held by name in
+    // `girsa_mcp_belongs_to_the_personal_layer_and_not_to_architecture`.
+    const SUBJECTS: &[(&str, &[&str])] = &[("MCP", &["MCP"])];
+    let root = repo();
+    let spec = read(&root, "spec.md");
+
+    let mut wrong = Vec::new();
+    for path in sources(&root) {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let shown = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        for (index, line) in text.lines().enumerate() {
+            let comment = comment_on(line);
+            let said: Vec<&&str> = SUBJECTS
+                .iter()
+                .map(|(subject, _)| subject)
+                .filter(|subject| comment.contains(**subject))
+                .collect();
+            if said.is_empty() {
+                continue;
+            }
+            for number in parenthetical_sections(comment) {
+                let Some(body) = section_body(&spec, &number) else {
+                    continue;
+                };
+                // Every subject on the line has to be acceptable in this
+                // section — the line is making one parenthetical claim, and the
+                // section either is the place for it or is not.
+                for (subject, words) in SUBJECTS {
+                    if !comment.contains(subject) {
+                        continue;
+                    }
+                    if !words.iter().any(|w| body.contains(w)) {
+                        wrong.push(format!(
+                            "{shown}:{}  `{subject}` cited as ({number}), and §{number} does not say it",
+                            index + 1
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    wrong.sort();
+    wrong.dedup();
+    assert!(
+        wrong.is_empty(),
+        "a parenthesised citation names a section that does not say what the line says it does:\n  {}",
+        wrong.join("\n  ")
+    );
+}
+
+/// The section numbers cited in **parentheses** on one comment line.
+///
+/// Not every citation: a header that mentions a subject and cites §14 in another
+/// sentence is not making a claim about §14. A parenthetical is the shape the
+/// false addresses take — `(spec.md §12)`, `(see spec.md §9.9)` — because it is
+/// the shape of *this is where that is written down*.
+fn parenthetical_sections(comment: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut depth = 0i32;
+    for (at, c) in comment.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth > 0 && comment[at..].starts_with('§') {
+            // Past the `§`, which is two bytes.
+            if let Some((number, _)) = number_at(comment.as_bytes(), at + c.len_utf8()) {
+                found.push(number);
+            }
+        }
+    }
+    found
+}
+
+/// One section of `spec.md`, from its heading to the next `## `.
+fn section_body(spec: &str, number: &str) -> Option<String> {
+    let head = format!("\n## {number}.");
+    let start = spec.find(&head)?;
+    let after = &spec[start + 1..];
+    let end = after[3..].find("\n## ").map_or(after.len(), |at| at + 3);
+    Some(after[..end].to_string())
+}
+
+/// The second false §12 in `girsa-mcp`, held by name because by content it is
+/// not holdable.
+///
+/// *"Whether a program may write into your own layer (spec.md §12)"* — §12 is
+/// Architecture, and its one sentence about your layer is about **storage**
+/// (SQLite and tantivy), not about what a program may write. A test that asked
+/// *does §12 mention this subject* would answer yes and pass, which is worse
+/// than not asking, so this asserts the address itself: the permission is §11's
+/// subject, and a citation of it says §11.
+#[test]
+fn girsa_mcp_belongs_to_the_personal_layer_and_not_to_architecture() {
+    let root = repo();
+    let header = read(&root, "crates/girsa-mcp/src/lib.rs");
+    let line = header
+        .lines()
+        .find(|line| line.contains("write into your own layer"))
+        .unwrap_or_else(|| {
+            panic!("girsa-mcp still asks whether a program may write to your layer")
+        });
+    assert!(
+        line.contains("(spec.md §11)"),
+        "the permission to write into your own layer is §11's, and this line cites: {line}"
+    );
+    // And §11 is still the section that says it, so a renumbering breaks this
+    // rather than pointing the citation somewhere plausible.
+    let spec = read(&root, "spec.md");
+    let body = section_body(&spec, "11").unwrap_or_else(|| panic!("spec.md has a §11"));
+    assert!(
+        body.to_lowercase().contains("personal layer"),
+        "§11 is the personal layer, and it says: {body}"
+    );
+}
