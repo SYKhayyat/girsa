@@ -231,7 +231,7 @@ The same pattern appears twice more, and it is worth recognising:
 |---|---|---|
 | `docs/shortcuts.md` | `girsa-card` | `tools/check-card.sh` |
 | the fixture Ksav asserts on | `--example fixture-packet` | `tools/check-ksav-fixture.sh` |
-| the marked numbers in `README.md` and `docs/tools.md` | `tools/readme-numbers.sh` | a test, on every push |
+| the marked numbers in `README.md`, `docs/tools.md` and `spec.md` | `tools/readme-numbers.sh` | a test, on every push |
 
 The tree is the source, the file is the copy, and a copy nothing regenerates is a
 copy that rots.

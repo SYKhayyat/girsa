@@ -24,6 +24,12 @@
 //! So the run finishes with the counts §2 states, each marked, and exits
 //! non-zero if any of them is wrong.
 //!
+//! **And the numbers are read out of `spec.md`**, not remembered here. They used
+//! to be two literals in this file, which put a copy of the highest-authority
+//! document's own table inside a program that compares against it — the third
+//! copy, after the record's measurement, with nothing keeping any two of them in
+//! step (#34). `girsa_corpus::spec` is the reader; §2's table carries the marks.
+//!
 //! BUILDER.md Appendix B.5: *if the data no longer matches §2, say so loudly
 //! rather than coding around it.*
 
@@ -37,6 +43,7 @@ use std::sync::{Arc, Mutex};
 
 use girsa_corpus::beside;
 use girsa_corpus::import::{self, Counts, SegmentKind};
+use girsa_corpus::spec;
 use girsa_corpus::work::{Catalogue, Library, Source, Work};
 use girsa_plain::argv::{self, Argv};
 
@@ -214,13 +221,21 @@ fn main() -> std::process::ExitCode {
     };
     checks.check(
         "spec.md §2.3 · works in the union",
-        7576,
+        spec::claim("union-works").unwrap_or_else(|| {
+            panic!(
+                "spec.md §2.3 no longer marks `union-works`, so there is nothing to check against"
+            )
+        }),
         overlap.union(),
         as_measured,
     );
     checks.check(
         "spec.md §2.3 · works Sefaria does not supply",
-        978,
+        spec::claim("otzaria-only").unwrap_or_else(|| {
+            panic!(
+                "spec.md §2.3 no longer marks `otzaria-only`, so there is nothing to check against"
+            )
+        }),
         overlap.otzaria_only,
         as_measured,
     );

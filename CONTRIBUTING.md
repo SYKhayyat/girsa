@@ -402,10 +402,12 @@ Nothing regenerates that page, which makes it the one file here most likely to
 start lying.
 
 **Marked numbers are re-counted.** A count is followed by an invisible HTML
-comment naming the measurement, and a test re-measures it on every push. Two
-pages carry them — `README.md`, and `docs/tools.md`, which joined it after
-opening with *"sixteen binaries and fifteen examples"* while there were
-seventeen examples. If you change something a marked number counts:
+comment naming the measurement, and a test re-measures it on every push. Three
+pages carry them — `README.md`, `docs/tools.md`, which joined it after opening
+with *"sixteen binaries and fifteen examples"* while there were seventeen
+examples, and `spec.md`, which joined both last because the counts in the
+highest-authority document were the ones nothing recounted. If you change
+something a marked number counts:
 
 ```sh
 tools/readme-numbers.sh
@@ -421,7 +423,7 @@ wrong by 50 for weeks.
 |---|---|---|
 | `docs/shortcuts.md` | `girsa-card`, from the key table the window resolves against | `tools/check-card.sh` |
 | the Ksav test fixture | `--example fixture-packet` | `tools/check-ksav-fixture.sh` |
-| the marked numbers in `README.md` and `docs/tools.md` | `tools/readme-numbers.sh` | a test, on every push |
+| the marked numbers in `README.md`, `docs/tools.md` and `spec.md` | `tools/readme-numbers.sh` | a test, on every push |
 
 The pattern is the same in all three: the tree is the source, the file is the
 copy, and a copy nothing regenerates is a copy that rots.

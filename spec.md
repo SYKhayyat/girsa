@@ -148,7 +148,12 @@ for nikud, gershayim and punctuation:
 
 | Shared | Otzaria-only | Sefaria-only | Union |
 |---|---|---|---|
-| 5,637 (85% of Otzaria) | **978** | 961 | ~7,576 |
+| 5,637 (85% of Otzaria) | **978**<!--=otzaria-only--> | 961 | ~7,576<!--=union-works--> |
+
+The two marked cells are read back by `girsa-import`, which compares them
+against the corpus it just wrote and exits non-zero when they disagree
+(`girsa_corpus::spec`). The mark renders as nothing; the importer sees the
+claim.
 
 **The 978 are not marginal — they are disproportionately the learning material.**
 Sampling them: גליוני הש"ס · אבני נזר · קרן אורה על נדרים · חידושי הראב"ד ·
@@ -526,7 +531,7 @@ Rules, not models. Invisible when it works, which is the point. Read
 `Sefaria-ElasticSearch` for *which* prefixes it strips; reimplement in Rust — the
 GPL forbids taking the code into a codebase sharing crates with Ksav.
 
-### 9.3 Five explicit modes — Torat Emet is the default
+### 9.3 **5**<!--=search-modes--> explicit modes — Torat Emet is the default
 
 Mode is always a visible selector, and the other modes are one click away, not
 buried. The default is the literal one.
@@ -952,8 +957,9 @@ depends on this.
 (§3). Schemas, structure, links resolved onto IDs. The expensive one. Budget
 honestly.
 
-**M3 — Search that feels like Torat Emet.** Normalization, tantivy, the five modes,
-chips, relaxation ladder with Pattern/Regex exempt. *No syntax anywhere in the UI.*
+**M3 — Search that feels like Torat Emet.** Normalization, tantivy, the
+**5**<!--=search-modes--> modes, chips, relaxation ladder with Pattern/Regex exempt. *No syntax
+anywhere in the UI.*
 
 **M4 — The Ksav loop.** Source Packet crate, layered clipboard, send-selection,
 deep links, loopback, the buffer, cite-on-selection. **This is the milestone that

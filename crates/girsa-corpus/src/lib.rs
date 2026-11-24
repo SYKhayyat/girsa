@@ -114,7 +114,11 @@ pub mod oversized;
 pub mod roots;
 pub mod sections;
 pub mod segment;
+// What `spec.md` says about a corpus, read out of `spec.md`. The importer used to
+// remember these numbers itself, which made three copies of one fact in the one
+// document that is supposed to be the authority (#34).
 pub mod span;
+pub mod spec;
 // A dotted name means two opposite things — a piece a cut carved out, or a
 // se'if upstream inserted — and a prefix test says yes to both. What separates
 // them is that a cut deletes its parent.

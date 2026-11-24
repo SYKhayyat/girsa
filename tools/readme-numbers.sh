@@ -24,9 +24,15 @@ thousands() {
 }
 
 # The pages that carry markers. `docs/tools.md` joined `README.md` when the
-# word *fifteen* on it went stale for the second time; the test reads the same
-# list, in the same order, as `PAGES`.
-PAGES="README.md docs/tools.md"
+# word *fifteen* on it went stale for the second time, and `spec.md` joined both
+# under #34: the counts in the highest-authority document were the only ones in
+# the tree nothing recounted. The test reads the same list, in the same order, as
+# `PAGES`.
+#
+# A marker this script does not know is left alone rather than rewritten — the
+# two §2.3 counts are read back by `girsa-import` on a shelf, which is the only
+# program that can measure them.
+PAGES="README.md docs/tools.md spec.md"
 
 set_marked() {
   local name="$1" value
@@ -91,6 +97,12 @@ set_marked styles-lines   "$(wc -l < app/src/styles.css)"
 # to fix a stale number would have been handed a README that was still stale.
 # Counted the way the test counts it: `#[test]` in one file.
 set_marked rules         "$(grep -c '^#\[test\]' crates/girsa-app/tests/the_rules_this_repository_wrote_down.rs)"
+# The modes `spec.md §9.3` counts. The variants of `girsa_search::Mode`, counted
+# the way the test counts them — from the enum's own head to the brace that
+# closes it — so a sixth mode added to the rust moves the number in the document.
+set_marked search-modes "$(sed -n '/^pub enum Mode {$/,/^}$/p' crates/girsa-search/src/lib.rs \
+                           | sed '1d' \
+                           | grep -cE '^[[:space:]]+[A-Z][A-Za-z0-9_]*([[:space:]]*\{.*\})?,*$')"
 
 echo "Numbers re-counted in: $PAGES"
 echo "The check is: cargo test -p girsa-app --test the_numbers_in_the_readme_are_measurements"

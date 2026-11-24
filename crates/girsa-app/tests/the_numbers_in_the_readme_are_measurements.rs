@@ -68,7 +68,21 @@ use std::path::{Path, PathBuf};
 
 /// The pages whose marked numbers are checked, and the list
 /// `tools/readme-numbers.sh` writes back to. Both halves read this order.
-const PAGES: &[&str] = &["README.md", "docs/tools.md"];
+///
+/// **`spec.md` is here and it is the point of #34.** The README's counts were
+/// honest because a script regenerates them and this test fails on drift, while
+/// the highest-authority document in the repository — the one a work order is
+/// checked against — carried counts inside its own tables that nothing counted.
+/// The inverse of its weight: the more a document is trusted, the fewer people
+/// recompute what it says.
+///
+/// What can move here is what has a *measurer*, and the two kinds are different
+/// enough to be named. A count of this tree (`search-modes`) is recounted in
+/// `measurements` like the README's. A count of a **corpus** cannot be recounted
+/// by a checkout at all, so its measurer is the program that runs on a shelf —
+/// and the guard is that the program reads the number out of this document
+/// rather than remembering it (`MEASURED_ON_A_SHELF`).
+const PAGES: &[&str] = &["README.md", "docs/tools.md", "spec.md"];
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -153,7 +167,59 @@ fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
     );
     out.insert("window-modules", files_in(&root.join("app/src"), "ts"));
     out.insert("styles-lines", lines_of(&root.join("app/src/styles.css")));
+    // spec.md §9.3's own heading, and the M3 milestone that repeats it. The
+    // five are `girsa_search::Mode`'s variants, so a sixth mode added to the
+    // enum is a spec that is now wrong — which is the number this test exists
+    // to hold, and the reason it counts the enum rather than the prose.
+    out.insert(
+        "search-modes",
+        variants_in(&root.join("crates/girsa-search/src/lib.rs"), "Mode"),
+    );
     out
+}
+
+/// The variants of one `pub enum`, counted from the source.
+///
+/// Counted rather than reached for as `Mode::SPELLINGS.len()`, because
+/// `girsa-app` deliberately does not depend on `girsa-search` — the workspace
+/// is the thing that shows a search, not the thing that defines one — and a
+/// dev-dependency added to make a documentation test compile would be the
+/// wrong way round. A source count is what every other measurement in this file
+/// already is.
+///
+/// The variant lines are the ones that begin with an uppercase letter inside the
+/// braces; attributes, doc comments and the closing brace are stepped over. A
+/// variant carrying a doc line or a `#[default]` therefore does not change the
+/// count, and neither does one that carries fields — what ends the list is the
+/// closing brace, not the first line that fails to end in a comma. The last
+/// variant in an enum may legally have no comma, so a line that begins with a
+/// capital and does not end in one is counted only when the next meaningful line
+/// closes the enum; anything else is a variant with fields written across lines,
+/// which this refuses to guess at rather than guessing wrong.
+fn variants_in(path: &Path, name: &str) -> usize {
+    let body = read(path);
+    let open = format!("pub enum {name} {{");
+    let Some(start) = body.find(&open) else {
+        panic!("{} declares `{open}`", path.display());
+    };
+    // Everything between the enum's head and the brace that closes it.
+    let inside: Vec<&str> = body[start + open.len()..]
+        .lines()
+        .map(str::trim)
+        .take_while(|line| !line.starts_with('}'))
+        .collect();
+    let mut total = 0;
+    for (i, line) in inside.iter().enumerate() {
+        let first = line.chars().next().unwrap_or(' ');
+        if !first.is_ascii_uppercase() {
+            continue;
+        }
+        // A comma ends a variant; the last one in an enum may legally have none.
+        if line.ends_with(',') || inside.get(i + 1).is_some_and(|next| next.starts_with('}')) {
+            total += 1;
+        }
+    }
+    total
 }
 
 /// Every `#[tauri::command]` under the shell's source directory, recursively.
@@ -245,6 +311,29 @@ const MEASURED_ELSEWHERE: &[(&str, &str)] = &[
     ("resolver-citations", "tools/resolver.mjs"),
 ];
 
+/// Claims about a **corpus**, and the program that measures them.
+///
+/// A checkout cannot recount these — `corpus/` is generated and gitignored, and
+/// this project's rule is that a check silently passing because it could not
+/// find its subject is worse than no check (`tools/check-ksav-fixture.sh:41`).
+/// So the number stays in `spec.md`, a shelf build measures it, and what this
+/// test holds is the one thing that can be held without a corpus: **that the
+/// measuring program reads the number out of the document instead of carrying
+/// its own copy.**
+///
+/// That is the whole of #34. `girsa-import` compared the import against `7576`
+/// and `978` typed into its own source, so §2's table, the importer and
+/// `docs/record/links.md`'s measurement were three copies of one fact with
+/// nothing keeping any two of them in step — and the record's copy already said
+/// something else. Now there is one copy and one reader.
+const MEASURED_ON_A_SHELF: &[(&str, &str)] = &[
+    ("union-works", "crates/girsa-corpus/src/bin/girsa-import.rs"),
+    (
+        "otzaria-only",
+        "crates/girsa-corpus/src/bin/girsa-import.rs",
+    ),
+];
+
 #[test]
 fn every_marked_number_in_the_documentation_is_what_the_tree_measures() {
     let root = repo();
@@ -281,6 +370,24 @@ fn every_marked_number_in_the_documentation_is_what_the_tree_measures() {
                     read(&root.join("tools/verify.mjs")).contains(tool),
                     "`{name}` is measured by {tool}, and the gate does not run it — a \
                      measurement nothing runs is the claim this test refuses"
+                );
+                continue;
+            }
+            // A corpus claim: the reader is what is checked, not the number.
+            if let Some((_, tool)) = MEASURED_ON_A_SHELF
+                .iter()
+                .find(|(mark, _)| *mark == name.as_str())
+            {
+                let reader = root.join(tool);
+                assert!(
+                    reader.is_file(),
+                    "`{name}` is measured by {tool}, and there is no {tool}"
+                );
+                assert!(
+                    read(&reader).contains(&format!("spec::claim(\"{name}\")")),
+                    "`{name}` is measured by {tool}, and that program does not read it out of \
+                     spec.md — a copy of a number the document also states is the third copy \
+                     nobody keeps in step (#34)"
                 );
                 continue;
             }
@@ -353,5 +460,48 @@ fn a_command_declared_outside_lib_rs_is_counted() {
     .unwrap_or_else(|e| panic!("commands/nav.rs: {e}"));
 
     assert_eq!(commands_in(&dir), 3, "2 in lib.rs and 1 in commands/");
+    std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("temp tree: {e}"));
+}
+
+/// The rule, not the number: a variant added to the enum moves the count.
+///
+/// `spec.md §9.3` says how many modes there are, and the modes are an enum.
+/// Written against a temporary file for the reason the command counter is: this
+/// repository proves today's arrangement, and the failure this guards is the
+/// arrangement changing — a variant carrying an attribute, a doc line between
+/// two listed variants, a `where`-clause-free body. A counter that stopped at
+/// the first `#[` would say five for ever.
+#[test]
+fn a_variant_added_to_an_enum_is_counted() {
+    let dir = std::env::temp_dir().join(format!("girsa-enums-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("temp tree: {e}"));
+    let file = dir.join("lib.rs");
+    std::fs::write(
+        &file,
+        "/// The modes.\n\
+         #[derive(Debug)]\n\
+         pub enum Mode {\n\
+         \x20   /// Literal.\n\
+         \x20   #[default]\n\
+         \x20   ToratEmet,\n\
+         \x20   Smart,\n\
+         \x20   Regex { bare: bool },\n\
+         }\n\n\
+         pub enum Other {\n\
+         \x20   One,\n\
+         }\n",
+    )
+    .unwrap_or_else(|e| panic!("lib.rs: {e}"));
+
+    assert_eq!(
+        variants_in(&file, "Mode"),
+        3,
+        "attributes and docs stepped over"
+    );
+    assert_eq!(
+        variants_in(&file, "Other"),
+        1,
+        "and the next enum is not swallowed"
+    );
     std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("temp tree: {e}"));
 }
