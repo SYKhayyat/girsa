@@ -45,7 +45,7 @@
 // `target/`. They share the cargo lock and they **must** stay in the order
 // below.
 //
-// Steps 7–10 share nothing with them: `tsc`, `node test/run.mjs`,
+// Every step after the cargo lane shares nothing with them: `tsc`, `node test/run.mjs`,
 // `node tools/check-coverage.mjs` and `node tools/eyes.mjs` are TypeScript and
 // esbuild, they never read `target/`,
 // they never take the cargo lock, and they do not need `app/dist`. Run after
@@ -63,6 +63,7 @@
 // two live streams into one terminal is a transcript nobody can read.
 
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -148,6 +149,17 @@ const GATE = [
     at: ".",
     say: "commands self-test",
     run: ["node", "tools/commands.mjs", "--self-test"],
+  },
+  // The mutation tool's restore path (#78). It only runs when a run has already
+  // been interrupted, which makes it the least walked code in the tree and the
+  // one whose failure mode is a source file holding a deliberately broken
+  // guard. `--self-test` does the break-sweep-and-check in a scratch directory;
+  // the dynamic half stays by hand because each mutation recompiles.
+  {
+    lane: "window",
+    at: ".",
+    say: "mutation self-test",
+    run: ["node", "tools/mutation.mjs", "--self-test"],
   },
   // The number BUILDER.md W3 promises, measured rather than remembered (#73).
   //
@@ -288,6 +300,31 @@ function whatAResumeSkips(from) {
   );
 }
 
+/**
+ * Refuse to gate a tree that is not the tree.
+ *
+ * `node tools/mutation.mjs` breaks a guard on purpose and restores it; a run
+ * that is killed leaves the guard broken and a ledger saying which one (#78).
+ * A gate over that working tree answers a question nobody asked: it can be
+ * green, because one deliberately broken guard is exactly what the suite was
+ * written to miss everywhere except the one test the mutation is aimed at, and
+ * it can be red for a reason that is not the reader's — the broken guard, in a
+ * lane that has nothing to do with the change being gated. Two commits have
+ * already shipped that way (#79).
+ *
+ * Either answer is wasted work, so this comes before step 1: say what is broken
+ * and how to put it back.
+ */
+function inFlight() {
+  const state = path.join(HERE, ".mutation-in-flight", "state.json");
+  if (!existsSync(state)) return null;
+  try {
+    return JSON.parse(readFileSync(state, "utf8"));
+  } catch {
+    return ["(the ledger is unreadable — `node tools/mutation.mjs --restore` rebuilds nothing, so read it by hand)"];
+  }
+}
+
 async function main(argv) {
   const from = resumeAt(argv);
   if (from === null) return 1;
@@ -296,6 +333,17 @@ async function main(argv) {
       console.log(`${i + 1}. [${one.lane}] ${one.say} — ${one.run.join(" ")}`),
     );
     return 0;
+  }
+
+  const broken = inFlight();
+  if (broken) {
+    console.log(
+      "\n✗ the working tree has a mutation in flight — a guard is broken on purpose:\n" +
+        broken.map((one) => `  · ${one}\n`).join("") +
+        "\n  put it back first: node tools/mutation.mjs --restore\n" +
+        "  (a gate over a deliberately broken guard is a gate over a tree that is not the tree)",
+    );
+    return 1;
   }
 
   if (from > 1) process.stdout.write(whatAResumeSkips(from));

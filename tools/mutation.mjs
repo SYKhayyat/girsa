@@ -26,9 +26,34 @@
 // record asks for it. It exits non-zero if any mutation escaped, if any file
 // could not be restored, or if a `find` string did not match exactly once —
 // a `find` that matches nothing is a mutation that never happened.
+//
+// # An interrupted run does not leave a guard broken (#78)
+//
+// Every mutation is a surgical break of an invariant, so a tree left holding
+// one is a tree whose tests are lying — and the mutation in flight is by
+// construction the one only a single test can see. A `finally` block covers a
+// throw and not a signal: `SIGINT` does not unwind, `SIGKILL` cannot be caught
+// at all, and this run takes minutes with the terminal closed over it.
+//
+// So three layers, and only the first is load-bearing:
+//
+// 1. **A ledger on disk.** Before the first write of a mutation, the original
+//    bytes go to `tools/.mutation-in-flight/` with a `state.json` naming the
+//    files. It is deleted when the tree is clean again. A file that exists is
+//    unambiguous evidence of an interrupted run, and it survives `SIGKILL`,
+//    which no handler does.
+// 2. **A sweep at startup.** If the ledger is there, the originals are put back
+//    *before* anything else happens, and the run says which file it found and
+//    restored. `node tools/mutation.mjs --restore` does only that.
+// 3. **Handlers for `SIGINT`/`SIGTERM`**, which restore synchronously and say
+//    what they stopped at. Belt to the ledger's braces, not a substitute.
+//
+// The ledger is listed in `.gitignore`; a run that ends normally removes it.
 
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,6 +76,149 @@ function run(cwd, command, args) {
   });
 }
 
+/**
+ * Where an interrupted run leaves what it broke.
+ *
+ * A directory and not one file, because the original bytes of a mutated file can
+ * be tens of kilobytes and a JSON of them is a JSON nobody can read at two in
+ * the morning. Gitignored: it is debris, and every run that gets to the end
+ * deletes it.
+ */
+const LEDGER = path.join(HERE, ".mutation-in-flight");
+const STATE = path.join(LEDGER, "state.json");
+
+/**
+ * The same ledger, anywhere else.
+ *
+ * `--self-test` runs this file's own restore path against a scratch directory,
+ * because the code under test is the code that runs when the tree is already
+ * broken — and a self-test that used the real `tools/` would be a test that
+ * breaks the repository when it fails. Everything below is parameterised by the
+ * two paths instead of closing over `HERE`, and the run uses the real ones.
+ */
+const ledgerAt = (here) => path.join(here, ".mutation-in-flight");
+const stateAt = (here) => path.join(ledgerAt(here), "state.json");
+
+/** The file's name inside the ledger — its path, with the separators flattened. */
+const heldIn = (here, source) => path.join(ledgerAt(here), source.split(/[\\/]/).join("%"));
+const held = (source) => heldIn(HERE, source);
+
+/** Write the originals down before breaking anything. */
+function record(sources, here = HERE) {
+  mkdirSync(ledgerAt(here), { recursive: true });
+  for (const [source, body] of sources) writeFileSync(heldIn(here, source), body, "utf8");
+  writeFileSync(stateAt(here), JSON.stringify([...sources.keys()], null, 2) + "\n", "utf8");
+}
+
+/** Take one file back out of the ledger, and drop the ledger with the last one. */
+function unrecord(source, here = HERE) {
+  rmSync(heldIn(here, source), { force: true });
+  const state = stateAt(here);
+  const left = existsSync(state)
+    ? JSON.parse(readFileSync(state, "utf8")).filter((one) => one !== source)
+    : [];
+  if (left.length === 0) rmSync(ledgerAt(here), { recursive: true, force: true });
+  else writeFileSync(state, JSON.stringify(left, null, 2) + "\n", "utf8");
+}
+
+/**
+ * Put back whatever an interrupted run left broken, and say so.
+ *
+ * Called before anything else, and this is the layer that survives `SIGKILL`: a
+ * handler cannot run there, and a file on disk does not need to.
+ */
+function sweep(here = HERE, root = ROOT) {
+  const state = stateAt(here);
+  if (!existsSync(state)) return 0;
+  const sources = JSON.parse(readFileSync(state, "utf8"));
+  for (const source of sources) {
+    const backup = heldIn(here, source);
+    if (!existsSync(backup)) continue;
+    writeFileSync(path.join(root, source), readFileSync(backup, "utf8"), "utf8");
+    console.log(
+      "found a mutation left in flight by an interrupted run: restored " + source + "\n",
+    );
+  }
+  rmSync(ledgerAt(here), { recursive: true, force: true });
+  return sources.length;
+}
+
+/**
+ * The ledger's own test: break a guard in a scratch tree, sweep it, demand it
+ * come back — and then the cases that are easy to get wrong.
+ *
+ * It is a step of the gate because the code it covers only runs when something
+ * has already gone wrong, which is the code least likely to be exercised by
+ * hand. Deliberately not the real `tools/`: a restore that is broken must fail
+ * this test rather than this checkout.
+ */
+function selfTest() {
+  const here = mkdtempSync(path.join(tmpdir(), "mutation-selftest-"));
+  const guard = "the guard";
+  const said = [];
+  const say = console.log;
+  console.log = (...parts) => said.push(parts.join(" "));
+  const fails = [];
+  const want = (about, held) => {
+    if (!held) fails.push(about);
+  };
+  try {
+    // 1. A run that dies mid-mutation leaves the guard broken and the ledger
+    //    holding it; the next sweep puts it back.
+    mkdirSync(path.join(here, "crate", "src"), { recursive: true });
+    const source = path.join(here, "crate", "src", "guard.rs");
+    writeFileSync(source, guard, "utf8");
+    record(new Map([["crate/src/guard.rs", guard]]), here);
+    writeFileSync(source, "broken", "utf8");
+    want("a ledger exists between mutations", existsSync(stateAt(here)));
+    want("the guard really was broken", readFileSync(source, "utf8") === "broken");
+    const put = sweep(here, here);
+    want("the sweep restores one file", put === 1);
+    want("the guard is back", readFileSync(source, "utf8") === guard);
+    want("the ledger is gone after the sweep", !existsSync(ledgerAt(here)));
+
+    // 2. A clean restore empties the ledger, and the last entry takes the
+    //    directory with it.
+    record(new Map([["crate/src/guard.rs", guard]]), here);
+    unrecord("crate/src/guard.rs", here);
+    want("a clean restore leaves no ledger", !existsSync(ledgerAt(here)));
+
+    // 3. A sweep with nothing recorded is a no-op and not a throw.
+    want("a sweep with no ledger restores nothing", sweep(here, here) === 0);
+
+    // 4. A ledger whose backup went missing must not throw or claim a restore:
+    //    a tool that dies inside its own recovery leaves a person with nothing.
+    mkdirSync(ledgerAt(here), { recursive: true });
+    writeFileSync(stateAt(here), JSON.stringify(["crate/src/guard.rs"]), "utf8");
+    want("a missing backup is not fatal", sweep(here, here) === 1);
+    want("a missing backup does not rewrite the file", readFileSync(source, "utf8") === guard);
+  } finally {
+    console.log = say;
+    rmSync(here, { recursive: true, force: true });
+  }
+  if (fails.length > 0) {
+    console.log("✗ the ledger would not hold a guard in place:");
+    for (const about of fails) console.log("   " + about);
+    process.exit(1);
+  }
+  console.log("✓ the ledger restores a guard an interrupted run left broken");
+}
+
+if (process.argv.includes("--self-test")) {
+  selfTest();
+  process.exit(0);
+}
+
+if (process.argv.includes("--restore")) {
+  const put = sweep();
+  console.log(
+    put === 0
+      ? "nothing in flight: the tree is as the last run left it"
+      : put + " file(s) restored - the guards are whole again",
+  );
+  process.exit(0);
+}
+
 if (process.argv.includes("--list")) {
   for (const m of mutations) {
     console.log(
@@ -63,8 +231,46 @@ if (process.argv.includes("--list")) {
   process.exit(0);
 }
 
+// Before a single guard is broken: anything a previous run left broken is put
+// back, and said out loud. Skipping this is how a tree holds a mutation for a
+// day.
+sweep();
+
 let escaped = 0;
 let unrestored = 0;
+
+/**
+ * The mutation on the disk right now, if any — what a signal has to put back.
+ *
+ * A `finally` block does not run on a signal, so the thing the handler needs
+ * cannot live in that block's scope.
+ */
+let inFlight = null;
+
+/**
+ * Stop, restore, and say what was stopped.
+ *
+ * Synchronous on purpose: a handler that awaits is a handler the process may
+ * exit from underneath. `SIGKILL` is not here because nothing can be, which is
+ * what the ledger is for.
+ */
+function stop(signal) {
+  if (inFlight) {
+    writeFileSync(inFlight.source, inFlight.original, "utf8");
+    unrecord(inFlight.path);
+    console.log(
+      `\n${signal}: stopped mid-mutation — restored ${inFlight.path}` +
+        `\n${inFlight.done} of ${mutations.length} mutations had been run.\n`,
+    );
+    inFlight = null;
+  } else {
+    console.log(`\n${signal}: stopped between mutations, nothing to restore.\n`);
+  }
+  process.exit(signal === "SIGINT" ? 130 : 143);
+}
+
+process.on("SIGINT", () => stop("SIGINT"));
+process.on("SIGTERM", () => stop("SIGTERM"));
 
 for (const m of mutations) {
   const source = path.join(ROOT, m.source);
@@ -80,6 +286,8 @@ for (const m of mutations) {
   }
   const mutated = original.replace(m.find, m.replace);
 
+  record(new Map([[m.source, original]]));
+  inFlight = { source, path: m.source, original, done: mutations.indexOf(m) };
   try {
     await writeFile(source, mutated, "utf8");
     const verdict = await run(
@@ -112,10 +320,20 @@ for (const m of mutations) {
         await writeFile(source, original, "utf8");
         console.log(`   restored ${m.source}`);
       }
+      // And the tree has to be the tree: a restore that wrote something else
+      // would leave the ledger clean over a broken guard.
+      const after = await readFile(source, "utf8");
+      if (after !== original) {
+        console.log(`✗ ${m.source} did not come back byte for byte — fix it by hand`);
+        unrestored += 1;
+      } else {
+        unrecord(m.source);
+      }
     } catch {
       console.log(`✗ could not restore ${m.source} — fix it by hand`);
       unrestored += 1;
     }
+    inFlight = null;
   }
 }
 

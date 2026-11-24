@@ -12,7 +12,7 @@ tools beside it are the answer to the second.
 * **`tools/coverage-manifest.json`** — the map, machine-readable: every
   surface, where it is tested, the highest-risk invariants and the test
   that pins each one, and the honest rows that are not swept.
-* **`node tools/check-coverage.mjs`** — the gate's tenth step. It reads the
+* **`node tools/check-coverage.mjs`** — a step of `node tools/verify.mjs`. It reads the
   map and the tree and demands they still agree: a named test file that has
   been deleted, a pinning test that no longer mentions what it pins, a guard
   the manifest's mutation no longer applies to — any of those is a red step.
@@ -21,7 +21,12 @@ tools beside it are the answer to the second.
 * **`node tools/mutation.mjs`** — the negative-control half. It breaks each
   guard and demands the pinning test fail. A mutation the test does not catch
   is a red row. Not in the gate — each mutation recompiles — but the record
-  asks for it when a guard drifts.
+  asks for it when a guard drifts. It leaves a ledger in
+  `tools/.mutation-in-flight/` while a guard is broken, so a run that is killed
+  is restored by the next one, and `node tools/mutation.mjs --restore` does
+  only that (#78). Its `--self-test` — the same break, sweep and check in a
+  scratch directory — *is* a gate step, because the restore path otherwise
+  runs only when something has already gone wrong.
 
 If this page and the manifest ever disagree, **the manifest is right and this
 page has rotted** — the checker is what enforces it, and it is the one that

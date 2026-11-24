@@ -152,6 +152,20 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   window (1000 rows) and asked `querySelector` about every mark in the sefer.
   `added()` and `byLine()` are functions now, `paint(rows)` is the scoped half,
   and 240 edges cost 72,400 row visits instead of 243,900.
+- [x] #78/#79 the mutation tool's debris, and what it put into HEAD — `a ledger,
+  a sweep and a gate that refuses`. `tools/mutation.mjs` restores in a `finally`,
+  which covers a throw and not a signal, and a killed run left two guards broken
+  in the working tree; `git add -A` then published them (`if false =>` in the
+  read-only MCP door, and the importer's `lexicon.tsv` write). The checker that
+  would have caught it was right all along — `check-coverage.mjs` names the
+  missing guard — it had simply been run on a tree that changed a minute later.
+  So: a ledger of original bytes under `tools/.mutation-in-flight/` (gitignored)
+  written before the first break and swept at the next start, `--restore` to do
+  only that, handlers for `SIGINT`/`SIGTERM`, a `--self-test` that proves the
+  restore in a scratch directory (a gate step, because this code only runs when
+  something has already gone wrong), and `node tools/verify.mjs` now refuses to
+  gate a tree holding a ledger. Not fixed: a person can still run the gate and
+  then mutate the tree; a pre-commit hook is a tooling decision, not this patch.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #32 audit volumes distill, #36/#37/#38 interop.
 - [ ] Features: #63 smart navigation (**the reading half has landed** —
   `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,

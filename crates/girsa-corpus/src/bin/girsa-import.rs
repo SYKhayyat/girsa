@@ -561,7 +561,7 @@ fn write_index(
             built.skipped
         );
     }
-    let _ = &built;
+    beside::write(&root.join("lexicon.tsv"), built.tsv)?;
 
     // The 978 Otzaria-only works have no Sefaria schema, so W3's lexicon has
     // never heard of them — and W8 has to resolve links *into* them.

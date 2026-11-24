@@ -52,3 +52,4 @@ app/.tmp-test/
 # So it is ignored rather than absent — the same decision, without the file
 # showing up as untracked every time somebody enters the dev shell.
 /flake.lock
+tools/.mutation-in-flight/
