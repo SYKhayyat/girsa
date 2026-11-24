@@ -220,15 +220,15 @@
     {
       "name": "A read-only MCP server refuses writes at the door",
       "source": "crates/girsa-mcp/src/tools.rs",
-      "find": "if !server.is_writable() =>",
-      "replace": "if false =>",
+      "find": "if !server.is_writable() && WRITES.contains(&name)",
+      "replace": "if false",
       "test": {
         "file": "crates/girsa-mcp/tests/a_program_can_write_into_your_own_layer.rs",
         "fn": "a_write_against_a_read_only_server_is_refused_at_the_door",
         "keyword": "--writable"
       },
       "crate": "girsa-mcp",
-      "why": "a client that remembered the tools from a writable session must be refused by name, not silently written into somebody's layer."
+      "why": "a client that remembered the tools from a writable session must be refused by name, not silently written into somebody's layer. The guard reads the crate's one list of writes, which is the point: the door and the catalogue cannot disagree about what writes."
     },
     {
       "name": "A stored range is placed by its words and its Standing",
@@ -333,6 +333,19 @@
       },
       "crate": "girsa-app",
       "why": "#12: the tree's one strict duplicate of Rust logic, and it cannot be deleted because the harness is node on a machine that may have no cargo. So the duplicate is pinned instead, and this is the pin's own guard: unfold the final forms and the harness starts comparing two ways of writing a mem, which turns a reported percentage into a smaller number that still looks like a percentage."
+    },
+    {
+      "name": "The writes are one list, and the catalogue is built from it",
+      "source": "crates/girsa-mcp/src/tools.rs",
+      "find": "list.extend(writing());",
+      "replace": "let _ = writing();",
+      "test": {
+        "file": "crates/girsa-mcp/tests/a_program_can_write_into_your_own_layer.rs",
+        "fn": "the_catalogue_adds_exactly_the_tools_the_door_refuses",
+        "keyword": "one list of writes"
+      },
+      "crate": "girsa-mcp",
+      "why": "ten write tools were written out three times — the catalogue's second half, the door's alternation, the refusal test's table — so a tool added to one and not the others was a door that opened where the list said it was shut (#26). The difference between a writable catalogue and a read-only one now has to be exactly `WRITES`, which is a comparison and not a fourth copy."
     }
   ],
   "uncovered": [

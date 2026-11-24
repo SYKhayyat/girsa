@@ -30,6 +30,34 @@
 //!
 //! [`Refused`]: girsa_link::chain::Refused
 //!
+//! # The third surface, and the only one nothing in this tree calls
+//!
+//! Girsa has three. The window is what a person reads in; the desk is what the
+//! pen talks to; this is what a *program* talks to — an agent, a script,
+//! somebody's editor. Nothing in this repository depends on this crate, no job
+//! runs its binary end to end, and the tests are its only caller. That is a real
+//! cost, stated here rather than discovered later: a regression in this crate is
+//! found by a person reading, not by a program refusing. It is worth it for the
+//! reason above — a program handed a *second* engine eventually reports a second
+//! answer, and that is the failure the whole design is about.
+//!
+//! **The write surface stays**, and that is a decision recorded rather than an
+//! omission. An audit proposed moving it behind a cargo feature that CI never
+//! enables (#26); doing so would put ten tools and their tests behind a flag
+//! nobody turns on, which is the vacuous gate this repository names elsewhere —
+//! a suite that exists and is never run. The writes are W28's *MCP on both
+//! ends*: refused by name at the door when `--writable` is absent, absent from
+//! the catalogue rather than listed-and-refused, and exercised end to end.
+//!
+//! # What this crate does not cost
+//!
+//! It is a leaf, and the bill is smaller than it looks. Its two heavy
+//! dependencies — `girsa-search` (tantivy) and `girsa-lane` (candle) — belong to
+//! crates that are `default-members` in their own right, so `cargo test` at the
+//! root builds both whether or not this crate exists; `cargo tree -i
+//! girsa-search` names one dependent in the whole graph and it is this crate.
+//! What this crate adds to the build is its own lines.
+//!
 //! # Offline, and local
 //!
 //! stdio only. No socket, no port, nothing bound and nothing dialled: spec.md

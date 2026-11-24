@@ -6,8 +6,8 @@
 //! order (BUILDER.md W28, spec.md §15's M8), and a library a program can read
 //! but not add to is a library an agent learns beside rather than with.
 //!
-//! Three tools, and they are the three the record named: a note, a link, a
-//! correction. What is asserted here is the shape of the permission around
+//! [`girsa_mcp::tools::WRITES`] is the list — five families of write-and-take-
+//! back, ten tools. What is asserted here is the shape of the permission around
 //! them, because that is the part that goes quietly wrong:
 //!
 //! 1. **Off unless asked.** The corpus is a download and your own layer is not;
@@ -174,6 +174,38 @@ fn a_writable_server_advertises_them_and_says_they_write() {
 }
 
 #[test]
+fn the_catalogue_adds_exactly_the_tools_the_door_refuses() {
+    // The invariant behind #26, as a comparison rather than as a third copy of
+    // the ten names: what a writable server advertises and a read-only one does
+    // not **is** `WRITES`, in both directions. A tool that writes and is
+    // forgotten in that list is admitted by the catalogue and refused by the
+    // door, or the other way round, and this says so without anybody having to
+    // remember to add a line here.
+    let (mut shut, _) = server("catalogue-shut", false);
+    let (mut open, _) = server("catalogue-open", true);
+    handshake(&mut shut);
+    handshake(&mut open);
+
+    let read_only: std::collections::BTreeSet<String> = tool_names(&mut shut).into_iter().collect();
+    let writable: std::collections::BTreeSet<String> = tool_names(&mut open).into_iter().collect();
+
+    assert!(
+        read_only.is_subset(&writable),
+        "a writable server advertises everything a read-only one does, and more"
+    );
+    let added: Vec<&str> = writable
+        .difference(&read_only)
+        .map(String::as_str)
+        .collect();
+    let mut want: Vec<&str> = girsa_mcp::tools::WRITES.to_vec();
+    want.sort_unstable();
+    assert_eq!(
+        added, want,
+        "the difference between the two catalogues is exactly the one list of writes"
+    );
+}
+
+#[test]
 fn a_write_against_a_read_only_server_is_refused_at_the_door() {
     // Not merely absent from the list. A client that remembered the tools from
     // a writable session will call them, and *no such tool* would be a lie
@@ -182,7 +214,10 @@ fn a_write_against_a_read_only_server_is_refused_at_the_door() {
     let (mut server, personal) = server("refused", false);
     handshake(&mut server);
 
-    for (write, arguments) in [
+    // Every write, with arguments it would have accepted. The names are compared
+    // with `WRITES` below, so a tool added to that list and not to this table is a
+    // red test rather than a write whose door nobody watched.
+    let tried: Vec<(&str, Value)> = vec![
         (
             "write_note",
             json!({"at": at(MISHNAH, &["1", "1"]), "text": "לא ייכתב"}),
@@ -205,7 +240,17 @@ fn a_write_against_a_read_only_server_is_refused_at_the_door() {
         ("forget_mark", json!({"id": "m"})),
         ("save_query", json!({"name": "q", "typed": "t"})),
         ("forget_query", json!({"name": "q", "typed": "t"})),
-    ] {
+    ];
+    let mut have: Vec<&str> = tried.iter().map(|(name, _)| *name).collect();
+    have.sort_unstable();
+    let mut want: Vec<&str> = girsa_mcp::tools::WRITES.to_vec();
+    want.sort_unstable();
+    assert_eq!(
+        have, want,
+        "the refusal table names every write in WRITES, and nothing else"
+    );
+
+    for (write, arguments) in tried {
         let answered = call(&mut server, write, arguments);
         assert_eq!(answered["isError"], json!(true), "{write}");
         let said = answered["structuredContent"]["refused"]

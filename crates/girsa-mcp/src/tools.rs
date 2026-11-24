@@ -74,12 +74,39 @@ fn max_limit() -> usize {
 /// What the cap is when nothing says otherwise.
 const MAX_LIMIT_DEFAULT: usize = 50;
 
+/// The tools that write into your own layer, by name — **the one list**.
+///
+/// These ten names used to be written out three times in this crate and once
+/// more in its tests: the catalogue's second half, the door's alternation in
+/// [`call`], and the refusal test's table. Only one of the three could be right,
+/// and a tool added to the catalogue and not to the door is a door that opens
+/// where the list says it is shut (#26). The catalogue, the door and the test
+/// all read this, so a name is added here or it is not a write.
+///
+/// Five families, and the pairs are write-and-take-back: a note and its
+/// removal, a link and its removal, a correction and its removal, a bookmark,
+/// and a saved query. Every one of them writes into `personal/` — nothing here
+/// can reach the corpus, which is the wall `spec.md` §4.1's replaceable download
+/// depends on.
+pub const WRITES: &[&str] = &[
+    "write_note",
+    "draw_link",
+    "correct",
+    "forget_note",
+    "undraw_link",
+    "uncorrect",
+    "bookmark",
+    "forget_mark",
+    "save_query",
+    "forget_query",
+];
+
 /// The tools, as `tools/list` describes them.
 ///
-/// `writable` adds the three that write into your own layer. They are **absent**
-/// rather than listed-and-refused when it is off: a tool list is what a program
-/// plans against, and one that advertises a door it cannot open gets an agent
-/// halfway through a plan before the refusal arrives.
+/// `writable` adds [`WRITES`] — the tools that write into your own layer. They
+/// are **absent** rather than listed-and-refused when it is off: a tool list is
+/// what a program plans against, and one that advertises a door it cannot open
+/// gets an agent halfway through a plan before the refusal arrives.
 #[must_use]
 pub fn catalogue(writable: bool) -> Value {
     let mut tools = json!([
@@ -340,10 +367,10 @@ pub fn catalogue(writable: bool) -> Value {
 
 /// The tools that write, and everything they will not do.
 ///
-/// Three, and they are the three the record named: a note, a link, a
-/// correction. Every one of them writes into **`personal/`** and nothing here
-/// can reach the corpus at all — the same wall the window is behind, and the
-/// reason spec.md §4.1 can promise the download stays replaceable.
+/// [`WRITES`] is the list; this is the part of it a program reads. Every one of
+/// them writes into **`personal/`** and nothing here can reach the corpus at
+/// all — the same wall the window is behind, and the reason spec.md §4.1 can
+/// promise the download stays replaceable.
 ///
 /// `readOnlyHint: false` on each, so a client that asks its user before a write
 /// knows which calls to ask about. The hint is a claim about the tool and not a
@@ -576,6 +603,20 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    // The door, before anything is read out of the arguments: a tool list is a
+    // description and this is what a read-only server *does*. A client that
+    // remembered the tools from a writable session gets a refusal naming the
+    // reason rather than a note appearing in somebody's layer.
+    if !server.is_writable() && WRITES.contains(&name) {
+        return Response::ok(content(
+            &json!({
+                "refused": format!(
+                    "{name} writes into your own layer, and this server was started without --writable"
+                ),
+            }),
+            true,
+        ));
+    }
     let answered = match name {
         "search" => search(server, &args),
         "read" => read(server, &args),
@@ -591,19 +632,7 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "queries" => queries(server, &args),
         "who_cites" => who_cites(server, &args),
         "adjacent" => adjacent(server, &args),
-        // The three that write. Guarded here as well as being absent from the
-        // catalogue, because a tool list is a description and this is the
-        // door: a client that remembered the tools from a writable session and
-        // called one against a read-only server gets a refusal that names the
-        // reason rather than a note appearing in somebody's layer.
-        "write_note" | "draw_link" | "correct" | "forget_note" | "undraw_link" | "uncorrect"
-        | "bookmark" | "forget_mark" | "save_query" | "forget_query"
-            if !server.is_writable() =>
-        {
-            Err(format!(
-                "{name} writes into your own layer, and this server was started without --writable"
-            ))
-        }
+        // The writes, if the door above let them through.
         "write_note" => write_note(server, &args),
         "draw_link" => draw_link(server, &args),
         "correct" => correct(server, &args),

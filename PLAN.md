@@ -177,6 +177,19 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   its items are open issues and four tests cite it by number. The doc-link walk
   now enters `audit/` as well, because a directory the walk does not enter is
   unchecked links.
+- [x] #26 the leaf, and the three copies of one list — `WRITES`. The audit asked
+  for a re-framing and a feature gate. The re-framing is in the crate header: the
+  third surface, the only one nothing in this tree calls, the cost of that said
+  out loud. The feature gate is *declined*, recorded rather than omitted — it
+  would put ten tools and their tests behind a flag nobody sets, which is the
+  vacuous gate the tree names elsewhere. What was actually wrong in the crate was
+  smaller and worse: **ten write tools written out three times** (the catalogue's
+  second half, the door's alternation, the refusal test's table) and described as
+  *three* in two headers. `tools::WRITES` is the list now; the door reads it, the
+  catalogue is built from it, and a test compares the two catalogues — the
+  difference *is* `WRITES`, in both directions, as a comparison rather than a
+  fourth copy. Its weight claim did not survive `cargo tree`: the lane and the
+  index belong to default members.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #32 audit volumes distill, #36/#37/#38 interop.
 - [ ] Features: #63 smart navigation (**the reading half has landed** —
   `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,
