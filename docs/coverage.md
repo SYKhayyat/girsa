@@ -10,7 +10,7 @@ This page is the answer to the first of those, written as a map, and the two
 tools beside it are the answer to the second.
 
 * **`tools/coverage-manifest.json`** — the map, machine-readable: every
-  surface, where it is tested, the six highest-risk invariants and the test
+  surface, where it is tested, the highest-risk invariants and the test
   that pins each one, and the honest rows that are not swept.
 * **`node tools/check-coverage.mjs`** — the gate's tenth step. It reads the
   map and the tree and demands they still agree: a named test file that has
@@ -65,13 +65,26 @@ runs.
 | A broken queue is not an empty queue | `crates/girsa-corpus/src/fetch.rs` — `Err(poisoned) => Err(poisoned.into_inner().len()),` | `a_run_that_stopped_early_is_an_error_and_not_a_complete_one` |
 | A damaged index refuses rather than answering with less | `crates/girsa-link/src/inbound.rs` — `let row: Line = serde_json::from_str(line).map_err(\|_\| Unusable::Row)?;` | `a_corrupt_row_costs_the_reader_nothing_and_is_told_about` |
 | A citation resolves against the document it names | `spec.md` — `### 9.4 Morphology` | `every_section_a_comment_cites_is_a_section` |
+| The shelf's steps are the program's, and the prose agrees in order | `tools/build-a-shelf.mjs` — `runStep("companions", tool("girsa-companions"), [corpus])` | `the_program_performs_six_steps_and_this_is_their_order` |
+| A list that reaches the caches reaches the companions step | `docs/the-libraries.md` — the fourth line of the shelf block | `a_list_that_reaches_the_caches_reaches_companions` |
+| The lexicon the link importer needs is written by the import | `crates/girsa-corpus/src/bin/girsa-import.rs` — `beside::write(&root.join("lexicon.tsv"), built.tsv)?` | `the_work_index_is_written_beside_and_renamed` |
+| The OCR harness makes words the way the crate does | `tools/degraded-ocr.mjs` — `FINAL[character]` | `the_agreed_listing_has_the_nikud_off_and_the_final_forms_folded` |
 
 `node tools/mutation.mjs --list` prints the exact break each mutation applies,
 and `node tools/mutation.mjs` applies them, one at a time, and demands the
-failure. The ten are the invariants that have a single-line guard; the rest of
-the tree is pinned by the suites in the table above and the audit's regression
+failure. These are the invariants that have a single-line guard; the rest of the
+tree is pinned by the suites in the table above and the audit's regression
 tests, which is a different and weaker claim than a mutation run, and this page
 does not pretend otherwise.
+
+**Two of them break a document and not a program** — the shelf's order in
+`tools/build-a-shelf.mjs`'s prose venues, and the list in
+`docs/the-libraries.md`. That was AUDIT-lamdan item 8's ask: the machine that
+keeps prose true to code was wired to the README's numbers and this page, while
+the other narrative files drifted unmarked, and items 7 and 9 were both such
+drifts found by hand. A prose venue can be pinned the same way as a guard: name
+the line, break it, demand the test that names it fails. The rows above are the
+first ones written that way rather than the last.
 
 ## Not swept, and said so
 

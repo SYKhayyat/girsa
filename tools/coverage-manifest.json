@@ -281,6 +281,58 @@
       },
       "crate": "girsa-app",
       "why": "lamdan item 11: §9.4 is cited from the search crate, the ladder and the shell, and a renumbering is the one edit no compiler sees. The citation reads like a fact for exactly as long as nobody checks it, which is item 13 in the wild."
+    },
+    {
+      "name": "The shelf's steps are the program's, and the prose agrees in order",
+      "source": "tools/build-a-shelf.mjs",
+      "find": "runStep(\"companions\", tool(\"girsa-companions\"), [corpus]);",
+      "replace": "runStep(\"companions\", tool(\"girsa-index\"), [corpus]);",
+      "test": {
+        "file": "crates/girsa-app/tests/the_shelf_build_order_is_written_once.rs",
+        "fn": "the_program_performs_six_steps_and_this_is_their_order",
+        "keyword": "girsa-companions"
+      },
+      "crate": "girsa-app",
+      "why": "AUDIT-lamdan item 7: the order was written down in four places and the one that performs it is a program. This is the shape drift takes — a step swapped, dropped or added in the program while the docs keep saying *the six below* — and the pinning test reads the sequence out of this file, so a wrong order is a red gate rather than a shelf missing its fifth step."
+    },
+    {
+      "name": "A list that reaches the caches reaches the companions step",
+      "source": "docs/the-libraries.md",
+      "find": "girsa-companions  corpus                     # which seforim open beside which\n",
+      "replace": "",
+      "test": {
+        "file": "crates/girsa-app/tests/the_shelf_build_order_is_written_once.rs",
+        "fn": "a_list_that_reaches_the_caches_reaches_companions",
+        "keyword": "girsa-companions"
+      },
+      "crate": "girsa-app",
+      "why": "AUDIT-lamdan item 9 called `girsa-companions` the step easiest to miss, because nothing refuses without it: the מפרשים list is simply short, in a way a reader reads as *this sefer has no commentaries*. A documented list stopping before it is that failure written down, so deleting the line from the prose has to fail the test that names it — the first guard in this table whose source is a document and not code."
+    },
+    {
+      "name": "The lexicon the link importer needs is written by the import",
+      "source": "crates/girsa-corpus/src/bin/girsa-import.rs",
+      "find": "beside::write(&root.join(\"lexicon.tsv\"), built.tsv)?;",
+      "replace": "let _ = &built;",
+      "test": {
+        "file": "crates/girsa-corpus/src/bin/girsa-import.rs",
+        "fn": "the_work_index_is_written_beside_and_renamed",
+        "keyword": "lexicon.tsv"
+      },
+      "crate": "girsa-corpus",
+      "why": "#65: `girsa-link-import` refuses to start without `corpus/lexicon.tsv`, and that file used to come from an example nothing in a shelf build ran, so the documented one-command build died at step 3 on a fresh clone. The import now writes it out of the schemas it has already read, and this is the guard that keeps it written: delete the step and the test that names it goes red."
+    },
+    {
+      "name": "The OCR harness makes words the way the crate does",
+      "source": "tools/degraded-ocr.mjs",
+      "find": "kept += FINAL[character] ?? character;",
+      "replace": "kept += character;",
+      "test": {
+        "file": "crates/girsa-app/tests/the_ocr_harness_normalizes_like_the_crate.rs",
+        "fn": "the_agreed_listing_has_the_nikud_off_and_the_final_forms_folded",
+        "keyword": "final mem"
+      },
+      "crate": "girsa-app",
+      "why": "#12: the tree's one strict duplicate of Rust logic, and it cannot be deleted because the harness is node on a machine that may have no cargo. So the duplicate is pinned instead, and this is the pin's own guard: unfold the final forms and the harness starts comparing two ways of writing a mem, which turns a reported percentage into a smaller number that still looks like a percentage."
     }
   ],
   "uncovered": [

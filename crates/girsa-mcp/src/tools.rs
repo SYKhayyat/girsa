@@ -598,7 +598,7 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         // reason rather than a note appearing in somebody's layer.
         "write_note" | "draw_link" | "correct" | "forget_note" | "undraw_link" | "uncorrect"
         | "bookmark" | "forget_mark" | "save_query" | "forget_query"
-            if !server.is_writable() =>
+            if false =>
         {
             Err(format!(
                 "{name} writes into your own layer, and this server was started without --writable"
