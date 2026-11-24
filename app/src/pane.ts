@@ -7,7 +7,7 @@
 import { api } from "./api.ts";
 import type { FixMark, Line, MarkRow, PaneId, Place, Relation, Run, Said, Text } from "./api.ts";
 import { glyph, toolStrip } from "./controls.ts";
-import { everywhereSaid, marking, type Nothing } from "./mefarshim.ts";
+import { everywhereSaid, marking, type Marking, type Nothing } from "./mefarshim.ts";
 import { alsoCalled, sefer } from "./names.ts";
 import { fill, say } from "./say.ts";
 
@@ -64,6 +64,53 @@ export function grown(have: Drawn, where: "up" | "down", total: number): Drawn {
   }
   const from = Math.max(0, have.from - STEP);
   return { from, to: Math.min(have.to, from + KEEP) };
+}
+
+/**
+ * The lines an extend actually **adds** — the only ones it has to paint.
+ *
+ * An extend moves one end out by `STEP` and, once the window is full, pulls the
+ * other end in behind it. So of the thousand lines a full window holds, three
+ * hundred are new and seven hundred were already on the page carrying their
+ * highlights, their mefarshim class and their hover — all of which
+ * `paint()` redid for the whole window on every edge the reader reached. That
+ * is the cost the audit's finding 22 named and `grown` only bounded: `grown`
+ * says the page stops growing, and this says the work of adding to it is
+ * proportional to what was added rather than to what is held.
+ *
+ * A function rather than a pair of inline `[this.to, want.to]` / `[want.from,
+ * this.from]` so that *how many lines does one edge cost* is a question with an
+ * answer that can be checked without a browser — `pane.test.mjs` runs it over
+ * the real 17,418-segment sefer and holds the total against the old whole-window
+ * walk.
+ */
+export function added(have: Drawn, want: Drawn): Drawn {
+  if (want.from < have.from) return { from: want.from, to: have.from };
+  return { from: have.to, to: want.to };
+}
+
+/**
+ * The reader's highlights, grouped by the line they are on.
+ *
+ * `paint()` has to answer *what is on this line* for every row it repaints, and
+ * it answered it by looking each of the sefer's marks up with a
+ * `querySelector` — so painting one line cost a walk of every highlight the
+ * reader had ever made, and a reader with two hundred of them paid that on
+ * every edge they scrolled to. Grouped once, when the set changes, the question
+ * is a lookup and the work is proportional to the marks on the lines being
+ * painted.
+ *
+ * Exported for the same reason `grown` is: *how many lines does painting a
+ * highlight ask about* should be answerable without a browser.
+ */
+export function byLine(marks: readonly MarkRow[]): Map<string, MarkRow[]> {
+  const grouped = new Map<string, MarkRow[]>();
+  for (const mark of marks) {
+    const here = grouped.get(mark.at);
+    if (here) here.push(mark);
+    else grouped.set(mark.at, [mark]);
+  }
+  return grouped;
 }
 
 /**
@@ -197,6 +244,8 @@ export class PaneView {
   /** Your highlights in this sefer, as Rust placed them (W27). Kept so the
    * lines that scroll into view later get painted too. */
   private marks: MarkRow[] = [];
+  /** The same highlights, keyed by the line they are on — see `byLine`. */
+  private marksAt = new Map<string, MarkRow[]>();
   /** The lines a **ticked** mefaresh speaks on, and how many of them do (W43).
    * Rust's answer, not this one's: which lines those are is a fact about the
    * link graph. */
@@ -205,6 +254,10 @@ export class PaneView {
    * on a line is just a click — the reader has not asked for anything, so the
    * pane must not start answering. */
   private ticked = 0;
+  /** `marking()`'s answer, once. It is a fact about the whole sefer's ticked
+   * mefarshim and the whole sefer's length, so it can only change when one of
+   * those does — and both of those setters drop it. */
+  private how: Marking | null = null;
   private onComments: ((at: string) => void) | null = null;
   /** Where a citation in your own writing goes when it is clicked (W19). */
   private onCiting: ((reference: string) => void) | null = null;
@@ -327,6 +380,10 @@ export class PaneView {
     this.title_he = sefer(text.work);
     this.lines = new Array<Line | undefined>(text.total);
     this.byId = new Map();
+    // The sefer's length is half of what `marking()` answers over, and it has
+    // just changed. The held answer is dropped rather than recomputed here:
+    // the paint at the end of this method asks for it.
+    this.how = null;
     this.take(text.from, text.lines);
     this.title.textContent = sefer(text.work);
     // The other name a hover away, rather than gone.
@@ -447,6 +504,9 @@ export class PaneView {
    */
   setMarks(marks: MarkRow[]): void {
     this.marks = marks;
+    // Grouped by line, once, for the reason `byLine` gives: painting a line is
+    // a question about that line, not about every highlight in the sefer.
+    this.marksAt = byLine(marks);
     // A different set of marks is a different set of questions. Dropped rather
     // than merged: a mark that has gone takes its answer with it, and one that
     // has arrived has never been asked about.
@@ -470,6 +530,8 @@ export class PaneView {
   setMefarshim(marked: Record<string, number>, ticked: number): void {
     this.marked = marked;
     this.ticked = ticked;
+    // Who is ticked changed, so what the marker says changed with it.
+    this.how = null;
     // A mefaresh unticked while their comments are open: the comments are no
     // longer an answer to anything the reader is asking.
     for (const open of this.body.querySelectorAll(".line-said")) open.remove();
@@ -551,47 +613,84 @@ export class PaneView {
     row.after(box);
   }
 
-  private paint(): void {
-    this.markMefarshim();
-    for (const mark of this.marks) {
-      const at = this.body.querySelector<HTMLElement>(`[data-id="${cssEscape(mark.at)}"]`);
-      // **A bookmark names a place, not words**, so it has no span — `MarkRow`
-      // says so in as many words: *"the characters it is on — absent for a
-      // bookmark"*. This loop opened with `if (!mark.span) continue`, which is
-      // correct about highlighting and meant that the one function which draws
-      // marks on a page skipped every bookmark ever made. A reader could put his
-      // place down, and the sefer looked exactly the same afterwards; the mark
-      // existed only as a row in the *yours* panel, which is the one place you
-      // are not looking when you are learning.
-      //
-      // Drawn in the gutter beside the line rather than over the words, for the
-      // same reason `.line-fix` is: there are no words it is on, and a highlight
-      // covering a se'if would be a claim about the text that nobody made.
-      if (!mark.span) {
-        if (!at || at.querySelector(`[data-place="${cssEscape(mark.id)}"]`)) continue;
-        const flag = el("span", "line-place");
-        flag.dataset.place = mark.id;
-        flag.textContent = "⚑";
-        flag.title = mark.label ?? say("bookmark");
-        at.prepend(flag);
-        continue;
-      }
-      const line = at;
-      const words = line?.querySelector<HTMLElement>(".line-text");
-      if (!words || words.querySelector(`[data-mark="${cssEscape(mark.id)}"]`)) continue;
-      const range = charRange(words, mark.span[0], mark.span[1]);
-      if (!range) continue;
-      const painted = el("mark", "line-mark");
-      painted.dataset.mark = mark.id;
-      if (mark.colour) painted.style.setProperty("--mark", mark.colour);
-      painted.title = mark.label ?? mark.was;
-      try {
-        range.surroundContents(painted);
-      } catch {
-        // A highlight that runs across two runs of different styling cannot be
-        // wrapped in one element. Left unpainted rather than split into two
-        // marks that would look like two highlights.
-      }
+  /**
+   * Draw the reader's marks and the mefarshim marker on the page — **on the
+   * lines just added**, when there are any.
+   *
+   * Two kinds of caller, and they ask two different questions. `setMarks`,
+   * `setMefarshim`, `replaceLine` and `render` change something about the whole
+   * page and repaint all of it. `extend` adds three hundred lines to a window
+   * that already holds seven hundred painted ones, and repainting those seven
+   * hundred is work with no answer at the end of it — the audit's finding 22,
+   * one layer below `grown`.
+   */
+  private paint(rows?: readonly HTMLElement[]): void {
+    this.markMefarshim(rows);
+    this.paintMarks(rows);
+  }
+
+  /** What the marker says about this sefer, asked once and held. */
+  private marking(): Marking {
+    this.how ??= marking(this.marked, this.lines.length);
+    return this.how;
+  }
+
+  /**
+   * Your highlights, painted on the lines they are on.
+   *
+   * Asked per line and answered from `marksAt`, so the work is proportional to
+   * the marks on the lines being painted rather than to every mark the reader
+   * has ever made. A highlight on a line that is not drawn is not painted and
+   * is not forgotten: it is still in `marks`, and the edge that draws its line
+   * paints it.
+   */
+  private paintMarks(rows?: readonly HTMLElement[]): void {
+    const drawn = rows ?? this.body.querySelectorAll<HTMLElement>(".line");
+    for (const row of drawn) {
+      if (!row.classList.contains("line")) continue;
+      const id = row.dataset.id;
+      const here = id === undefined ? undefined : this.marksAt.get(id);
+      if (!here) continue;
+      for (const mark of here) this.paintMark(mark, row);
+    }
+  }
+
+  private paintMark(mark: MarkRow, row: HTMLElement): void {
+    // **A bookmark names a place, not words**, so it has no span — `MarkRow`
+    // says so in as many words: *"the characters it is on — absent for a
+    // bookmark"*. This loop opened with `if (!mark.span) continue`, which is
+    // correct about highlighting and meant that the one function which draws
+    // marks on a page skipped every bookmark ever made. A reader could put his
+    // place down, and the sefer looked exactly the same afterwards; the mark
+    // existed only as a row in the *yours* panel, which is the one place you
+    // are not looking when you are learning.
+    //
+    // Drawn in the gutter beside the line rather than over the words, for the
+    // same reason `.line-fix` is: there are no words it is on, and a highlight
+    // covering a se'if would be a claim about the text that nobody made.
+    if (!mark.span) {
+      if (row.querySelector(`[data-place="${cssEscape(mark.id)}"]`)) return;
+      const flag = el("span", "line-place");
+      flag.dataset.place = mark.id;
+      flag.textContent = "⚑";
+      flag.title = mark.label ?? say("bookmark");
+      row.prepend(flag);
+      return;
+    }
+    const words = row.querySelector<HTMLElement>(".line-text");
+    if (!words || words.querySelector(`[data-mark="${cssEscape(mark.id)}"]`)) return;
+    const range = charRange(words, mark.span[0], mark.span[1]);
+    if (!range) return;
+    const painted = el("mark", "line-mark");
+    painted.dataset.mark = mark.id;
+    if (mark.colour) painted.style.setProperty("--mark", mark.colour);
+    painted.title = mark.label ?? mark.was;
+    try {
+      range.surroundContents(painted);
+    } catch {
+      // A highlight that runs across two runs of different styling cannot be
+      // wrapped in one element. Left unpainted rather than split into two
+      // marks that would look like two highlights.
     }
   }
 
@@ -605,11 +704,16 @@ export class PaneView {
    * fact about the sefer is said once, in the header, where the reader is
    * already told what they are looking at.
    */
-  private markMefarshim(): void {
-    const how = marking(this.marked, this.lines.length);
+  private markMefarshim(rows?: readonly HTMLElement[]): void {
+    const how = this.marking();
     this.element.classList.toggle("is-marked-everywhere", how.kind === "everywhere");
     this.everywhere.textContent = how.kind === "everywhere" ? everywhereSaid(how.each) : "";
-    for (const row of this.body.querySelectorAll<HTMLElement>(".line")) {
+    // The rows handed in are the ones `extend` just drew, and that list can
+    // carry a perek heading as well as a line — a heading has no mefarshim, so
+    // it is stepped over rather than marked.
+    const drawn = rows ?? this.body.querySelectorAll<HTMLElement>(".line");
+    for (const row of drawn) {
+      if (!row.classList.contains("line")) continue;
       const n = how.kind === "some" ? (this.marked[row.dataset.id ?? ""] ?? 0) : 0;
       row.classList.toggle("has-mefarshim", n > 0);
       // The number, and only where it is a number worth reading: one ticked
@@ -647,7 +751,10 @@ export class PaneView {
     // Already there: the end of the sefer downward, the start of it upward.
     if (want.from === this.from && want.to === this.to) return;
 
-    const [at, until] = where === "down" ? [this.to, want.to] : [want.from, this.from];
+    // **The lines this edge adds**, which is what it has to paint. Three
+    // hundred of them, however many the window is holding — see `added`.
+    const fresh = added({ from: this.from, to: this.to }, want);
+    const [at, until] = [fresh.from, fresh.to];
     if (!this.has(at, until)) {
       // Not here yet. Fetch it and come back — one waiter, however many scroll
       // events arrived while it was in flight.
@@ -660,15 +767,16 @@ export class PaneView {
       return;
     }
 
+    const just = this.drawn(at, until);
     if (where === "down") {
-      this.body.append(...this.drawn(at, until));
+      this.body.append(...just);
       this.to = want.to;
       if (want.from !== this.from) {
         this.holdingPlace(() => this.dropAbove(want.from));
         this.from = want.from;
       }
     } else {
-      this.holdingPlace(() => this.body.prepend(...this.drawn(at, until)));
+      this.holdingPlace(() => this.body.prepend(...just));
       this.from = want.from;
       if (want.to !== this.to) {
         // Nothing to correct: what goes is below the fold, and the reader is at
@@ -677,7 +785,7 @@ export class PaneView {
         this.to = want.to;
       }
     }
-    this.paint();
+    this.paint(just);
   }
 
   /**

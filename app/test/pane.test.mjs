@@ -22,7 +22,7 @@
 // bounded one whatever the bound.
 
 import { check, ok } from "./harness.mjs";
-import { grown, nextPlace } from "../.tmp-test/pane.mjs";
+import { added, byLine, grown, nextPlace } from "../.tmp-test/pane.mjs";
 
 /** Mishnah Berurah, which is the sefer the audit sat with. */
 const MISHNAH_BERURAH = 17_418;
@@ -89,6 +89,80 @@ export function run() {
   for (let i = 0; i < 10; i += 1) small = grown(small, "down", 154);
   check("a sefer shorter than the ceiling keeps its first line", small.from, 0);
   check("and its last", small.to, 154);
+
+  // ------------------------------- and an edge only paints what it added
+  //
+  // The finding one layer below the one above. The page stopped growing, and
+  // `paint()` — highlights, and the mefarshim marker on every line — still
+  // walked **every line drawn so far** on every edge, so the work of adding to
+  // the page grew with how long the reader had been sitting there. `grown` says
+  // how much page there is; this says how much of it an edge has to touch.
+  let held = { from: 0, to: 400 };
+  let wholeWindow = 400; // what the old paint() walked, over the whole sitting
+  let onlyAdded = 400; // and what the scoped one walks
+  let wrong = null;
+  for (let i = 0; i < 240 && wrong === null; i += 1) {
+    const next = grown(held, "down", MISHNAH_BERURAH);
+    const fresh = added(held, next);
+    // A step, or what is left of the sefer — and never the window it is
+    // standing in. It begins where the page ended, so an edge cannot re-do the
+    // seven hundred lines it was already holding.
+    if (span(fresh) > 300) wrong = `edge ${i + 1} painted ${span(fresh)} lines`;
+    else if (fresh.from !== held.to) {
+      wrong = `edge ${i + 1} began at ${fresh.from}, where the page ended at ${held.to}`;
+    }
+    onlyAdded += span(fresh);
+    held = next;
+    wholeWindow += span(held);
+  }
+  check("an edge paints the step it added, and nothing it was already holding", wrong, null);
+  ok(`240 edges cost ${onlyAdded} row visits, not ${wholeWindow}`, onlyAdded * 3 <= wholeWindow);
+  // The lines past the first window are reached exactly once between them,
+  // which is the whole claim: an edge costs what it adds.
+  check("every line after the first window is painted once", onlyAdded - 400, MISHNAH_BERURAH - 400);
+
+  // The same going the other way, because `added` reads a different end of the
+  // window there.
+  let turning = { from: MISHNAH_BERURAH - 400, to: MISHNAH_BERURAH };
+  let up = 0;
+  wrong = null;
+  for (let i = 0; i < 240; i += 1) {
+    const next = grown(turning, "up", MISHNAH_BERURAH);
+    // The start of the sefer, where `extend` returns without drawing anything.
+    if (next.from === turning.from && next.to === turning.to) break;
+    const fresh = added(turning, next);
+    if (fresh.to !== turning.from) wrong = `back edge ${i + 1} drew past where the page began`;
+    else if (span(fresh) > 300) wrong = `back edge ${i + 1} drew ${span(fresh)} lines`;
+    up += span(fresh);
+    turning = next;
+  }
+  check("turning back draws the lines above it and no others", wrong, null);
+  check("and reaches all of them", up, MISHNAH_BERURAH - 400);
+  // An edge that changes nothing adds nothing, which is what makes a reader
+  // parked at an end cheap rather than the opposite.
+  check(
+    "a window that cannot move adds no lines",
+    added(held, held),
+    { from: held.to, to: held.to },
+  );
+
+  // ------------------------ and two hundred highlights are grouped once
+  //
+  // The old paint asked `querySelector` about **one id per mark**, so repainting
+  // one line cost a walk of every highlight the reader had ever made. Grouped,
+  // asking about two lines out of twenty is a lookup of two keys.
+  const marks = [];
+  for (let i = 0; i < 200; i += 1) {
+    marks.push({ id: `m${i}`, at: `seg-${i % 20}`, span: [i, i + 3], was: "" });
+  }
+  const grouped = byLine(marks);
+  check("twenty lines hold two hundred highlights", grouped.size, 20);
+  check("and each line answers with its own", grouped.get("seg-0").length, 10);
+  check("none of them lost", [...grouped.values()].flat().length, 200);
+  ok(
+    "a line nobody marked answers with nothing rather than a walk",
+    grouped.get("seg-999") === undefined,
+  );
 
   // A window that has not yet grown to the ceiling is not trimmed either: the
   // first edge a reader reaches must widen the page, not slide it.
