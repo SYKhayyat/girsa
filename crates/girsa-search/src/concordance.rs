@@ -205,19 +205,24 @@ pub fn concordance(bar: &Bar, form: &str, asking: Asking) -> Result<Found, Strin
     if form.is_empty() {
         return Err("אין מה לחפש — קונקורדנציה היא מילה אחת".to_string());
     }
-    // **The words, not the string.** `tokenize` is the same rule the index was
+    // **The words, not the string.** The split is the same rule the index was
     // built under, so `בית־המקדש` is two words here for the same reason it is two
     // terms in the index. A form whose token count is not one is a phrase, and
     // phrases have their own two commands.
-    let words: Vec<String> = girsa_hebrew::tokenize(form)
-        .into_iter()
-        .map(|word| word.text)
-        .filter(|word| !word.trim().is_empty())
-        .collect();
-    if words.len() != 1 {
+    //
+    // Counted by walking and not by collecting — `prohibitions.test.mjs` has the
+    // rule and `tokenizer.rs` the reason: a span rule that collects its words is a
+    // span rule that allocates one string per token of a 1.27M-character segment.
+    // Nothing here needs the words themselves, only how many there are.
+    let mut words = 0usize;
+    girsa_hebrew::for_each_token(form, |word, _from, _to| {
+        if !word.is_empty() {
+            words += 1;
+        }
+    });
+    if words != 1 {
         return Err(format!(
-            "קונקורדנציה היא מילה אחת, וזו {} מילים — לביטוי יש `find` ו־`where-from`",
-            words.len()
+            "קונקורדנציה היא מילה אחת, וזו {words} מילים — לביטוי יש `find` ו־`where-from`"
         ));
     }
     let indexed = girsa_hebrew::normalize(form);

@@ -95,6 +95,7 @@ pub mod anchors;
 pub mod beside;
 // Sixteen binaries, five conventions for reading a command line, and three
 // parsers that could not tell a switch from a value flag.
+pub mod commentator;
 pub mod csv;
 pub mod era;
 pub mod fetch;

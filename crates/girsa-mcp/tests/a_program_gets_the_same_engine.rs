@@ -223,6 +223,64 @@ fn a_concordance_refuses_a_phrase_instead_of_searching_it_loosely() {
 }
 
 #[test]
+fn a_commentator_is_a_person_and_not_the_works_the_shelf_files_under_him() {
+    // #46, the acceptance as a program reads it: given a name, the era, the
+    // years, what he comments on, and whether anybody doubts the attribution.
+    let mut server = server_or_skip!();
+    handshake(&mut server);
+    let rashi = tool(&mut server, "commentator", json!({"name": "רש\"י"}));
+    assert_eq!(rashi["era"], json!("ראשונים"), "{rashi}");
+    assert_eq!(rashi["years"], json!("1090"), "{rashi}");
+    assert!(
+        rashi["on"]
+            .as_array()
+            .expect("on")
+            .iter()
+            .any(|slug| slug == "bavli/berakhot"),
+        "{rashi}"
+    );
+    assert_eq!(rashi["works"][0]["attribution"]["how"], json!("stated"));
+    assert_eq!(rashi["doubted"], json!(false));
+    // A name nobody in the corpus wrote is refused rather than answered with an
+    // empty profile that reads as *this mefaresh is unknown work*.
+    let refused = tool(&mut server, "commentator", json!({"name": "אבן עזרא"}));
+    assert!(
+        refused["refused"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not an author"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn who_comments_on_a_sefer_says_how_many_are_unnamed() {
+    let mut server = server_or_skip!();
+    handshake(&mut server);
+    let here = tool(&mut server, "commentators", json!({"on": "bavli/berakhot"}));
+    let names: Vec<&str> = here["commentators"]
+        .as_array()
+        .expect("commentators")
+        .iter()
+        .map(|row| row["name"].as_str().expect("a name"))
+        .collect();
+    assert!(names.contains(&"רש\"י"), "{names:?}");
+    // Two commentaries on Berakhot are in the fixture with no author on them: in
+    // the corpus and in no row here, so the answer has to say the list is short.
+    assert_eq!(here["anonymous"], json!(2), "{here}");
+    // A slug that is not a sefer at all is a different answer from *nobody
+    // comments here*, and it is refused rather than answered with an empty list.
+    let refused = tool(&mut server, "commentators", json!({"on": "bavli/nothing"}));
+    assert!(
+        refused["refused"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not on this shelf"),
+        "{refused}"
+    );
+}
+
+#[test]
 fn search_is_literal_unless_a_program_asks_for_otherwise() {
     let mut server = server_or_skip!();
     handshake(&mut server);

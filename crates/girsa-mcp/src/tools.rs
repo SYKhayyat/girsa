@@ -221,6 +221,44 @@ pub fn catalogue(writable: bool) -> Value {
             }
         },
         {
+            "name": "commentator",
+            "title": "Who is this mefaresh",
+            "description": "\
+    A person the corpus names, as one row rather than as the 195 works the shelf \
+    files under him: the name as the corpus spells it (and any other spellings), \
+    the era and years where `comp_date` gave them, the base seforim he comments \
+    on, and his works. `attribution` is `stated`, or `doubted` with the qualifier \
+    the title actually uses — three works in this corpus are attributed rather \
+    than authored and this does not decide between the catalogue and the title. \
+    A name that is not in the register is refused, not answered with an empty \
+    profile.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Any spelling of the name, or its normalized key."}
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "commentators",
+            "title": "Who comments on this sefer",
+            "description": "\
+    The people the corpus names as commentators on one base text, asked by slug. \
+    Ordered by time — years first, then the era, and undated last, because an era \
+    is a century and a list that placed an undated mefaresh in the middle of a \
+    chronology would be asserting a date nobody wrote down. `anonymous` counts the \
+    commentaries on this sefer with no author, which are in the corpus and in no \
+    row here.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "on": {"type": "string", "description": "A base work slug, e.g. bavli/berakhot."}
+                },
+                "required": ["on"]
+            }
+        },
+        {
             "name": "links",
             "title": "What links to this line",
             "description": "\
@@ -650,6 +688,8 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "resolve" => resolve(server, &args),
         "where_from" => where_from(server, &args),
         "concordance" => concordance(server, &args),
+        "commentator" => commentator(server, &args),
+        "commentators" => commentators(server, &args),
         "links" => links(server, &args),
         "trace" => trace(server, &args),
         "path" => path(server, &args),
@@ -1040,6 +1080,71 @@ fn concordance(server: &Server, args: &Value) -> Result<Value, String> {
     )?;
     Ok(serde_json::to_value(&found)
         .unwrap_or_else(|_| json!({"refused": "cannot write the answer"})))
+}
+
+/// The authors the corpus names, grouped into people (#46).
+///
+/// Built per call, which is why it is built from the shelf's own work list rather
+/// than read off the index: 6,509 works is milliseconds, and a cached copy would
+/// go stale the first time a work was imported into a running server — the same
+/// staleness the honesty sentence in `Server` was fixed for.
+fn register(server: &Server) -> girsa_corpus::commentator::Register {
+    girsa_corpus::commentator::Register::of(server.shelf.works())
+}
+
+fn commentator(server: &Server, args: &Value) -> Result<Value, String> {
+    let name = text_arg(args, "name")?;
+    let register = register(server);
+    let person = register
+        .find(&name)
+        .ok_or_else(|| format!("{name} is not an author this corpus names"))?;
+    // Shaped here rather than serialized straight off the struct, because a
+    // program reading `"era": "RI"` would have to know Sefaria's codes — the same
+    // argument `facets::era_label` makes for the panel's rows.
+    Ok(json!({
+        "key": person.key,
+        "name": person.name,
+        "also_called": person.also_called,
+        "en_name": person.en_name,
+        "era": person.era_spoken(),
+        "years": person.written(),
+        "doubted": person.is_doubted(),
+        "on": person.on,
+        "works": person.works,
+    }))
+}
+
+fn commentators(server: &Server, args: &Value) -> Result<Value, String> {
+    let on = text_arg(args, "on")?;
+    let register = register(server);
+    let people = register.chronological();
+    let here: Vec<&girsa_corpus::commentator::Commentator> = people
+        .into_iter()
+        .filter(|person| person.on.iter().any(|base| base == &on))
+        .collect();
+    if here.is_empty() {
+        // A slug nobody comments on and a slug that is not a sefer read the same
+        // from the register, so the shelf is asked which one this is.
+        if server.shelf.work(&on).is_none() {
+            return Err(format!("{on} is not on this shelf"));
+        }
+    }
+    Ok(json!({
+        "on": on,
+        "total": here.len(),
+        "commentators": here.iter().map(|person| json!({
+            "name": person.name,
+            "also_called": person.also_called,
+            "en_name": person.en_name,
+            "era": person.era_spoken(),
+            "years": person.written(),
+            "works": person.works.len(),
+            "doubted": person.is_doubted(),
+        })).collect::<Vec<Value>>(),
+        // Commentaries on this sefer with no author: in the corpus, and not in a
+        // row here. A count of zero means every one of them is named.
+        "anonymous": register.anonymous_on(&on),
+    }))
 }
 
 fn links(server: &Server, args: &Value) -> Result<Value, String> {
