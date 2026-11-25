@@ -24,6 +24,7 @@ pub(crate) mod mefarshim;
 pub(crate) mod nav;
 pub(crate) mod panes;
 pub(crate) mod queue;
+pub(crate) mod reading;
 pub(crate) mod scans;
 pub(crate) mod search;
 pub(crate) mod shelf;
