@@ -81,8 +81,14 @@ fn main() -> std::process::ExitCode {
     // an error naming the option instead of a root directory called `--near`.
     let args = match Argv::of(
         typed,
-        &[&["--without-link-types"][..], SWITCHES, WHERE_FROM_SWITCHES].concat(),
-        &[&["--except"][..], VALUES].concat(),
+        &[
+            &["--without-link-types"][..],
+            SWITCHES,
+            WHERE_FROM_SWITCHES,
+            CONCORDANCE_SWITCHES,
+        ]
+        .concat(),
+        &[&["--except"][..], VALUES, CONCORDANCE_VALUES].concat(),
     ) {
         Ok(args) => args,
         Err(e) => {
@@ -116,6 +122,13 @@ fn main() -> std::process::ExitCode {
         "where-from" => match rest.len() {
             0 | 1 => usage(),
             _ => where_from(Path::new(&rest[0]), &args),
+        },
+        // #48: a word, and every place the shelf says it.
+        "concordance" => match rest.split_first() {
+            Some((index_dir, words)) if !words.is_empty() => {
+                concordance(Path::new(index_dir), &args)
+            }
+            _ => usage(),
         },
         "stamp" => match rest.first() {
             Some(index_dir) => stamp(Path::new(index_dir)),
@@ -273,7 +286,12 @@ usage:
   girsa-index update <index> <root> <slug \u{2026}>
   girsa-index find <index> <root> [how \u{2026}] <query \u{2026}>
   girsa-index where-from <index> <root> [--except SLUG] [--in SLUG] [--whole-word] <phrase>
+  girsa-index concordance <index> <root> [--in SLUG] [--at-most N] <word>
   girsa-index stamp <index>
+
+concordance is one word and every place the shelf says it, in reading order \u{2014}
+no ranking, no widening, and a literal zero means the form is not there. The
+count is always the whole count; --at-most bounds the list and says it did.
 
 `update` takes named works into an index that already exists, without
 rebuilding it \u{2014} a work is the unit of replacement, so this is the same
@@ -757,6 +775,86 @@ fn where_from(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
+/// A word, and every place the shelf says it (#48).
+///
+/// One form, listed in reading order, bounded by `--at-most` — and the bound is
+/// printed with the count beside it, because a list that was cut and does not say
+/// so reads as the whole answer.
+fn concordance(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
+    let Some((root, words)) = args.from(ROOT_IS_WORD).split_first() else {
+        return usage();
+    };
+    let root = PathBuf::from(root);
+    if let Err(code) = refuse_a_query_word_in_root_position(&root) {
+        return code;
+    }
+    // One form is one word, and a `concordance` line that swallowed three of them
+    // would be asking a different question (`girsa_search::concordance` refuses it
+    // too — this is the terminal saying which argument it read).
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    if words.is_empty() {
+        return usage();
+    }
+    if let Err(code) = refuse_a_root_among_the_query_words(&words) {
+        return code;
+    }
+    let form = words.join(" ");
+
+    let at_most = match args.value("--at-most") {
+        None => girsa_search::concordance::AT_MOST,
+        Some(n) => match n.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                eprintln!("--at-most wants a number, and got `{n}`");
+                return std::process::ExitCode::from(2);
+            }
+        },
+    };
+
+    let index = match SearchIndex::open(index_dir) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("{e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let works = match load_works(&root) {
+        Ok(works) => works,
+        Err(e) => {
+            eprintln!("cannot read {}'s work index: {e}", root.display());
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let (notes, _) = girsa_note::note::Notes::open(&root);
+    let bar = Bar::new(index, Catalogue::of(&works).tagged(&notes), &root, None);
+    let scope = args
+        .value("--in")
+        .map(|slug| girsa_search::scope::Scope::everything().only([slug.to_string()], slug));
+    let found = match girsa_search::concordance::concordance(
+        &bar,
+        &form,
+        girsa_search::concordance::Asking { scope, at_most },
+    ) {
+        Ok(found) => found,
+        Err(why) => {
+            eprintln!("{why}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    println!("{}  —  {}", found.form, found.describe());
+    if found.total > 0 && found.as_typed() {
+        // Said only when it is news: the index holds the normal form, and when
+        // the reader typed exactly that, there is nothing to explain.
+        println!("({})", found.indexed);
+    }
+    for place in &found.places {
+        println!("  {:<28} {}", place.he_title, place.shown);
+        println!("  {:<28} {}", "", place.id);
+    }
+    std::process::ExitCode::SUCCESS
+}
+
 /// spec.md §9.7's badge, on a terminal.
 ///
 /// Nothing for a line of the corpus, which was not read off anything. Two
@@ -789,6 +887,18 @@ fn badge(hit: &girsa_search::index::Hit) -> String {
 /// this question's are different vocabularies and a switch that one subcommand
 /// silently ignores is a switch a reader will believe.
 const WHERE_FROM_SWITCHES: &[&str] = &["--whole-word"];
+
+/// The options `concordance` takes, and no others.
+///
+/// Not `find`'s chips, which would be silently ignored here: `--near 5` on a
+/// concordance is a phrase-shaped question and this command answers one form
+/// (see [`girsa_search::concordance`]). Refusing it by name is the same rule
+/// `--whole-word` follows — a switch a subcommand quietly drops is a switch the
+/// reader believes.
+const CONCORDANCE_SWITCHES: &[&str] = &[];
+
+/// The values it takes: which sefer, and how many places to list.
+const CONCORDANCE_VALUES: &[&str] = &["--in", "--at-most"];
 
 const SWITCHES: &[&str] = &[
     "--contains",

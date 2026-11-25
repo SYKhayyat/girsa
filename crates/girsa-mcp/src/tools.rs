@@ -199,6 +199,28 @@ pub fn catalogue(writable: bool) -> Value {
             }
         },
         {
+            "name": "concordance",
+            "title": "Every place this word is said",
+            "description": "\
+    One word and every place in the corpus that says it, in reading order — the \
+    other direction of search. Unlike `search` it does not rank, does not page and \
+    does not climb the ladder: `total` is the count of that one form, a zero means \
+    the form is not in the corpus, and `shown` is how many are in `places` when \
+    `limit` cut the list. Each place carries `marks`, byte spans into the printed \
+    segment, so a caller that lands on one can highlight the word it asked about. \
+    A phrase is refused rather than widened into a phrase search: use `where_from`.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "form": {"type": "string"},
+                    "in_": {"type": "string", "description": "A work slug to look in, and nowhere else."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": max_limit(),
+                              "description": "How many places to list. The count is the whole count either way."}
+                },
+                "required": ["form"]
+            }
+        },
+        {
             "name": "links",
             "title": "What links to this line",
             "description": "\
@@ -627,6 +649,7 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "read" => read(server, &args),
         "resolve" => resolve(server, &args),
         "where_from" => where_from(server, &args),
+        "concordance" => concordance(server, &args),
         "links" => links(server, &args),
         "trace" => trace(server, &args),
         "path" => path(server, &args),
@@ -986,6 +1009,35 @@ fn where_from(server: &Server, args: &Value) -> Result<Value, String> {
         limit: limit_of(args),
     };
     let found = girsa_search::mekoros::where_from(&server.bar, &phrase, asking)?;
+    Ok(serde_json::to_value(&found)
+        .unwrap_or_else(|_| json!({"refused": "cannot write the answer"})))
+}
+
+/// A word, and every place the corpus says it (#48).
+///
+/// The same scope control `where_from` takes, and no ladder: a client that wants
+/// near forms asks `search`, which offers them with counts. What this answers is
+/// the one thing a program cannot get from a ranked list — *all* of them, in the
+/// order the shelf holds them.
+fn concordance(server: &Server, args: &Value) -> Result<Value, String> {
+    let form = text_arg(args, "form")?;
+    let scope = match args.get("in_").and_then(Value::as_str) {
+        None => None,
+        Some(slug) => {
+            if server.bar.catalogue().facts(slug).is_none() {
+                return Err(format!("{slug} is not on this shelf"));
+            }
+            Some(girsa_search::scope::Scope::everything().only([slug.to_string()], slug))
+        }
+    };
+    let found = girsa_search::concordance::concordance(
+        &server.bar,
+        &form,
+        girsa_search::concordance::Asking {
+            scope,
+            at_most: limit_of(args),
+        },
+    )?;
     Ok(serde_json::to_value(&found)
         .unwrap_or_else(|_| json!({"refused": "cannot write the answer"})))
 }

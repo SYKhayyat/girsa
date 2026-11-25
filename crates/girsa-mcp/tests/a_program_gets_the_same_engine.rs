@@ -173,6 +173,56 @@ fn every_tool_the_list_names_is_a_tool_that_answers() {
 }
 
 #[test]
+fn a_concordance_is_that_form_and_every_place_it_is_said() {
+    // #48, on the side of the engine a program sees. `ברישא` stands twice in the
+    // fixture's Berakhot and three more times in the mefarshim that quote it —
+    // one form, five places, four seforim, and a count a caller can check.
+    let mut server = server_or_skip!();
+    handshake(&mut server);
+    let found = tool(
+        &mut server,
+        "concordance",
+        json!({"form": "ברישא", "limit": 50}),
+    );
+    assert_eq!(found["indexed"], json!("ברישא"), "{found}");
+    assert_eq!(found["total"], json!(5), "{found}");
+    assert_eq!(found["shown"], json!(5), "{found}");
+    assert_eq!(found["seforim"], json!(4), "{found}");
+    let places = found["places"].as_array().expect("places").clone();
+    let ids: Vec<&str> = places
+        .iter()
+        .map(|place| place["id"].as_str().expect("an id"))
+        .collect();
+    let mut sorted = ids.clone();
+    sorted.sort_unstable();
+    assert_eq!(ids, sorted, "reading order, not score order");
+    for place in &places {
+        let marks = place["marks"].as_array().expect("marks");
+        assert!(!marks.is_empty(), "a place with no position: {place}");
+        assert!(
+            place["shown"].as_str().unwrap_or_default().contains('['),
+            "the list does not show the word: {place}"
+        );
+    }
+}
+
+#[test]
+fn a_concordance_refuses_a_phrase_instead_of_searching_it_loosely() {
+    // The count is the whole value of a concordance, so a two-word ask cannot be
+    // quietly answered as a phrase search: the count of *this word* and the count
+    // of *these two words together* are different numbers about different things.
+    let mut server = server_or_skip!();
+    handshake(&mut server);
+    let refused = tool(
+        &mut server,
+        "concordance",
+        json!({"form": "לית\u{5d9} דשחרית"}),
+    );
+    let why = refused["refused"].as_str().unwrap_or_default();
+    assert!(why.contains("find") && why.contains("where-from"), "{why}");
+}
+
+#[test]
 fn search_is_literal_unless_a_program_asks_for_otherwise() {
     let mut server = server_or_skip!();
     handshake(&mut server);

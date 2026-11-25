@@ -20,6 +20,7 @@ pub mod citation;
 // was three lines of the build loop, which meant the one claim worth asserting
 // — a typo you fixed is findable by the word — could only be tested by running
 // a binary.
+pub mod concordance;
 pub mod corrected;
 pub mod facets;
 pub mod index;
