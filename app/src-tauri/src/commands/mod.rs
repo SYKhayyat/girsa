@@ -18,6 +18,7 @@ pub(crate) mod cite;
 pub(crate) mod corrections;
 pub(crate) mod desks;
 pub(crate) mod export;
+pub(crate) mod following;
 pub(crate) mod ksav;
 pub(crate) mod lane;
 pub(crate) mod links;
