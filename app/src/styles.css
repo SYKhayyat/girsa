@@ -754,6 +754,70 @@ body {
   display: none;
 }
 
+/* The one box (#63, Ctrl+G) — `navbox.ts`.
+ *
+ * The same overlay the find bar is, and for the same reason: it is a question
+ * about the sefer in front of the reader, not a drawer that replaces it. Copying
+ * `.find-here`'s positioning rather than inventing one is deliberate — a second
+ * overlay with its own offset is a second thing to keep inside the pane, and the
+ * first one took five findings to get right (see the `max-width` and `[hidden]`
+ * comments above).
+ *
+ * It has no chips and no count, so it is narrower: one box, and one line under it
+ * for what happened. */
+.nav-box {
+  position: absolute;
+  max-width: calc(100% - 1rem);
+  /* Replaced at open time with the pane header's measured height, as the find
+   * bar's is — see `NavBox.show`. */
+  top: var(--under-head, 2.4rem);
+  inset-inline-end: 0.5rem;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 7px;
+  background: var(--page-raised);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 22%);
+}
+
+/* `display: flex` above beats the browser's `[hidden] { display: none }`, which
+ * is the fifth thing wrong with the find bar and the one the first NixOS picture
+ * found. Every panel that is toggled with `hidden` carries this line. */
+.nav-box[hidden] {
+  display: none;
+}
+
+.nav-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nav-where {
+  /* Wide enough for `shulchan aruch orech chaim 1:1`, and it gives way before
+   * the box does. */
+  width: 16rem;
+  max-width: 50vw;
+  min-width: 0;
+}
+
+/* What happened, under the box. Wraps rather than scrolling sideways: the
+ * sentence that matters is the one naming what could not be read. */
+.nav-note {
+  max-width: 22rem;
+  font-size: 11px;
+  line-height: 1.3;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+
+.nav-note:empty {
+  display: none;
+}
+
 .pane-follows {
   font-size: 11px;
   opacity: 0.65;

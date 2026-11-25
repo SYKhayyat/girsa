@@ -103,6 +103,9 @@ pub const ACTIONS: &[Action] = &[
     // Paper. `girsa-export` writes a `.docx` and this puts the siman in your
     // hand, which are two different mornings.
     Action { id: "print", he: "הדפס את הסימן", en: "Print this section", default: "Ctrl+P" },
+    // One box, any sefer (#63, spec.md §9.7). *Go to*, which is what Ctrl+G means
+    // in every editor a reader has used, and which nothing in this table had.
+    Action { id: "go-to-place", he: "לך למקום", en: "Go to a place", default: "Ctrl+G" },
     Action { id: "settings", he: "הגדרות", en: "Settings", default: "Ctrl+," },
 ];
 

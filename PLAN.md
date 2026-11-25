@@ -205,7 +205,14 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   not on the shelf refused rather than searched. What is left is Ksav's own UI,
   in the other repository.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #32 audit volumes distill, #36/#37/#38 interop.
-- [ ] Features: #63 smart navigation (**the reading half and the name lane have
+- [ ] Features: #63 smart navigation (**the box exists** — `Ctrl+G` opens
+  `navbox.ts` over the pane and asks the same question a citation in a document
+  asks, so *what those words mean* has one answer in the window; the answer is
+  read by `intentOf`, which is where the six shapes of `nav_ask` become the six
+  different things the window does next. **What is still not here is the source
+  sheet**: a parenthesised pair is *recognised* as one sheet and still opened one
+  at a time, and that is #63's remaining half. **the reading half and the name
+  lane have
   landed** — `girsa_app::nav` reads the address, and `girsa_search::meant`
   answers *which sefer is that name* when the lexicon has nothing: folded
   titles and slugs, the worst word deciding, `One`/`Several`/`None` and never a

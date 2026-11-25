@@ -99,6 +99,7 @@ export function run() {
     ["Alt+N", press("n", { altKey: true })],
     ["Ctrl+=", press("=", { ctrlKey: true })],
     ["Ctrl+-", press("-", { ctrlKey: true })],
+    ["Ctrl+G", press("g", { ctrlKey: true })],
     ["Ctrl+,", press(",", { ctrlKey: true })],
   ];
   const wrong = SHIPPED.filter(([spelled, event]) => said(event) !== spelled).map(

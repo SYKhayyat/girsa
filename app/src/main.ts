@@ -34,6 +34,7 @@ import { build } from "./layout.ts";
 import { ChainView } from "./chainview.ts";
 import { TocView } from "./tocview.ts";
 import { FindHere } from "./findhere.ts";
+import { NavBox } from "./navbox.ts";
 import { printSection } from "./printview.ts";
 import { DesksView } from "./desksview.ts";
 import { LinksView } from "./linksview.ts";
@@ -93,6 +94,7 @@ const settingsview = new SettingsView();
 // per pane: the reader is looking for a phrase, not opening a tool, and two
 // bars with two counts in two panes is a question nobody asked.
 const findhere = new FindHere();
+const navbox = new NavBox();
 const desksview = new DesksView();
 const views = new Map<PaneId, PaneView>();
 /** Panes holding a scan (W25). A second map rather than a union: a scan has no
@@ -203,6 +205,14 @@ async function main(): Promise<void> {
   suspects.onOpen(openSuspect);
   linksview.onOpen(openFound);
   chainview.onOpen(openFound);
+  // The one box (#63, Ctrl+G) asks the same question a citation in a document
+  // asks, through the same function, so that *what those words mean* has one
+  // answer in this window. It says nothing itself: the reader is landed, or the
+  // window has already announced what could not be read.
+  navbox.onAsk(async (typed) => {
+    await goToCitation(typed);
+    return null;
+  });
   tocview.onOpen(openFound);
   linksview.onHere(whereIAm);
   linksview.onPinTo(whatIsHighlighted);
@@ -2175,6 +2185,9 @@ const PANELS: readonly Held[] = Object.freeze([
       escape: "anywhere",
       toggle: "find-here",
     },
+    // The one box (#63). Over the pane like the find bar, and with all of the
+    // keyboard: a reader typing `berachos 2a` is typing, not turning pages.
+    { panel: navbox, keyboard: "all", escape: "anywhere" },
     // Your own layer docks the moment it opens, so it is never over the
     // reading — the sibling of finding 3, cleared by moving it off `inside`.
     // Its boxes still own what is typed into them; its buttons do not own the
@@ -2259,6 +2272,20 @@ function shortcut(event: KeyboardEvent): void {
         return;
       }
       findhere.openOn(pane);
+      return;
+    }
+    case "go-to-place": {
+      event.preventDefault();
+      const open = tab();
+      const pane = open ? views.get(open.focused) : undefined;
+      // Nothing to put it over: the reading fills the window or there is no tab.
+      // Said rather than swallowed, for the same reason the find bar says it — a
+      // key that silently does nothing reads as a broken window.
+      if (!pane) {
+        announce(say("findHereNothingOpen"), true);
+        return;
+      }
+      navbox.show(pane.element);
       return;
     }
     case "shelf":

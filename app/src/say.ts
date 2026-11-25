@@ -144,6 +144,9 @@ const WORDS = {
   /** Said beside the count when the list was cut and the count was not. */
   findHereCut: ["(מוצגים הראשונים)", "(first shown)"] as Both,
   findHereNothingOpen: ["אין ספר פתוח לחפש בו", "no sefer is open to find in"] as Both,
+  /** The one box (#63, Ctrl+G): what it is called and what to try typing. */
+  goToPlace: ["לך למקום", "go to a place"] as Both,
+  goToPlaceHint: ["ברכות ב א, 2a, שולחן ערוך אורח חיים א:א", "berachos 2a, 2a, shulchan aruch orech chaim 1:1"] as Both,
   /** Why the mareh makom mode is grey on the find bar's chip row, and where it
    * is not grey. See `findhere.ts` — the engine returns `Answer::Cited` here
    * and the bar has nowhere to put a landing. */
