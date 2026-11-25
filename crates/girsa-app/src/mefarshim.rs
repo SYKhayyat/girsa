@@ -82,6 +82,37 @@ pub struct Spoken {
     pub to: Option<SegmentId>,
 }
 
+/// Who is behind one of the classes that speak on a line (#46).
+///
+/// The window has answered *which works comment here* since this module was
+/// written, and a reader looking at `רש"י על ברכות` in a chooser has never been
+/// told who that is. The register (`girsa_corpus::commentator`) knows, and this is
+/// the join: one row per work, carrying the person where the corpus names one.
+///
+/// `name` being `None` is a real answer and not a gap — 990 works in this corpus
+/// carry no author — and it is the difference between *this is Rashi, 1060–1115*
+/// and *the corpus does not say who wrote this commentary*.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Person {
+    /// The commentary's slug — the class the marker and the chooser draw.
+    pub work: String,
+    /// What the shelf calls it, so a row can be read without a catalogue.
+    pub he_title: String,
+    /// The name the corpus files the commentary under, and the other spellings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub also_called: Vec<String>,
+    /// The era in the words a reader uses (`ראשונים`), not Sefaria's code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub era: Option<&'static str>,
+    /// `1065–1115`, where `comp_date` gave the years.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub years: Option<String>,
+    /// Whether the title qualifies the attribution — `מיוחס ל…`.
+    pub doubted: bool,
+}
+
 /// One line's worth of answer: the chosen mefarshim that speak here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Here {
@@ -238,6 +269,63 @@ impl Marks {
                 .collect(),
             any: here.is_some_and(|said| !said.is_empty()),
         }
+    }
+
+    /// Who the chosen mefarshim are, for the line in front of the reader.
+    ///
+    /// Same chosen set and same order as [`Marks::on`], so a row of names and a
+    /// row of comments cannot disagree about who spoke. A work the register has
+    /// no author for keeps its row with `name: None`, because dropping it would
+    /// make the list shorter than the answer it belongs to.
+    #[must_use]
+    pub fn who(
+        &self,
+        at: &SegmentId,
+        chosen: &[String],
+        register: &girsa_corpus::commentator::Register,
+    ) -> Vec<Person> {
+        self.on(at, chosen)
+            .works
+            .into_iter()
+            .map(|work| {
+                let person = register.of_work(&work);
+                Person {
+                    he_title: person.map_or_else(String::new, |person| {
+                        person
+                            .works
+                            .iter()
+                            .find(|written| written.slug == work)
+                            .map(|written| written.he_title.clone())
+                            .unwrap_or_default()
+                    }),
+                    name: person.map(|person| person.name.clone()),
+                    also_called: person
+                        .map(|person| person.also_called.clone())
+                        .unwrap_or_default(),
+                    era: person.and_then(girsa_corpus::commentator::Commentator::era_spoken),
+                    years: person.and_then(girsa_corpus::commentator::Commentator::written),
+                    doubted: person.is_some_and(girsa_corpus::commentator::Commentator::is_doubted),
+                    work,
+                }
+            })
+            .collect()
+    }
+
+    /// Every work that speaks on this line, chosen or not.
+    ///
+    /// The chooser's and the program's question — *what is written about this
+    /// line at all* — and the one [`Marks::on`] deliberately cannot answer,
+    /// because the marker has to follow the reader's ticks.
+    #[must_use]
+    pub fn everyone(&self, at: &SegmentId) -> Vec<String> {
+        let mut works: Vec<String> = self
+            .by_segment
+            .get(&at.to_string())
+            .map(|said| said.iter().map(|one| one.work.clone()).collect())
+            .unwrap_or_default();
+        works.sort_unstable();
+        works.dedup();
+        works
     }
 
     /// Where to read the chosen mefarshim on one line.
@@ -1172,6 +1260,76 @@ mod tests {
         assert_eq!(said[0].work, TOSAFOT);
         assert!(marks
             .said(&id("girsa:bavli/berakhot/2a:1#1"), &[])
+            .is_empty());
+    }
+
+    /// A register over the two commentaries the hand-built `Marks` names, made
+    /// the way the corpus makes one: a `Work` with an author and dates, and one
+    /// with no author at all.
+    fn register() -> girsa_corpus::commentator::Register {
+        use girsa_corpus::work::{BaseText, Mapping, Source, Work};
+        let work = |slug: &str, he: &str, author: Option<&str>| Work {
+            slug: slug.to_string(),
+            he_title: he.to_string(),
+            en_title: slug.to_string(),
+            categories: Vec::new(),
+            order: Vec::new(),
+            source: Source::Sefaria,
+            origin: std::path::PathBuf::new(),
+            schema: None,
+            he_sections: Vec::new(),
+            author: author.map(str::to_string),
+            era: author.map(|_| "RI".to_string()),
+            comp_date: author.map(|_| "c.1065  – c.1115 CE".to_string()),
+            version: None,
+            commentary_on: vec![BaseText {
+                slug: "bavli/berakhot".to_string(),
+                mapping: Mapping::ManyToOne,
+            }],
+        };
+        girsa_corpus::commentator::Register::of(&[
+            work(RASHI, "רש\"י על ברכות", Some("רש״י")),
+            work(TOSAFOT, "תוספות על ברכות", None),
+        ])
+    }
+
+    #[test]
+    fn who_speaks_here_is_a_person_and_not_only_a_slug() {
+        // #46's third item, joined to the module that already knew which classes
+        // speak: the row a chooser draws can now say who, when, and whether
+        // anybody doubts it.
+        let marks = made_up();
+        let register = register();
+        let chosen = vec![TOSAFOT.to_string(), RASHI.to_string()];
+        let who = marks.who(&id("girsa:bavli/berakhot/2a:1#1"), &chosen, &register);
+        // The reader's order, the same one the comments come back in.
+        assert_eq!(
+            who.iter().map(|p| p.work.as_str()).collect::<Vec<_>>(),
+            vec![TOSAFOT, RASHI]
+        );
+        let rashi = &who[1];
+        assert_eq!(rashi.name.as_deref(), Some("רש״י"));
+        assert_eq!(rashi.era, Some("ראשונים"));
+        assert_eq!(rashi.years.as_deref(), Some("1065–1115"));
+        assert_eq!(rashi.he_title, "רש\"י על ברכות");
+        assert!(!rashi.doubted);
+        // The commentary the corpus has no author for keeps its row and says so,
+        // because a list short of one answer is a wrong answer about who spoke.
+        assert_eq!(who[0].name, None);
+        assert_eq!(who[0].era, None);
+    }
+
+    #[test]
+    fn everyone_on_a_line_is_the_question_the_marker_cannot_ask() {
+        // The marker follows the ticks, so `on` is empty when nothing is ticked.
+        // *What is written about this line at all* is the other question, and it
+        // is the one a program asks.
+        let marks = made_up();
+        let here = marks.on(&id("girsa:bavli/berakhot/2a:2#2"), &[]);
+        assert!(here.works.is_empty() && here.any);
+        assert_eq!(marks.everyone(&id("girsa:bavli/berakhot/2a:2#2")), [RASHI]);
+        assert!(marks
+            .everyone(&id("girsa:bavli/berakhot/2a:9#99"))
             .is_empty());
     }
 

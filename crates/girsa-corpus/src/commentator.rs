@@ -152,6 +152,13 @@ pub struct Register {
     people: Vec<Commentator>,
     /// The index into [`Register::people`] for a normalized name.
     by_key: BTreeMap<String, usize>,
+    /// The index into [`Register::people`] for a work's slug.
+    ///
+    /// The other direction of the same table, because the question *who is this
+    /// class* starts from a work and not from a name — `mefarshim` hands out
+    /// slugs, and looking the person up by re-parsing his name out of the title
+    /// would be a second naming rule.
+    by_work: BTreeMap<String, usize>,
     /// How many commentary works had no author to file them under, in total and
     /// per base sefer.
     ///
@@ -227,6 +234,7 @@ impl Register {
 
         let mut people: Vec<Commentator> = Vec::with_capacity(by_key.len());
         let mut index: BTreeMap<String, usize> = BTreeMap::new();
+        let mut by_work: BTreeMap<String, usize> = BTreeMap::new();
         for (key, building) in by_key {
             let (name, also_called) = spellings(&building.spellings);
             let en_name = only_one(&building.en_stems);
@@ -240,6 +248,9 @@ impl Register {
                 }
             }
             index.insert(key.clone(), people.len());
+            for written in &building.wrotes {
+                by_work.insert(written.slug.clone(), people.len());
+            }
             people.push(Commentator {
                 key,
                 name,
@@ -255,6 +266,7 @@ impl Register {
         Self {
             people,
             by_key: index,
+            by_work,
             anonymous,
             anonymous_on,
         }
@@ -292,6 +304,15 @@ impl Register {
     pub fn find(&self, name: &str) -> Option<&Commentator> {
         let key = girsa_hebrew::normalize(name);
         self.by_key.get(&key).map(|at| &self.people[*at])
+    }
+
+    /// The person behind a work, where the corpus names one.
+    ///
+    /// `None` is a commentary with no author — the corpus has the work and not
+    /// the man — and every caller says that rather than showing a nameless row.
+    #[must_use]
+    pub fn of_work(&self, slug: &str) -> Option<&Commentator> {
+        self.by_work.get(slug).map(|at| &self.people[*at])
     }
 
     /// Who comments on this sefer.

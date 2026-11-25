@@ -259,6 +259,23 @@ pub fn catalogue(writable: bool) -> Value {
             }
         },
         {
+            "name": "on_line",
+            "title": "Who is written on this line",
+            "description": "\
+    The commentaries that have a unit at one segment, and the person behind each \
+    where the corpus names one — the join between the link graph and the \
+    commentator register. Asked from an anchor, not from a sefer: this is \
+    #46's *given Berakhot 2a, who is there*. `name: null` is a commentary the \
+    corpus carries with no author, which is a fact and not a gap.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "A segment id or girsa: ref, e.g. girsa:bavli/berakhot/2a:1#1."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
             "name": "links",
             "title": "What links to this line",
             "description": "\
@@ -690,6 +707,7 @@ pub fn call(server: &mut Server, params: &Value) -> Response {
         "concordance" => concordance(server, &args),
         "commentator" => commentator(server, &args),
         "commentators" => commentators(server, &args),
+        "on_line" => on_line(server, &args),
         "links" => links(server, &args),
         "trace" => trace(server, &args),
         "path" => path(server, &args),
@@ -1144,6 +1162,32 @@ fn commentators(server: &Server, args: &Value) -> Result<Value, String> {
         // Commentaries on this sefer with no author: in the corpus, and not in a
         // row here. A count of zero means every one of them is named.
         "anonymous": register.anonymous_on(&on),
+    }))
+}
+
+/// Who has a unit at one line, with the person behind each (#46).
+///
+/// The two tables already existed and had never been joined: `mefarshim::Marks`
+/// knows which classes speak on a segment, and the register knows who wrote each
+/// class. A program asking *who is on Berakhot 2a* got a list of slugs.
+fn on_line(server: &Server, args: &Value) -> Result<Value, String> {
+    let id = id_arg(args, "id")?;
+    if server.shelf.work(id.work()).is_none() {
+        return Err(format!("{} is not on this shelf", id.work()));
+    }
+    let marks = girsa_app::mefarshim::Marks::of(&server.shelf, id.work())
+        .map_err(|e| format!("{}'s comments will not open: {e}", id.work()))?;
+    let everyone = marks.everyone(&id);
+    let register = register(server);
+    let who = marks.who(&id, &everyone, &register);
+    Ok(json!({
+        "at": named(server, &id),
+        "total": who.len(),
+        // *Nobody wrote about this line* and *the links have not been built*
+        // are different, and `Marks::of` refuses to conflate them — so this
+        // says which one it is when the list is empty.
+        "built": girsa_link::inbound::built(&server.root),
+        "commentaries": who,
     }))
 }
 

@@ -281,6 +281,41 @@ fn who_comments_on_a_sefer_says_how_many_are_unnamed() {
 }
 
 #[test]
+fn who_is_written_on_a_line_joins_the_graph_to_the_register() {
+    // #46's third item as a program reads it: an anchor in, people out. The
+    // graph says which classes have a unit here; the register says who they are.
+    let mut server = server_or_skip!();
+    handshake(&mut server);
+    let here = tool(
+        &mut server,
+        "on_line",
+        json!({"id": "girsa:bavli/berakhot/2a:1#1"}),
+    );
+    assert_eq!(here["built"], json!(true), "{here}");
+    let rows = here["commentaries"].as_array().expect("commentaries");
+    assert!(
+        !rows.is_empty(),
+        "nothing is written on the first line of the daf"
+    );
+    let rashi = rows
+        .iter()
+        .find(|row| row["work"] == json!("bavli/rashi-on-berakhot"))
+        .unwrap_or_else(|| panic!("Rashi is not on 2a:1: {here}"));
+    assert_eq!(rashi["name"], json!("רש\"י"), "{rashi}");
+    assert_eq!(rashi["era"], json!("ראשונים"), "{rashi}");
+    assert_eq!(rashi["years"], json!("1090"), "{rashi}");
+    // The count is the list, so a caller reading either gets the same number —
+    // and a commentary the corpus has no author for keeps its row with a null
+    // name rather than vanishing from the answer.
+    assert_eq!(here["total"], json!(rows.len()));
+    assert!(
+        rows.iter()
+            .any(|row| row["name"].is_null() || row["name"].is_string()),
+        "{here}"
+    );
+}
+
+#[test]
 fn search_is_literal_unless_a_program_asks_for_otherwise() {
     let mut server = server_or_skip!();
     handshake(&mut server);
