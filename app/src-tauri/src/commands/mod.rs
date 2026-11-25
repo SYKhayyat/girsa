@@ -28,6 +28,7 @@ pub(crate) mod queue;
 pub(crate) mod reading;
 pub(crate) mod scans;
 pub(crate) mod search;
+pub(crate) mod settings;
 pub(crate) mod shelf;
 pub(crate) mod updates;
 pub(crate) mod yours;
