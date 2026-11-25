@@ -35,7 +35,10 @@
 //! match, because a near-miss sefer is the wrong-page hazard this whole system
 //! is arranged to avoid.
 
+use girsa_corpus::work::Work;
 use girsa_ref::{resolve, Level, Lexicon, Ref, Resolution};
+
+use crate::meant::{meant, named, From, Meant};
 
 /// What the box got, in the terms the window needs to act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +92,134 @@ pub enum Ask {
     /// A location with no sefer — `2a`, `סימן א`. The window offers the seforim
     /// whose address scheme the location belongs to.
     WhichSefer(String),
+}
+
+/// What the box got, once the shelf has had its say about a name it did not know.
+///
+/// [`read`] answers from the lexicon and nothing else, deliberately: a near-miss
+/// sefer is the wrong-page hazard this whole system is arranged against (#69, and
+/// the module doc above). But *the lexicon does not hold that spelling* is not the
+/// same as *there is nothing to say* — the shelf knows what its seforim are called,
+/// and a reader who typed `brachos` is owed the fact that it is close to one of
+/// them, in the form of a question.
+///
+/// So this is the layer above [`read`], and its whole content is the rule about
+/// when the second answer is allowed:
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Suggest {
+    /// The lexicon read it. Whatever it said is the answer, including *nothing*.
+    Read(Nav),
+    /// The lexicon could not read it and one sefer's name is close. **A question,
+    /// not a landing**: the window shows it and the reader decides.
+    DidYouMean {
+        /// What they typed, so the question can quote it back.
+        typed: String,
+        /// The sefer that is close.
+        slug: String,
+        /// Its name as the shelf has it, which is what the question offers.
+        title: String,
+        /// Their own line with the name corrected and **the address left alone**:
+        /// `brachos 2a` is offered as `ברכות 2a`, because accepting the question
+        /// should not throw away the place they already typed (#63).
+        corrected: String,
+    },
+    /// …and more than one sefer is close. A choice, in the order the shelf lists
+    /// them, because narrowing it would be the guess this file refuses.
+    Which {
+        typed: String,
+        candidates: Vec<Maybe>,
+    },
+}
+
+/// One sefer a name could have meant: its slug and its name.
+///
+/// A struct and not a pair, because this crosses the wire to the window (through
+/// the shell's own `Answer`, which is where `serde` lives) and a tuple arrives as
+/// an array whose two elements nothing names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Maybe {
+    /// The ref slug, which is what a question has to be turned into if chosen.
+    pub slug: String,
+    /// The name as the shelf has it, which is what the reader is shown.
+    pub title: String,
+    /// The reader's line with this name in it, address and all.
+    pub corrected: String,
+}
+
+/// The reader's line with the matched name replaced, and every other word left
+/// exactly where they put it.
+///
+/// The span comes from [`named`], which walks the same comparison [`meant`] does,
+/// so the words replaced are the words that were compared. A line with nothing left
+/// to keep is just the name.
+fn corrected(works: &[Work], typed: &str, title: &str) -> String {
+    let Some((_, span)) = named(works, typed) else {
+        return title.to_string();
+    };
+    let mut words: Vec<&str> = typed.split_whitespace().collect();
+    let end = words.len();
+    match span.from {
+        From::Front => words.splice(0..span.take.min(end), [title]),
+        From::Back => words.splice(end.saturating_sub(span.take)..end, [title]),
+    };
+    words.join(" ")
+}
+
+/// The name a slug's sefer has, or the slug itself where the shelf has no name for
+/// it — the same fallback `naming` uses, so a question cannot offer less than a
+/// search hit does.
+fn titled(works: &[Work], slug: &str) -> String {
+    works
+        .iter()
+        .find(|work| work.slug == slug)
+        .map_or_else(|| slug.to_string(), |work| work.he_title.clone())
+}
+
+/// Read the box, and if the lexicon had nothing, ask the shelf whether the name is
+/// almost one of its seforim.
+///
+/// The order is the whole design: [`read`] first, and [`meant`] **only** on
+/// [`Nav::Nothing`]. A sefer the lexicon read is not second-guessed by a nearer
+/// spelling, because the lexicon is the authority on what a sefer is called and
+/// fuzzy matching is not. What this adds is the one thing the lexicon cannot do:
+/// notice a name it does not hold and say what it is probably meant to be.
+#[must_use]
+pub fn suggest(lexicon: &Lexicon, works: &[Work], typed: &str) -> Suggest {
+    let read = read(lexicon, typed);
+    if read != Nav::Nothing {
+        return Suggest::Read(read);
+    }
+    // The **name** alone: a trailing location is `girsa-ref`'s half of the line,
+    // and `meant` reads the words it is given from the front or the back to find
+    // it. A bare `2a` has no name in it at all and `meant` says so.
+    match meant(works, typed) {
+        Meant::One(slug) => {
+            let title = titled(works, &slug);
+            let corrected = corrected(works, typed, &title);
+            Suggest::DidYouMean {
+                title,
+                corrected,
+                typed: typed.to_string(),
+                slug,
+            }
+        }
+        Meant::Several(slugs) => Suggest::Which {
+            typed: typed.to_string(),
+            candidates: slugs
+                .into_iter()
+                .map(|slug| {
+                    let title = titled(works, &slug);
+                    let corrected = corrected(works, typed, &title);
+                    Maybe {
+                        title,
+                        corrected,
+                        slug,
+                    }
+                })
+                .collect(),
+        },
+        Meant::None => Suggest::Read(Nav::Nothing),
+    }
 }
 
 /// Read the box.

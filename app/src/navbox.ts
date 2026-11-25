@@ -38,7 +38,15 @@ export type Answer = Awaited<ReturnType<typeof api.navAsk>>;
  * same three fields and only reads the ones its branch uses.
  */
 export interface Intent {
-  what: "go" | "several" | "sheet" | "choose" | "ask" | "nothing";
+  what:
+    | "go"
+    | "several"
+    | "sheet"
+    | "choose"
+    | "ask"
+    | "nothing"
+    | "didYouMean"
+    | "which";
   /** The refs in the answer, in the order the resolver gave them. */
   refs: string[];
   /** True when the reader wrote them in parentheses (§9.7). */
@@ -49,6 +57,11 @@ export interface Intent {
   about: string | null;
   /** The landing, when the answer was one place. */
   landing: Asked | null;
+  /**
+   * Their own line with the name corrected, when the lexicon did not hold it and
+   * the shelf did (#63). A question, never a landing.
+   */
+  corrected: string[];
 }
 
 /**
@@ -68,6 +81,7 @@ export function intentOf(answer: Answer): Intent {
     unread: [],
     about: null,
     landing: null,
+    corrected: [],
   };
   switch (answer.kind) {
     case "go":
@@ -86,6 +100,15 @@ export function intentOf(answer: Answer): Intent {
       return { ...base, what: "ask", about: answer.about };
     case "nothing":
       return base;
+
+    case "didYouMean":
+      return { ...base, what: "didYouMean", corrected: [answer.corrected] };
+    case "which":
+      return {
+        ...base,
+        what: "which",
+        corrected: answer.candidates.map((one) => one.corrected),
+      };
   }
 }
 
@@ -102,6 +125,7 @@ export class NavBox {
   readonly element: HTMLElement;
   private readonly box: HTMLInputElement;
   private readonly note: HTMLElement;
+  private readonly choices: HTMLElement;
   private open = false;
   private ask: ((typed: string) => Promise<string | null>) | null = null;
 
@@ -118,7 +142,9 @@ export class NavBox {
     this.note.className = "nav-note";
 
     row.append(this.box);
-    this.element.append(row, this.note);
+    this.choices = document.createElement("div");
+    this.choices.className = "nav-choices";
+    this.element.append(row, this.note, this.choices);
     this.box.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -158,6 +184,7 @@ export class NavBox {
     this.note.textContent = "";
     this.box.focus();
     this.box.select();
+    this.choices.replaceChildren();
   }
 
   close(): void {
@@ -166,12 +193,46 @@ export class NavBox {
     this.element.remove();
     this.box.value = "";
     this.note.textContent = "";
+    this.choices.replaceChildren();
+  }
+
+  /**
+   * Offer the reader what they probably meant, rather than guessing it (#63).
+   *
+   * The choices are **whole lines**, not sefer names: what they typed had an
+   * address in it, and `girsa_app::nav` hands back their own line with only the
+   * name corrected, so accepting one puts back `ברכות 2a` and not `ברכות`.
+   *
+   * A choice is a click and then the same question again — the box is the one
+   * route, and a second route that resolved the line itself would be a second
+   * answer to *what do these words mean*.
+   */
+  offer(said: string, choices: readonly { label: string; typed: string }[]): void {
+    this.note.textContent = said;
+    this.choices.replaceChildren();
+    for (const choice of choices) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "nav-choice";
+      button.dir = "auto";
+      button.textContent = choice.label;
+      button.addEventListener("click", () => {
+        this.box.value = choice.typed;
+        this.box.focus();
+        void this.go();
+      });
+      this.choices.append(button);
+    }
+    this.box.focus();
+    this.box.select();
   }
 
   private async go(): Promise<void> {
     const typed = this.box.value.trim();
     if (typed === "" || !this.ask) return;
     this.note.textContent = "";
+    // The last question's choices are about the last line, and this is a new one.
+    this.choices.replaceChildren();
     try {
       // The same question a citation in a document asks, and the same failures:
       // `open_ref` is the window's word for *that mareh makom could not be

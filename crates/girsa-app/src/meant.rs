@@ -25,6 +25,16 @@
 //! What it will not do is decide between two candidates. Two seforim the reader
 //! could have meant is the question this module returns instead of an answer.
 //!
+//! # Where it lives, and why not in the search crate
+//!
+//! The table a name is compared against is a `Work`'s own — its Hebrew title and
+//! its slug — and `girsa-search`'s `Catalogue` has those only because it was
+//! handed the same works. It started there, in front of `Catalogue`, and moved:
+//! `girsa-app` cannot depend on `girsa-search` (that crate's manifest says so in
+//! the entry for `girsa-note`), and the command that needs to answer *did you
+//! mean this sefer* — `nav_ask` — is the one that has a `Shelf`. So the input is
+//! the shelf's own list of works and neither crate has to reach for the other.
+//!
 //! # Why this is not `girsa_app::nav`'s matcher
 //!
 //! `nav` resolves names through the lexicon and comes back `Nav::Nothing` for
@@ -39,7 +49,7 @@
 //!
 //! [`Nothing`]: girsa_app::nav::Nav::Nothing
 
-use crate::facets::Catalogue;
+use girsa_corpus::work::Work;
 use girsa_hebrew::normalize;
 
 /// How much of a name may differ and still be the same name.
@@ -77,7 +87,7 @@ pub enum Meant {
 /// asking, because *which sefer* and *where in it* are two questions with two
 /// different sets of candidates.
 #[must_use]
-pub fn meant(catalogue: &Catalogue, typed: &str) -> Meant {
+pub fn meant(works: &[Work], typed: &str) -> Meant {
     let typed = key(typed);
     if typed.chars().count() < TOO_SHORT_TO_GUESS {
         return Meant::None;
@@ -85,19 +95,16 @@ pub fn meant(catalogue: &Catalogue, typed: &str) -> Meant {
 
     // The best distance each sefer offers, and the name that was closest.
     let mut best: Vec<(f32, &str)> = Vec::new();
-    for slug in catalogue.slugs() {
-        let Some(facts) = catalogue.facts(slug) else {
-            continue;
-        };
+    for work in works {
         // Both halves of what a `Work` knows, and the slug twice: once whole and
         // once without the shelf it sits on, because `mishnayos peah` is the
         // tail and `bavli/berakhot` is a name a reader might paste.
         let mut closest = f32::INFINITY;
-        for name in [facts.title.as_str(), slug, tail(slug)] {
+        for name in [work.he_title.as_str(), work.slug.as_str(), tail(&work.slug)] {
             closest = closest.min(closeness(&typed, &key(name)));
         }
         if closest.is_finite() {
-            best.push((closest, slug));
+            best.push((closest, work.slug.as_str()));
         }
     }
 
@@ -143,13 +150,76 @@ pub fn meant(catalogue: &Catalogue, typed: &str) -> Meant {
 /// that comments on a masechet would come back tied with the masechet, and a
 /// reader who typed the Gemara would be asked *which of these two*.
 fn closeness(typed: &str, name: &str) -> f32 {
-    compare(typed, name, From::Front).min(compare(typed, name, From::Back))
+    compare(typed, name, From::Front)
+        .0
+        .min(compare(typed, name, From::Back).0)
+}
+
+/// Which of the reader's words the closest name accounted for, and from which end.
+///
+/// The point of knowing is that the reader's line is **reusable**: `brachos 2a` and
+/// the corrected `ברכות 2a` differ in the name and not in the address, and a
+/// question the reader can accept should put the whole line back in the box rather
+/// than the name alone — otherwise accepting `did you mean ברכות` quietly throws
+/// away the `2a` they had already typed (#63).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    /// Which end of their words the name was read from.
+    pub from: From,
+    /// How many of them it took.
+    pub take: usize,
+}
+
+/// The best name on the shelf for a line, and the words it covers.
+///
+/// Same comparison and same bound as [`meant`], and deliberately the same walk: two
+/// functions that decided *which sefer* differently would be able to disagree about
+/// a line the box had already shown a question for.
+#[must_use]
+pub fn named(works: &[Work], typed: &str) -> Option<(String, Span)> {
+    let words = words(typed);
+    if key(typed).chars().count() < TOO_SHORT_TO_GUESS {
+        return None;
+    }
+    let keyed = key(typed);
+    let mut best: Option<(f32, &str, Span)> = None;
+    for work in works {
+        for name in [work.he_title.as_str(), work.slug.as_str(), tail(&work.slug)] {
+            for from in [From::Front, From::Back] {
+                let (how, span) = compare(&keyed, &key(name), from);
+                let better = best.is_none_or(|(was, _, _)| how < was);
+                if better && how.is_finite() {
+                    best = Some((how, work.slug.as_str(), span_with(span, &words)));
+                }
+            }
+        }
+    }
+    let (how, slug, span) = best?;
+    if how > AS_CLOSE_AS {
+        return None;
+    }
+    Some((slug.to_string(), span))
+}
+
+/// The span with the take checked against the reader's own words: `compare` counts
+/// in the folded name, which is the same count, but a caller is about to slice the
+/// reader's line with it and that is worth not assuming.
+fn span_with(span: Span, words: &[&str]) -> Span {
+    Span {
+        from: span.from,
+        take: span.take.min(words.len()),
+    }
+}
+
+/// The words of a line, in the order they were typed.
+fn words(line: &str) -> Vec<&str> {
+    line.split(' ').filter(|word| !word.is_empty()).collect()
 }
 
 /// Where the reader's words are taken from when there are more of them than the
 /// name has.
-#[derive(Clone, Copy)]
-enum From {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum From {
     /// Their first words: the location after the name is extra.
     Front,
     /// Their last words: a collection word before the name is extra.
@@ -163,22 +233,23 @@ enum From {
 /// and `bava kamma` look close: half of each name is the word `bava`, and only
 /// the word that tells them apart differs. A name is not a bag of words where
 /// five good ones outvote the one that matters.
-fn compare(typed: &str, name: &str, from: From) -> f32 {
-    let typed: Vec<&str> = typed.split(' ').filter(|w| !w.is_empty()).collect();
-    let name: Vec<&str> = name.split(' ').filter(|w| !w.is_empty()).collect();
+fn compare(typed: &str, name: &str, from: From) -> (f32, Span) {
+    let typed: Vec<&str> = words(typed);
+    let name: Vec<&str> = words(name);
     let take = typed.len().min(name.len());
     if take == 0 {
-        return f32::INFINITY;
+        return (f32::INFINITY, Span { from, take: 0 });
     }
     let theirs = match from {
         From::Front => &typed[..take],
         From::Back => &typed[typed.len() - take..],
     };
-    theirs
+    let how = theirs
         .iter()
         .zip(&name[..take])
         .map(|(x, y)| apart(x, y))
-        .fold(0.0_f32, f32::max)
+        .fold(0.0_f32, f32::max);
+    (how, Span { from, take })
 }
 
 /// One word against one word, as a fraction of the longer one.

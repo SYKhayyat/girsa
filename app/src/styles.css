@@ -806,6 +806,34 @@ body {
 
 /* What happened, under the box. Wraps rather than scrolling sideways: the
  * sentence that matters is the one naming what could not be read. */
+/* The question's choices (#63): the reader's own line with the name corrected, so
+ * accepting one is a click and not a retype. Under the note, which is where the
+ * question is, and wrapping rather than scrolling — two or three lines at most. */
+.nav-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 8px;
+}
+
+.nav-choice {
+  font-family: var(--hebrew);
+  font-size: 14px;
+  text-align: start;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+  color: inherit;
+  cursor: pointer;
+}
+
+.nav-choice:hover,
+.nav-choice:focus-visible {
+  background: var(--page-raised);
+  border-color: var(--accent, var(--rule));
+}
+
 .nav-note {
   max-width: 22rem;
   font-size: 11px;

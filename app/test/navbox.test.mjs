@@ -12,7 +12,7 @@
 // so it is the one place that can be tested without a webview.
 
 import { check } from "./harness.mjs";
-import { intentOf } from "../.tmp-test/navbox.mjs";
+import { intentOf, NavBox } from "../.tmp-test/navbox.mjs";
 
 /** An answer of one shape, with only the fields the reading touches. */
 const go = { kind: "go", landing: { kind: "at", ids: ["1"] } };
@@ -27,7 +27,7 @@ const reading = (answer) => {
   return [got.what, got.refs, got.sheet, got.refs.length > 0 || got.landing !== null];
 };
 
-export function run() {
+export async function run() {
   // --- one place -------------------------------------------------------------
   //
   // The landing travels with it, because the window goes straight there and a
@@ -89,4 +89,133 @@ export function run() {
 
   // --- nothing ---------------------------------------------------------------
   check("nothing matched is its own answer", reading(nothing), ["nothing", [], false, false]);
+
+  // --- the name was nearly right (#63) --------------------------------------
+  //
+  // The failure this guards is the sentence at the top of the file: an answer the
+  // library understood perfectly well, read as *nothing*. `didYouMean` and `which`
+  // are the shelf's opinion, and the window has to be able to tell them from the
+  // lexicon's silence — one is a question a reader can accept, and the other is a
+  // reader retyping from scratch.
+  const near = intentOf({
+    kind: "didYouMean",
+    typed: "brachos 2a",
+    slug: "bavli/berakhot",
+    title: "\u05d1\u05e8\u05db\u05d5\u05ea",
+    corrected: "\u05d1\u05e8\u05db\u05d5\u05ea 2a",
+  });
+  check("a nearly-right name is a question, not silence", near.what, "didYouMean");
+  check("and the question offers the corrected line", near.corrected, [
+    "\u05d1\u05e8\u05db\u05d5\u05ea 2a",
+  ]);
+  const unsure = intentOf({
+    kind: "which",
+    typed: "bava",
+    candidates: [
+      { slug: "bavli/bava-kamma", title: "kamma", corrected: "kamma 2a" },
+      { slug: "bavli/bava-metzia", title: "metzia", corrected: "metzia 3b" },
+    ],
+  });
+  check("two close seforim are a choice of two", unsure.what, "which");
+  check("and both lines are offered", unsure.corrected, ["kamma 2a", "metzia 3b"]);
+
+  await offeringTheQuestion();
+}
+
+/**
+ * The offer, as a screen: the question under the box and the lines as choices.
+ *
+ * The failure this guards is a question with nowhere to click — and, on the other
+ * side, a choice that resolved the line itself. Accepting one puts the corrected
+ * **line** back in the box and asks the same question again, so there is still one
+ * route from words to a place.
+ */
+async function offeringTheQuestion() {
+  const realDocument = globalThis.document;
+  globalThis.document = {
+    createElement: (tag) => node(tag),
+    documentElement: { classList: { toggle() {} }, lang: "", dir: "" },
+  };
+  try {
+    const box = new NavBox();
+    box.show(node("div"));
+    const asked = [];
+    box.onAsk(async (typed) => {
+      asked.push(typed);
+      return null;
+    });
+
+    box.offer("not found. did you mean this?", [
+      { label: "one 2a", typed: "one 2a" },
+      { label: "one 3a", typed: "one 3a" },
+    ]);
+    const offered = choices(box);
+    check("the question is said under the box", said(box), "not found. did you mean this?");
+    check("every line is a choice", offered.length, 2);
+    check("a choice is the whole line and not the name", offered[0].textContent, "one 2a");
+
+    fire(offered[0]);
+    await Promise.resolve();
+    await Promise.resolve();
+    check("accepting one asks the corrected line", asked, ["one 2a"]);
+    check("and the old choices are gone", choices(box).length, 0);
+
+    box.offer("again?", [{ label: "x", typed: "x" }]);
+    check("a second question brings its own choices", choices(box).length, 1);
+    box.close();
+    check("closing takes them away", choices(box).length, 0);
+  } finally {
+    globalThis.document = realDocument;
+  }
+}
+
+/** The choices the box is currently offering. */
+function choices(box) {
+  const list = box.element.children.find((kid) => kid.className === "nav-choices");
+  return list ? list.children : [];
+}
+
+/** The sentence under the box. */
+function said(box) {
+  const note = box.element.children.find((kid) => kid.className === "nav-note");
+  return note ? note.textContent : null;
+}
+
+/** Fire a fake element's first listener for `click`. */
+function fire(element) {
+  const first = (element.listeners.click ?? [])[0];
+  if (first) first();
+}
+
+/** Enough of an element for the box to be built against. */
+function node(tag) {
+  return {
+    tagName: tag,
+    className: "",
+    textContent: "",
+    value: "",
+    placeholder: "",
+    type: "",
+    dir: "",
+    hidden: false,
+    offsetHeight: 34,
+    children: [],
+    listeners: {},
+    classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+    style: { setProperty() {} },
+    append(...kids) {
+      this.children.push(...kids);
+    },
+    replaceChildren(...kids) {
+      this.children = [...kids];
+    },
+    querySelector: () => null,
+    addEventListener(type, fn) {
+      (this.listeners[type] ??= []).push(fn);
+    },
+    remove() {},
+    focus() {},
+    select() {},
+    setAttribute() {},
+  };
 }

@@ -375,42 +375,68 @@
     },
     {
       "name": "A name nobody on the shelf is called is not matched to the nearest one",
-      "source": "crates/girsa-search/src/meant.rs",
+      "source": "crates/girsa-app/src/meant.rs",
       "find": "const AS_CLOSE_AS: f32 = 0.4;",
       "replace": "const AS_CLOSE_AS: f32 = 1.0;",
       "test": {
-        "file": "crates/girsa-search/tests/what_the_reader_meant.rs",
+        "file": "crates/girsa-app/tests/what_the_reader_meant.rs",
         "fn": "a_name_that_is_on_no_sefer_comes_back_as_none_and_not_as_the_nearest",
         "keyword": "Meant::None"
       },
-      "crate": "girsa-search",
+      "crate": "girsa-app",
       "why": "navigation that always resolves opens the wrong masechet with no sign it guessed; the bound is what makes `None` an answer (#63)."
     },
     {
       "name": "The worst word decides whether two names are one name",
-      "source": "crates/girsa-search/src/meant.rs",
+      "source": "crates/girsa-app/src/meant.rs",
       "find": "        .fold(0.0_f32, f32::max)",
       "replace": "        .fold(0.0_f32, f32::min)",
       "test": {
-        "file": "crates/girsa-search/tests/what_the_reader_meant.rs",
+        "file": "crates/girsa-app/tests/what_the_reader_meant.rs",
         "fn": "two_masechtot_that_share_a_word_are_never_confused_for_each_other",
         "keyword": "bava"
       },
-      "crate": "girsa-search",
+      "crate": "girsa-app",
       "why": "averaged, `bava batra` and `bava kamma` are 3/10 apart and the word that tells them apart is outvoted by the one they share (#63)."
     },
     {
       "name": "A sefer is not renamed by what follows its name",
-      "source": "crates/girsa-search/src/meant.rs",
+      "source": "crates/girsa-app/src/meant.rs",
       "find": "        .zip(&name[..take])",
       "replace": "        .zip(&name[name.len() - take..])",
       "test": {
-        "file": "crates/girsa-search/tests/what_the_reader_meant.rs",
+        "file": "crates/girsa-app/tests/what_the_reader_meant.rs",
         "fn": "two_seforim_called_berakhot_is_a_question_and_not_a_choice",
         "keyword": "rashi"
       },
-      "crate": "girsa-search",
+      "crate": "girsa-app",
       "why": "read from the back, `berakhot` is as close to `rashi on berakhot` as to `berakhot`, and the commentary ties with the masechet it comments on (#63)."
+    },
+    {
+      "name": "A name the lexicon reads is not second-guessed by a nearer spelling",
+      "source": "crates/girsa-app/src/nav.rs",
+      "find": "    if read != Nav::Nothing {",
+      "replace": "    if false {",
+      "test": {
+        "file": "crates/girsa-app/tests/a_name_the_lexicon_does_not_hold_is_a_question.rs",
+        "fn": "a_name_the_lexicon_reads_is_not_second_guessed_by_a_nearer_spelling",
+        "keyword": "Berachos"
+      },
+      "crate": "girsa-app",
+      "why": "the lexicon is the authority on what a sefer is called; a fuzzy match allowed to overrule it is the near-miss sefer #69 refuses, arriving one layer up (#63)."
+    },
+    {
+      "name": "A name the lexicon does not hold is a question and never a landing",
+      "source": "crates/girsa-app/src/nav.rs",
+      "find": "    match meant(works, typed) {",
+      "replace": "    match Meant::None {",
+      "test": {
+        "file": "crates/girsa-app/tests/a_name_the_lexicon_does_not_hold_is_a_question.rs",
+        "fn": "a_name_the_lexicon_does_not_hold_comes_back_as_a_question_naming_the_sefer",
+        "keyword": "brachos"
+      },
+      "crate": "girsa-app",
+      "why": "what the shelf thinks a name means is a suggestion; navigating on it unseen is the wrong-page guess `nav` exists to prevent (#63)."
     }
   ],
   "uncovered": [

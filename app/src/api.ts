@@ -1793,6 +1793,14 @@ export const api = {
       | { kind: "choose"; refs: string[] }
       | { kind: "ask"; about: string }
       | { kind: "nothing" }
+      // #63: the lexicon does not hold that spelling and the shelf's names are
+      // close. A question for the reader, never a landing.
+      | { kind: "didYouMean"; typed: string; slug: string; title: string; corrected: string }
+      | {
+          kind: "which";
+          typed: string;
+          candidates: { slug: string; title: string; corrected: string }[];
+        }
     >("nav_ask", { typed }),
   /**
    * #63: a parenthesised list assembled into one sheet. The refs are the

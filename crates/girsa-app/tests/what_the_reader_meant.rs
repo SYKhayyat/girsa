@@ -15,9 +15,8 @@
 
 use std::path::PathBuf;
 
+use girsa_app::meant::{meant, Meant};
 use girsa_corpus::work::{Source, Work};
-use girsa_search::facets::Catalogue;
-use girsa_search::meant::{meant, Meant};
 
 /// The shelf: one masechet, the same masechet as a Mishnah, the Shulchan Arukh,
 /// and a commentary whose name contains the masechet it comments on.
@@ -25,7 +24,7 @@ use girsa_search::meant::{meant, Meant};
 /// The commentary is the trap. `berakhot` is in three of these slugs, and a name
 /// resolver that matched on *contains* would answer a question about Rashi's
 /// commentary to a reader who typed the name of the Gemara.
-fn shelf() -> Catalogue {
+fn shelf() -> Vec<Work> {
     let works = vec![
         work("bavli/berakhot", "ברכות"),
         work("mishnah-berakhot", "משנה ברכות"),
@@ -35,7 +34,7 @@ fn shelf() -> Catalogue {
         work("bavli/bava-kamma", "בבא קמא"),
         work("genesis", "בראשית"),
     ];
-    Catalogue::of(&works)
+    works
 }
 
 fn work(slug: &str, title: &str) -> Work {
@@ -57,8 +56,8 @@ fn work(slug: &str, title: &str) -> Work {
     }
 }
 
-fn one(catalogue: &Catalogue, typed: &str) -> String {
-    match meant(catalogue, typed) {
+fn one(works: &[Work], typed: &str) -> String {
+    match meant(works, typed) {
         Meant::One(slug) => slug,
         other => panic!("{typed} should be one sefer, got {other:?}"),
     }

@@ -69,9 +69,11 @@ runs.
 | The writes are one list, and the catalogue is built from it | `crates/girsa-mcp/src/tools.rs` — `list.extend(writing());` | `the_catalogue_adds_exactly_the_tools_the_door_refuses` |
 | The words as typed are an answer, and the ladder is not climbed | `crates/girsa-search/src/mekoros.rs` — `if whole_word {` | `the_words_as_typed_are_an_answer_and_the_ladder_is_not_climbed` |
 | A phrase search answers inside the scope it was given | `crates/girsa-search/src/mekoros.rs` — `let mut scope = scope.unwrap_or_else(Scope::everything);` | `a_scope_answers_in_the_sefer_it_names_and_nowhere_else` |
-| A name nobody on the shelf is called is not matched to the nearest one | `crates/girsa-search/src/meant.rs` — `const AS_CLOSE_AS: f32 = 0.4;` | `a_name_that_is_on_no_sefer_comes_back_as_none_and_not_as_the_nearest` |
-| The worst word decides whether two names are one name | `crates/girsa-search/src/meant.rs` — `.fold(0.0_f32, f32::max)` | `two_masechtot_that_share_a_word_are_never_confused_for_each_other` |
-| A sefer is not renamed by what follows its name | `crates/girsa-search/src/meant.rs` — `.zip(&name[..take])` | `two_seforim_called_berakhot_is_a_question_and_not_a_choice` |
+| A name nobody on the shelf is called is not matched to the nearest one | `crates/girsa-app/src/meant.rs` — `const AS_CLOSE_AS: f32 = 0.4;` | `a_name_that_is_on_no_sefer_comes_back_as_none_and_not_as_the_nearest` |
+| The worst word decides whether two names are one name | `crates/girsa-app/src/meant.rs` — `.fold(0.0_f32, f32::max)` | `two_masechtot_that_share_a_word_are_never_confused_for_each_other` |
+| A sefer is not renamed by what follows its name | `crates/girsa-app/src/meant.rs` — `.zip(&name[..take])` | `two_seforim_called_berakhot_is_a_question_and_not_a_choice` |
+| A name the lexicon reads is not second-guessed by a nearer spelling | `crates/girsa-app/src/nav.rs` — `if read != Nav::Nothing {` | `a_name_the_lexicon_reads_is_not_second_guessed_by_a_nearer_spelling` |
+| A name the lexicon does not hold is a question and never a landing | `crates/girsa-app/src/nav.rs` — `Suggest::DidYouMean {` | `a_name_the_lexicon_does_not_hold_comes_back_as_a_question_naming_the_sefer` |
 | A stored range is placed by its words and its Standing | `crates/girsa-corpus/src/span.rs` — `if !at.named_by(&self.at) {` | `a_mark_belonging_to_another_seif_places_nothing` |
 | A broken queue is not an empty queue | `crates/girsa-corpus/src/fetch.rs` — `Err(poisoned) => Err(poisoned.into_inner().len()),` | `a_run_that_stopped_early_is_an_error_and_not_a_complete_one` |
 | A damaged index refuses rather than answering with less | `crates/girsa-link/src/inbound.rs` — `let row: Line = serde_json::from_str(line).map_err(\|_\| Unusable::Row)?;` | `a_corrupt_row_costs_the_reader_nothing_and_is_told_about` |

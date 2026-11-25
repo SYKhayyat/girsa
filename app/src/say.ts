@@ -153,6 +153,13 @@ const WORDS = {
     "every place you wrote in parentheses, in one list — and what could not be found is said where it is missing",
   ] as Both,
   sheetEmpty: ["לא נמצא דבר", "nothing was found"] as Both,
+  // #63: the box could not read the name and the shelf knows one that is close.
+  // Both are questions, and the second is the same question about several seforim.
+  didYouMean: ["לא נמצא. האם לכך התכוונת?", "not found. did you mean this?"] as Both,
+  whichDidYouMean: [
+    "לא נמצא. זה קרוב ליותר מאחד:",
+    "not found. that is close to more than one:",
+  ] as Both,
   goToPlaceHint: ["ברכות ב א, 2a, שולחן ערוך אורח חיים א:א", "berachos 2a, 2a, shulchan aruch orech chaim 1:1"] as Both,
   /** Why the mareh makom mode is grey on the find bar's chip row, and where it
    * is not grey. See `findhere.ts` — the engine returns `Answer::Cited` here

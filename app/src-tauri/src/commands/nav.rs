@@ -14,7 +14,7 @@
 //! into one red message, and those are three different conversations with the
 //! reader. So the command returns what the words were:
 
-use girsa_app::nav::{Ask, Nav, Unread};
+use girsa_app::nav::{Ask, Nav, Suggest, Unread};
 use girsa_app::trouble::{refuse, Code};
 use serde::Serialize;
 
@@ -43,8 +43,35 @@ pub(crate) enum Answer {
     Choose { refs: Vec<String> },
     /// A location with no sefer — `2a` — and the window asks which one.
     Ask { about: String },
-    /// Nothing in the lexicon. Better than a wrong answer, and said so.
+    /// Nothing matched, and the words are neither a place nor a name.
     Nothing,
+    /// The lexicon does not hold that spelling and one sefer's name is close.
+    ///
+    /// **A question and not a landing** (#63): the box shows it and the reader
+    /// decides. This is the answer `nav` alone could not give — `read` stops at
+    /// the lexicon, and *that sefer is not in my lexicon* is not the same sentence
+    /// as *there is nothing to say*.
+    DidYouMean {
+        /// What they typed, so the question can quote it back.
+        typed: String,
+        /// The sefer that is close.
+        slug: String,
+        /// Its name as the shelf has it, which is what the question offers.
+        title: String,
+    },
+    /// …and more than one sefer is close, so it is a choice rather than a guess.
+    Which {
+        typed: String,
+        candidates: Vec<MaybeRow>,
+    },
+}
+
+/// One sefer a typed name could have meant.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MaybeRow {
+    slug: String,
+    title: String,
 }
 
 /// Assemble a parenthesised list into one sheet (#63, spec.md §9.7).
@@ -113,13 +140,36 @@ impl From<Unread> for UnreadRow {
 pub(crate) fn nav_ask(shared: tauri::State<'_, Shared>, typed: String) -> Result<Answer, String> {
     let mut state = shared.lock().map_err(|_| crate::State::poisoned())?;
 
-    let nav = match state.lexicon.as_ref() {
-        Some(lexicon) => girsa_app::nav::read(lexicon, &typed),
-        None => {
-            return Err(refuse(
-                Code::NoShelf,
-                "no corpus is open, so there is nothing to read a reference against",
-            ));
+    // `suggest` and not `read`: the lexicon first, and the shelf's own names only
+    // where the lexicon had nothing — a question in that case, never a landing.
+    let said = {
+        let shelf = state.shelf()?;
+        match state.lexicon.as_ref() {
+            Some(lexicon) => girsa_app::nav::suggest(lexicon, shelf.works(), &typed),
+            None => {
+                return Err(refuse(
+                    Code::NoShelf,
+                    "no corpus is open, so there is nothing to read a reference against",
+                ));
+            }
+        }
+    };
+    let nav = match said {
+        Suggest::Read(nav) => nav,
+        Suggest::DidYouMean { typed, slug, title } => {
+            return Ok(Answer::DidYouMean { typed, slug, title });
+        }
+        Suggest::Which { typed, candidates } => {
+            return Ok(Answer::Which {
+                typed,
+                candidates: candidates
+                    .into_iter()
+                    .map(|maybe| MaybeRow {
+                        slug: maybe.slug,
+                        title: maybe.title,
+                    })
+                    .collect(),
+            });
         }
     };
 

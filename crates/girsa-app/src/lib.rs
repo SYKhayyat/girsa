@@ -40,6 +40,7 @@ pub mod lens;
 pub mod links;
 pub mod luach;
 pub mod markup;
+pub mod meant;
 pub mod mefarshim;
 pub mod nav;
 pub mod notes;

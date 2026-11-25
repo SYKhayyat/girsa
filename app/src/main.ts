@@ -374,6 +374,23 @@ async function goToCitation(reference: string): Promise<void> {
     // **The parentheses.** `(berachos 2a, shabbos 3b)` is one page holding both
     // passages, and this is the surface that makes the flag mean something.
     const intent = intentOf(answer);
+    // A name the lexicon does not hold and the shelf does (#63) is a **question**,
+    // and the answer it offers is the reader's own line with the name corrected —
+    // the address they typed survives, which is what makes accepting it useful.
+    if (intent.what === "didYouMean" || intent.what === "which") {
+      const said = intent.what === "didYouMean" ? say("didYouMean") : say("whichDidYouMean");
+      if (navbox.isOpen) {
+        navbox.offer(
+          said,
+          intent.corrected.map((line) => ({ label: line, typed: line })),
+        );
+      } else {
+        // A citation in a document, asked from the reading rather than from the
+        // box: there is nowhere to put a button, so the question is a sentence.
+        announce(`${said} ${intent.corrected.join(" / ")}`, true);
+      }
+      return;
+    }
     if (intent.what === "sheet") {
       await sheetview.show(intent.refs);
       if (intent.unread.length > 0) announce(saidUnread(intent.unread), true);
