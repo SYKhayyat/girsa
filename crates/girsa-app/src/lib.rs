@@ -59,6 +59,7 @@ pub mod sending;
 pub mod session;
 pub mod shelf;
 pub mod shemos;
+pub mod source_sheet;
 pub mod spans;
 pub mod taxonomy;
 // The window turned an error into a Hebrew sentence by matching 21 regexes

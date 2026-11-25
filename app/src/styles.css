@@ -4211,6 +4211,114 @@ body {
  *
  * A column like the other drawers, and the same rule: docked, so the reading is
  * made narrower rather than covered. */
+/* A source sheet (#63, spec.md §9.7) — `sheetview.ts`.
+ *
+ * A column standing in the dock, and styled as one: the reading keeps its place
+ * beside it, because the whole point of a sheet is reading several passages
+ * *while* writing. `.lane-panel` and `.toc` are the two neighbours this copies —
+ * fixed to the leading edge, full height, the dock's own width.
+ *
+ * Hidden by width rather than by `display`, so that opening and closing it is the
+ * same 120ms the contents panel takes: a column that appears instantly beside a
+ * column that slides reads as a glitch rather than as a panel. */
+.sheet {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 0;
+  overflow: hidden;
+  z-index: 30;
+  background: var(--page-raised);
+  border-inline-end: 1px solid var(--rule);
+  transition: width 0.12s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet.is-open {
+  width: var(--dock);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sheet-title {
+  font-family: var(--hebrew);
+  font-size: 17px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-note {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.sheet-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px 16px;
+}
+
+/* One passage. A rule between passages and none after the last, so the column
+ * reads as a list rather than as a table. */
+.sheet-row {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--rule-quiet, var(--rule));
+}
+
+.sheet-row:last-of-type {
+  border-bottom: none;
+}
+
+.sheet-where {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.sheet-ref {
+  font-size: 11px;
+  opacity: 0.6;
+  overflow-wrap: anywhere;
+}
+
+/* The words. Hebrew first in the font stack, and generous leading: a sheet is
+ * read, not scanned. */
+.sheet-words {
+  margin: 4px 0 0;
+  font-family: var(--hebrew);
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: start;
+}
+
+/* A reference that could not be found. Marked, because it is the one line in the
+ * column that is not a passage. */
+.sheet-missing {
+  margin: 8px 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  border-inline-start: 2px solid var(--mark-quiet, var(--rule));
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.sheet-none {
+  margin: 10px 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
 .toc {
   position: fixed;
   inset-block: 0;

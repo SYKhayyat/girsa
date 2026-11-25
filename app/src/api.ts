@@ -750,6 +750,41 @@ export type { Presence };
  * the union of both — `ref`, `slug`, `id`, `said`, `places`, `near` — and
  * every use of it type-checked against fields the other one sends.
  */
+/**
+ * One passage on a source sheet (#63).
+ *
+ * `reference` is canonical and can be followed again; `words` is the passage as
+ * printed, corrections and all, because the sheet is read and not cited.
+ *
+ * Named `SourceSheet` and not `Sheet` because `Sheet` is already the printable
+ * run of one sefer above: paper and a parenthesised list are two different
+ * things with the same English word, and two interfaces sharing one name would
+ * have been a type error rather than a subtle bug, which is the good version.
+ */
+export interface SourceSheetEntry {
+  reference: string;
+  slug: string;
+  title: string;
+  words: string;
+}
+
+/** A reference that could not be put on the sheet, and the sentence saying why. */
+export interface SourceSheetUnread {
+  reference: string;
+  why: string;
+}
+
+/**
+ * What `sheet_open` answers: what could be assembled, and what could not.
+ *
+ * Both lists, always — a sheet that left out the references it could not find
+ * would read as *these are the passages you asked for* and be one short.
+ */
+export interface SourceSheet {
+  entries: SourceSheetEntry[];
+  unread: SourceSheetUnread[];
+}
+
 export interface Asked {
   ref: string;
   slug: string;
@@ -1759,6 +1794,12 @@ export const api = {
       | { kind: "ask"; about: string }
       | { kind: "nothing" }
     >("nav_ask", { typed }),
+  /**
+   * #63: a parenthesised list assembled into one sheet. The refs are the
+   * resolver's own strings (`girsa:bavli/berakhot/2a:1`), handed back unparsed —
+   * reading a reference here would be a second answer to *where is that*.
+   */
+  sheetOpen: (refs: string[]) => call<SourceSheet>("sheet_open", { refs }),
   noteEdit: (note: string, does: string, value?: string, text?: string) =>
     call<ParaRow[]>("note_edit", {
       note,

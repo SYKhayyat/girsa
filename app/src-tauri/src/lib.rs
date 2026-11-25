@@ -6104,6 +6104,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             state,
             commands::nav::nav_ask,
+            commands::nav::sheet_open,
             choose_corpus,
             search,
             recent,

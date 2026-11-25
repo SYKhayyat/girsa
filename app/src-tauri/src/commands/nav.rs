@@ -47,6 +47,33 @@ pub(crate) enum Answer {
     Nothing,
 }
 
+/// Assemble a parenthesised list into one sheet (#63, spec.md §9.7).
+///
+/// `(berachos 2a, shabbos 3b)` is one page with both passages on it, and the
+/// reading of the parentheses is `nav`'s — this command is handed the refs the
+/// reader's line produced and does the finding, which is `girsa_app::source_sheet`
+/// because *which segments does this reference name* is a question about the
+/// corpus and not about a webview.
+///
+/// A reference that cannot be found comes back in `unread` beside the ones that
+/// could, with a sentence: a sheet with a hole in it that said nothing would read
+/// as *these are the passages you asked for* and be one short.
+///
+/// # Errors
+///
+/// If the lock is poisoned.
+#[tauri::command(async)]
+pub(crate) fn sheet_open(
+    shared: tauri::State<'_, Shared>,
+    refs: Vec<String>,
+) -> Result<girsa_app::source_sheet::Sheet, String> {
+    let state = shared.lock().map_err(|_| crate::State::poisoned())?;
+    // The lock is taken, read through, and dropped before anything is built: the
+    // sheet is a read of the corpus and nothing about it wants the state.
+    let shelf = state.shelf()?;
+    Ok(girsa_app::source_sheet::assemble(&shelf, &refs))
+}
+
 /// One part of a list that could not be read, and why in a word.
 ///
 /// The window says all three differently, because they are three different

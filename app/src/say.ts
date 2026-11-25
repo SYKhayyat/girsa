@@ -146,6 +146,13 @@ const WORDS = {
   findHereNothingOpen: ["אין ספר פתוח לחפש בו", "no sefer is open to find in"] as Both,
   /** The one box (#63, Ctrl+G): what it is called and what to try typing. */
   goToPlace: ["לך למקום", "go to a place"] as Both,
+  /** A parenthesised list assembled into one column (#63, spec.md §9.7). */
+  sheetTitle: ["גיליון מקורות", "a source sheet"] as Both,
+  sheetAbout: [
+    "כל מקום שכתבת בסוגריים, בחובר אחד — ומה שלא נמצא נאמר במקומו",
+    "every place you wrote in parentheses, in one list — and what could not be found is said where it is missing",
+  ] as Both,
+  sheetEmpty: ["לא נמצא דבר", "nothing was found"] as Both,
   goToPlaceHint: ["ברכות ב א, 2a, שולחן ערוך אורח חיים א:א", "berachos 2a, 2a, shulchan aruch orech chaim 1:1"] as Both,
   /** Why the mareh makom mode is grey on the find bar's chip row, and where it
    * is not grey. See `findhere.ts` — the engine returns `Answer::Cited` here

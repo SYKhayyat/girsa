@@ -180,7 +180,9 @@ export class NavBox {
       const said = await this.ask(typed);
       if (this.open) this.note.textContent = said ?? "";
     } catch (e) {
-      if (this.open) this.note.textContent = sayTrouble(e, "open_ref").said;
+      // In the box rather than over the reading: the reader is looking at what
+      // they typed, and that is where the answer belongs.
+      if (this.open) sayTrouble(this.note, e, "open_ref");
     }
   }
 }

@@ -34,7 +34,8 @@ import { build } from "./layout.ts";
 import { ChainView } from "./chainview.ts";
 import { TocView } from "./tocview.ts";
 import { FindHere } from "./findhere.ts";
-import { NavBox } from "./navbox.ts";
+import { NavBox, intentOf } from "./navbox.ts";
+import { SheetView } from "./sheetview.ts";
 import { printSection } from "./printview.ts";
 import { DesksView } from "./desksview.ts";
 import { LinksView } from "./linksview.ts";
@@ -95,6 +96,7 @@ const settingsview = new SettingsView();
 // bars with two counts in two panes is a question nobody asked.
 const findhere = new FindHere();
 const navbox = new NavBox();
+const sheetview = new SheetView();
 const desksview = new DesksView();
 const views = new Map<PaneId, PaneView>();
 /** Panes holding a scan (W25). A second map rather than a union: a scan has no
@@ -213,6 +215,9 @@ async function main(): Promise<void> {
     await goToCitation(typed);
     return null;
   });
+  // A row of an assembled sheet goes where the reference says, through the same
+  // landing the reader's own citations use.
+  sheetview.onGo(whenAskedFor);
   tocview.onOpen(openFound);
   linksview.onHere(whereIAm);
   linksview.onPinTo(whatIsHighlighted);
@@ -366,6 +371,14 @@ async function goToCitation(reference: string): Promise<void> {
     // The parts that did resolve are still opened; the parts that did not are
     // named, because a partial answer that says which part is missing is a
     // different thing from a refusal.
+    // **The parentheses.** `(berachos 2a, shabbos 3b)` is one page holding both
+    // passages, and this is the surface that makes the flag mean something.
+    const intent = intentOf(answer);
+    if (intent.what === "sheet") {
+      await sheetview.show(intent.refs);
+      if (intent.unread.length > 0) announce(saidUnread(intent.unread), true);
+      return;
+    }
     const unread = answer.kind === "several" ? answer.unread : [];
     if (answer.kind === "several" && answer.refs.length > 1) {
       // One at a time until the sheet exists (#63's remaining half), and said
@@ -2188,6 +2201,10 @@ const PANELS: readonly Held[] = Object.freeze([
     // The one box (#63). Over the pane like the find bar, and with all of the
     // keyboard: a reader typing `berachos 2a` is typing, not turning pages.
     { panel: navbox, keyboard: "all", escape: "anywhere" },
+    // A parenthesised list assembled into a column beside the reading (#63). A
+    // column and not an overlay: a sheet is read **while writing**, which means
+    // the daf has to stay visible next to it.
+    { panel: sheetview, keyboard: "typing", escape: "anywhere" },
     // Your own layer docks the moment it opens, so it is never over the
     // reading — the sibling of finding 3, cleared by moving it off `inside`.
     // Its boxes still own what is typed into them; its buttons do not own the
