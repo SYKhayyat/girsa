@@ -224,6 +224,11 @@ export class FindHere {
     // `Latest` is not a cancellation — but nothing it comes back with may draw
     // or scroll into a bar the reader has closed.
     this.draws.take();
+    // The marks go, though. They are a statement about a question that is no
+    // longer on the screen, and a daf that keeps them after the bar is closed
+    // reads as *these words are marked in this sefer* — which is what the
+    // reader's own marks look like, and they are not that.
+    this.unmark();
     // The reader keeps the place the find put them on. Nothing is scrolled
     // back.
     this.pane?.element.focus();
@@ -273,6 +278,10 @@ export class FindHere {
     }
     this.at = 0;
     this.say();
+    // The whole page, not only the place the bar is standing on. Drawn before
+    // the scroll, so the reader arrives at a daf that already shows every place
+    // they asked about rather than filling in under them.
+    pane.markHeld(this.places);
     if (this.places.length > 0 && ticket.current() && this.open) await this.show();
   }
 
@@ -299,10 +308,18 @@ export class FindHere {
     void this.show();
   }
 
+  /** Take the marks off the page — the bar is closing, or nothing matched. */
+  private unmark(): void {
+    this.pane?.clearHeld();
+  }
+
   private async show(): Promise<void> {
     const place = this.places[this.at];
     if (!place || !this.pane) return;
     await this.pane.goToWords(place.id, place.from, place.to);
+    // Which of the marks on the page is the bar's. Painted after the load, so
+    // a place the walk just brought into the window gets its mark too.
+    this.pane.markHeld(this.places, this.at);
     // The bar is inside the pane and the pane just scrolled; the caret goes
     // back to the box so the next Enter is another step rather than nothing.
     this.box.focus();

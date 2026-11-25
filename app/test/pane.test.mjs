@@ -22,7 +22,7 @@
 // bounded one whatever the bound.
 
 import { check, ok } from "./harness.mjs";
-import { added, byLine, grown, nextPlace } from "../.tmp-test/pane.mjs";
+import { added, byLine, framedAt, grown, nextPlace } from "../.tmp-test/pane.mjs";
 
 /** Mishnah Berurah, which is the sefer the audit sat with. */
 const MISHNAH_BERURAH = 17_418;
@@ -189,4 +189,66 @@ export function run() {
   check("out of order is still in order", nextPlace([300, 4, 90], 5), 90);
   check("one mark, and you are on it: it wraps to itself", nextPlace([7], 7), 7);
   check("no marks at all is the one honest nothing", nextPlace([], 3), null);
+
+  // --- every place on the page, not only the one the bar stands on (#48) -----
+  //
+  // The bar walked a list and put a browser selection on one place at a time,
+  // which is *these letters are chosen* and not *these are the places your word
+  // is said*. Four hits on a daf and the reader could see one of them.
+  //
+  // The cut is in **characters**, because that is the coordinate Rust hands over
+  // (`Shown` counts characters, `Marker::marks` returns byte spans into the
+  // indexed text, and the two are different numbers); a version that sliced by
+  // index would move every mark after the first astral character.
+  const word = "אבג";
+  const said = `${word} דהו ${word} זחט`;
+  const hit = (text) => ({ text, hit: true });
+  const rest = (text) => ({ text, hit: false });
+  check("no matches: the line is the line", framedAt(said, []), [rest(said)]);
+  check(
+    "two matches cut the line into five",
+    framedAt(said, [
+      [0, 3],
+      [8, 11],
+    ]),
+    [hit(word), rest(" דהו "), hit(word), rest(" זחט")],
+  );
+  check(
+    "a match at the start",
+    framedAt(said, [[0, 3]]),
+    [hit(word), rest(" דהו אבג זחט")],
+  );
+  check("a match to the very last letter", framedAt(word, [[0, 3]]), [hit(word)]);
+  // Touching ranges are one run: a `<mark>` inside a `<mark>` is one background
+  // on another and reads as a shade nobody chose.
+  check("two ranges that touch are one mark", framedAt(word, [[0, 1], [1, 3]]), [
+    hit(word),
+  ]);
+  check(
+    "…and overlapping ones extend it rather than nesting",
+    framedAt("אבגדה", [
+      [0, 3],
+      [2, 5],
+    ]),
+    [hit("אבגדה")],
+  );
+  // A range that is backwards, empty, or off the end of the text is not a mark
+  // on the wrong letters: it is not a mark.
+  check("backwards, empty and past the end are dropped", framedAt(word, [
+    [2, 1],
+    [1, 1],
+    [9, 12],
+  ]), [rest(word)]);
+  check("a range that runs past the end stops at the end", framedAt(word, [[1, 99]]), [
+    rest("א"),
+    hit("בג"),
+  ]);
+  // Characters, not UTF-16 units: `𝄞` is two units and one character, and a cut
+  // that counted units would mark `בא` where the match is `𝄞`.
+  const strange = `𝄞${word}`;
+  check("an astral character shifts nothing", framedAt(strange, [[1, 2]]), [
+    rest("𝄞"),
+    hit("א"),
+    rest("בג"),
+  ]);
 }

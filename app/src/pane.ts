@@ -114,6 +114,58 @@ export function byLine(marks: readonly MarkRow[]): Map<string, MarkRow[]> {
 }
 
 /**
+ * One line's words, cut where a match is and left whole where none is.
+ *
+ * > *"the concordance should be walkable: every instance on the page marked,
+ * > not only the one the bar is standing on."*
+ *
+ * The bar walked a list of places and put a **blue selection** on one of them,
+ * which is a browser showing that these letters are chosen — not this window
+ * saying *these are the places your word is said*. A reader four hits deep in a
+ * daf could not see the other three, and the third of them was the one they
+ * wanted.
+ *
+ * So the page carries them. This is the arithmetic: the text, and the
+ * half-open character ranges in it, become the same text in pieces — outside a
+ * match, and inside one. Ranges are in **characters**, the same coordinate Rust
+ * hands over and `charRange` walks, which is why the cut is taken by iterating
+ * the string rather than by slicing indices: `from`/`to` count characters and
+ * `slice` counts UTF-16 units, and the two part company at the first astral
+ * one.
+ *
+ * Overlaps are merged rather than nested — two matches that touch are one
+ * marked run, because a `<mark>` inside a `<mark>` is one background drawn on
+ * another and reads as a different shade for no reason the reader can name —
+ * and a range that is backwards, empty or outside the text is dropped instead
+ * of clamped into a mark on the wrong letters.
+ */
+export function framedAt(
+  text: string,
+  ranges: readonly (readonly [number, number])[],
+): { text: string; hit: boolean }[] {
+  const letters = [...text];
+  const wanted = ranges
+    .filter(([from, to]) => from >= 0 && to > from && from < letters.length)
+    .map(([from, to]) => [from, Math.min(to, letters.length)] as const)
+    .sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const [from, to] of wanted) {
+    const last = merged[merged.length - 1];
+    if (last && from <= last[1]) last[1] = Math.max(last[1], to);
+    else merged.push([from, to]);
+  }
+  const pieces: { text: string; hit: boolean }[] = [];
+  let at = 0;
+  for (const [from, to] of merged) {
+    if (from > at) pieces.push({ text: letters.slice(at, from).join(""), hit: false });
+    pieces.push({ text: letters.slice(from, to).join(""), hit: true });
+    at = to;
+  }
+  if (at < letters.length) pieces.push({ text: letters.slice(at).join(""), hit: false });
+  return pieces;
+}
+
+/**
  * The next place of yours to go to, from where you are standing.
  *
  * > *"a way to leave a mark in a sefer — like here is my place, so it is
@@ -1278,6 +1330,52 @@ export class PaneView {
   }
 
   /**
+   * Mark **every** place on the lines this pane is holding.
+   *
+   * The find bar walks one place at a time and there is one of them selected;
+   * this is the rest of them, so a reader can see how many there are on the daf
+   * in front of them instead of counting pages. Places outside the window are
+   * ignored rather than loaded — the bar's counter already says how many are in
+   * the sefer, and loading four hundred lines to draw a word on the last of
+   * them would move the reader away from where they are standing.
+   *
+   * A line is cut where each match is and its text nodes are replaced by the
+   * pieces; nothing is moved, so every character keeps the offset a mark, a
+   * link and a correction were anchored against. Idempotent because
+   * [`PaneView.clearHeld`] runs first: painting twice must not nest the marks.
+   */
+  markHeld(
+    places: readonly { id: string; from: number; to: number }[],
+    at = 0,
+  ): void {
+    this.clearHeld();
+    const current = places[at];
+    const byId = new Map<string, [number, number][]>();
+    for (const place of places) {
+      const here = byId.get(place.id);
+      if (here) here.push([place.from, place.to]);
+      else byId.set(place.id, [[place.from, place.to]]);
+    }
+    for (const [id, ranges] of byId) {
+      const words = this.body.querySelector<HTMLElement>(
+        `[data-id="${cssEscape(id)}"] .line-text`,
+      );
+      if (!words) continue;
+      cutWords(words, ranges, id === current?.id ? [current.from, current.to] : null);
+    }
+  }
+
+  /** Take the marks [`PaneView.markHeld`] drew back off the page. */
+  clearHeld(): void {
+    for (const mark of Array.from(this.body.querySelectorAll("mark.line-hit"))) {
+      mark.replaceWith(...Array.from(mark.childNodes));
+    }
+    // The cut parents the pieces it made; joining them back is what makes the
+    // next paint start from one text node per run rather than from a hundred.
+    this.body.normalize();
+  }
+
+  /**
    * Go to a place in this sefer and put the selection on the words.
    *
    * For the find bar (Ctrl+F). `markWord` already scrolls and selects and is
@@ -1476,6 +1574,62 @@ function charRange(words: HTMLElement, from: number, to: number): Range | null {
     node = walker.nextNode();
   }
   return started ? range : null;
+}
+
+/**
+ * Replace one line's text nodes with the same words, cut at `ranges`.
+ *
+ * Walked per text node, like [`charRange`], because a line is runs and `<br>`s
+ * rather than one string — the ranges are in characters over the whole line and
+ * each node holds a window of them. The node's own window is subtracted before
+ * [`framedAt`] is asked, so a match that begins in one run and ends in another
+ * is cut in both, which is what a phrase across a bold word needs.
+ *
+ * `current` is the place the bar is standing on, in line characters, and the
+ * piece that covers it is drawn one shade stronger — *next* has to be findable
+ * without reading the counter.
+ */
+function cutWords(
+  words: HTMLElement,
+  ranges: readonly (readonly [number, number])[],
+  current: readonly [number, number] | null,
+): void {
+  const walker = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
+  let seen = 0;
+  // `globalThis.Text` and not `Text`: this file imports a `Text` of its own
+  // (the wire type of a drawn run), and the one that has `replaceWith` is the
+  // document's.
+  const texts: globalThis.Text[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node instanceof globalThis.Text) texts.push(node);
+  }
+  // Collected first, then cut: `replaceWith` inside a live walk walks a tree
+  // that is changing under it, and the second mark of a line would land on a
+  // node the first one has already split.
+  for (const text of texts) {
+    const said = text.textContent ?? "";
+    const characters = [...said].length;
+    const here = ranges
+      .map(([from, to]) => [from - seen, to - seen] as const)
+      .filter(([from, to]) => from < characters && to > 0);
+    const mine = current ? [current[0] - seen, current[1] - seen] : null;
+    seen += characters;
+    if (here.length === 0) continue;
+    const pieces = framedAt(said, here);
+    if (pieces.length <= 1) continue;
+    let cursor = 0;
+    const made = pieces.map((piece) => {
+      const from = cursor;
+      cursor += [...piece.text].length;
+      if (!piece.hit) return document.createTextNode(piece.text);
+      const mark = document.createElement("mark");
+      const standing = mine !== null && from < mine[1] && cursor > mine[0] ? " is-at" : "";
+      mark.className = `line-hit${standing}`;
+      mark.textContent = piece.text;
+      return mark;
+    });
+    text.replaceWith(...made);
+  }
 }
 
 /** The UTF-16 offset of the `characters`th character of `text`. */

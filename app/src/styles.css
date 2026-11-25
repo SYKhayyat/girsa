@@ -2076,6 +2076,27 @@ body {
   transition: background 1.6s ease-out 1.4s;
 }
 
+/* Every place the find bar found **on the page in front of you**, not only the
+ * one it is standing on. Drawn as a `<mark>`, which is the element the spec has
+ * for exactly this, and coloured from `--mark` rather than the browser's yellow
+ * so it belongs to this stylesheet: a reader's own marks and a search's hits are
+ * then two shades of the same ink, which is what they are.
+ *
+ * Deliberately quieter than `.line.is-here`, which exists for two seconds to say
+ * *this is where you were put*. A page can carry twenty of these at once and
+ * none of them is the reader's place. */
+.line-hit {
+  background: color-mix(in srgb, var(--mark) 26%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* The place the bar is standing on, among them. One shade stronger, so *next* is
+ * a thing the eye can find without reading the counter. */
+.line-hit.is-at {
+  background: color-mix(in srgb, var(--mark) 52%, transparent);
+}
+
 /* --- nothing open ------------------------------------------------------ */
 
 .empty {
