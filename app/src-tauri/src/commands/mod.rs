@@ -13,6 +13,7 @@
 //! tested in a webview and all of it can be tested one directory up.
 
 pub(crate) mod chain;
+pub(crate) mod export;
 pub(crate) mod nav;
 pub(crate) mod queue;
 pub(crate) mod yours;
