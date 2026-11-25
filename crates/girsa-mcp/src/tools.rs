@@ -182,12 +182,17 @@ pub fn catalogue(writable: bool) -> Value {
             "description": "\
     Given a phrase, the places in the corpus it appears — the same engine that \
     answers 'who quotes this Gemara' from the other direction. Matched literally \
-    first; if the ladder had to be climbed, the answer says which rung.",
+    first; if the ladder had to be climbed, the answer says which rung. Pass \
+    whole_word=true to refuse the ladder — the words as typed, and a zero is a \
+    true answer — and in_=<slug> to look in one sefer.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "phrase": {"type": "string"},
                     "except": {"type": "string", "description": "A work slug to leave out — the sefer you are already in."},
+                    "in_": {"type": "string", "description": "A work slug to look in, and nowhere else."},
+                    "whole_word": {"type": "boolean",
+                                   "description": "Match these words and nothing else: do not climb the ladder to near forms. Off by default, and the answer says which rung ran."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": max_limit()}
                 },
                 "required": ["phrase"]
@@ -958,7 +963,29 @@ fn resolve(server: &Server, args: &Value) -> Result<Value, String> {
 fn where_from(server: &Server, args: &Value) -> Result<Value, String> {
     let phrase = text_arg(args, "phrase")?;
     let except = args.get("except").and_then(Value::as_str);
-    let found = girsa_search::mekoros::where_from(&server.bar, &phrase, except, limit_of(args))?;
+    // The two controls a program gets and the window has had all along
+    // (#51): *in this sefer* and *these words, not their near forms*. A slug
+    // that is not a work on this shelf is a refusal rather than a search that
+    // silently answers about nothing.
+    let scope = match args.get("in_").and_then(Value::as_str) {
+        None => None,
+        Some(slug) => {
+            if server.bar.catalogue().facts(slug).is_none() {
+                return Err(format!("{slug} is not on this shelf"));
+            }
+            Some(girsa_search::scope::Scope::everything().only([slug.to_string()], slug))
+        }
+    };
+    let asking = girsa_search::mekoros::Asking {
+        except,
+        scope,
+        whole_word: args
+            .get("whole_word")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        limit: limit_of(args),
+    };
+    let found = girsa_search::mekoros::where_from(&server.bar, &phrase, asking)?;
     Ok(serde_json::to_value(&found)
         .unwrap_or_else(|_| json!({"refused": "cannot write the answer"})))
 }

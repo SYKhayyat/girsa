@@ -67,6 +67,8 @@ runs.
 | A small layer is never rewritten | `crates/girsa-personal/src/log.rs` — `const FLOOR: usize = 64` | `a_small_layer_is_never_rewritten_for_a_stray_deletion` |
 | A read-only MCP server refuses writes at the door | `crates/girsa-mcp/src/tools.rs` — `if !server.is_writable() && WRITES.contains(&name)` | `a_write_against_a_read_only_server_is_refused_at_the_door` |
 | The writes are one list, and the catalogue is built from it | `crates/girsa-mcp/src/tools.rs` — `list.extend(writing());` | `the_catalogue_adds_exactly_the_tools_the_door_refuses` |
+| The words as typed are an answer, and the ladder is not climbed | `crates/girsa-search/src/mekoros.rs` — `if whole_word {` | `the_words_as_typed_are_an_answer_and_the_ladder_is_not_climbed` |
+| A phrase search answers inside the scope it was given | `crates/girsa-search/src/mekoros.rs` — `let mut scope = scope.unwrap_or_else(Scope::everything);` | `a_scope_answers_in_the_sefer_it_names_and_nowhere_else` |
 | A stored range is placed by its words and its Standing | `crates/girsa-corpus/src/span.rs` — `if !at.named_by(&self.at) {` | `a_mark_belonging_to_another_seif_places_nothing` |
 | A broken queue is not an empty queue | `crates/girsa-corpus/src/fetch.rs` — `Err(poisoned) => Err(poisoned.into_inner().len()),` | `a_run_that_stopped_early_is_an_error_and_not_a_complete_one` |
 | A damaged index refuses rather than answering with less | `crates/girsa-link/src/inbound.rs` — `let row: Line = serde_json::from_str(line).map_err(\|_\| Unusable::Row)?;` | `a_corrupt_row_costs_the_reader_nothing_and_is_told_about` |

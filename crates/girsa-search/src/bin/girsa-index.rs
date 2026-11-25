@@ -81,7 +81,7 @@ fn main() -> std::process::ExitCode {
     // an error naming the option instead of a root directory called `--near`.
     let args = match Argv::of(
         typed,
-        &[&["--without-link-types"][..], SWITCHES].concat(),
+        &[&["--without-link-types"][..], SWITCHES, WHERE_FROM_SWITCHES].concat(),
         &[&["--except"][..], VALUES].concat(),
     ) {
         Ok(args) => args,
@@ -272,7 +272,7 @@ usage:
   girsa-index build <index> <corpus> [personal \u{2026}] [--without-link-types]
   girsa-index update <index> <root> <slug \u{2026}>
   girsa-index find <index> <root> [how \u{2026}] <query \u{2026}>
-  girsa-index where-from <index> <root> [--except SLUG] <phrase>
+  girsa-index where-from <index> <root> [--except SLUG] [--in SLUG] [--whole-word] <phrase>
   girsa-index stamp <index>
 
 `update` takes named works into an index that already exists, without
@@ -722,7 +722,20 @@ fn where_from(index_dir: &Path, args: &Argv) -> std::process::ExitCode {
         &root,
         mine.as_deref(),
     );
-    let found = match girsa_search::mekoros::where_from(&bar, &phrase, except.as_deref(), 8) {
+    // `--in` narrows to one sefer and `--whole-word` refuses the ladder. Both
+    // are the same two controls the window's scope chip and matching chip
+    // expose, spelled for a terminal: a program asking *is this phrase in this
+    // sefer, as written* has to be able to say it (#51).
+    let scope = args
+        .value("--in")
+        .map(|slug| girsa_search::scope::Scope::everything().only([slug.to_string()], slug));
+    let asking = girsa_search::mekoros::Asking {
+        except: except.as_deref(),
+        scope,
+        whole_word: args.switch("--whole-word"),
+        limit: 8,
+    };
+    let found = match girsa_search::mekoros::where_from(&bar, &phrase, asking) {
         Ok(found) => found,
         Err(why) => {
             eprintln!("{why}");
@@ -770,6 +783,13 @@ fn badge(hit: &girsa_search::index::Hit) -> String {
 }
 
 /// The chips of spec.md §9.5 that stand alone.
+/// The switch only `where-from` takes (#51).
+///
+/// Its own list rather than a line in [`SWITCHES`], because `find`'s chips and
+/// this question's are different vocabularies and a switch that one subcommand
+/// silently ignores is a switch a reader will believe.
+const WHERE_FROM_SWITCHES: &[&str] = &["--whole-word"];
+
 const SWITCHES: &[&str] = &[
     "--contains",
     "--letters",

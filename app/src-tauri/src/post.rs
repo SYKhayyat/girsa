@@ -360,6 +360,20 @@ struct AskedPhrase {
     except: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    /// Look in this sefer and nowhere else — Ksav's *search scope* (#51). A
+    /// slug it does not have is refused below rather than searched for, because
+    /// a scope that matches nothing answers *nowhere* about a question nobody
+    /// asked.
+    #[serde(default, alias = "in")]
+    in_: Option<String>,
+    /// The words as typed: do not offer near forms. Ksav's *whole word* box,
+    /// and the same flag the window's matching chip sets to `the word`.
+    ///
+    /// Off by default, which is what every caller said before the field
+    /// existed: a writer's quotation is rarely letter for letter, and the
+    /// answer says when it was widened.
+    #[serde(default)]
+    whole_word: bool,
 }
 
 /// *Where is this phrase from?* (spec.md §10.4, W18).
@@ -388,13 +402,30 @@ fn where_from(handle: &tauri::AppHandle, body: &str) -> Reply {
         };
         bar.clone()
     };
+    // A scope names one sefer of this shelf or it is refused: `only` over a
+    // slug that is not here narrows the answer to nothing, and *nowhere* is a
+    // confident wrong answer to *where is this from*.
+    let scope = match asked.in_.as_deref() {
+        None => None,
+        Some(slug) => {
+            let known = bar.catalogue().facts(slug).is_some();
+            if !known {
+                return Reply::refused(400, format!("{slug} is not on this shelf"));
+            }
+            Some(girsa_search::scope::Scope::everything().only([slug.to_string()], slug))
+        }
+    };
     let found = match girsa_search::mekoros::where_from(
         &bar,
         &asked.phrase,
-        asked.except.as_deref(),
-        // The default is `mekoros::SUGGESTED`, beside the question — not a
-        // private 8 here.
-        asked.limit.unwrap_or(girsa_search::mekoros::SUGGESTED),
+        girsa_search::mekoros::Asking {
+            except: asked.except.as_deref(),
+            scope,
+            whole_word: asked.whole_word,
+            // The default is `mekoros::SUGGESTED`, beside the question — not a
+            // private 8 here.
+            limit: asked.limit.unwrap_or(girsa_search::mekoros::SUGGESTED),
+        },
     ) {
         Ok(found) => found,
         Err(why) => return Reply::refused(400, why),

@@ -190,6 +190,20 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   difference *is* `WRITES`, in both directions, as a comparison rather than a
   fourth copy. Its weight claim did not survive `cargo tree`: the lane and the
   index belong to default members.
+- [x] #51 *in this sefer*, and *these words and not their near forms* —
+  `mekoros::Asking`. Whole-word as a *rung* turned out to be here already (the
+  matching chip's `the word` is `Match::Word`, and it is the default); what was
+  missing was the **phrase search** saying it. `where_from` took four positional
+  arguments and had no way to hear either question, so a Sources panel was
+  offered near matches it had not asked for and could not turn off. `Asking`
+  carries `except`, `scope`, `whole_word` and `limit`; `whole_word` stops the
+  ladder and `Found.as_typed` makes *these words are in no sefer* a different
+  sentence from *too long to widen*; `scope` narrows through the same `Scope` the
+  window's chip builds, with `except` applied on top. Reached from three
+  surfaces in this repo — `girsa-index --in/--whole-word`, the MCP tool's `in_`/
+  `whole_word`, and `POST /where-from`'s `in`/`wholeWord` — with a slug that is
+  not on the shelf refused rather than searched. What is left is Ksav's own UI,
+  in the other repository.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #32 audit volumes distill, #36/#37/#38 interop.
 - [ ] Features: #63 smart navigation (**the reading half has landed** —
   `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,

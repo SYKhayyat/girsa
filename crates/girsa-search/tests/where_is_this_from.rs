@@ -19,7 +19,7 @@ use girsa_corpus::work::{Source, Work};
 use girsa_search::bar::Bar;
 use girsa_search::facets::Catalogue;
 use girsa_search::index::{BuildReport, SearchIndex};
-use girsa_search::mekoros::{where_from, How};
+use girsa_search::mekoros::{where_from, Asking, How};
 
 /// A Gemara, a Shulchan Arukh that quotes it, and a Mishnah Berurah that quotes
 /// them both. Three seforim is the smallest shelf on which *who quotes this*
@@ -153,8 +153,15 @@ fn a_phrase_out_of_a_document_finds_the_sefer_it_came_from() {
     // from. The Gemara is among the answers, and so is everybody quoting it —
     // which is honest, and is why the count is part of the answer.
     let shelf = Shelf::new("girsa-w18-where");
-    let found = where_from(&shelf.bar(), "משעה שהכהנים נכנסים לאכול בתרומתן", None, 10)
-        .expect("looks it up");
+    let found = where_from(
+        &shelf.bar(),
+        "משעה שהכהנים נכנסים לאכול בתרומתן",
+        Asking {
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks it up");
 
     assert_eq!(found.how, How::Exactly);
     assert_eq!(found.total, 3);
@@ -173,8 +180,11 @@ fn standing_in_the_gemara_the_same_call_answers_who_quotes_it() {
     let found = where_from(
         &shelf.bar(),
         "משעה שהכהנים נכנסים לאכול בתרומתן",
-        Some("bavli/berakhot"),
-        10,
+        Asking {
+            except: Some("bavli/berakhot"),
+            limit: 10,
+            ..Asking::default()
+        },
     )
     .expect("looks it up");
 
@@ -192,7 +202,15 @@ fn a_phrase_that_is_a_turn_of_speech_is_counted_and_not_called_a_source() {
     // system inventing an answer — the one thing it may never do.
     let shelf = Shelf::new("girsa-w18-common");
     let bar = shelf.bar();
-    let found = where_from(&bar, "אמר רבי יוחנן", None, 10).expect("looks it up");
+    let found = where_from(
+        &bar,
+        "אמר רבי יוחנן",
+        Asking {
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks it up");
     assert_eq!(found.total, 3);
 
     // On this shelf three is distinctive; the rule is a threshold, so the
@@ -216,7 +234,15 @@ fn a_quotation_that_is_not_letter_for_letter_says_it_was_widened() {
     // comes back is marked — a near match shown as an exact one is a wrong
     // mekor with a confident face on it.
     let shelf = Shelf::new("girsa-w18-widened");
-    let found = where_from(&shelf.bar(), "וכשהכהנים נכנסים", None, 10).expect("looks it up");
+    let found = where_from(
+        &shelf.bar(),
+        "וכשהכהנים נכנסים",
+        Asking {
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks it up");
 
     match &found.how {
         How::Widened { rungs } => assert!(!rungs.is_empty()),
@@ -228,10 +254,111 @@ fn a_quotation_that_is_not_letter_for_letter_says_it_was_widened() {
 }
 
 #[test]
+fn the_words_as_typed_are_an_answer_and_the_ladder_is_not_climbed() {
+    // The same phrase as the test above, which widens to near forms and says
+    // so. `whole_word` is the asker refusing that: a Ksav Sources panel showing
+    // *near matches* for a quotation the writer selected is offering an answer
+    // to a different question, and #51 asks for the switch that stops it.
+    //
+    // Zero is then a true answer, and it says which question it answered —
+    // *these words are in no sefer* is not *keep looking*.
+    let shelf = Shelf::new("girsa-w18-as-typed");
+    let found = where_from(
+        &shelf.bar(),
+        "וכשהכהנים נכנסים",
+        Asking {
+            whole_word: true,
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks it up");
+
+    assert_eq!(found.total, 0);
+    assert_eq!(found.how, How::Exactly);
+    assert!(found.as_typed, "the answer says why it stopped");
+    assert!(!found.is_a_quotation());
+    assert_eq!(
+        found.describe(),
+        "אין כלשונו — החיפוש נשאר על המילים שנכתבו"
+    );
+}
+
+#[test]
+fn a_scope_answers_in_the_sefer_it_names_and_nowhere_else() {
+    // *In Tanach only* is the reader's question and a slug is what resolves it;
+    // the scope itself is `Scope`, which the facets have been narrowing with
+    // since W14. What is new is that the phrase search takes one at all (#51):
+    // the same phrase over the whole shelf is three places, and in one sefer it
+    // is one.
+    let shelf = Shelf::new("girsa-w18-scoped");
+    let bar = shelf.bar();
+    let phrase = "משעה שהכהנים נכנסים לאכול בתרומתן";
+
+    let everywhere = where_from(
+        &bar,
+        phrase,
+        Asking {
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks it up");
+    assert_eq!(everywhere.total, 3);
+
+    let only = where_from(
+        &bar,
+        phrase,
+        Asking {
+            scope: Some(girsa_search::scope::Scope::everything().only(
+                ["shulchan-arukh/orach-chayim".to_string()],
+                "shulchan arukh",
+            )),
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks it up");
+
+    assert_eq!(only.total, 1, "one sefer holds that line");
+    for candidate in &only.candidates {
+        assert_eq!(candidate.work, "shulchan-arukh/orach-chayim");
+    }
+
+    // And standing in the scoped sefer takes it back out of its own scope, which
+    // is the one combination a caller can get wrong: *in Orach Chayim, except
+    // Orach Chayim* is an empty answer and not the whole shelf.
+    let inside = where_from(
+        &bar,
+        phrase,
+        Asking {
+            except: Some("shulchan-arukh/orach-chayim"),
+            scope: Some(girsa_search::scope::Scope::everything().only(
+                ["shulchan-arukh/orach-chayim".to_string()],
+                "shulchan arukh",
+            )),
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks it up");
+    assert_eq!(inside.total, 0);
+    assert!(inside.candidates.is_empty());
+}
+
+#[test]
 fn a_phrase_in_no_sefer_at_all_says_so_rather_than_offering_the_nearest() {
     let shelf = Shelf::new("girsa-w18-nothing");
     let bar = shelf.bar();
-    let found = where_from(&bar, "פרה אדומה", None, 10).expect("looks");
+    let found = where_from(
+        &bar,
+        "פרה אדומה",
+        Asking {
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("looks");
     assert_eq!(found.total, 0);
     assert!(found.candidates.is_empty());
     assert!(!found.is_a_quotation());
@@ -247,7 +374,15 @@ fn a_phrase_too_long_to_widen_says_that_rather_than_saying_it_is_nowhere() {
     // and only one of them means "keep looking".
     let shelf = Shelf::new("girsa-w18-toolong");
     let bar = shelf.bar();
-    let found = where_from(&bar, "פרה אדומה תמימה בלי מום", None, 10).expect("still answers");
+    let found = where_from(
+        &bar,
+        "פרה אדומה תמימה בלי מום",
+        Asking {
+            limit: 10,
+            ..Asking::default()
+        },
+    )
+    .expect("still answers");
     assert_eq!(found.total, 0);
     let why = found.only_literally().expect("the reason is carried");
     assert!(why.contains("1024") || why.contains("limit"), "{why}");
@@ -257,5 +392,13 @@ fn a_phrase_too_long_to_widen_says_that_rather_than_saying_it_is_nowhere() {
 #[test]
 fn an_empty_phrase_is_refused_rather_than_matching_everything() {
     let shelf = Shelf::new("girsa-w18-empty");
-    assert!(where_from(&shelf.bar(), "   ", None, 10).is_err());
+    assert!(where_from(
+        &shelf.bar(),
+        "   ",
+        Asking {
+            limit: 10,
+            ..Asking::default()
+        }
+    )
+    .is_err());
 }

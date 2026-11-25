@@ -50,6 +50,54 @@ pub const TOO_COMMON: usize = 200;
 /// enough to cycle and small enough to answer.
 pub const SUGGESTED: usize = 8;
 
+/// What the asker will and will not accept in an answer.
+///
+/// Four things used to arrive as four positional arguments, and a fifth could
+/// not arrive at all: *search these words and nothing else* had no way to say
+/// itself, so a Ksav Sources panel was offered near matches it had not asked
+/// for and could not turn off (#51). A struct rather than five arguments,
+/// because the two that came last — the sefer to leave out and how many to
+/// return — already read as a list of settings at every call site.
+///
+/// The default is the honest one: the whole shelf, the words as typed *and the
+/// ladder if they match nothing*, eight candidates. Widening is what this
+/// module does when a writer's quotation is not letter for letter, and asking
+/// for it is not the same as asking for it to be reported — see
+/// [`Asking::whole_word`].
+#[derive(Debug, Clone)]
+pub struct Asking<'a> {
+    /// The sefer to leave out — the one the phrase came from. With it, the
+    /// question is *who quotes this*; without it, *where is this from*.
+    pub except: Option<&'a str>,
+    /// Where to look, when it is not the whole shelf: the work slugs a scope
+    /// has resolved to. `None` is everything, which is what every caller that
+    /// has no scope chip said before this field existed.
+    pub scope: Option<Scope>,
+    /// **Match these words and nothing else.**
+    ///
+    /// Off, a phrase that matches nothing letter for letter is searched again
+    /// through Smart's ladder — prefixes, ktiv male/chaser, abbreviations — and
+    /// the answer says it was widened ([`How::Widened`]). On, the ladder is not
+    /// climbed and nothing is offered: the answer is *this phrase, as written,
+    /// is in these places*, and zero is a true answer rather than a reason to
+    /// guess. It is the switch Otzaria spells `חיפוש מילה שלמה`, in this
+    /// engine's terms: the widening is the thing being refused, not the word.
+    pub whole_word: bool,
+    /// How many candidates to answer with.
+    pub limit: usize,
+}
+
+impl Default for Asking<'_> {
+    fn default() -> Self {
+        Self {
+            except: None,
+            scope: None,
+            whole_word: false,
+            limit: SUGGESTED,
+        }
+    }
+}
+
 /// One place the phrase turns up.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Candidate {
@@ -114,6 +162,14 @@ pub struct Found {
     /// Which sefer was left out — the one you are standing in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub except: Option<String>,
+    /// The asker asked for the words as typed, and that is why a literal zero
+    /// is the whole answer. Carried as a flag rather than only as a sentence in
+    /// [`Found::not_widened`], because [`Found::describe`] has to say a
+    /// different thing about it: *these words are in no sefer* is not the same
+    /// statement as *the phrase is too long to widen*, and the second one
+    /// invites the reader to keep looking.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub as_typed: bool,
     /// Why the ladder was **not** climbed after a literal zero.
     ///
     /// It happens, and the reason is a good one: widening a five-word phrase
@@ -139,6 +195,9 @@ impl Found {
     #[must_use]
     pub fn describe(&self) -> String {
         if self.total == 0 {
+            if self.as_typed {
+                return "אין כלשונו — החיפוש נשאר על המילים שנכתבו".to_string();
+            }
             return match &self.not_widened {
                 None => "אין בשום ספר".to_string(),
                 // The honest form of it: the literal search found nothing and
@@ -179,25 +238,30 @@ impl Found {
 
 /// Look a phrase up.
 ///
-/// `except` is the sefer to leave out — the one the phrase came from. With it,
-/// the question is *who quotes this*; without it, *where is this from*. One
-/// call, because they are one question.
+/// One call for two questions — *where is this from* and *who quotes this* —
+/// because they are one question with one sefer left out or not. What the
+/// caller will accept travels in [`Asking`].
 ///
 /// # Errors
 ///
 /// If the index refuses the query, with the engine's own words.
-pub fn where_from(
-    bar: &Bar,
-    phrase: &str,
-    except: Option<&str>,
-    limit: usize,
-) -> Result<Found, String> {
+pub fn where_from(bar: &Bar, phrase: &str, asking: Asking<'_>) -> Result<Found, String> {
     let phrase = phrase.trim();
     if phrase.is_empty() {
         return Err("nothing to look for".to_string());
     }
+    let Asking {
+        except,
+        scope,
+        whole_word,
+        limit,
+    } = asking;
 
-    let mut scope = Scope::everything();
+    // The scope the caller asked for, or the whole shelf — and then the one
+    // sefer the phrase came from is taken back out of it. Order matters: an
+    // asker that scoped to a shelf *and* stood in one of its seforim means both,
+    // and `without` on top of `only` is the intersection.
+    let mut scope = scope.unwrap_or_else(Scope::everything);
     if let Some(slug) = except {
         scope = scope.without([slug.to_string()], slug);
     }
@@ -216,6 +280,12 @@ pub fn where_from(
 
     let mut found = gather(bar, phrase, &chips, paging, How::Exactly, except)?;
     if found.total > 0 {
+        return Ok(found);
+    }
+    if whole_word {
+        // Asked for the words as typed: a zero is the answer, and it says which
+        // question it answered. Nothing is climbed, and nothing is offered.
+        found.as_typed = true;
         return Ok(found);
     }
 
@@ -280,6 +350,7 @@ fn gather(
                 })
                 .collect(),
             except: except.map(ToString::to_string),
+            as_typed: false,
             not_widened: None,
         }),
         Answer::Refused(why) => Err(why),

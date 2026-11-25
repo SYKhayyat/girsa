@@ -113,7 +113,7 @@ answer:
 | `POST /cite` | *print this ref in that style* |
 | `POST /quote` | *the words again*, read out of the corpus as it stands now |
 | `POST /refresh` | *this whole document again* — every citation in it, re-read |
-| `POST /where-from` | *where is this phrase from?* — cite-on-selection |
+| `POST /where-from` | *where is this phrase from?* — cite-on-selection, with `in` (one sefer) and `wholeWord` (the words as typed) |
 | `POST /search` | *nothing fitted* — put the phrase in the search and open it |
 | `POST /linkify` | *which of these are citations?* — only the certain ones |
 | `POST /document-saved` | *I have saved a document here* — so *where did I use this* is true |
@@ -225,6 +225,33 @@ reader may recognise one — but **nothing is preselected and nothing is called
 the mekor**. And a quotation that is not letter for letter says so: the literal
 search runs first, the ladder is climbed only on a zero, and what comes back
 carries the rung that was used, so a near match is never shown as an exact one.
+
+### The two controls a writer has over that (#51)
+
+A Sources panel is a different reader from a person at the search bar, and it
+needs to say two things a plain phrase search cannot: *in this sefer* and *these
+words, not their near forms*.
+
+```
+$ girsa-index where-from index corpus --in shulchan-arukh/orach-chayim \
+    "משעה שהכהנים נכנסים לאכול בתרומתן"
+$ girsa-index where-from index corpus --whole-word "וכשהכהנים נכנסים"
+וכשהכהנים נכנסים  —  אין כלשונו — החיפוש נשאר על המילים שנכתבו
+```
+
+`--in` narrows to one sefer — the same `Scope` the window's `[whole shelf ▾]`
+chip builds, resolved to slugs before it gets here. `--whole-word` refuses the
+ladder: without it the second command finds near forms and says which rung it
+climbed; with it, zero is the answer and says which question it answered.
+**Those are different statements**, and a panel that conflates them offers a
+writer a near match for a quotation they selected.
+
+The same two travel as optional fields — `in`, `wholeWord` — on
+`POST /where-from`, and as `in_` and `whole_word` arguments on the MCP
+`where_from` tool: Ksav's checkboxes and an agent's refusal are the same two
+questions, asked through the same `Asking`. A slug that is not on the shelf is
+a refusal in both, because *nothing in that sefer* and *there is no such sefer*
+are different answers to a writer.
 
 ### Closing the loop
 

@@ -346,6 +346,32 @@
       },
       "crate": "girsa-mcp",
       "why": "ten write tools were written out three times — the catalogue's second half, the door's alternation, the refusal test's table — so a tool added to one and not the others was a door that opened where the list said it was shut (#26). The difference between a writable catalogue and a read-only one now has to be exactly `WRITES`, which is a comparison and not a fourth copy."
+    },
+    {
+      "name": "The words as typed are an answer, and the ladder is not climbed",
+      "source": "crates/girsa-search/src/mekoros.rs",
+      "find": "    if whole_word {",
+      "replace": "    if false && whole_word {",
+      "test": {
+        "file": "crates/girsa-search/tests/where_is_this_from.rs",
+        "fn": "the_words_as_typed_are_an_answer_and_the_ladder_is_not_climbed",
+        "keyword": "as_typed"
+      },
+      "crate": "girsa-search",
+      "why": "a near match offered as a source is the one failure this module is written around; `whole_word` is the asker saying *these words, not their near forms*, and turning it off silently would answer a different question than the one asked (#51)."
+    },
+    {
+      "name": "A phrase search answers inside the scope it was given",
+      "source": "crates/girsa-search/src/mekoros.rs",
+      "find": "    let mut scope = scope.unwrap_or_else(Scope::everything);",
+      "replace": "    let mut scope = Scope::everything();",
+      "test": {
+        "file": "crates/girsa-search/tests/where_is_this_from.rs",
+        "fn": "a_scope_answers_in_the_sefer_it_names_and_nowhere_else",
+        "keyword": "scope"
+      },
+      "crate": "girsa-search",
+      "why": "a scope that is dropped on the way to the index is a *nothing in that sefer* answer to a question that was only asked about one sefer, and the count is the whole of the answer's honesty (#51)."
     }
   ],
   "uncovered": [
