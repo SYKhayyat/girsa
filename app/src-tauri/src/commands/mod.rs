@@ -16,6 +16,7 @@ pub(crate) mod buffer;
 pub(crate) mod chain;
 pub(crate) mod cite;
 pub(crate) mod corrections;
+pub(crate) mod desks;
 pub(crate) mod export;
 pub(crate) mod ksav;
 pub(crate) mod links;
