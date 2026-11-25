@@ -24,4 +24,5 @@ pub(crate) mod nav;
 pub(crate) mod queue;
 pub(crate) mod scans;
 pub(crate) mod search;
+pub(crate) mod shelf;
 pub(crate) mod yours;
