@@ -19,6 +19,7 @@ pub(crate) mod corrections;
 pub(crate) mod export;
 pub(crate) mod ksav;
 pub(crate) mod links;
+pub(crate) mod mefarshim;
 pub(crate) mod nav;
 pub(crate) mod queue;
 pub(crate) mod scans;
