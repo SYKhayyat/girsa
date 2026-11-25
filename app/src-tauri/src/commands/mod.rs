@@ -20,6 +20,7 @@ pub(crate) mod desks;
 pub(crate) mod export;
 pub(crate) mod ksav;
 pub(crate) mod links;
+pub(crate) mod luach;
 pub(crate) mod mefarshim;
 pub(crate) mod nav;
 pub(crate) mod panes;
