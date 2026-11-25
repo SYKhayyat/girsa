@@ -81,7 +81,11 @@ set_marked() {
 set_marked commands       "$(find app/src-tauri/src -name '*.rs' -print0 \
                              | xargs -0 grep -hcE '^[[:space:]]*#\[tauri::command' \
                              | awk '{n += $1} END {print n + 0}')"
-set_marked shell-lines    "$(wc -l < app/src-tauri/src/lib.rs)"
+# The **directory**, for the reason `commands` above took it: after #68 the shell is
+# twenty-odd files under `app/src-tauri/src`, and a count of `lib.rs` alone answered a
+# question about one file while the README asked about the shell.
+set_marked shell-lines    "$(find app/src-tauri/src -name '*.rs' -print0 \
+                             | xargs -0 cat | wc -l)"
 # `*/Cargo.toml`, which is what the test counts: a directory under `crates/`
 # with no manifest in it is not a crate, and the two halves should not be able
 # to disagree about that either.

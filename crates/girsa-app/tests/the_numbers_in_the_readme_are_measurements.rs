@@ -99,6 +99,28 @@ fn lines_of(path: &Path) -> usize {
     read(path).lines().count()
 }
 
+/// Every `.rs` line under `dir`, at any depth.
+///
+/// **The directory, not one file**, which is the same correction `commands` took
+/// above and for the same reason: #68 moved the shell's commands out of `lib.rs`,
+/// and a measurement of that one file answered *how big is the biggest file* while
+/// the README said *how big is the shell*. It read 591 against a shell of 6,9xx.
+fn lines_in(dir: &Path) -> usize {
+    let mut total = 0;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        panic!("{}: not a directory", dir.display());
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            total += lines_in(&path);
+        } else if path.extension().is_some_and(|x| x == "rs") {
+            total += lines_of(&path);
+        }
+    }
+    total
+}
+
 /// Files matching `crates/*/<tail>`, where `<tail>` may end in `*.rs`.
 fn under_crates(root: &Path, dir: &str, extension: &str) -> usize {
     let mut found = 0;
@@ -125,7 +147,7 @@ fn files_in(dir: &Path, extension: &str) -> usize {
 
 /// Every number this test knows how to recount, by the name it is marked with.
 fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
-    let shell = root.join("app/src-tauri/src/lib.rs");
+    let shell = root.join("app/src-tauri/src");
     let mut out = BTreeMap::new();
     // **The prefix, not the whole attribute.** This matched `#[tauri::command]`
     // exactly, and the day every command in the shell became
@@ -141,7 +163,7 @@ fn measurements(root: &Path) -> BTreeMap<&'static str, usize> {
     // it — the shell would gain two commands by explaining itself.
     // …and **over the directory**, not one file: see [`commands_in`] (#72).
     out.insert("commands", commands_in(&root.join("app/src-tauri/src")));
-    out.insert("shell-lines", lines_of(&shell));
+    out.insert("shell-lines", lines_in(&shell));
     out.insert(
         "crates",
         std::fs::read_dir(root.join("crates"))
