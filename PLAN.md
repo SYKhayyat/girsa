@@ -107,6 +107,22 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   address is `girsa_app::nav`'s `is_a_place`. (Medium)
 
 ## Phase 4 — Docs/process + features (Low/Info)
+- [~] #48 a word and **every** place the shelf says it. **Engine half landed**
+  (`girsa_search::concordance`, `girsa-index concordance`, MCP `concordance`): no
+  second store was needed — the term dictionary is `form → segments`, and one term
+  in address order is that map read out (975 places for `כארי` in 457 seforim off
+  the 5M-segment index, 0.25 s). Not a search: it does not rank (all hits matched
+  the same form), does not page (a bounded list says it was cut), and does not
+  widen (`כאריי` is one letter from 975 places and answers zero). The window half —
+  highlight-all-instances in the reader, opening it from a selection — needs a
+  browser to check and is filed (comtai #8, #9).
+- [~] #46 the authors the corpus names, as people. **Register landed**
+  (`girsa_corpus::commentator`, MCP `commentator` / `commentators`): key is
+  `girsa_hebrew::normalize` so `רמב״ם` and `רמב"ם` are one man and `רמב״ן` is not,
+  dates come from `girsa_corpus::era` (a life: earliest start, latest end),
+  attribution is a field with the qualifier as written, and ordering is year → era
+  → name with the undated last. Per-anchor (*who is on Berakhot 2a*, with a person
+  per class) and the timeline surface are filed (comtai #10, #11).
 - [x] #68 the command layer was one 6,914-line file with `api.ts` as its twin.
   **Landed** as twenty-two domain modules under `app/src-tauri/src/commands/` plus
   `state.rs`, one domain per commit, pure movement, `node tools/commands.mjs` green
