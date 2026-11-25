@@ -12,5 +12,6 @@
 //! at the top of `lib.rs` for why that rule is not negotiable: none of it can be
 //! tested in a webview and all of it can be tested one directory up.
 
+pub(crate) mod chain;
 pub(crate) mod nav;
 pub(crate) mod yours;
