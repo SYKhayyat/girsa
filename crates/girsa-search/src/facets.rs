@@ -285,6 +285,16 @@ impl Catalogue {
         self.rows.get(slug)
     }
 
+    /// Every sefer on the shelf, by slug.
+    ///
+    /// The keys, in order, for a caller that is looking *at* the shelf rather
+    /// than asking it a question — name resolution (#63) has to try every sefer an
+    /// unknown name could be, and there is no index for a name nobody has typed
+    /// before.
+    pub fn slugs(&self) -> impl Iterator<Item = &str> {
+        self.rows.keys().map(String::as_str)
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.rows.len()

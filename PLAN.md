@@ -205,7 +205,11 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   not on the shelf refused rather than searched. What is left is Ksav's own UI,
   in the other repository.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #32 audit volumes distill, #36/#37/#38 interop.
-- [ ] Features: #63 smart navigation (**the reading half has landed** —
+- [ ] Features: #63 smart navigation (**the reading half and the name lane have
+  landed** — `girsa_app::nav` reads the address, and `girsa_search::meant`
+  answers *which sefer is that name* when the lexicon has nothing: folded
+  titles and slugs, the worst word deciding, `One`/`Several`/`None` and never a
+  guess; **the reading half** —
   `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,
   and the guard that stops a comma-separated pair from becoming one fabricated
   address; what is left is the input element and the source-sheet assembly) #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.

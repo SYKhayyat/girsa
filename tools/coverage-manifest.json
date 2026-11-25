@@ -372,6 +372,45 @@
       },
       "crate": "girsa-search",
       "why": "a scope that is dropped on the way to the index is a *nothing in that sefer* answer to a question that was only asked about one sefer, and the count is the whole of the answer's honesty (#51)."
+    },
+    {
+      "name": "A name nobody on the shelf is called is not matched to the nearest one",
+      "source": "crates/girsa-search/src/meant.rs",
+      "find": "const AS_CLOSE_AS: f32 = 0.4;",
+      "replace": "const AS_CLOSE_AS: f32 = 1.0;",
+      "test": {
+        "file": "crates/girsa-search/tests/what_the_reader_meant.rs",
+        "fn": "a_name_that_is_on_no_sefer_comes_back_as_none_and_not_as_the_nearest",
+        "keyword": "Meant::None"
+      },
+      "crate": "girsa-search",
+      "why": "navigation that always resolves opens the wrong masechet with no sign it guessed; the bound is what makes `None` an answer (#63)."
+    },
+    {
+      "name": "The worst word decides whether two names are one name",
+      "source": "crates/girsa-search/src/meant.rs",
+      "find": "        .fold(0.0_f32, f32::max)",
+      "replace": "        .fold(0.0_f32, f32::min)",
+      "test": {
+        "file": "crates/girsa-search/tests/what_the_reader_meant.rs",
+        "fn": "two_masechtot_that_share_a_word_are_never_confused_for_each_other",
+        "keyword": "bava"
+      },
+      "crate": "girsa-search",
+      "why": "averaged, `bava batra` and `bava kamma` are 3/10 apart and the word that tells them apart is outvoted by the one they share (#63)."
+    },
+    {
+      "name": "A sefer is not renamed by what follows its name",
+      "source": "crates/girsa-search/src/meant.rs",
+      "find": "        .zip(&name[..take])",
+      "replace": "        .zip(&name[name.len() - take..])",
+      "test": {
+        "file": "crates/girsa-search/tests/what_the_reader_meant.rs",
+        "fn": "two_seforim_called_berakhot_is_a_question_and_not_a_choice",
+        "keyword": "rashi"
+      },
+      "crate": "girsa-search",
+      "why": "read from the back, `berakhot` is as close to `rashi on berakhot` as to `berakhot`, and the commentary ties with the masechet it comments on (#63)."
     }
   ],
   "uncovered": [

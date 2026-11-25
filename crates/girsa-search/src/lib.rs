@@ -25,6 +25,7 @@ pub mod facets;
 pub mod index;
 pub mod instruments;
 pub mod ladder;
+pub mod meant;
 pub mod mekoros;
 // The per-gap proximity query. Tantivy's phrase slop is a summed budget, which
 // cannot say *each pair within X words*; this is the query that can.
