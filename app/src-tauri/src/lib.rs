@@ -54,11 +54,10 @@ use girsa_app::shelf::{Companion, Open};
 use girsa_app::taxonomy::Branch;
 use girsa_app::trouble::{refuse, Code};
 use girsa_app::view::{
-    AnchorRow, AtRow, Card, Comments, CoveredRow, DrawnRow, Dropped, Fixed, FolderMember,
-    FolderRow, GapRow, HitRow, LandingRow, LaneAnswer, LaneProgress, LaneRow, LensRow, Line,
-    LinkRow, Links, Mefarshim, ModelOffer, Move, NearRow, OfferRow, PageSaid, PageWordsRow,
-    PatchRow, PlaceRow, QueryRow, ReadingRow, Refusal, Said, ScanView, ScannedRow, SettingsView,
-    Shortcut, TagRow, Text, WordRow,
+    AnchorRow, AtRow, Card, Comments, CoveredRow, DrawnRow, Dropped, FolderMember, FolderRow,
+    GapRow, HitRow, LandingRow, LaneAnswer, LaneProgress, LaneRow, LensRow, Line, LinkRow, Links,
+    Mefarshim, ModelOffer, Move, NearRow, OfferRow, PageSaid, PageWordsRow, PlaceRow, QueryRow,
+    ReadingRow, Refusal, Said, ScanView, ScannedRow, SettingsView, Shortcut, TagRow, Text, WordRow,
 };
 use girsa_app::workspace::{Axis, PaneId};
 use girsa_app::{display, Beside, Session, Shelf, Workspace};
@@ -2979,157 +2978,6 @@ struct Copied {
     put: clipboard::Put,
 }
 
-// ── Corrections (spec.md §7, BUILDER.md W20) ────────────────────────────────
-
-/// Correct a typo from where you are reading (spec.md §7.5).
-///
-/// The offsets are the ones the pane reports for a highlight — the same call
-/// Ctrl+C makes — so there is nothing for the reader to look up and nothing to
-/// navigate to. What comes back is the one line, redrawn, so the window does
-/// not rebuild the sefer around them while they are reading it.
-#[tauri::command(async)]
-fn fix(
-    shared: tauri::State<'_, Shared>,
-    at: String,
-    from_char: usize,
-    to_char: usize,
-    now: String,
-    kind: String,
-    note: Option<String>,
-) -> Result<Fixed, String> {
-    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let kind = girsa_fix::Kind::named(&kind)
-        .ok_or_else(|| refuse(Code::NoSuch, format!("no such kind: {kind}")))?;
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let pointing = state.session.pointing;
-    let shemos = state.session.shemos;
-    // How a place is printed, from the reader's own setting — one formatter
-    // for the margin and for the citation. See `sending::printed_address`.
-    let style = state.session.cite;
-    let slug = at.work().to_string();
-
-    let patch = {
-        let sefer = state.sefer(&slug)?;
-        let mut patch = girsa_app::correction(
-            sefer,
-            &at,
-            from_char..to_char,
-            &now,
-            kind,
-            &girsa_app::who(),
-            pointing,
-        )
-        .map_err(|e| e.to_string())?;
-        if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
-            patch = patch.with_note(note);
-        }
-        patch
-    };
-    let was = patch.was.clone();
-
-    state.shelf_mut()?.fix(patch).map_err(|e| e.to_string())?;
-    state.reread(&slug);
-
-    let (sefer, lexicon) = state.reading(&slug)?;
-    let position = sefer
-        .position_of(&at)
-        .ok_or_else(|| refuse(Code::NoSuch, format!("{at} is not in this sefer")))?;
-    let segment = sefer
-        .segments
-        .get(position)
-        .ok_or_else(|| refuse(Code::NoSuch, format!("{at} is not in this sefer")))?;
-    Ok(Fixed {
-        line: Line::of(sefer, segment, pointing, shemos, style, lexicon),
-        said: Some(format!("{was} → {now}")),
-    })
-}
-
-/// Take a correction back.
-#[tauri::command(async)]
-fn unfix(shared: tauri::State<'_, Shared>, at: String, patch: String) -> Result<Fixed, String> {
-    let at: SegmentId = at.parse().map_err(|e| format!("{e}"))?;
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    let pointing = state.session.pointing;
-    let shemos = state.session.shemos;
-    // How a place is printed, from the reader's own setting — one formatter
-    // for the margin and for the citation. See `sending::printed_address`.
-    let style = state.session.cite;
-    let slug = at.work().to_string();
-
-    let gone = state
-        .shelf_mut()?
-        .unfix(&girsa_fix::PatchId::from(patch))
-        .map_err(|e| e.to_string())?;
-    if !gone {
-        return Err(girsa_app::trouble::refuse(
-            girsa_app::trouble::Code::NoSuch,
-            "there is no such correction",
-        ));
-    }
-    state.reread(&slug);
-
-    let (sefer, lexicon) = state.reading(&slug)?;
-    let position = sefer
-        .position_of(&at)
-        .ok_or_else(|| refuse(Code::NoSuch, format!("{at} is not in this sefer")))?;
-    let segment = sefer
-        .segments
-        .get(position)
-        .ok_or_else(|| refuse(Code::NoSuch, format!("{at} is not in this sefer")))?;
-    Ok(Fixed {
-        line: Line::of(sefer, segment, pointing, shemos, style, lexicon),
-        // Nothing to name: this took a correction back, and the window says so.
-        said: None,
-    })
-}
-
-/// *Show as printed / show corrected* (spec.md §7.1).
-///
-/// Three states rather than two, because a scanning error and an emendation are
-/// different claims — see [`girsa_fix::Showing`]. Everything open is re-read,
-/// which the window does by drawing again.
-#[tauri::command(async)]
-fn set_showing(shared: tauri::State<'_, Shared>, showing: String) -> Result<(), String> {
-    let showing = girsa_fix::Showing::named(&showing)
-        .ok_or_else(|| refuse(Code::NoSuch, format!("no such setting: {showing}")))?;
-    let mut state = shared.lock().map_err(|_| State::poisoned())?;
-    state.session.showing = showing;
-    state.shelf_mut()?.set_showing(showing);
-    state.reread_everything();
-    state.save();
-    Ok(())
-}
-
-#[tauri::command(async)]
-fn fixes(shared: tauri::State<'_, Shared>, slug: Option<String>) -> Result<Vec<PatchRow>, String> {
-    let state = shared.lock().map_err(|_| State::poisoned())?;
-    // A patch row is a row about a place, like a hit and like a lane result —
-    // and it was the fifth to work out a title and an address for itself.
-    let shelf = state.shelf()?;
-    let names = state.names(&shelf);
-    let mut rows: Vec<PatchRow> = shelf
-        .fixes()
-        .all()
-        .filter(|p| slug.as_ref().is_none_or(|s| p.segment.work() == s))
-        .map(|p| PatchRow {
-            id: p.id.to_string(),
-            segment: p.segment.to_string(),
-            work: names.of(&p.segment).work,
-            title: names.of(&p.segment).title,
-            address: p.segment.address(),
-            kind: p.kind.as_str(),
-            was: p.was.clone(),
-            now: p.now.clone(),
-            who: p.who.clone(),
-            when: p.when,
-            note: p.note.clone(),
-            source: p.source.clone(),
-        })
-        .collect();
-    girsa_app::view::PatchRow::newest_first(&mut rows);
-    Ok(rows)
-}
-
 // ── The links on a line, and repairing them (spec.md §8.3, W23) ─────────────
 
 /// The links on a line — through a lens, and against a highlight (W23, W24).
@@ -5234,10 +5082,10 @@ pub fn run() {
             commands::cite::who_cites,
             commands::cite::linkify,
             commands::cite::cite_open,
-            fix,
-            unfix,
-            set_showing,
-            fixes,
+            commands::corrections::fix,
+            commands::corrections::unfix,
+            commands::corrections::set_showing,
+            commands::corrections::fixes,
             commands::chain::chain_walk,
             commands::chain::chain_forks,
             commands::queue::suspects,
