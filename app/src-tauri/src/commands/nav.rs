@@ -58,6 +58,9 @@ pub(crate) enum Answer {
         slug: String,
         /// Its name as the shelf has it, which is what the question offers.
         title: String,
+        /// Their own line with the name corrected and the address kept: what the
+        /// window puts back in the box when the reader accepts it.
+        corrected: String,
     },
     /// …and more than one sefer is close, so it is a choice rather than a guess.
     Which {
@@ -72,6 +75,7 @@ pub(crate) enum Answer {
 pub(crate) struct MaybeRow {
     slug: String,
     title: String,
+    corrected: String,
 }
 
 /// Assemble a parenthesised list into one sheet (#63, spec.md §9.7).
@@ -156,8 +160,18 @@ pub(crate) fn nav_ask(shared: tauri::State<'_, Shared>, typed: String) -> Result
     };
     let nav = match said {
         Suggest::Read(nav) => nav,
-        Suggest::DidYouMean { typed, slug, title } => {
-            return Ok(Answer::DidYouMean { typed, slug, title });
+        Suggest::DidYouMean {
+            typed,
+            slug,
+            title,
+            corrected,
+        } => {
+            return Ok(Answer::DidYouMean {
+                typed,
+                slug,
+                title,
+                corrected,
+            });
         }
         Suggest::Which { typed, candidates } => {
             return Ok(Answer::Which {
@@ -167,6 +181,7 @@ pub(crate) fn nav_ask(shared: tauri::State<'_, Shared>, typed: String) -> Result
                     .map(|maybe| MaybeRow {
                         slug: maybe.slug,
                         title: maybe.title,
+                        corrected: maybe.corrected,
                     })
                     .collect(),
             });

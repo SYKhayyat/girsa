@@ -22,13 +22,28 @@
 // with the widest blast radius, because a miss here is a button that throws at
 // the moment it is clicked and nowhere earlier.
 //
-// # What it does not check
+// # Argument names, which is the half that used to be a promise
 //
-// Argument shapes. A command renamed in Rust and called under its new name with
-// the old argument names compiles on both sides and fails at runtime; catching
-// that needs the wire contract, which lives in `girsa_app`'s types and is
-// already tested there. This checks the *names* — the list that a rename has to
-// touch — and says so rather than implying more.
+// A command renamed in Rust and called under its new name with the *old*
+// argument names compiles on both sides — TypeScript has no idea what Rust calls
+// its parameters, and Rust has no idea what the window passes — and throws at the
+// moment a reader clicks the thing. For a while the module doc here said that
+// check needed "the wire contract" and left it. It does not: the argument names
+// are both sides' *source*, `#[tauri::command] fn search(query: String)` and
+// `call("search", { query })` are the same two words in two files, and comparing
+// them is a parse and not a protocol.
+//
+// Two facts make the comparison exact rather than approximate. Tauri converts a
+// parameter to camelCase for the wire unless the attribute says
+// `rename_all = "snake_case"`, which accounts for `whole_word` → `wholeWord`.
+// And a parameter of type `State`, `AppHandle`, `Window`, `WebviewWindow`,
+// `Channel` or `CommandScope` is **given** by the framework rather than passed by
+// the window, so it is not an argument at all and has no JS key.
+//
+// What is still unchecked, and is a different thing: argument *types*. `{ slug }`
+// where the parameter is a `String` is checked here; `{ slug: 7 }` is not, because
+// the value comes from TypeScript's own types and from `girsa_app`'s serde types,
+// which are tested in `girsa_app`.
 //
 // # The self-test
 //
@@ -134,7 +149,221 @@ function devCasedIn(window) {
 }
 
 /**
- * Every Rust file the shell is made of.
+ * The parameters of every command, as Rust declares them.
+ *
+ * Read from the same attribute-and-`fn` match the name list uses, then from the
+ * parenthesised parameter list by balancing, so a parameter whose type contains
+ * commas (`Result<String, String>`, `HashMap<String, u32>`) is one parameter and
+ * not three. That is the whole reason this is a parser and not a regex: the
+ * obvious regex splits `HashMap<String, u32>` in half and then reports a command
+ * with two arguments where the tree has one.
+ */
+function paramsIn(shell) {
+  const found = new Map();
+  for (const m of shell.matchAll(/#\[tauri::command([^\]]*)\]\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-z0-9_]+)/g)) {
+    const [, attribute, name] = m;
+    const open = shell.indexOf("(", m.index + m[0].length - 1);
+    if (open < 0) continue;
+    let depth = 0;
+    let close = open;
+    for (let i = open; i < shell.length; i++) {
+      if (shell[i] === "(") depth++;
+      else if (shell[i] === ")" && --depth === 0) {
+        close = i;
+        break;
+      }
+    }
+    const inside = shell.slice(open + 1, close);
+    const parts = [];
+    let at = 0;
+    let level = 0;
+    for (let i = 0; i < inside.length; i++) {
+      const ch = inside[i];
+      if ("<([{".includes(ch)) level++;
+      else if (">)]}".includes(ch)) level--;
+      else if (ch === "," && level === 0) {
+        parts.push(inside.slice(at, i));
+        at = i + 1;
+      }
+    }
+    parts.push(inside.slice(at));
+    const renameAll = /rename_all\s*=\s*"([a-z_]+)"/.exec(attribute)?.[1] ?? "camelCase";
+    const params = [];
+    for (const part of parts) {
+      const one = part.replace(/\/\/[^\n]*/g, "").trim();
+      if (one === "") continue;
+      const colon = one.indexOf(":");
+      if (colon < 0) continue;
+      params.push({
+        name: one.slice(0, colon).trim(),
+        type: one.slice(colon + 1).trim(),
+      });
+    }
+    found.set(name, { renameAll, params });
+  }
+  return found;
+}
+
+/** Types the framework hands a command, which the window therefore cannot pass. */
+const GIVEN = ["State", "AppHandle", "WebviewWindow", "Window", "Channel", "CommandScope"];
+
+/** Does the window pass this one? */
+function fromWindow(param) {
+  return !GIVEN.some((one) => new RegExp(`\\b${one}\\b`).test(param.type));
+}
+
+/** The JS key Tauri will read for a parameter, given the command's renaming. */
+function keyOf(param, renameAll) {
+  if (renameAll !== "camelCase") return param.name;
+  return param.name.replace(/_([a-z0-9])/g, (_, ch) => ch.toUpperCase());
+}
+
+/** A parameter the window may leave out: `Option<T>` is `undefined` on the wire. */
+function optional(param) {
+  return /^Option\s*</.test(param.type);
+}
+
+/**
+ * The keys each `call("name", { … })` actually passes.
+ *
+ * A site with no object at all is `[]`, and that is only correct for a command
+ * with nothing to pass — which the comparison decides, not this reader. A site
+ * whose argument is anything other than a literal object is reported as
+ * `unknown` rather than guessed at, because a check that quietly skipped it would
+ * be the drift it exists to catch wearing a green tick.
+ */
+function argsIn(window) {
+  const sites = [];
+  const starts = [];
+  for (const m of window.matchAll(/\bcall\s*</g)) {
+    let depth = 0;
+    let i = m.index + 4;
+    for (; i < window.length; i++) {
+      if (window[i] === "<") depth++;
+      else if (window[i] === ">" && --depth === 0) break;
+    }
+    starts.push(i + 1);
+  }
+  for (const m of window.matchAll(/\bcall\s*\(/g)) starts.push(m.index + 4);
+  starts.sort((a, b) => a - b);
+  for (const from of starts) {
+    const call = /^\s*\(\s*"([a-z0-9_]+)"/.exec(window.slice(from));
+    if (!call) continue;
+    const name = call[1];
+    const after = from + call[0].length;
+    const rest = window.slice(after);
+    const trimmed = rest.replace(/^\s*/, "");
+    if (!trimmed.startsWith(",")) {
+      sites.push({ name, keys: [] });
+      continue;
+    }
+    const arg = trimmed.slice(1).replace(/^\s*/, "");
+    if (!arg.startsWith("{")) {
+      sites.push({ name, keys: null });
+      continue;
+    }
+    let level = 0;
+    let end = 0;
+    for (let i = 0; i < arg.length; i++) {
+      if ("{([".includes(arg[i])) level++;
+      else if ("})]".includes(arg[i]) && --level === 0) {
+        end = i;
+        break;
+      }
+    }
+    sites.push({ name, keys: keysOf(arg.slice(1, end)) });
+  }
+  return sites;
+}
+
+/** The top-level keys of an object literal's body. */
+function keysOf(body) {
+  const keys = [];
+  let at = 0;
+  let level = 0;
+  const pieces = [];
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if ("{([".includes(ch)) level++;
+    else if ("})]".includes(ch) && --level === 0) level = 0;
+    else if (ch === "," && level === 0) {
+      pieces.push(body.slice(at, i));
+      at = i + 1;
+    }
+  }
+  pieces.push(body.slice(at));
+  for (const piece of pieces) {
+    const one = piece.trim();
+    if (one === "") continue;
+    if (one.startsWith("...")) {
+      keys.push("...");
+      continue;
+    }
+    const colon = one.indexOf(":");
+    keys.push((colon < 0 ? one : one.slice(0, colon)).trim());
+  }
+  return keys;
+}
+
+/**
+ * Every disagreement between the parameters Rust declares and the keys the window
+ * passes, in both directions.
+ *
+ * Both directions because they are two different mistakes: a key the shell does
+ * not take is a typo that throws *invalid args*, and a parameter the window never
+ * passes is a `Missing required key` — and the second is the one that reads as
+ * *the button is broken* rather than as *the wire is wrong*.
+ */
+function shapeDrift(params, sites) {
+  const problems = [];
+  for (const { name, keys } of sites) {
+    const declared = params.get(name);
+    if (!declared) continue; // the name check owns that one
+    if (keys === null) {
+      problems.push(`${name}: the window's arguments are not a literal, so they cannot be read`);
+      continue;
+    }
+    const wanted = declared.params.filter(fromWindow).map((p) => ({
+      key: keyOf(p, declared.renameAll),
+      optional: optional(p),
+    }));
+    const wantedKeys = new Set(wanted.map((w) => w.key));
+    const passed = new Set(keys);
+    if (passed.has("...")) {
+      problems.push(`${name}: the window spreads its arguments, so they cannot be read`);
+      continue;
+    }
+    for (const key of passed) {
+      if (!wantedKeys.has(key)) {
+        problems.push(
+          `${name}: the window passes \`${key}\`, the shell's parameters are ${
+            [...wantedKeys].join(", ") || "none"
+          }`,
+        );
+      }
+    }
+    for (const want of wanted) {
+      if (!want.optional && !passed.has(want.key)) {
+        problems.push(`${name}: the shell needs \`${want.key}\`, the window never passes it`);
+      }
+    }
+  }
+  return problems;
+}
+
+/** How much of the surface the argument check can see, for the row it prints. */
+function shapesSeen(params, sites) {
+  const seen = new Set();
+  const unread = new Set();
+  for (const { name, keys } of sites) {
+    if (!params.has(name)) continue;
+    if (keys === null || keys.includes("...")) unread.add(name);
+    else seen.add(name);
+  }
+  return { seen: seen.size, unread: unread.size };
+}
+
+/** Every Rust file the shell is made of.
  *
  * `lib.rs` alone until #68 started moving domains into `commands/`, and the
  * whole directory now — because a declaration that moves out of `lib.rs` while
@@ -204,7 +433,15 @@ function drift({ declared, registered, called, devCased }) {
   return problems;
 }
 
-function say(s) {
+/** The names, then the argument names — one report, one exit code. */
+function everything(shell, window, declaredText = shell) {
+  return [
+    ...drift(surface(shell, window, declaredText)),
+    ...shapeDrift(paramsIn(declaredText), argsIn(window)),
+  ];
+}
+
+function say(s, shapes) {
   const source = {
     declared: `${SHELL_DIR}/**/*.rs`,
     registered: "tauri::generate_handler![]",
@@ -218,7 +455,9 @@ function say(s) {
       row("declared", s.declared) +
       row("registered", s.registered) +
       row("called", s.called) +
-      row("dev cases", s.devCased),
+      row("dev cases", s.devCased) +
+      `  ${"arg shapes".padEnd(11)} ${String(shapes.seen).padStart(4)}  ${WINDOW}, ${SHELL_DIR}/**/*.rs` +
+      `${shapes.unread ? ` (${shapes.unread} unreadable)` : ""}\n`,
   );
 }
 
@@ -248,7 +487,7 @@ async function where(name) {
 
 /** Break each list in turn and demand the check report it. */
 async function selfTest(shell, window) {
-  const clean = drift(surface(shell, window));
+  const clean = everything(shell, window);
   // Each case names a real command and breaks one list in one direction, so a
   // failure here is the check being wrong about the tree it is standing in.
   const cases = [
@@ -276,11 +515,47 @@ async function selfTest(shell, window) {
       window.replace(/call\s*<[^>]*>\("recent"\),?/, ""),
       "recent: declared, never called",
     ],
+    // The argument names, which is what this file could not see until now. Both
+    // directions, because they are two different mistakes: a key the shell does
+    // not take is a typo that throws *invalid args*, and a parameter the window
+    // never passes is a *missing required key*.
+    [
+      "a key the shell does not take",
+      shell,
+      window.replace(
+        /call<SourceSheet>\("sheet_open", \{ refs \}\)/,
+        'call<SourceSheet>("sheet_open", { refs, shelf: refs })',
+      ),
+      "sheet_open: the window passes `shelf`",
+    ],
+    [
+      "a parameter the window never passes",
+      shell,
+      window.replace(/call<Text>\("open_sefer", \{ slug \}\)/, 'call<Text>("open_sefer", {})'),
+      "open_sefer: the shell needs `slug`",
+    ],
+    [
+      "a camelCase key passed under its Rust name",
+      shell,
+      window.replace(/^\s*fromWord,$/m, "      from_word,"),
+      "scan_mark: the shell needs `fromWord`",
+    ],
+    // …and the other direction, which must not be drift: a parameter that is
+    // `Option` arrives as nothing when the window leaves it out, and a check that
+    // demanded it would turn every optional argument into a false alarm.
+    [
+      "an `Option` parameter left out is not drift",
+      `${shell}\n#[tauri::command]\nasync fn ghost_optional(seen: Option<String>) {}\n`,
+      `${window}\nexport async function ghostOptional(): Promise<void> {\n  return call<void>("ghost_optional");\n}\n`,
+      "!ghost_optional: the shell needs",
+    ],
   ];
   let escaped = 0;
   for (const [what, rs, ts, expected] of cases) {
-    const got = drift(surface(rs, ts));
-    const caught = got.some((line) => line.startsWith(expected));
+    const got = everything(rs, ts);
+    const caught = expected.startsWith("!")
+      ? !got.some((line) => line.startsWith(expected.slice(1)))
+      : got.some((line) => line.startsWith(expected));
     if (!caught) escaped++;
     process.stdout.write(
       `${caught ? "caught " : "ESCAPED"}  ${what}\n   wanted: ${expected}\n   got:    ${
@@ -313,8 +588,8 @@ if (at >= 0) {
 }
 
 const s = surface(shell, window);
-const problems = drift(s);
-say(s);
+const problems = everything(shell, window);
+say(s, shapesSeen(paramsIn(shell), argsIn(window)));
 if (problems.length === 0) process.exit(0);
 
 process.stdout.write(`\n${problems.length} disagreement(s):\n`);
