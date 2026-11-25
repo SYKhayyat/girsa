@@ -21,4 +21,5 @@ pub(crate) mod ksav;
 pub(crate) mod links;
 pub(crate) mod nav;
 pub(crate) mod queue;
+pub(crate) mod scans;
 pub(crate) mod yours;
