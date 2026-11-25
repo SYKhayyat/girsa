@@ -205,21 +205,19 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   not on the shelf refused rather than searched. What is left is Ksav's own UI,
   in the other repository.
 - [ ] #31 companions silently short, #30 doc-gate coverage, #29 shelf-step prose rot, #27 header (closed — landed with #70; the split it also asked for is #68), #26 mcp leaf trim, #32 audit volumes distill, #36/#37/#38 interop.
-- [ ] Features: #63 smart navigation (**the box exists** — `Ctrl+G` opens
-  `navbox.ts` over the pane and asks the same question a citation in a document
-  asks, so *what those words mean* has one answer in the window; the answer is
-  read by `intentOf`, which is where the six shapes of `nav_ask` become the six
-  different things the window does next. **What is still not here is the source
-  sheet**: a parenthesised pair is *recognised* as one sheet and still opened one
-  at a time, and that is #63's remaining half. **the reading half and the name
-  lane have
-  landed** — `girsa_app::nav` reads the address, and `girsa_search::meant`
-  answers *which sefer is that name* when the lexicon has nothing: folded
-  titles and slugs, the worst word deciding, `One`/`Several`/`None` and never a
-  guess; **the reading half** —
-  `girsa_app::nav`, 8 tests: splitting, the sheet flag, the bare-place question,
-  and the guard that stops a comma-separated pair from becoming one fabricated
-  address; what is left is the input element and the source-sheet assembly) #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.
+- [x] Features: #63 smart navigation — all four surfaces. `girsa_app::nav` reads
+  the address; `girsa_app::meant` answers *which sefer is that name* when the
+  lexicon has nothing (folded titles and slugs, the worst word deciding,
+  `One`/`Several`/`None` and never a guess); `nav::suggest` is the layer that asks
+  the second question **only** where the first was silent, and hands back the
+  reader's own line with the name corrected; `Ctrl+G` opens `navbox.ts` over the
+  pane, which offers those lines as choices and asks again on a click; and
+  `girsa_app::source_sheet` assembles a parenthesised list into one docked column
+  (`sheetview.ts`), with each reference that could not be read drawn where the
+  passage would have been. 19 tests across the four, and the two unbuildable-here
+  shell adapters noted on the issue. What is left is Ksav's half: the combined-block
+  insertion that mirrors the sheet.
+- [ ] Features: #44 Gedolah desk, #45 live quoted refs, #46 commentators register, #47 parallels desk, #48 concordance, #49 mitzvot registry, #50 lanes, #51 whole-word+scope, #52 biographies, #22 Otzaria grab-bag, #18 plugins, #20 magiah, #21 hash-verified updates.
 - [ ] Perf: #15 pane walks, #14 batched linkWords, #12 degraded-ocr dup, #11
   (closed 2026-09-03 — verify).
 
