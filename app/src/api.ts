@@ -15,7 +15,7 @@
 // does not answer.
 
 import type { Glyph } from "./glyphs.ts";
-import { titleIn, type Language } from "./names.ts";
+import { type Language } from "./names.ts";
 
 export type PaneId = number;
 
@@ -35,10 +35,17 @@ export interface Card {
   scan: boolean;
 }
 
-/** One sefer that is open, for the switcher. */
+/**
+ * One sefer that is open, for the switcher.
+ *
+ * Both names and no `title`: `names.ts` is the one place allowed to choose
+ * between them, and a row that arrived already named would be a second rule.
+ * Empty names mean the shelf does not have the sefer; the window prints the slug.
+ */
 export interface OpenSefer {
   slug: string;
-  title: string;
+  he_title: string;
+  en_title: string;
   /** Whether it is the one being read right now. */
   here: boolean;
 }
@@ -2140,7 +2147,8 @@ async function fixture<T>(cmd: string, args?: Record<string, unknown>): Promise<
           const card = named.find((c) => c.slug === pane.slug);
           open.push({
             slug: pane.slug,
-            title: card ? titleIn(card, fixtureState.language) : pane.slug,
+            he_title: card?.he_title ?? "",
+            en_title: card?.en_title ?? "",
             here: tab === active && pane.id === tab.focused,
           });
         }

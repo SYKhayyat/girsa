@@ -34,11 +34,22 @@ pub(crate) fn open_tab(
 }
 
 /// One sefer that is open, for the switcher.
+///
+/// **Both names, and the window chooses.** This row used to answer with one
+/// `title`, picked here by `Language::title_of` — which made it the one row in
+/// the tree that decided for itself which of a sefer's two names to print, and
+/// `the_rules_this_repository_wrote_down` said so the day this command moved out
+/// of `lib.rs` (it had been whitelisted there, per file, which is the cost of a
+/// whitelist). `Card` and `mefarshim::Choice` carry both names for this reason:
+/// `names.ts` is the one place in the window allowed to make the choice, and a
+/// switcher row is in the window.
 #[derive(Serialize)]
 pub(crate) struct OpenSefer {
     slug: String,
-    /// What to call it, in the window's language (W41).
-    title: String,
+    /// The sefer's own two names, or both empty when the shelf does not have it —
+    /// then the window prints the slug, which is what it already knows.
+    he_title: String,
+    en_title: String,
     /// Whether it is the one being read right now.
     here: bool,
 }
@@ -51,7 +62,6 @@ pub(crate) struct OpenSefer {
 #[tauri::command(async)]
 pub(crate) fn open_set(shared: tauri::State<'_, Shared>) -> Result<Vec<OpenSefer>, String> {
     let state = shared.lock().map_err(|_| State::poisoned())?;
-    let language = state.session.language;
     let here = state
         .session
         .workspace
@@ -67,10 +77,8 @@ pub(crate) fn open_set(shared: tauri::State<'_, Shared>) -> Result<Vec<OpenSefer
         .map(|slug| {
             let named = shelf.as_ref().and_then(|s| s.work(&slug));
             OpenSefer {
-                title: named.map_or_else(
-                    || slug.clone(),
-                    |w| language.title_of(&w.he_title, &w.en_title).to_string(),
-                ),
+                he_title: named.map(|w| w.he_title.to_string()).unwrap_or_default(),
+                en_title: named.map(|w| w.en_title.to_string()).unwrap_or_default(),
                 here: here.as_deref() == Some(slug.as_str()),
                 slug,
             }

@@ -620,12 +620,21 @@ function listedRow(entry: Listed, twice: Set<string>): Row {
 function headingRow(title: string, count: number): Row {
   return { slug: "", title, aside: "", heading: { depth: 0, count } };
 }
-/** One sefer that is already open. */
-function openRow(sefer: OpenSefer): Row {
+/**
+ * One sefer that is already open.
+ *
+ * Named by `sefer(...)` and not by a title the shell sent: the shell used to pick
+ * one of the sefer's two names and this row printed it, which made the switcher the
+ * one row in the window that did not go through `names.ts`. Both names arrive and
+ * this chooses, the way `cardRow` below does. A sefer the shelf does not have
+ * arrives with two empty names, and the slug is then the only honest thing to say.
+ */
+function openRow(open: OpenSefer): Row {
+  const named = sefer(open).trim();
   return {
-    slug: sefer.slug,
-    title: sefer.title,
-    aside: sefer.here ? say("readingNow") : say("isOpen"),
+    slug: open.slug,
+    title: named || open.slug,
+    aside: open.here ? say("readingNow") : say("isOpen"),
   };
 }
 

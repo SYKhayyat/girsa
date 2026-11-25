@@ -705,11 +705,17 @@ fn one_rule_says_what_a_place_is_called_and_where_it_sits() {
     // there starts choosing, this check will not catch it, which is the cost of
     // a whitelist being per-file — and it is the reason the list is three
     // entries long rather than a habit.
-    const MAY_CHOOSE: [&str; 4] = [
+    //
+    // **The shell is not on it.** It was, for one row: `open_set` answered with a
+    // `title` it had picked, and #68 moved that command into `commands/panes.rs`
+    // where this check caught it — which is the whitelist doing its job badly and
+    // the split doing its job well. The row carries both names now and
+    // `picker.ts` chooses them through `names.ts`, so there is nothing left in the
+    // shell to exempt.
+    const MAY_CHOOSE: [&str; 3] = [
         "girsa-app/src/naming.rs",
         "girsa-app/src/session.rs",
         "girsa-app/src/view.rs",
-        "app/src-tauri/src/lib.rs",
     ];
     let mut chose = Vec::new();
     for (named, body) in sources(&root) {

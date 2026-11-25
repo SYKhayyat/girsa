@@ -107,10 +107,13 @@ Done (closed): #1–#11 (except #9 DUP), #13, #23, #24, #25, #28, #39, #41, #42,
   address is `girsa_app::nav`'s `is_a_place`. (Medium)
 
 ## Phase 4 — Docs/process + features (Low/Info)
-- [ ] #68 the command layer is one 6,914-line file with `api.ts` as its twin: split
-  into `app/src-tauri/src/commands/` domain modules, **one domain per commit**,
-  pure movement, `node tools/commands.mjs` green after every one (#28 pins the
-  surface, so the split can be verified rather than trusted). (Medium)
+- [x] #68 the command layer was one 6,914-line file with `api.ts` as its twin.
+  **Landed** as twenty-two domain modules under `app/src-tauri/src/commands/` plus
+  `state.rs`, one domain per commit, pure movement, `node tools/commands.mjs` green
+  at 140/140/140 after every one (#28 pins the surface, so the split was verified
+  rather than trusted). `lib.rs` is 591 lines: the handler list, the plugins, `run`,
+  and the two commands that open a corpus. The measurement moved with it —
+  `shell-lines` walks the tree now (#72's shape, one split later). (Medium)
 - [x] #72 both programs that recount the README counted `#[tauri::command]` in
   `lib.rs` alone, so #68's first move put the number one behind — and
   `tools/readme-numbers.sh` wrote the wrong one back. **Landed**: both walk the
