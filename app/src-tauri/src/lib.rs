@@ -898,6 +898,17 @@ fn choose_corpus(shared: tauri::State<'_, Shared>, path: String) -> Result<(), S
     Ok(())
 }
 
+/// A named arrangement, as the panel lists it.
+#[derive(Serialize)]
+pub(crate) struct DeskRow {
+    name: String,
+    /// How many tabs it holds, and how many distinct seforim across them.
+    tabs: usize,
+    seforim: usize,
+    /// Whether this is the one the reader is sitting at.
+    here: bool,
+}
+
 /// What one Ctrl+C put down, and where it points.
 #[derive(Serialize)]
 struct Copied {
@@ -923,34 +934,6 @@ struct Copied {
 /// installing means verifying a signature, and an updater that ran an unsigned
 /// binary off the internet would be the worst thing in the application by a
 /// distance.
-#[tauri::command(async)]
-fn check_for_update() -> Result<girsa_app::newer::Newer, String> {
-    girsa_app::newer::check(env!("CARGO_PKG_VERSION"))
-        .map_err(|e| girsa_app::trouble::refuse(girsa_app::trouble::Code::Offline, e.to_string()))
-}
-
-/// Open the releases page on the machine's own browser.
-///
-/// No argument, on purpose: [`girsa_app::newer::open_releases`] opens one
-/// address, compiled in. A command that opened whatever URL it was handed is a
-/// command that opens whatever a bug hands it.
-#[tauri::command(async)]
-fn open_releases() -> Result<(), String> {
-    girsa_app::newer::open_releases()
-        .map_err(|e| girsa_app::trouble::refuse(girsa_app::trouble::Code::Offline, e.to_string()))
-}
-
-/// A named arrangement, as the panel lists it.
-#[derive(Serialize)]
-struct DeskRow {
-    name: String,
-    /// How many tabs it holds, and how many distinct seforim across them.
-    tabs: usize,
-    seforim: usize,
-    /// Whether this is the one the reader is sitting at.
-    here: bool,
-}
-
 /// Every arrangement the reader has named.
 fn desk_rows(state: &State) -> Vec<DeskRow> {
     state
@@ -2454,8 +2437,8 @@ pub fn run() {
             desk_keep,
             desk_open,
             desk_forget,
-            check_for_update,
-            open_releases,
+            commands::updates::check_for_update,
+            commands::updates::open_releases,
             set_language,
             set_interface,
             settings,
