@@ -1,7 +1,6 @@
 //! The command surface, one domain per file.
 //!
-//! `lib.rs` held all of it — 6,914 lines and 139 commands — until #68 began
-//! taking it apart. The rule for the split, and the reason it is safe to do at
+//! `lib.rs` held all of it until #68 began taking it apart. The rule for the split, and the reason it is safe to do at
 //! all: **one domain per commit, pure movement, and `node tools/commands.mjs`
 //! green after every one.** That tool reads every `.rs` file under
 //! `app/src-tauri/src/`, so a command that moves is still counted, and a command
@@ -14,3 +13,4 @@
 //! tested in a webview and all of it can be tested one directory up.
 
 pub(crate) mod nav;
+pub(crate) mod yours;
