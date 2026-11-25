@@ -25,6 +25,7 @@ pub(crate) mod luach;
 pub(crate) mod mefarshim;
 pub(crate) mod nav;
 pub(crate) mod panes;
+pub(crate) mod questions;
 pub(crate) mod queue;
 pub(crate) mod reading;
 pub(crate) mod scans;
