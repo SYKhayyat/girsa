@@ -34,6 +34,28 @@ type Way = "forward" | "back" | "forks";
  */
 const A_SHRUG = "references";
 
+/**
+ * The hops, gathered into what one read of a sefer answers.
+ *
+ * A request per **sefer** and not per hop (#14): an eight-hop walk across five
+ * seforim is five reads, because opening a sefer is the expensive half and the
+ * segments inside it are not. `link_words` has taken a list of places since it
+ * was written, so this is the whole of the batching and there is nothing left to
+ * merge — the pairs go out together under `Promise.all`.
+ *
+ * Exported because it is the decision worth having a test for: a refactor that
+ * went back to one request per hop would look like an ordinary loop.
+ */
+export function byWork(hops: Hop[]): [string, string[]][] {
+  const by = new Map<string, string[]>();
+  for (const hop of hops) {
+    const ats = by.get(hop.work) ?? [];
+    ats.push(hop.at);
+    by.set(hop.work, ats);
+  }
+  return [...by];
+}
+
 export class ChainView {
   readonly element: HTMLElement;
   private readonly list: HTMLElement;
@@ -196,14 +218,8 @@ export class ChainView {
    * does not wait on any of it.
    */
   private async quote(hops: Hop[]): Promise<void> {
-    const by = new Map<string, string[]>();
-    for (const hop of hops) {
-      const ats = by.get(hop.work) ?? [];
-      ats.push(hop.at);
-      by.set(hop.work, ats);
-    }
     await Promise.all(
-      [...by].map(async ([work, ats]) => {
+      byWork(hops).map(async ([work, ats]) => {
         let said;
         try {
           said = await api.linkWords(work, ats);
